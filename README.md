@@ -1,6 +1,6 @@
 # Humentity (MakeHuman integration with Bevy)
 
-![Alt text](https://i.imghippo.com/files/0LZ641726543186.png)
+![Alt text](https://i.imghippo.com/files/Rrdwt1726581440.png)
 
 This project is a work in progress and is currently missing many features.  See main.rs for sample code
 
