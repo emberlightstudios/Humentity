@@ -29,7 +29,6 @@ fn setup_env(
     // camera
     commands.spawn(Camera3dBundle {
         transform: Transform::from_xyz(-0.5, 1.5, 2.5).looking_at(Vec3::ZERO + Vec3::Y * 1.0, Vec3::Y),
-        //transform: Transform::from_xyz(-2.5, 2.5, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()   
     });
     // set up human params
@@ -37,7 +36,7 @@ fn setup_env(
     shapekeys.insert("african-male-old".to_string(), 1.0);
     let params = LoadHumanParams {
         shapekeys: shapekeys,
-        skin_albedo: "young_african_male_diffuse.png".to_string(),
+        skin_albedo: "old_african_male_diffuse.png".to_string(),
         transform: Transform::from_xyz(0.0, 0.0, 0.0),
         rig: RigType::Mixamo,
     };
@@ -45,6 +44,29 @@ fn setup_env(
     let human: Entity = commands.spawn(HumanEntityTag).id();
     commands.trigger_targets(params, human);
     
+    let mut shapekeys = HashMap::<String, f32>::new();
+    shapekeys.insert("asian-female-baby".to_string(), 1.0);
+    let params = LoadHumanParams {
+        shapekeys: shapekeys,
+        skin_albedo: "young_asian_female_diffuse3.png".to_string(),
+        transform: Transform::from_xyz(-1.0, 0.0, 0.0),
+        rig: RigType::Mixamo,
+    };
+    // spawn human
+    let human: Entity = commands.spawn(HumanEntityTag).id();
+    commands.trigger_targets(params, human);
+
+    let mut shapekeys = HashMap::<String, f32>::new();
+    shapekeys.insert("caucasian-male-child".to_string(), 1.0);
+    let params = LoadHumanParams {
+        shapekeys: shapekeys,
+        skin_albedo: "young_caucasian_male_diffuse.png".to_string(),
+        transform: Transform::from_xyz(1.0, 0.0, 0.0),
+        rig: RigType::Mixamo,
+    };
+    // spawn human
+    let human: Entity = commands.spawn(HumanEntityTag).id();
+    commands.trigger_targets(params, human);
 }
 
 fn main() {

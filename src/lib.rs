@@ -71,7 +71,7 @@ pub(crate) fn load_human_entity(
     //    trigger.event().rig,
     //    &human,
     //    &mut mesh,
-    //    &base_meshes,
+    //    &base_mesh,
     //    &rigs,
     //    &mut inv_bindposes,
     //    &mut commands
