@@ -7,10 +7,7 @@ use bevy::render::{
     render_asset::RenderAssetUsages,
 };
 use std::collections::HashMap;
-use crate::{
-    BaseMesh,
-    BODY_SCALE,
-};
+use crate::BaseMesh;
 
 pub enum MorphTargetType {
     Macro,
@@ -34,7 +31,6 @@ pub(crate) fn bake_morphs_to_mesh(
 ) -> Mesh {
     let mesh = meshes.get(&base_mesh.body_handle).unwrap().clone();
     let Some(VertexAttributeValues::Float32x3(vertices)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("MESH VERTICES FAILURE") };
-    let Some(VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL) else { panic!("MESH NORMALS FAILURE") };
     let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!("MESH UV FAILURE") };
     let Some(indices) = mesh.indices() else { panic!("MESH FACE INDICES FAILURE") };
     let mut vertices_vec = vertices.to_vec();
@@ -53,12 +49,14 @@ pub(crate) fn bake_morphs_to_mesh(
         }
     }
 
-    Mesh::new(
+    let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::RENDER_WORLD,
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices_vec.clone())
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals.clone())
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv.clone())
-    .with_inserted_indices(indices.clone())
+    .with_inserted_indices(indices.clone());
+    mesh.compute_smooth_normals();
+    let _ = mesh.generate_tangents();
+    mesh
 }
