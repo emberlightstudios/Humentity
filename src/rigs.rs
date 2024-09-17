@@ -62,12 +62,6 @@ struct MixamoRigConfig {
     configs: HashMap<RigType, HashMap<String, BoneData>>,
  }
 
-/*-----------+
- | Resources |
- +-----------*/
- #[derive(Component)]
- struct Bone(String);
-
 impl FromWorld for RigData {
     fn from_world(world: &mut World) -> Self {
         let mut type_strings = HashMap::<RigType, &str>::new();
@@ -104,6 +98,13 @@ impl FromWorld for RigData {
         }
     }
 }
+
+/*------------+
+ | Components |
+ +------------*/
+ #[derive(Component)]
+ struct Bone(String);
+
 
 /*---------+
  | Systems |
