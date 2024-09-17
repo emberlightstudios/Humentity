@@ -106,9 +106,9 @@ impl FromWorld for RigData {
  struct Bone(String);
 
 
-/*---------+
- | Systems |
- +---------*/
+/*-----------+
+ | Functions |
+ +-----------*/
 pub(crate) fn apply_rig(
     rig: RigType,
     human: &Entity,
