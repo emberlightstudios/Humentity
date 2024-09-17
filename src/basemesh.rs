@@ -239,16 +239,21 @@ fn generate_mesh_without_helpers(
     let mut normals = Vec::<Vec3>::new();
     let mut uv = Vec::<Vec2>::new();
     let mut indices = Vec::<usize>::new();
+
+    // For remapping face indices buffer
+    // Some vertices will be skipped, changing the vertex indices
+    // So face indices will have to be changed as well
     let mut new_vert_indices = HashMap::<u16, u16>::new();
     let mut i = 0;
 
-    for (vertex, _) in inv_vertex_map.iter() {
-        new_vert_indices.insert(*vertex, i);
-        vertices.push(vtx_data[*vertex as usize]);
-        normals.push(normal_data[*vertex as usize]);
-        uv.push(uv_data[*vertex as usize]);
-        i += 1;
-        
+    for (vertex, mhv) in inv_vertex_map.iter() {
+        if *mhv < BODY_VERTICES {
+            new_vert_indices.insert(*vertex, i);
+            vertices.push(vtx_data[*vertex as usize]);
+            normals.push(normal_data[*vertex as usize]);
+            uv.push(uv_data[*vertex as usize]);
+            i += 1;
+        }
     }
     let index_vec: Vec<usize> = indices_data.iter().collect();
     for chunk in index_vec.chunks(3) {
@@ -258,8 +263,8 @@ fn generate_mesh_without_helpers(
     }
     let mut u16indices = Vec::<u16>::with_capacity(indices.len());
     for x in indices { u16indices.push(x as u16); }
-    // Since the faces point to indices which may have been removed,
-    // changing the vertex indices, we have to reindex the indices
+    // Since some vertices have been removed the face indices will change
+    //  we have to reindex them
     u16indices = u16indices.iter().map(|x| *new_vert_indices.get(x).unwrap()).collect();
 
     let mut body_mesh = original_mesh.clone()
@@ -280,7 +285,6 @@ fn generate_vertex_map(
     for (i, mh_vertex) in mh_vertices.iter().enumerate() {
         vertex_map.insert(i as u16, Vec::<u16>::new());
         let vec = vertex_map.get_mut(&(i as u16)).unwrap();
-        let mut matched = false;
         for (j, vtx) in vertices.iter().enumerate() {
             if vtx == mh_vertex {
                 if assigned.contains(&j) {
@@ -288,10 +292,8 @@ fn generate_vertex_map(
                 }
                 assigned.insert(j);
                 vec.push(j as u16);
-                matched = true;
             }
         }
-        if !matched { panic!("Failed to match vertex to mh vertex id"); }
     }
     vertex_map
 }
