@@ -67,15 +67,15 @@ pub(crate) fn load_human_entity(
         &targets,
         &mut meshes
     );
-    //apply_rig(
-    //    trigger.event().rig,
-    //    &human,
-    //    &mut mesh,
-    //    &base_mesh,
-    //    &rigs,
-    //    &mut inv_bindposes,
-    //    &mut commands
-    //);
+    apply_rig(
+        trigger.event().rig,
+        &human,
+        &mut mesh,
+        &base_mesh,
+        &rigs,
+        &mut inv_bindposes,
+        &mut commands
+    );
     let albedo = asset_server.load("skin_textures/albedo/".to_string() + &trigger.event().skin_albedo);
     let material = materials.add(StandardMaterial {
         base_color_texture: Some(albedo),

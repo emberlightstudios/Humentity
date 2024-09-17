@@ -12,7 +12,9 @@ use std::{
     fs::File,
     io::BufReader,
 };
-use crate::BaseMesh;
+use crate::{
+    BaseMesh, BODY_VERTICES
+};
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
 pub enum RigType {
@@ -175,20 +177,23 @@ pub(crate) fn apply_rig(
     for (bone_name, bone_weights) in weights_res.weights.iter() {
         let Some(bone_index) = bone_names.iter().position(|x| x == bone_name) else { continue };
         for (mh_id, wt) in bone_weights.iter() {
-            let Some(vertices) = base_mesh.vertex_map.get(&(*mh_id as u16)) else { continue };
-            for vertex in vertices.iter() {
-                // get the [u16;4] array we need to insert into (array of 4 bone indices)
-                let mut indices_vec = indices[*vertex as usize];
-                // find the first zero index or use the first index
-                let vec_index = indices_vec.iter().position(|i| *i == 0).unwrap_or(0);
-                // Set the bone index in this vector
-                indices_vec[vec_index] = bone_index as u16;
-                // insert into indices array 
-                indices[*vertex as usize] = indices_vec;
-                // use the same vec index to set the weights also
-                let mut weights_vec = weights[*mh_id as usize];
-                weights_vec[vec_index] = *wt;
-                weights[*vertex as usize] = weights_vec;
+            if *mh_id < BODY_VERTICES {
+                let Some(vertices) = base_mesh.vertex_map.get(&(*mh_id as u16)) else { continue };
+                for vertex in vertices.iter() {
+                    // get the [u16;4] array we need to insert into (array of 4 bone indices)
+                    let mut indices_vec = indices[*vertex as usize];
+                    // find the first zero index or use the first index
+                    let vec_index = indices_vec.iter().position(|i| *i == 0).unwrap_or(0);
+                    // Set the bone index in this vector
+                    indices_vec[vec_index] = bone_index as u16;
+                    // insert into indices array 
+                    indices[*vertex as usize] = indices_vec;
+                    // use the same vec index to set the weights also
+                    let mut weights_vec = weights[*mh_id as usize];
+                    weights_vec[vec_index] = *wt;
+                    weights[*vertex as usize] = weights_vec;
+
+                }
             }
         }
     }
