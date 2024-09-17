@@ -1,0 +1,21 @@
+[package]
+name = "humentity"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+rand = "0.8.5"
+
+[dependencies]
+bevy_obj = { git = "https://github.com/AmionSky/bevy_obj/", branch="smooth" }
+bevy = { version = "0.14.2", features = ["dynamic_linking"] }
+rand = "0.8.5"
+serde = "1.0.210"
+serde_json = "1.0.128"
+walkdir = "2.5.0"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
