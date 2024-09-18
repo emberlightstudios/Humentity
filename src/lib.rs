@@ -60,6 +60,11 @@ pub(crate) fn load_human_entity(
     base_mesh: Res<BaseMesh>,
     rigs: Res<RigData>,
 ) {
+    let albedo = asset_server.load("skin_textures/albedo/".to_string() + &trigger.event().skin_albedo);
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(albedo),
+        ..default()
+    });
     let human = trigger.entity();
     let mut mesh = bake_morphs_to_mesh(
         &trigger.event().shapekeys,
@@ -68,6 +73,7 @@ pub(crate) fn load_human_entity(
         &mut meshes
     );
     let (mesh_handle, skinned_mesh) = apply_rig(
+        &human,
         trigger.event().rig,
         mesh,
         &base_mesh,
@@ -76,27 +82,13 @@ pub(crate) fn load_human_entity(
         &mut commands,
         &mut meshes,
     );
-    let albedo = asset_server.load("skin_textures/albedo/".to_string() + &trigger.event().skin_albedo);
-    let material = materials.add(StandardMaterial {
-        base_color_texture: Some(albedo),
+    commands.entity(human).insert(skinned_mesh);
+    commands.entity(human).insert(PbrBundle {
+        mesh: mesh_handle,
+        transform: trigger.event().transform,
+        material: material,
         ..default()
     });
-    commands.spawn((
-        PbrBundle {
-            mesh: mesh_handle,
-            transform: trigger.event().transform,
-            material: material,
-            ..default()
-        },
-        skinned_mesh,
-    ));
-    //commands.entity(human).insert(skinned_mesh);
-    //commands.entity(human).insert(PbrBundle {
-    //    mesh: mesh_handle,
-    //    transform: trigger.event().transform,
-    //    material: material,
-    //    ..default()
-    //});
 }
 
 pub struct Humentity{

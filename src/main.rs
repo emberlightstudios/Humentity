@@ -31,7 +31,7 @@ fn setup_env(
         transform: Transform::from_xyz(-0.5, 1.5, 3.5).looking_at(Vec3::ZERO + Vec3::Y * 1.0, Vec3::Y),
         ..default()   
     });
-    // set up human params
+    // set up humans
     let mut shapekeys = HashMap::<String, f32>::new();
     shapekeys.insert("african-female-baby".to_string(), 1.0);
     let params = LoadHumanParams {

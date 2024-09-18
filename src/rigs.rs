@@ -13,7 +13,7 @@ use std::{
     io::BufReader,
 };
 use crate::{
-    BaseMesh, BODY_VERTICES
+    BaseMesh, BODY_VERTICES, BODY_SCALE
 };
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
@@ -34,19 +34,19 @@ struct BoneWeights {
 
 #[derive(Deserialize, Debug)]
 struct BoneTransform {
-    cube_name: Option<String>,
+    //cube_name: Option<String>,
     default_position: Vec3,
-    strategy: String,
-    vertex_index: Option<u16>,
+    //strategy: String,
+    //vertex_index: Option<u16>,
 }
 
 #[derive(Deserialize, Debug)]
 struct BoneData {
     head: BoneTransform,
-    inherit_scale: String,
+    //inherit_scale: String,
     parent: String,
-    roll: f32,
-    tail: BoneTransform,
+    //roll: f32,
+    //tail: BoneTransform,
 }
 
 // Contains an extra layer for some reason.  Usual config is in the bones key
@@ -112,6 +112,7 @@ impl FromWorld for RigData {
  | Functions |
  +-----------*/
 pub(crate) fn apply_rig(
+    human: &Entity,
     rig: RigType,
     mesh: Mesh,
     base_mesh: &Res<BaseMesh>,
@@ -132,25 +133,30 @@ pub(crate) fn apply_rig(
     // Arrange bone tree hierarchy
     for (name, bone) in config_res.iter() {
         let &child = bone_entities.get(name).unwrap();
-        let Some(&parent) = bone_entities.get(&bone.parent) else { continue };
-        commands.entity(parent).push_children(&[child]);
+        match bone_entities.get(&bone.parent) {
+            Some(parent) => {
+                commands.entity(*parent).push_children(&[child]);
+            }
+            None => {
+                commands.entity(*human).push_children(&[child]);
+            }
+        }
     }
 
     // Set transforms
     let mut transforms = HashMap::<Entity, Transform>::new();
     for (name, bone) in config_res.iter() {
         let &entity = bone_entities.get(name).unwrap();
-        //let Some(&parent) = bone_entities.get(&bone.parent) else { continue };
         let mut transform = Transform::default();
-        transform.translation = bone.head.default_position;
+        transform.translation = bone.head.default_position * BODY_SCALE;
         transforms.insert(entity, transform);
         //transform.rotation = Quat::from_arc(parent_up, new_up)
-        bone_entities.insert(name.to_string(), commands.spawn(TransformBundle {
+        commands.entity(entity).insert(TransformBundle {
             local: transform,
             ..default()
-        }).id());
+        });
     }
-
+    
     // Create ordered array of bones/joints and names
     let mut joints = Vec::<Entity>::with_capacity(bone_entities.len());
     let mut bone_names = Vec::<String>::with_capacity(bone_entities.len());
@@ -162,7 +168,7 @@ pub(crate) fn apply_rig(
     // Create joints and inverse bind poses
     let mut inv_bindposes = Vec::<Mat4>::new();
     for joint in joints.iter() {
-        let Some(inv_pose) = transforms.get(joint) else { continue };
+        let Some(inv_pose) = transforms.get(&joint) else { continue };
         inv_bindposes.push(inv_pose.compute_matrix().inverse());
     }
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
@@ -199,9 +205,7 @@ pub(crate) fn apply_rig(
 
     new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
     new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weights);
-    let handle = meshes.add(new_mesh);
-    
-    (handle, SkinnedMesh {
+    (meshes.add(new_mesh), SkinnedMesh {
         inverse_bindposes: inverse_bindposes.clone(),
         joints: joints,
     })
