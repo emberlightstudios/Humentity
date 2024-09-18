@@ -113,16 +113,15 @@ impl FromWorld for RigData {
  +-----------*/
 pub(crate) fn apply_rig(
     rig: RigType,
-    human: &Entity,
-    mesh: &mut Mesh,
+    mesh: Mesh,
     base_mesh: &Res<BaseMesh>,
     rigs: &Res<RigData>,
     inv_bindpose_assets: &mut ResMut<Assets<SkinnedMeshInverseBindposes>>,
     commands: &mut Commands,
-) {
-    let Some(weights_res) = rigs.weights.get(&rig) else { return };
-    let Some(config_res) = rigs.configs.get(&rig) else { return };
-    let mut indices = Vec::<Vec4>::new();
+    meshes: &mut ResMut<Assets<Mesh>>,
+) -> (Handle<Mesh>, SkinnedMesh) {
+    let weights_res = rigs.weights.get(&rig).unwrap();
+    let config_res = rigs.configs.get(&rig).unwrap();
 
     // Spawn bone entities
     let mut bone_entities = HashMap::<String, Entity>::new();
@@ -169,7 +168,8 @@ pub(crate) fn apply_rig(
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
 
     // Build index and weight arrays
-    let Some(VertexAttributeValues::Float32x3(vertices)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("MESH VERTICES FAILURE") };
+    let mut new_mesh = mesh.clone();
+    let Some(VertexAttributeValues::Float32x3(vertices)) = new_mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("MESH VERTICES FAILURE") };
     //let mut weights = Vec::<Vec4>::try_with_capacity(joints.len());
     let mut indices: Vec<[u16; 4]> = vec![[0; 4]; vertices.len()];
     let mut weights = vec![Vec4::ZERO; vertices.len()];
@@ -182,27 +182,27 @@ pub(crate) fn apply_rig(
                 for vertex in vertices.iter() {
                     // get the [u16;4] array we need to insert into (array of 4 bone indices)
                     let mut indices_vec = indices[*vertex as usize];
-                    // find the first zero index or use the first index
+                    // find the first zero index
                     let vec_index = indices_vec.iter().position(|i| *i == 0).unwrap_or(0);
                     // Set the bone index in this vector
                     indices_vec[vec_index] = bone_index as u16;
                     // insert into indices array 
                     indices[*vertex as usize] = indices_vec;
                     // use the same vec index to set the weights also
-                    let mut weights_vec = weights[*mh_id as usize];
+                    let mut weights_vec = weights[*vertex as usize];
                     weights_vec[vec_index] = *wt;
                     weights[*vertex as usize] = weights_vec;
-
                 }
             }
         }
     }
 
-    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
-    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weights);
+    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
+    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weights);
+    let handle = meshes.add(new_mesh);
     
-    commands.entity(*human).insert(SkinnedMesh {
+    (handle, SkinnedMesh {
         inverse_bindposes: inverse_bindposes.clone(),
         joints: joints,
-    });
+    })
 }
