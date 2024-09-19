@@ -28,16 +28,17 @@ pub(crate) fn bake_morphs_to_mesh(
     base_mesh: &Res<BaseMesh>,
     targets: &Query<&MorphTarget>,
     meshes: &mut ResMut<Assets<Mesh>>,
-) -> Mesh {
+) -> (Vec<Vec3>, Mesh) {
     let mesh = meshes.get(&base_mesh.body_handle).unwrap().clone();
     let Some(VertexAttributeValues::Float32x3(vertices)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("MESH VERTICES FAILURE") };
     let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!("MESH UV FAILURE") };
     let Some(indices) = mesh.indices() else { panic!("MESH FACE INDICES FAILURE") };
     let mut vertices_vec = vertices.to_vec();
-    for (target_name, value) in shapekeys.iter() {
+    let mut helpers = base_mesh.vertices.clone();
+    for (target_name, &value) in shapekeys.iter() {
         for target in targets.iter() {
             if target.name != *target_name { continue; }
-            for (&vertex, offset) in target.offsets.iter() {
+            for (&vertex, &offset) in target.offsets.iter() {
                 if let Some(vtx_list) = base_mesh.body_vertex_map.get(&(vertex as u16)) {
                     for vtx in vtx_list.iter() {
                         vertices_vec[*vtx as usize][0] += offset.x * value;
@@ -45,6 +46,7 @@ pub(crate) fn bake_morphs_to_mesh(
                         vertices_vec[*vtx as usize][2] += offset.z * value;
                     }
                 }
+                helpers[vertex as usize] += offset * value;
             }
         }
     }
@@ -58,5 +60,5 @@ pub(crate) fn bake_morphs_to_mesh(
     .with_inserted_indices(indices.clone());
     mesh.compute_smooth_normals();
     let _ = mesh.generate_tangents();
-    mesh
+    (helpers, mesh)
 }

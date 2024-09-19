@@ -42,6 +42,7 @@ fn setup_env(
     };
     let human: Entity = commands.spawn(HumanEntityTag).id();
     commands.trigger_targets(params, human);
+    return;
     
     let mut shapekeys = HashMap::<String, f32>::new();
     shapekeys.insert("asian-male-child".to_string(), 1.0);

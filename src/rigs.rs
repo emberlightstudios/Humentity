@@ -4,6 +4,7 @@ use bevy::{
         skinning::{ SkinnedMesh, SkinnedMeshInverseBindposes},
         VertexAttributeValues,
     },
+    color::palettes::css::RED,
 };
 use serde::Deserialize;
 use serde_json;
@@ -13,7 +14,7 @@ use std::{
     io::BufReader,
 };
 use crate::{
-    BaseMesh, BODY_VERTICES, BODY_SCALE
+    BaseMesh, VertexGroups, BODY_SCALE, BODY_VERTICES
 };
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
@@ -34,10 +35,10 @@ struct BoneWeights {
 
 #[derive(Deserialize, Debug)]
 struct BoneTransform {
-    //cube_name: Option<String>,
+    cube_name: Option<String>,
     default_position: Vec3,
-    //strategy: String,
-    //vertex_index: Option<u16>,
+    strategy: String,
+    vertex_indices: Option<Vec<u16>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -46,7 +47,7 @@ struct BoneData {
     //inherit_scale: String,
     parent: String,
     //roll: f32,
-    //tail: BoneTransform,
+    tail: BoneTransform,
 }
 
 // Contains an extra layer for some reason.  Usual config is in the bones key
@@ -105,8 +106,23 @@ impl FromWorld for RigData {
  | Components |
  +------------*/
  #[derive(Component)]
- struct Bone(String);
+ pub(crate) struct Bone(String);
 
+/*---------+
+ | Systems |
+ +---------*/
+ pub(crate) fn bone_debug_draw(
+    query: Query<(&Transform, &Parent), With<Bone>>,
+    transforms: Query<&Transform, With<Bone>>,
+    mut gizmos: Gizmos,
+ ) {
+    query.iter().for_each(|(transform, parent)| {
+        let start = transform.translation;
+        if let Ok(end) = transforms.get(parent.get()) {
+            gizmos.line(start, end.translation, RED);
+        }
+    })
+ }
 
 /*-----------+
  | Functions |
@@ -120,6 +136,8 @@ pub(crate) fn apply_rig(
     inv_bindpose_assets: &mut ResMut<Assets<SkinnedMeshInverseBindposes>>,
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
+    vg: Res<VertexGroups>,
+    helpers: Vec<Vec3>,
 ) -> (Handle<Mesh>, SkinnedMesh) {
     let weights_res = rigs.weights.get(&rig).unwrap();
     let config_res = rigs.configs.get(&rig).unwrap();
@@ -130,8 +148,11 @@ pub(crate) fn apply_rig(
         bone_entities.insert(name.to_string(), commands.spawn(Bone(name.to_string())).id());
     }
 
-    // Arrange bone tree hierarchy
+    // For finding in degree of each bone in the tree
+    let mut in_degree = HashMap::<String, usize>::with_capacity(config_res.len());
+    // Set up parent child relationships
     for (name, bone) in config_res.iter() {
+        in_degree.insert(name.to_string(), 0);
         let &child = bone_entities.get(name).unwrap();
         match bone_entities.get(&bone.parent) {
             Some(parent) => {
@@ -143,45 +164,54 @@ pub(crate) fn apply_rig(
         }
     }
 
-    // Set transforms
-    let mut transforms = HashMap::<Entity, Transform>::new();
+    // Find in degree of the non-root bones
     for (name, bone) in config_res.iter() {
+        let mut parent = bone.parent.clone();
+        while parent != "" {
+            *in_degree.entry(name.to_string()).or_insert(0) += 1;
+            parent = config_res.get(&parent).unwrap().parent.clone();
+        }
+    }
+    // Get bone vecs sorted by degree
+    let mut in_degree_vec: Vec<(String, usize)> = in_degree.into_iter().collect();
+    in_degree_vec.sort_by(|a, b| a.1.cmp(&b.1));
+    let sorted_bones: Vec<String> = in_degree_vec.into_iter().map(|(k, _)| k.clone()).collect();
+    let joints: Vec<Entity> = bone_entities.iter().map(|(_, &e)| e).collect();
+
+    // Set transforms
+    let mut transforms = HashMap::<String, Transform>::new();
+    for name in sorted_bones.iter() {
+        let bone = config_res.get(name).unwrap();
         let &entity = bone_entities.get(name).unwrap();
-        let mut transform = Transform::default();
-        transform.translation = bone.head.default_position * BODY_SCALE;
-        transforms.insert(entity, transform);
-        //transform.rotation = Quat::from_arc(parent_up, new_up)
+        let transform = get_bone_transform(
+            &bone.head,
+            &bone.tail,
+            &vg,
+            &helpers
+        );
+        transforms.insert(name.to_string(), transform);
         commands.entity(entity).insert(TransformBundle {
             local: transform,
             ..default()
         });
     }
     
-    // Create ordered array of bones/joints and names
-    let mut joints = Vec::<Entity>::with_capacity(bone_entities.len());
-    let mut bone_names = Vec::<String>::with_capacity(bone_entities.len());
-    for (name, bone_entity) in bone_entities.iter() {
-        joints.push(*bone_entity);
-        bone_names.push(name.to_string());
-    }
-
     // Create joints and inverse bind poses
     let mut inv_bindposes = Vec::<Mat4>::new();
-    for joint in joints.iter() {
-        let Some(inv_pose) = transforms.get(&joint) else { continue };
-        inv_bindposes.push(inv_pose.compute_matrix().inverse());
+    for bone_name in sorted_bones.iter() {
+        let Some(pose) = transforms.get(bone_name) else { continue };
+        inv_bindposes.push(pose.compute_matrix().inverse());
     }
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
 
     // Build index and weight arrays
     let mut new_mesh = mesh.clone();
     let Some(VertexAttributeValues::Float32x3(vertices)) = new_mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("MESH VERTICES FAILURE") };
-    //let mut weights = Vec::<Vec4>::try_with_capacity(joints.len());
     let mut indices: Vec<[u16; 4]> = vec![[0; 4]; vertices.len()];
     let mut weights = vec![Vec4::ZERO; vertices.len()];
 
     for (bone_name, bone_weights) in weights_res.weights.iter() {
-        let Some(bone_index) = bone_names.iter().position(|x| x == bone_name) else { continue };
+        let Some(bone_index) = sorted_bones.iter().position(|x| x == bone_name) else { continue };
         for (mh_id, wt) in bone_weights.iter() {
             if *mh_id < BODY_VERTICES {
                 let Some(vertices) = base_mesh.vertex_map.get(&(*mh_id as u16)) else { continue };
@@ -209,4 +239,35 @@ pub(crate) fn apply_rig(
         inverse_bindposes: inverse_bindposes.clone(),
         joints: joints,
     })
+}
+
+fn get_bone_transform(
+    bone_head: &BoneTransform,
+    bone_tail: &BoneTransform,
+    vg: &Res<VertexGroups>,
+    mh_vertices: &Vec<Vec3>,
+) -> Transform {
+    let (v1, v2) = get_bone_vertices(bone_head, vg);
+    let (v3, v4) = get_bone_vertices(bone_tail, vg);
+    let start = (mh_vertices[v1 as usize] + mh_vertices[v2 as usize]) * 0.5;
+    let end = (mh_vertices[v3 as usize] + mh_vertices[v4 as usize]) * 0.5;
+    Transform::from_translation(start)
+        .with_rotation(Quat::from_rotation_arc(Vec3::Y, (end - start).normalize()))
+}
+
+fn get_bone_vertices(
+    bone: &BoneTransform,
+    vg: &Res<VertexGroups>,
+) -> (u16, u16) {
+    let v1: u16;
+    let v2: u16;
+    if bone.strategy == "MEAN" {
+        v1 = bone.vertex_indices.as_ref().unwrap()[0];
+        v2 = bone.vertex_indices.as_ref().unwrap()[1];
+    } else {// if bone.strategy == "CUBE" {
+        let joint = bone.cube_name.as_ref().unwrap();
+        v1 = vg.0.get(joint).unwrap()[0][0] as u16;
+        v2 = vg.0.get(joint).unwrap()[0][1] as u16;
+    }
+    (v1, v2)
 }

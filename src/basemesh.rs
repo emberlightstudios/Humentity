@@ -29,7 +29,7 @@ pub(crate) const BODY_SCALE: f32 = 0.1;
  |  Resources  |
  +-------------*/
 #[derive(Resource, Deserialize, Debug)]
-pub(crate) struct VertexGroups(HashMap<String, Vec<[usize; 2]>>);
+pub(crate) struct VertexGroups(pub(crate) HashMap<String, Vec<[usize; 2]>>);
 
 #[derive(Resource, Debug, Clone)]
 pub(crate) struct BaseMesh{

@@ -9,10 +9,14 @@ use basemesh::{
 };
 use bevy::{prelude::*, render::mesh::skinning::SkinnedMeshInverseBindposes};
 use bevy_obj::ObjPlugin;
-use rigs::RigData;
+use rigs::{
+    RigData,
+    bone_debug_draw,
+};
 use std::collections::HashMap;
 pub(crate) use crate::basemesh::{
     BaseMesh,
+    VertexGroups,
     BODY_SCALE,
     BODY_VERTICES,
 };
@@ -59,6 +63,7 @@ pub(crate) fn load_human_entity(
     asset_server: Res<AssetServer>,
     base_mesh: Res<BaseMesh>,
     rigs: Res<RigData>,
+    vg: Res<VertexGroups>,
 ) {
     let albedo = asset_server.load("skin_textures/albedo/".to_string() + &trigger.event().skin_albedo);
     let material = materials.add(StandardMaterial {
@@ -66,7 +71,7 @@ pub(crate) fn load_human_entity(
         ..default()
     });
     let human = trigger.entity();
-    let mut mesh = bake_morphs_to_mesh(
+    let (helpers, mesh) = bake_morphs_to_mesh(
         &trigger.event().shapekeys,
         &base_mesh,
         &targets,
@@ -81,6 +86,8 @@ pub(crate) fn load_human_entity(
         &mut inv_bindposes,
         &mut commands,
         &mut meshes,
+        vg,
+        helpers,
     );
     commands.entity(human).insert(skinned_mesh);
     commands.entity(human).insert(PbrBundle {
@@ -120,7 +127,7 @@ impl Plugin for Humentity {
         ).run_if(in_state(HumentityState::LoadingBodyVertexMap)));
         app.observe(load_human_entity);
         if self.debug {
-
+            app.add_systems(Update, bone_debug_draw);
         }
     }
 }
