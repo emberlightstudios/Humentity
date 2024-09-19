@@ -176,10 +176,12 @@ pub(crate) fn apply_rig(
     let mut in_degree_vec: Vec<(String, usize)> = in_degree.into_iter().collect();
     in_degree_vec.sort_by(|a, b| a.1.cmp(&b.1));
     let sorted_bones: Vec<String> = in_degree_vec.into_iter().map(|(k, _)| k.clone()).collect();
-    let joints: Vec<Entity> = bone_entities.iter().map(|(_, &e)| e).collect();
+    let joints: Vec<Entity> = sorted_bones.iter().map(|name| {
+        *bone_entities.get(name).unwrap()
+    }).collect();
 
-    // Set transforms
-    let mut transforms = HashMap::<String, Transform>::new();
+    // Set transforms and inverse bind poses
+    let mut inv_bindposes = Vec::<Mat4>::new();
     for name in sorted_bones.iter() {
         let bone = config_res.get(name).unwrap();
         let &entity = bone_entities.get(name).unwrap();
@@ -189,18 +191,11 @@ pub(crate) fn apply_rig(
             &vg,
             &helpers
         );
-        transforms.insert(name.to_string(), transform);
+        inv_bindposes.push(transform.compute_matrix().inverse());
         commands.entity(entity).insert(TransformBundle {
             local: transform,
             ..default()
         });
-    }
-    
-    // Create joints and inverse bind poses
-    let mut inv_bindposes = Vec::<Mat4>::new();
-    for bone_name in sorted_bones.iter() {
-        let Some(pose) = transforms.get(bone_name) else { continue };
-        inv_bindposes.push(pose.compute_matrix().inverse());
     }
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
 
