@@ -53,6 +53,13 @@ pub struct LoadHumanParams {
     pub transform: Transform,
 }
 
+// TODO
+// transform needs to be controlled by skeleton root
+// should convert to bundle instead of listening for triggers
+// mhclo
+// animation
+// presets
+// 
 pub(crate) fn load_human_entity(
     trigger: Trigger<LoadHumanParams>,
     mut commands: Commands,

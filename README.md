@@ -10,4 +10,4 @@ This project is a work in progress and is currently missing many features.  See 
 - Trigger-based humanoid spawning with parameters
 - Shapekeys baked out to new mesh
 - Skin textures
-
+- Base mesh auto-rigging

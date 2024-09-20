@@ -38,7 +38,7 @@ fn setup_env(
         shapekeys: shapekeys,
         skin_albedo: "young_caucasian_female_diffuse.png".to_string(),
         transform: Transform::from_xyz(0.5, 0.0, 0.0),
-        rig: RigType::Mixamo,
+        rig: RigType::Default,
     };
     let human: Entity = commands.spawn(HumanEntityTag).id();
     commands.trigger_targets(params, human);

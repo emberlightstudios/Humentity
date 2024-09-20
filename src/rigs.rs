@@ -36,9 +36,10 @@ struct BoneWeights {
 #[derive(Deserialize, Debug)]
 struct BoneTransform {
     cube_name: Option<String>,
-    default_position: Vec3,
+    //default_position: Vec3,
     strategy: String,
     vertex_indices: Option<Vec<u16>>,
+    vertex_index: Option<u16>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -172,14 +173,14 @@ pub(crate) fn apply_rig(
     // Get bone vecs sorted by degree
     let mut in_degree_vec: Vec<(String, usize)> = in_degree.into_iter().collect();
     in_degree_vec.sort_by(|a, b| a.1.cmp(&b.1));
-    let sorted_bones: Vec<String> = in_degree_vec.into_iter().map(|(k, _)| k.clone()).collect();
-    let joints: Vec<Entity> = sorted_bones.iter().map(|name| {
+    let mut sorted_bones: Vec<String> = in_degree_vec.into_iter().map(|(k, _)| k.clone()).collect();
+    let mut joints: Vec<Entity> = sorted_bones.iter().map(|name| {
         *bone_entities.get(name).unwrap()
     }).collect();
 
     // Set transforms and inverse bind poses
     let mut inv_bindposes = Vec::<Mat4>::with_capacity(joints.len());
-    let mut transforms = HashMap::<String, Mat4>::with_capacity(joints.len());
+    let mut matrices = HashMap::<String, Mat4>::with_capacity(joints.len());
     for name in sorted_bones.iter() {
         let bone = config_res.get(name).unwrap();
         let &entity = bone_entities.get(name).unwrap();
@@ -193,16 +194,30 @@ pub(crate) fn apply_rig(
         // No idea why this works
         let mut xform_mat = transform.compute_matrix();
         if parent != "" {
-            let parent_mat = *transforms.get(parent).unwrap();
+            let parent_mat = *matrices.get(parent).unwrap();
             xform_mat = parent_mat * xform_mat;
         }
-        transforms.insert(name.to_string(), xform_mat);
+        matrices.insert(name.to_string(), xform_mat);
         inv_bindposes.push(xform_mat.inverse());
         commands.entity(entity).insert(TransformBundle {
             local: transform,
             ..default()
         });
     }
+
+    // If root bone is not at the ground (hips) insert root bone because root will drive position
+    let root_str = &sorted_bones[0].clone();
+    if Transform::from_matrix(*matrices.get(root_str).unwrap()).translation.y > 0.04 {
+        sorted_bones.insert(0, "Root".to_string());
+        let root_bone = commands.spawn(Bone("Root".to_string())).id();
+        bone_entities.insert("Root".to_string(), root_bone);
+        let &old_root = bone_entities.get(root_str).unwrap();
+        commands.entity(root_bone).push_children(&[old_root]);
+        commands.entity(root_bone).insert(TransformBundle::default());
+        joints.insert(0, root_bone);
+        inv_bindposes.insert(0, Mat4::IDENTITY)
+    }
+
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
 
     // Build bone index and weight arrays
@@ -212,7 +227,7 @@ pub(crate) fn apply_rig(
     let mut weights = vec![[0.0; 4]; vertices.len()];
 
     for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
-        let bone_weights = weights_res.weights.get(bone_name).unwrap();
+        let Some(bone_weights) = weights_res.weights.get(bone_name) else { continue };
         for (mh_id, wt) in bone_weights.iter() {
             if *mh_id < BODY_VERTICES {
                 let Some(vertices) = base_mesh.body_vertex_map.get(&(*mh_id as u16)) else { continue };
@@ -221,7 +236,8 @@ pub(crate) fn apply_rig(
                     let mut indices_vec = indices[*vertex as usize];
                     // find the first zero index
                     // vertex should not show up for more than 4 bones but happens sometimes
-                    // Maybe should replace smallest weight instead
+                    // TODO
+                    // Should replace smallest weight instead of ignoring
                     let Some(vec_index) = indices_vec.iter().position(|i| *i == 0) else { continue };
                     // Set the bone index in this vector
                     indices_vec[vec_index] = bone_index as u16;
@@ -280,10 +296,13 @@ fn get_bone_vertices(
     if bone.strategy == "MEAN" {
         v1 = bone.vertex_indices.as_ref().unwrap()[0];
         v2 = bone.vertex_indices.as_ref().unwrap()[1];
-    } else {// if bone.strategy == "CUBE" {
+    } else if bone.strategy == "CUBE" {
         let joint = bone.cube_name.as_ref().unwrap();
         v1 = vg.0.get(joint).unwrap()[0][0] as u16;
         v2 = vg.0.get(joint).unwrap()[0][1] as u16;
-    }
+    } else if bone.strategy == "VERTEX" {
+        v1 = bone.vertex_index.unwrap();
+        v2 = bone.vertex_index.unwrap();
+    } else { panic!("Unrecognized bone strategy {}", bone.strategy) }
     (v1, v2)
 }
