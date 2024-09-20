@@ -184,7 +184,7 @@ pub(crate) fn apply_rig(
 
     // Set transforms and inverse bind poses
     let mut inv_bindposes = Vec::<Mat4>::new();
-    let mut transforms = HashMap::<String, Mat4>::with_capacity(joints.len());
+    //let mut transforms = HashMap::<String, Mat4>::with_capacity(joints.len());
     for name in sorted_bones.iter() {
         let bone = config_res.get(name).unwrap();
         let &entity = bone_entities.get(name).unwrap();
@@ -194,15 +194,16 @@ pub(crate) fn apply_rig(
             &vg,
             &helpers
         );
-        let mut parent = &bone.parent;
-        let mut xform_mat = transform.compute_matrix();
-        while parent != "" {
-            let parent_mat = *transforms.get(parent).unwrap();
-            xform_mat = parent_mat * xform_mat;
-            parent = &config_res.get(parent).unwrap().parent;
-        }
-        transforms.insert(name.to_string(), xform_mat);
-        inv_bindposes.push(xform_mat.inverse());
+        //let mut parent = &bone.parent;
+        //let mut xform_mat = transform.compute_matrix();
+        //while parent != "" {
+        //    let parent_mat = *transforms.get(parent).unwrap();
+        //    xform_mat = parent_mat.inverse() * xform_mat;
+        //    parent = &config_res.get(parent).unwrap().parent;
+        //}
+        //transforms.insert(name.to_string(), xform_mat);
+        //inv_bindposes.push(xform_mat.inverse());
+        inv_bindposes.push(transform.compute_matrix().inverse());
         commands.entity(entity).insert(TransformBundle {
             local: transform,
             ..default()
@@ -216,8 +217,9 @@ pub(crate) fn apply_rig(
     let mut indices = vec![[0; 4]; vertices.len()];
     let mut weights = vec![[0.0; 4]; vertices.len()];
 
-    for (bone_name, bone_weights) in weights_res.weights.iter() {
-        let Some(bone_index) = sorted_bones.iter().position(|x| x == bone_name) else { continue };
+    // 9967
+    for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
+        let bone_weights = weights_res.weights.get(bone_name).unwrap();
         for (mh_id, wt) in bone_weights.iter() {
             if *mh_id < BODY_VERTICES {
                 let Some(vertices) = base_mesh.body_vertex_map.get(&(*mh_id as u16)) else { continue };
@@ -225,7 +227,9 @@ pub(crate) fn apply_rig(
                     // get the [u16;4] array we need to insert into (array of 4 bone indices)
                     let mut indices_vec = indices[*vertex as usize];
                     // find the first zero index
-                    let vec_index = indices_vec.iter().position(|i| *i == 0).unwrap_or(0);
+                    // vertex should not show up for more than 4 bones but happens sometimes
+                    // Maybe should replace smallest weight instead
+                    let Some(vec_index) = indices_vec.iter().position(|i| *i == 0) else { continue };
                     // Set the bone index in this vector
                     indices_vec[vec_index] = bone_index as u16;
                     // insert into indices array 
@@ -237,6 +241,17 @@ pub(crate) fn apply_rig(
                 }
             }
         }
+    }
+    for i in 0..weights.iter().len() {
+        let wvec = weights[i];
+        let norm = wvec[0] + wvec[1] + wvec[2] + wvec[3];
+        if norm == 0.0 { panic!("div by 0 ");}
+        weights[i] = [
+            wvec[0] / norm,
+            wvec[1] / norm,
+            wvec[2] / norm,
+            wvec[3] / norm,
+        ];
     }
 
     new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
