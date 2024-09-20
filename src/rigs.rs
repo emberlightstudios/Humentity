@@ -143,7 +143,7 @@ pub(crate) fn apply_rig(
     let config_res = rigs.configs.get(&rig).unwrap();
 
     // Spawn bone entities
-    let mut bone_entities = HashMap::<String, Entity>::new();
+    let mut bone_entities = HashMap::<String, Entity>::with_capacity(config_res.len());
     for (name, _bone) in config_res.iter() {
         bone_entities.insert(name.to_string(), commands.spawn(Bone(name.to_string())).id());
     }
@@ -155,13 +155,8 @@ pub(crate) fn apply_rig(
     for (name, bone) in config_res.iter() {
         in_degree.insert(name.to_string(), 0);
         let &child = bone_entities.get(name).unwrap();
-        match bone_entities.get(&bone.parent) {
-            Some(parent) => {
-                commands.entity(*parent).push_children(&[child]);
-            }
-            None => {
-                //commands.entity(*human).push_children(&[child]);
-            }
+        if let Some(parent) = bone_entities.get(&bone.parent) {
+            commands.entity(*parent).push_children(&[child]);
         }
     }
 
@@ -183,8 +178,8 @@ pub(crate) fn apply_rig(
     }).collect();
 
     // Set transforms and inverse bind poses
-    let mut inv_bindposes = Vec::<Mat4>::new();
-    //let mut transforms = HashMap::<String, Mat4>::with_capacity(joints.len());
+    let mut inv_bindposes = Vec::<Mat4>::with_capacity(joints.len());
+    let mut transforms = HashMap::<String, Mat4>::with_capacity(joints.len());
     for name in sorted_bones.iter() {
         let bone = config_res.get(name).unwrap();
         let &entity = bone_entities.get(name).unwrap();
@@ -194,16 +189,15 @@ pub(crate) fn apply_rig(
             &vg,
             &helpers
         );
-        //let mut parent = &bone.parent;
-        //let mut xform_mat = transform.compute_matrix();
-        //while parent != "" {
-        //    let parent_mat = *transforms.get(parent).unwrap();
-        //    xform_mat = parent_mat.inverse() * xform_mat;
-        //    parent = &config_res.get(parent).unwrap().parent;
-        //}
-        //transforms.insert(name.to_string(), xform_mat);
-        //inv_bindposes.push(xform_mat.inverse());
-        inv_bindposes.push(transform.compute_matrix().inverse());
+        let parent = &bone.parent;
+        // No idea why this works
+        let mut xform_mat = transform.compute_matrix();
+        if parent != "" {
+            let parent_mat = *transforms.get(parent).unwrap();
+            xform_mat = parent_mat * xform_mat;
+        }
+        transforms.insert(name.to_string(), xform_mat);
+        inv_bindposes.push(xform_mat.inverse());
         commands.entity(entity).insert(TransformBundle {
             local: transform,
             ..default()
@@ -217,7 +211,6 @@ pub(crate) fn apply_rig(
     let mut indices = vec![[0; 4]; vertices.len()];
     let mut weights = vec![[0.0; 4]; vertices.len()];
 
-    // 9967
     for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
         let bone_weights = weights_res.weights.get(bone_name).unwrap();
         for (mh_id, wt) in bone_weights.iter() {
@@ -242,6 +235,8 @@ pub(crate) fn apply_rig(
             }
         }
     }
+
+    // Make sure weights sum to 1 for each vertex
     for i in 0..weights.iter().len() {
         let wvec = weights[i];
         let norm = wvec[0] + wvec[1] + wvec[2] + wvec[3];

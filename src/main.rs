@@ -28,7 +28,7 @@ fn setup_env(
     });
     // camera
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(-0.5, 1.5, 15.5).looking_at(Vec3::ZERO + Vec3::Y * 1.0, Vec3::Y),
+        transform: Transform::from_xyz(-0.5, 1.5, 3.5).looking_at(Vec3::ZERO + Vec3::Y * 1.0, Vec3::Y),
         ..default()   
     });
     // set up humans
@@ -42,7 +42,7 @@ fn setup_env(
     };
     let human: Entity = commands.spawn(HumanEntityTag).id();
     commands.trigger_targets(params, human);
-    return;
+    
     let mut shapekeys = HashMap::<String, f32>::new();
     shapekeys.insert("african-female-baby".to_string(), 1.0);
     let params = LoadHumanParams {
