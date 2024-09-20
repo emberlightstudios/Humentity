@@ -32,39 +32,38 @@ fn setup_env(
         ..default()   
     });
     // set up humans
-    let mut shapekeys = HashMap::<String, f32>::new();
-    shapekeys.insert("african-female-baby".to_string(), 1.0);
-    let params = LoadHumanParams {
-        shapekeys: shapekeys,
-        skin_albedo: "young_african_female_diffuse.png".to_string(),
-        transform: Transform::from_xyz(-1.5, 0.0, 0.0),
-        rig: RigType::Mixamo,
-    };
-    let human: Entity = commands.spawn(HumanEntityTag).id();
-    commands.trigger_targets(params, human);
-    return;
+    //let mut shapekeys = HashMap::<String, f32>::new();
+    //shapekeys.insert("african-female-baby".to_string(), 1.0);
+    //let params = LoadHumanParams {
+    //    shapekeys: shapekeys,
+    //    skin_albedo: "young_african_female_diffuse.png".to_string(),
+    //    transform: Transform::from_xyz(-1.5, 0.0, 0.0),
+    //    rig: RigType::Mixamo,
+    //};
+    //let human: Entity = commands.spawn(HumanEntityTag).id();
+    //commands.trigger_targets(params, human);
     
-    let mut shapekeys = HashMap::<String, f32>::new();
-    shapekeys.insert("asian-male-child".to_string(), 1.0);
-    let params = LoadHumanParams {
-        shapekeys: shapekeys,
-        skin_albedo: "young_asian_male_diffuse3.png".to_string(),
-        transform: Transform::from_xyz(-0.5, 0.0, 0.0),
-        rig: RigType::Mixamo,
-    };
-    let human: Entity = commands.spawn(HumanEntityTag).id();
-    commands.trigger_targets(params, human);
+    //let mut shapekeys = HashMap::<String, f32>::new();
+    //shapekeys.insert("asian-male-child".to_string(), 1.0);
+    //let params = LoadHumanParams {
+    //    shapekeys: shapekeys,
+    //    skin_albedo: "young_asian_male_diffuse3.png".to_string(),
+    //    transform: Transform::from_xyz(-0.5, 0.0, 0.0),
+    //    rig: RigType::Mixamo,
+    //};
+    //let human: Entity = commands.spawn(HumanEntityTag).id();
+    //commands.trigger_targets(params, human);
 
-    let mut shapekeys = HashMap::<String, f32>::new();
-    shapekeys.insert("caucasian-female-young".to_string(), 1.0);
-    let params = LoadHumanParams {
-        shapekeys: shapekeys,
-        skin_albedo: "young_caucasian_female_diffuse.png".to_string(),
-        transform: Transform::from_xyz(0.5, 0.0, 0.0),
-        rig: RigType::Mixamo,
-    };
-    let human: Entity = commands.spawn(HumanEntityTag).id();
-    commands.trigger_targets(params, human);
+    //let mut shapekeys = HashMap::<String, f32>::new();
+    //shapekeys.insert("caucasian-female-young".to_string(), 1.0);
+    //let params = LoadHumanParams {
+    //    shapekeys: shapekeys,
+    //    skin_albedo: "young_caucasian_female_diffuse.png".to_string(),
+    //    transform: Transform::from_xyz(0.5, 0.0, 0.0),
+    //    rig: RigType::Mixamo,
+    //};
+    //let human: Entity = commands.spawn(HumanEntityTag).id();
+    //commands.trigger_targets(params, human);
 
     let mut shapekeys = HashMap::<String, f32>::new();
     shapekeys.insert("african-male-old".to_string(), 1.0);

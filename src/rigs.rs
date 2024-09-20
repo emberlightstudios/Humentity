@@ -148,8 +148,9 @@ pub(crate) fn apply_rig(
         bone_entities.insert(name.to_string(), commands.spawn(Bone(name.to_string())).id());
     }
 
-    // For finding in degree of each bone in the tree
+    // For finding in-degree of each bone in the tree
     let mut in_degree = HashMap::<String, usize>::with_capacity(config_res.len());
+
     // Set up parent child relationships
     for (name, bone) in config_res.iter() {
         in_degree.insert(name.to_string(), 0);
@@ -159,12 +160,12 @@ pub(crate) fn apply_rig(
                 commands.entity(*parent).push_children(&[child]);
             }
             None => {
-                commands.entity(*human).push_children(&[child]);
+                //commands.entity(*human).push_children(&[child]);
             }
         }
     }
 
-    // Find in degree of the non-root bones
+    // Find in-degree of the bones
     for (name, bone) in config_res.iter() {
         let mut parent = bone.parent.clone();
         while parent != "" {
@@ -172,6 +173,7 @@ pub(crate) fn apply_rig(
             parent = config_res.get(&parent).unwrap().parent.clone();
         }
     }
+
     // Get bone vecs sorted by degree
     let mut in_degree_vec: Vec<(String, usize)> = in_degree.into_iter().collect();
     in_degree_vec.sort_by(|a, b| a.1.cmp(&b.1));
@@ -182,6 +184,7 @@ pub(crate) fn apply_rig(
 
     // Set transforms and inverse bind poses
     let mut inv_bindposes = Vec::<Mat4>::new();
+    let mut transforms = HashMap::<String, Mat4>::with_capacity(joints.len());
     for name in sorted_bones.iter() {
         let bone = config_res.get(name).unwrap();
         let &entity = bone_entities.get(name).unwrap();
@@ -191,7 +194,15 @@ pub(crate) fn apply_rig(
             &vg,
             &helpers
         );
-        inv_bindposes.push(transform.compute_matrix().inverse());
+        let mut parent = &bone.parent;
+        let mut xform_mat = transform.compute_matrix();
+        while parent != "" {
+            let parent_mat = *transforms.get(parent).unwrap();
+            xform_mat = parent_mat * xform_mat;
+            parent = &config_res.get(parent).unwrap().parent;
+        }
+        transforms.insert(name.to_string(), xform_mat);
+        inv_bindposes.push(xform_mat.inverse());
         commands.entity(entity).insert(TransformBundle {
             local: transform,
             ..default()
@@ -199,17 +210,17 @@ pub(crate) fn apply_rig(
     }
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
 
-    // Build index and weight arrays
+    // Build bone index and weight arrays
     let mut new_mesh = mesh.clone();
     let Some(VertexAttributeValues::Float32x3(vertices)) = new_mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("MESH VERTICES FAILURE") };
-    let mut indices: Vec<[u16; 4]> = vec![[0; 4]; vertices.len()];
-    let mut weights = vec![Vec4::ZERO; vertices.len()];
+    let mut indices = vec![[0; 4]; vertices.len()];
+    let mut weights = vec![[0.0; 4]; vertices.len()];
 
     for (bone_name, bone_weights) in weights_res.weights.iter() {
         let Some(bone_index) = sorted_bones.iter().position(|x| x == bone_name) else { continue };
         for (mh_id, wt) in bone_weights.iter() {
             if *mh_id < BODY_VERTICES {
-                let Some(vertices) = base_mesh.vertex_map.get(&(*mh_id as u16)) else { continue };
+                let Some(vertices) = base_mesh.body_vertex_map.get(&(*mh_id as u16)) else { continue };
                 for vertex in vertices.iter() {
                     // get the [u16;4] array we need to insert into (array of 4 bone indices)
                     let mut indices_vec = indices[*vertex as usize];
@@ -229,7 +240,7 @@ pub(crate) fn apply_rig(
     }
 
     new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
-    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weights);
+    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
     (meshes.add(new_mesh), SkinnedMesh {
         inverse_bindposes: inverse_bindposes.clone(),
         joints: joints,
