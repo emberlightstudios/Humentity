@@ -4,10 +4,18 @@
 
 This project is a work in progress and is currently missing many features.  See main.rs for sample code
 
-### Current features
+## Current features
 - MakeHuman base mesh resource
 - Shapekey entities
-- Trigger-based humanoid spawning with parameters
+- HumanConfig component spawns humans
 - Shapekeys baked out to new mesh
-- Skin textures
-- Base mesh auto-rigging
+- Basic albedo skin textures
+- Mesh auto-rigging
+
+## Future features
+- Clothes/Body Parts
+- Mesh combining
+- Texture atlasing
+- LODs
+- Face motion capture
+- Skin shader

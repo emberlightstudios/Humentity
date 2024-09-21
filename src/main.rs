@@ -2,8 +2,6 @@ use bevy::prelude::*;
 use humentity::{prelude::*, HumentityState};
 use std::collections::HashMap;
 
-#[derive(Component)]
-struct HumanEntityTag;
 
 fn setup_env(
     mut commands: Commands,
@@ -31,50 +29,40 @@ fn setup_env(
         transform: Transform::from_xyz(-0.5, 1.5, 3.5).looking_at(Vec3::ZERO + Vec3::Y * 1.0, Vec3::Y),
         ..default()   
     });
-    // set up humans
-    let mut shapekeys = HashMap::<String, f32>::new();
-    shapekeys.insert("caucasian-female-young".to_string(), 1.0);
-    let params = LoadHumanParams {
-        shapekeys: shapekeys,
-        skin_albedo: "young_caucasian_female_diffuse.png".to_string(),
-        transform: Transform::from_xyz(0.5, 0.0, 0.0),
-        rig: RigType::Default,
-    };
-    let human: Entity = commands.spawn(HumanEntityTag).id();
-    commands.trigger_targets(params, human);
-    
-    let mut shapekeys = HashMap::<String, f32>::new();
-    shapekeys.insert("african-female-baby".to_string(), 1.0);
-    let params = LoadHumanParams {
-        shapekeys: shapekeys,
-        skin_albedo: "young_african_female_diffuse.png".to_string(),
-        transform: Transform::from_xyz(-1.5, 0.0, 0.0),
-        rig: RigType::Mixamo,
-    };
-    let human: Entity = commands.spawn(HumanEntityTag).id();
-    commands.trigger_targets(params, human);
-    
-    let mut shapekeys = HashMap::<String, f32>::new();
-    shapekeys.insert("asian-male-child".to_string(), 1.0);
-    let params = LoadHumanParams {
-        shapekeys: shapekeys,
-        skin_albedo: "young_asian_male_diffuse3.png".to_string(),
-        transform: Transform::from_xyz(-0.5, 0.0, 0.0),
-        rig: RigType::Mixamo,
-    };
-    let human: Entity = commands.spawn(HumanEntityTag).id();
-    commands.trigger_targets(params, human);
 
-    let mut shapekeys = HashMap::<String, f32>::new();
-    shapekeys.insert("african-male-old".to_string(), 1.0);
-    let params = LoadHumanParams {
-        shapekeys: shapekeys,
-        skin_albedo: "old_african_male_diffuse.png".to_string(),
-        transform: Transform::from_xyz(1.5, 0.0, 0.0),
-        rig: RigType::Mixamo,
-    };
-    let human: Entity = commands.spawn(HumanEntityTag).id();
-    commands.trigger_targets(params, human);
+    // set up humans
+    for i in [0,1,2,3].iter() {
+        let mut shapekeys = HashMap::<String, f32>::new();
+        let mut skin_albedo: String = "".to_string();
+        match i {
+            0 => {
+                shapekeys.insert("african-female-baby".to_string(), 1.0);
+                skin_albedo = "young_african_female_diffuse.png".to_string();
+            }
+            1 => {
+                shapekeys.insert("asian-male-child".to_string(), 1.0);
+                skin_albedo = "young_asian_male_diffuse3.png".to_string();
+            }
+            2 => {
+                shapekeys.insert("caucasion-female-young".to_string(), 1.0);
+                skin_albedo = "middleage_caucasian_female_diffuse.png".to_string();
+            }
+            3 => {
+                shapekeys.insert("african-male-old".to_string(), 1.0);
+                skin_albedo = "old_african_male_diffuse.png".to_string();
+            }
+            _  => {}
+        }
+        let transform = Transform::from_xyz(*i as f32  - 2.0, 0.0, 0.0);
+        commands.spawn((
+            SpawnTransform(transform),
+            HumanConfig {
+                skin_albedo: skin_albedo,
+                rig: RigType::Mixamo,
+                morph_targets: shapekeys,
+            },
+        ));
+    }
 }
 
 fn main() {

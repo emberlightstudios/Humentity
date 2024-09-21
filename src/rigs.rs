@@ -137,16 +137,23 @@ pub(crate) fn apply_rig(
     inv_bindpose_assets: &mut ResMut<Assets<SkinnedMeshInverseBindposes>>,
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    vg: Res<VertexGroups>,
+    vg: &Res<VertexGroups>,
     helpers: Vec<Vec3>,
+    spawn_transform: Transform,
 ) -> (Handle<Mesh>, SkinnedMesh) {
     let weights_res = rigs.weights.get(&rig).unwrap();
     let config_res = rigs.configs.get(&rig).unwrap();
 
     // Spawn bone entities
+    // Use human as root of skeleton
+    commands.entity(*human).insert(Bone("Root".to_string()));
     let mut bone_entities = HashMap::<String, Entity>::with_capacity(config_res.len());
-    for (name, _bone) in config_res.iter() {
-        bone_entities.insert(name.to_string(), commands.spawn(Bone(name.to_string())).id());
+    for (name, bone) in config_res.iter() {
+        if bone.parent == "" && name.eq_ignore_ascii_case("root"){
+            bone_entities.insert(name.to_string(), *human);
+        } else {
+            bone_entities.insert(name.to_string(), commands.spawn(Bone(name.to_string())).id());
+        }
     }
 
     // For finding in-degree of each bone in the tree
@@ -184,14 +191,22 @@ pub(crate) fn apply_rig(
     for name in sorted_bones.iter() {
         let bone = config_res.get(name).unwrap();
         let &entity = bone_entities.get(name).unwrap();
-        let transform = get_bone_transform(
-            &bone.head,
-            &bone.tail,
-            &vg,
-            &helpers
-        );
+        let transform: Transform;
+        // Force root bone at origin
+        if !name.eq_ignore_ascii_case("root") {
+            transform = spawn_transform * get_bone_transform(
+                &bone.head,
+                &bone.tail,
+                &vg,
+                &helpers
+            );
+        } else {
+            transform = spawn_transform;
+        }
         let parent = &bone.parent;
-        // No idea why this works
+        // No idea why this works.  Shouldn't need to multiply by parent
+        // Typically you would do this with local transforms to bring them
+        // to the global space.  But these should already be global.
         let mut xform_mat = transform.compute_matrix();
         if parent != "" {
             let parent_mat = *matrices.get(parent).unwrap();
@@ -199,22 +214,27 @@ pub(crate) fn apply_rig(
         }
         matrices.insert(name.to_string(), xform_mat);
         inv_bindposes.push(xform_mat.inverse());
+        // Also don't understand this.  the transform should be global not local
+        // It is constructed from vertex positions which are global to the model
+        // space and know nothing about the bones.
         commands.entity(entity).insert(TransformBundle {
             local: transform,
             ..default()
         });
     }
 
-    // If root bone is not at the ground (hips) insert root bone because root will drive position
+    // Mixamo rig has hips as root. Insert human.
     let root_str = &sorted_bones[0].clone();
-    if Transform::from_matrix(*matrices.get(root_str).unwrap()).translation.y > 0.04 {
+    if root_str.ends_with("Hips") {
         sorted_bones.insert(0, "Root".to_string());
-        let root_bone = commands.spawn(Bone("Root".to_string())).id();
-        bone_entities.insert("Root".to_string(), root_bone);
+        bone_entities.insert("Root".to_string(), *human);
         let &old_root = bone_entities.get(root_str).unwrap();
-        commands.entity(root_bone).push_children(&[old_root]);
-        commands.entity(root_bone).insert(TransformBundle::default());
-        joints.insert(0, root_bone);
+        commands.entity(*human).push_children(&[old_root]);
+        commands.entity(*human).insert(TransformBundle{
+            local: spawn_transform,
+            ..default()
+        });
+        joints.insert(0, *human);
         inv_bindposes.insert(0, Mat4::IDENTITY)
     }
 

@@ -31,7 +31,8 @@ pub use rigs::RigType;
 pub mod prelude {
     pub use crate::{
         Humentity,
-        LoadHumanParams,
+        HumanConfig,
+        SpawnTransform,
         RigType,
     };
 }
@@ -45,12 +46,65 @@ pub enum HumentityState {
     Ready
 }
 
-#[derive(Event)]
-pub struct LoadHumanParams {
-    pub shapekeys: HashMap<String, f32>,
-    pub skin_albedo: String,
+#[derive(Component)]
+pub struct SpawnTransform(pub Transform);
+
+#[derive(Component)]
+pub struct HumanConfig {
+    // Could be f16 (unstable type warning)
+    pub morph_targets: HashMap<String, f32>,
     pub rig: RigType,
-    pub transform: Transform,
+    pub skin_albedo: String,
+}
+
+fn on_human_added(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut inv_bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
+    base_mesh: Res<BaseMesh>,
+    targets: Query<&MorphTarget>,
+    asset_server: Res<AssetServer>,
+    rigs: Res<RigData>,
+    vg: Res<VertexGroups>,
+    new_humans: Query<(Entity, &HumanConfig, &SpawnTransform), Added<HumanConfig>>,
+) {
+    new_humans.iter().for_each(|(human, config, spawn_transform)| {
+        let albedo = asset_server.load("skin_textures/albedo/".to_string() + &config.skin_albedo);
+        let material = materials.add(StandardMaterial {
+            base_color_texture: Some(albedo),
+            ..default()
+        });
+        let (helpers, mesh) = bake_morphs_to_mesh(
+            &config.morph_targets,
+            &base_mesh,
+            &targets,
+            &mut meshes
+        );
+        let (mesh_handle, skinned_mesh) = apply_rig(
+            &human,
+            config.rig,
+            mesh,
+            &base_mesh,
+            &rigs,
+            &mut inv_bindposes,
+            &mut commands,
+            &mut meshes,
+            &vg,
+            helpers,
+            spawn_transform.0,
+        );
+        // Spawn avatar as separate entity
+        commands.spawn((
+            skinned_mesh,
+            PbrBundle {
+                mesh: mesh_handle,
+                material: material,
+                ..default()
+            },
+        ));
+        commands.entity(human).remove::<SpawnTransform>();
+    })
 }
 
 // TODO
@@ -60,50 +114,6 @@ pub struct LoadHumanParams {
 // animation
 // presets
 // 
-pub(crate) fn load_human_entity(
-    trigger: Trigger<LoadHumanParams>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut inv_bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
-    targets: Query<&MorphTarget>,
-    asset_server: Res<AssetServer>,
-    base_mesh: Res<BaseMesh>,
-    rigs: Res<RigData>,
-    vg: Res<VertexGroups>,
-) {
-    let albedo = asset_server.load("skin_textures/albedo/".to_string() + &trigger.event().skin_albedo);
-    let material = materials.add(StandardMaterial {
-        base_color_texture: Some(albedo),
-        ..default()
-    });
-    let human = trigger.entity();
-    let (helpers, mesh) = bake_morphs_to_mesh(
-        &trigger.event().shapekeys,
-        &base_mesh,
-        &targets,
-        &mut meshes
-    );
-    let (mesh_handle, skinned_mesh) = apply_rig(
-        &human,
-        trigger.event().rig,
-        mesh,
-        &base_mesh,
-        &rigs,
-        &mut inv_bindposes,
-        &mut commands,
-        &mut meshes,
-        vg,
-        helpers,
-    );
-    commands.entity(human).insert(skinned_mesh);
-    commands.entity(human).insert(PbrBundle {
-        mesh: mesh_handle,
-        transform: trigger.event().transform,
-        material: material,
-        ..default()
-    });
-}
 
 pub struct Humentity{
     debug: bool,
@@ -132,7 +142,9 @@ impl Plugin for Humentity {
         app.add_systems(Update, (
             create_body_vertex_map,
         ).run_if(in_state(HumentityState::LoadingBodyVertexMap)));
-        app.observe(load_human_entity);
+        app.add_systems(Update, (
+            on_human_added,
+        ).run_if(in_state(HumentityState::Ready)));
         if self.debug {
             app.add_systems(Update, bone_debug_draw);
         }
