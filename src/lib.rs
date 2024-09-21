@@ -16,7 +16,10 @@ use rigs::{
     bone_debug_draw,
     apply_rig,
 };
-use morphs::bake_morphs_to_mesh;
+use morphs::{
+    bake_morphs_to_mesh,
+    MorphTargets,
+};
 
 pub(crate) use basemesh::{
     BaseMesh,
@@ -24,10 +27,7 @@ pub(crate) use basemesh::{
     BODY_SCALE,
     BODY_VERTICES,
 };
-pub(crate) use morphs::{
-    MorphTarget,
-    MorphTargetType,
-};
+pub(crate) use morphs::MorphTarget;
 
 pub use rigs::RigType;
 pub use global_config::HumentityGlobalConfig;
@@ -63,6 +63,7 @@ impl Plugin for Humentity {
             app.add_plugins(ObjPlugin{ compute_smooth_normals: true });
         }
         app.insert_state(HumentityState::Idle);
+        app.init_resource::<MorphTargets>();
         app.init_resource::<BaseMesh>();
         app.init_resource::<RigData>();
         app.add_systems(Update, (
@@ -118,7 +119,7 @@ fn on_human_added(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut inv_bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     base_mesh: Res<BaseMesh>,
-    targets: Query<&MorphTarget>,
+    targets: Res<MorphTargets>,
     asset_server: Res<AssetServer>,
     rigs: Res<RigData>,
     vg: Res<VertexGroups>,

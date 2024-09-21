@@ -7,7 +7,7 @@ This project is a work in progress and is currently missing many features.  See 
 ## Current features
 - Global plugin config resource
 - MakeHuman base mesh resource
-- Shapekey entities
+- MorphTargets resource
 - HumanConfig component spawns humans
 - Shapekeys baked out to new mesh
 - Basic albedo skin textures
