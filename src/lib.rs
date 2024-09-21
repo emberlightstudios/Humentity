@@ -1,42 +1,91 @@
 mod basemesh;
 mod morphs;
 mod rigs;
+mod global_config;
 
+use std::collections::HashMap;
+use bevy::{prelude::*, render::mesh::skinning::SkinnedMeshInverseBindposes};
+use bevy_obj::ObjPlugin;
 use basemesh::{
     fix_helper_mesh,
     create_body_mesh,
     create_body_vertex_map,
 };
-use bevy::{prelude::*, render::mesh::skinning::SkinnedMeshInverseBindposes};
-use bevy_obj::ObjPlugin;
 use rigs::{
     RigData,
     bone_debug_draw,
+    apply_rig,
 };
-use std::collections::HashMap;
-pub(crate) use crate::basemesh::{
+use morphs::bake_morphs_to_mesh;
+
+pub(crate) use basemesh::{
     BaseMesh,
     VertexGroups,
     BODY_SCALE,
     BODY_VERTICES,
 };
-use rigs::apply_rig;
 pub(crate) use morphs::{
     MorphTarget,
     MorphTargetType,
-    bake_morphs_to_mesh,
 };
+
 pub use rigs::RigType;
+pub use global_config::HumentityGlobalConfig;
 
 pub mod prelude {
     pub use crate::{
         Humentity,
+        HumentityGlobalConfig,
         HumanConfig,
         SpawnTransform,
         RigType,
     };
 }
 
+/*----------+
+ |  Plugin  |
+ +----------*/
+pub struct Humentity{
+    debug: bool,
+}
+
+impl Default for Humentity {
+    fn default() -> Self {
+        Humentity {
+            debug: true,
+        }
+    }
+}
+
+impl Plugin for Humentity {
+    fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<ObjPlugin>() {
+            app.add_plugins(ObjPlugin{ compute_smooth_normals: true });
+        }
+        app.insert_state(HumentityState::Idle);
+        app.init_resource::<BaseMesh>();
+        app.init_resource::<RigData>();
+        app.add_systems(Update, (
+            fix_helper_mesh,
+        ).run_if(in_state(HumentityState::FixingHelperMesh)));
+        app.add_systems(Update, (
+            create_body_mesh,
+        ).run_if(in_state(HumentityState::LoadingBodyMesh)));
+        app.add_systems(Update, (
+            create_body_vertex_map,
+        ).run_if(in_state(HumentityState::LoadingBodyVertexMap)));
+        app.add_systems(Update, (
+            on_human_added,
+        ).run_if(in_state(HumentityState::Ready)));
+        if self.debug {
+            app.add_systems(Update, bone_debug_draw);
+        }
+    }
+}
+
+/*----------+
+ |  States  |
+ +----------*/
 #[derive(States, PartialEq, Eq, Hash, Debug, Clone)]
 pub enum HumentityState {
     Idle,
@@ -46,6 +95,9 @@ pub enum HumentityState {
     Ready
 }
 
+/*--------------+
+ |  Components  |
+ +--------------*/
 #[derive(Component)]
 pub struct SpawnTransform(pub Transform);
 
@@ -57,6 +109,9 @@ pub struct HumanConfig {
     pub skin_albedo: String,
 }
 
+/*-----------+
+ |  Systems  |
+ +-----------*/
 fn on_human_added(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -107,46 +162,3 @@ fn on_human_added(
     })
 }
 
-// TODO
-// transform needs to be controlled by skeleton root
-// should convert to bundle instead of listening for triggers
-// mhclo
-// animation
-// presets
-// 
-
-pub struct Humentity{
-    debug: bool,
-}
-
-impl Default for Humentity {
-    fn default() -> Self {
-        Humentity {
-            debug: true,
-        }
-    }
-}
-
-impl Plugin for Humentity {
-    fn build(&self, app: &mut App) {
-        app.add_plugins(ObjPlugin{ compute_smooth_normals: true });
-        app.insert_state(HumentityState::Idle);
-        app.init_resource::<BaseMesh>();
-        app.init_resource::<RigData>();
-        app.add_systems(Update, (
-            fix_helper_mesh,
-        ).run_if(in_state(HumentityState::FixingHelperMesh)));
-        app.add_systems(Update, (
-            create_body_mesh,
-        ).run_if(in_state(HumentityState::LoadingBodyMesh)));
-        app.add_systems(Update, (
-            create_body_vertex_map,
-        ).run_if(in_state(HumentityState::LoadingBodyVertexMap)));
-        app.add_systems(Update, (
-            on_human_added,
-        ).run_if(in_state(HumentityState::Ready)));
-        if self.debug {
-            app.add_systems(Update, bone_debug_draw);
-        }
-    }
-}

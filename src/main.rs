@@ -68,6 +68,7 @@ fn setup_env(
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .insert_resource(HumentityGlobalConfig::default())
         .add_plugins(Humentity::default())
         .add_systems(OnEnter(HumentityState::Ready), setup_env)
         .run();

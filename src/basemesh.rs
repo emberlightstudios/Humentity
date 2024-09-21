@@ -9,18 +9,10 @@ use std::{
 };
 use walkdir::WalkDir;
 use crate::{
-    HumentityState,
-    MorphTarget,
-    MorphTargetType
+    HumentityGlobalConfig, HumentityState, MorphTarget, MorphTargetType
 };
 use serde::Deserialize;
 use serde_json;
-
-enum LoadingStep {
-    LoadingMeshes,
-    BuildingVertexMap,
-    Finished,
-}
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
 pub(crate) const BODY_SCALE: f32 = 0.1;
@@ -59,31 +51,35 @@ impl FromWorld for BaseMesh {
         world.insert_resource(vg);
 
         // Create Morph Target Entities from all the .target files
-        let path = "assets/targets";
-        for entry in WalkDir::new(path).into_iter().filter_map(Result::ok) {
-            let path = entry.path();
-            let mut offsets = HashMap::<u16, Vec3>::new();
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("target") {
-                let Some(filename) = path.file_name().unwrap().to_str() else { continue };
-                let Some(stem) = path.file_stem().unwrap().to_str() else { continue };
-                let err_msg = "Couldn't open target file ".to_string() + filename;
-                let file = File::open(path).expect(&err_msg);
-                for line_result in BufReader::new(file).lines() {
-                    let Ok(line) = line_result else { break };
-                    let mut line_elements = line.split_whitespace();
-                    let Some(vert_str) = line_elements.next() else { continue };
-                    let Ok(vert) = vert_str.parse::<u16>() else { continue };
-                    let coords: Vec<f32> = line_elements
-                                          .filter_map(|x| x.parse().ok())
-                                          .collect();
-                    offsets.insert(vert, Vec3::from_slice(&coords[..]) * BODY_SCALE);
+        let Some(config) = world.get_resource_mut::<HumentityGlobalConfig>() else {
+            panic!("No global Humentity config loaded");
+        };
+        for target_path in config.target_paths.clone().iter() {
+            for entry in WalkDir::new(target_path).into_iter().filter_map(Result::ok) {
+                let path = entry.path();
+                let mut offsets = HashMap::<u16, Vec3>::new();
+                if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("target") {
+                    let Some(filename) = path.file_name().unwrap().to_str() else { continue };
+                    let Some(stem) = path.file_stem().unwrap().to_str() else { continue };
+                    let err_msg = "Couldn't open target file ".to_string() + filename;
+                    let file = File::open(path).expect(&err_msg);
+                    for line_result in BufReader::new(file).lines() {
+                        let Ok(line) = line_result else { break };
+                        let mut line_elements = line.split_whitespace();
+                        let Some(vert_str) = line_elements.next() else { continue };
+                        let Ok(vert) = vert_str.parse::<u16>() else { continue };
+                        let coords: Vec<f32> = line_elements
+                                              .filter_map(|x| x.parse().ok())
+                                              .collect();
+                        offsets.insert(vert, Vec3::from_slice(&coords[..]) * BODY_SCALE);
+                    }
+                    world.spawn(MorphTarget {
+                        name: stem.to_string(),
+                        morph_type: MorphTargetType::Macro,
+                        offsets: offsets,
+                    });
                 }
-                world.spawn(MorphTarget {
-                    name: stem.to_string(),
-                    morph_type: MorphTargetType::Macro,
-                    offsets: offsets,
-                });
-            }
+            };
         };
         let mut next = world.get_resource_mut::<NextState<HumentityState>>().expect("No HumentityState registered");
         next.set(HumentityState::FixingHelperMesh);

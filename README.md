@@ -5,6 +5,7 @@
 This project is a work in progress and is currently missing many features.  See main.rs for sample code
 
 ## Current features
+- Global plugin config resource
 - MakeHuman base mesh resource
 - Shapekey entities
 - HumanConfig component spawns humans
@@ -13,6 +14,8 @@ This project is a work in progress and is currently missing many features.  See 
 - Mesh auto-rigging
 
 ## Future features
+- Animation
+- Config presets
 - Clothes/Body Parts
 - Mesh combining
 - Texture atlasing

@@ -67,7 +67,7 @@ struct MixamoRigConfig {
  }
 
 impl FromWorld for RigData {
-    fn from_world(world: &mut World) -> Self {
+    fn from_world(_world: &mut World) -> Self {
         let mut type_strings = HashMap::<RigType, &str>::new();
         type_strings.insert(RigType::Default, "default");
         type_strings.insert(RigType::Mixamo, "mixamo");
