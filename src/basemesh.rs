@@ -1,13 +1,21 @@
 use bevy::prelude::*;
 use bevy::render::mesh::{
-    Mesh, VertexAttributeValues, Indices,
+    Mesh, Indices,
 };
 use std::{
-    io::{ BufReader, BufRead },
+    io::BufReader,
     fs::File,
     collections::HashMap,
 };
-use crate::HumentityState; 
+use crate::{
+    generate_inverse_vertex_map,
+    generate_vertex_map,
+    get_uv_coords,
+    get_vertex_normals,
+    get_vertex_positions,
+    parse_obj_vertices,
+    HumentityState,
+}; 
 use serde::Deserialize;
 use serde_json;
 
@@ -25,10 +33,9 @@ pub(crate) struct BaseMesh{
     pub(crate) handle: Handle<Mesh>,
     pub(crate) body_handle: Handle<Mesh>,
     pub(crate) vertices: Vec<Vec3>,
-    pub(crate) vertex_map: HashMap<u16, Vec<u16>>,
-    pub(crate) inv_vertex_map: HashMap<u16, u16>,
+    pub(crate) helper_vertex_map: HashMap<u16, Vec<u16>>,
     pub(crate) body_vertex_map: HashMap<u16, Vec<u16>>,
-    pub(crate) body_inv_vertex_map: HashMap<u16, u16>,
+    pub(crate) ground_offset: f32
 }
 
 impl FromWorld for BaseMesh {
@@ -53,10 +60,9 @@ impl FromWorld for BaseMesh {
             handle: base_handle.clone(),
             body_handle: base_handle,
             vertices: mh_vertices,
-            vertex_map: HashMap::<u16, Vec<u16>>::new(),
-            inv_vertex_map: HashMap::<u16, u16>::new(),
+            helper_vertex_map: HashMap::<u16, Vec<u16>>::new(),
             body_vertex_map: HashMap::<u16, Vec<u16>>::new(),
-            body_inv_vertex_map: HashMap::<u16, u16>::new(),
+            ground_offset: 0.0,
         }
     }
 }
@@ -81,6 +87,7 @@ pub(crate) fn fix_helper_mesh(
     let v1: usize = vg.0.get("joint-ground").unwrap()[0][0];
     let v2: usize = vg.0.get("joint-ground").unwrap()[0][1];
     let offset = (base_mesh.vertices[v1] + base_mesh.vertices[v2]) * 0.5;
+    base_mesh.ground_offset = offset.length();
 
     // Fix mh_vertices cache
     for i in 0..base_mesh.vertices.len() {
@@ -88,9 +95,7 @@ pub(crate) fn fix_helper_mesh(
     }
 
     // Loaded mesh vertices
-    let Some(VertexAttributeValues::Float32x3(raw_vtx_data)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-            else { panic!("FAILED TO LOAD MESH VERTEX DATA") };
-    let mut vtx_data: Vec<Vec3> = raw_vtx_data.iter().map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect(); 
+    let mut vtx_data = get_vertex_positions(&mesh);
     for i in 0..vtx_data.len() {
         vtx_data[i] = (vtx_data[i] - offset) * BODY_SCALE;
     }
@@ -113,20 +118,12 @@ pub(crate) fn create_body_mesh(
     let Some(mesh) = meshes.get(&base_mesh.handle) else { return };
 
     // Get mesh arrays
-    let Some(VertexAttributeValues::Float32x3(raw_vtx_data)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-            else { panic!("FAILED TO LOAD MESH VERTEX DATA") };
-    let Some(VertexAttributeValues::Float32x3(raw_normal_data)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
-            else { panic!("FAILED TO LOAD MESH NORMAL DATA") };
-    let Some(VertexAttributeValues::Float32x2(raw_uv_data)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
-            else { panic!("FAILED TO LOAD MESH UV DATA") };
     let Some(raw_indices) = mesh.indices() else { panic!("FAILED TO LOAD MESH INDICES") };
-
-    let vtx_data: Vec<Vec3> = raw_vtx_data.iter().map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect(); 
-    let normal_data: Vec<Vec3> = raw_normal_data.iter().map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect(); 
-    let uv_data: Vec<Vec2> = raw_uv_data.iter().map(|arr| Vec2::new(arr[0], arr[1])).collect(); 
+    let vtx_data = get_vertex_positions(&mesh);
+    let normal_data = get_vertex_normals(&mesh); 
+    let uv_data = get_uv_coords(&mesh);
 
     let vertex_map = generate_vertex_map(&base_mesh.vertices, &vtx_data);
-    let inv_vertex_map = generate_inverse_vertex_map(&vertex_map);
     
     let mut new_mesh = mesh.clone();
     new_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vtx_data.clone());
@@ -134,7 +131,7 @@ pub(crate) fn create_body_mesh(
     // Create mesh without helpers
     let body_mesh = generate_mesh_without_helpers(
         &new_mesh,
-        &inv_vertex_map,
+        &vertex_map,
         vtx_data.clone(),
         normal_data,
         uv_data,
@@ -144,8 +141,7 @@ pub(crate) fn create_body_mesh(
     // Save values in base mesh resource
     base_mesh.handle = meshes.add(new_mesh);
     base_mesh.body_handle = meshes.add(body_mesh);
-    base_mesh.vertex_map = vertex_map;
-    base_mesh.inv_vertex_map = inv_vertex_map;
+    base_mesh.helper_vertex_map = vertex_map;
     next.set(HumentityState::LoadingBodyVertexMap);
 } 
 
@@ -156,42 +152,18 @@ pub(crate) fn create_body_vertex_map(
     mut next: ResMut<NextState<HumentityState>>,
 ) {
     let Some(body_mesh) = meshes.get(&base_mesh.body_handle) else { return };
-    let Some(VertexAttributeValues::Float32x3(raw_vtx_data)) = body_mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-            else { panic!("FAILED TO LOAD MESH VERTEX DATA") };
-    let vertices: Vec<Vec3> = raw_vtx_data.iter().map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect(); 
-    let body_vertex_map = generate_vertex_map(
-        &base_mesh.vertices,
-        &vertices
-    );
-    let body_inv_vertex_map = generate_inverse_vertex_map(&body_vertex_map);
+    let vertices = get_vertex_positions(&body_mesh);
+    let body_vertex_map = generate_vertex_map(&base_mesh.vertices, &vertices);
     base_mesh.body_vertex_map = body_vertex_map;
-    base_mesh.body_inv_vertex_map = body_inv_vertex_map;
-    next.set(HumentityState::Ready);
+    next.set(HumentityState::FixingAssetMeshes);
 }
 
 /*---------------------+
  |  Utility Functions  |
  +---------------------*/
-fn parse_obj_vertices(filename: &str) -> Vec<Vec3> {
-    let err_msg = "Couldn't open file ".to_string() + filename;
-    let file = File::open(filename).expect(&err_msg);
-    let mut vertices = Vec::<Vec3>::new();
-    for line_result in BufReader::new(file).lines() {
-        let Ok(line) = line_result else { break };
-        if line.starts_with("v ") {
-            let coords: Vec<f32> = line.split_whitespace()
-                             .skip(1)
-                             .filter_map(|x| x.parse().ok())
-                             .collect();
-            vertices.push(Vec3::new(coords[0], coords[1], coords[2]));
-        }
-    }
-    vertices
-}
-
 fn generate_mesh_without_helpers(
     original_mesh: &Mesh,
-    inv_vertex_map: &HashMap<u16, u16>,
+    vertex_map: &HashMap<u16, Vec<u16>>,
     vtx_data: Vec<Vec3>,
     normal_data: Vec<Vec3>,
     uv_data: Vec<Vec2>,
@@ -208,7 +180,8 @@ fn generate_mesh_without_helpers(
     let mut new_vert_indices = HashMap::<u16, u16>::new();
     let mut i = 0;
 
-    for (vertex, mhv) in inv_vertex_map.iter() {
+    let inv_map = generate_inverse_vertex_map(vertex_map);
+    for (vertex, mhv) in inv_map.iter() {
         if *mhv < BODY_VERTICES {
             new_vert_indices.insert(*vertex, i);
             vertices.push(vtx_data[*vertex as usize]);
@@ -219,7 +192,7 @@ fn generate_mesh_without_helpers(
     }
     let index_vec: Vec<usize> = indices_data.iter().collect();
     for chunk in index_vec.chunks(3) {
-        if chunk.iter().all(|&x| *inv_vertex_map.get(&(x as u16)).unwrap() < BODY_VERTICES) {
+        if chunk.iter().all(|&x| *inv_map.get(&(x as u16)).unwrap() < BODY_VERTICES) {
             indices.extend_from_slice(chunk);
         }
     }
@@ -236,36 +209,4 @@ fn generate_mesh_without_helpers(
     .with_inserted_indices(Indices::U16(u16indices));
     let _ = body_mesh.generate_tangents();
     body_mesh
-}
-
-fn generate_vertex_map(
-    mh_vertices: &Vec<Vec3>,
-    vertices: &Vec<Vec3>
-) -> HashMap<u16, Vec<u16>> {
-    let mut vertex_map = HashMap::<u16, Vec<u16>>::new();
-    let mut assigned = std::collections::HashSet::<usize>::new();
-    for (i, mh_vertex) in mh_vertices.iter().enumerate() {
-        vertex_map.insert(i as u16, Vec::<u16>::new());
-        let vec = vertex_map.get_mut(&(i as u16)).unwrap();
-        for (j, vtx) in vertices.iter().enumerate() {
-            if vtx == mh_vertex {
-                if assigned.contains(&j) {
-                    panic!("DUPLICATE VERTICES WHEN MAKING VTX MAP") 
-                }
-                assigned.insert(j);
-                vec.push(j as u16);
-            }
-        }
-    }
-    vertex_map
-}
-    
-fn generate_inverse_vertex_map(
-    vertex_map: &HashMap<u16, Vec<u16>>,
-) -> HashMap<u16, u16> {
-    let mut inv_vertex_map = HashMap::<u16, u16>::new();
-    for (mhv, verts) in vertex_map.iter() {
-        for vert in verts.iter() { inv_vertex_map.insert(*vert, *mhv); }
-    }
-    inv_vertex_map
 }

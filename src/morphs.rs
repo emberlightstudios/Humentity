@@ -1,23 +1,18 @@
 use bevy::prelude::*;
-use bevy::render::{
-    mesh::{ 
-        VertexAttributeValues,
-        PrimitiveTopology,
-    },
-    render_asset::RenderAssetUsages,
-};
 use std::{
-    collections::{ HashMap, HashSet },
+    collections::HashMap,
     fs::File,
     io::{ BufReader, BufRead },
 };
 use walkdir::WalkDir;
 use crate::{ 
+    get_vertex_positions,
     BaseMesh,
     HumentityGlobalConfig,
     BODY_SCALE,
+    HumanMeshAsset,
+    generate_inverse_vertex_map,
 };
-
 
 pub struct MorphTarget(HashMap<u16, Vec3>);
 
@@ -27,7 +22,6 @@ pub struct MorphTarget(HashMap<u16, Vec3>);
 #[derive(Resource)]
 pub struct MorphTargets {
     names: HashMap<String, MorphTarget>,
-    categories: HashMap<String, HashSet<MorphTarget>>,
 }
 
 impl FromWorld for MorphTargets {
@@ -37,8 +31,6 @@ impl FromWorld for MorphTargets {
             panic!("No global Humentity config loaded");
         };
         let mut names = HashMap::<String, MorphTarget>::new();
-        let mut categories = HashMap::<String, HashSet<MorphTarget>>::new();
-        let mut category = "".to_string();
         for target_path in config.target_paths.clone().iter() {
             for entry in WalkDir::new(target_path).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
@@ -58,17 +50,14 @@ impl FromWorld for MorphTargets {
                                               .collect();
                         offsets.insert(vert, Vec3::from_slice(&coords[..]) * BODY_SCALE);
                     }
-                    names.insert(stem.to_string(), MorphTarget(offsets));
+                    names.insert(stem.to_string(), MorphTarget(offsets.clone()));
                 }
                 else {
-                    category = path.file_stem().unwrap().to_string_lossy().into();
-                    categories.insert(category, HashSet::<MorphTarget>::new());
                 }
             };
         };
         MorphTargets {
             names: names,
-            categories: categories,
         }
     }
 }
@@ -76,42 +65,77 @@ impl FromWorld for MorphTargets {
 /*-------------+
  |  Functions  |
  +-------------*/
-pub(crate) fn bake_morphs_to_mesh(
+pub(crate) fn bake_morphs_to_base_mesh(
     shapekeys: &HashMap<String, f32>,
-    base_mesh: &Res<BaseMesh>,
     targets: &Res<MorphTargets>,
     meshes: &mut ResMut<Assets<Mesh>>,
-) -> (Vec<Vec3>, Mesh) {
+    base_mesh: &Res<BaseMesh>,
+) -> (Mesh, Vec<Vec3>) {
     let mesh = meshes.get(&base_mesh.body_handle).unwrap().clone();
-    let Some(VertexAttributeValues::Float32x3(vertices)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("MESH VERTICES FAILURE") };
-    let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!("MESH UV FAILURE") };
-    let Some(indices) = mesh.indices() else { panic!("MESH FACE INDICES FAILURE") };
-    let mut vertices_vec = vertices.to_vec();
+    let mut vertices = get_vertex_positions(&mesh);
     let mut helpers = base_mesh.vertices.clone();
     for (target_name, &value) in shapekeys.iter() {
         for (name, target) in targets.names.iter() {
             if *name != *target_name { continue; }
             for (&vertex, &offset) in target.0.iter() {
                 if let Some(vtx_list) = base_mesh.body_vertex_map.get(&(vertex as u16)) {
-                    for vtx in vtx_list.iter() {
-                        vertices_vec[*vtx as usize][0] += offset.x * value;
-                        vertices_vec[*vtx as usize][1] += offset.y * value;
-                        vertices_vec[*vtx as usize][2] += offset.z * value;
+                    for &vtx in vtx_list.iter() {
+                        let idx = vtx as usize;
+                        vertices[idx] += offset * value;
                     }
+                    let idx = vertex as usize;
+                    helpers[idx] += offset * value;
                 }
-                helpers[vertex as usize] += offset * value;
             }
         }
     }
 
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices_vec.clone())
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv.clone())
-    .with_inserted_indices(indices.clone());
-    mesh.compute_smooth_normals();
-    let _ = mesh.generate_tangents();
-    (helpers, mesh)
+    let mut new_mesh = mesh.clone()
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
+    new_mesh.compute_smooth_normals();
+    let _ = new_mesh.generate_tangents();
+    (new_mesh, helpers)
 }
+
+pub(crate) fn bake_morphs_to_asset_mesh(
+    shapekeys: &HashMap<String, f32>,
+    targets: &Res<MorphTargets>,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    asset: &HumanMeshAsset,
+    helpers: &Vec<Vec3>,
+) -> Mesh {
+    let mesh = meshes.get(&asset.mesh_handle).unwrap().clone();
+    let mut vertices = get_vertex_positions(&mesh);
+    println!("{}", targets.names.contains_key("caucasian-female-young"));
+    for (target_name, &value) in shapekeys.iter() {
+        let err_msg = format!("Failed to find morph {}", target_name);
+        let target = targets.names.get(target_name).expect(&err_msg);
+        for (asset_vert, vtx_list) in asset.vertex_map.iter() {
+            let helper_map = &asset.helper_maps[*asset_vert as usize];
+            for vtx in vtx_list.iter() {
+                if helper_map.single_vertex.is_some() {
+                    let offset = *target.0.get(asset_vert).unwrap();
+                    vertices[*vtx as usize] += offset * value;
+                } else { // Triangulation
+                    let triangle = helper_map.triangle.as_ref().unwrap();
+                    let mut position = Vec3::ZERO;
+                    for i in 0..3 {
+                        let mh_vert = triangle.helper_verts[i];
+                        let wt = triangle.helper_weights[i];
+                        position += *helpers.get(mh_vert as usize).unwrap() * wt;
+                    }
+                    position += asset.get_scale(helpers) * triangle.helper_offset;
+                    let offset = position - vertices[*vtx as usize];
+                    vertices[*vtx as usize] += offset * value;
+                }
+            }
+        }
+    }
+    //println!("{:?}", vertices);
+    let mut new_mesh = mesh.clone()
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
+    new_mesh.compute_smooth_normals();
+    let _ = new_mesh.generate_tangents();
+    new_mesh
+}
+

@@ -14,7 +14,9 @@ use std::{
     io::BufReader,
 };
 use crate::{
-    BaseMesh, VertexGroups, BODY_SCALE, BODY_VERTICES
+    get_vertex_positions,
+    VertexGroups,
+    BODY_VERTICES
 };
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
@@ -132,13 +134,13 @@ pub(crate) fn apply_rig(
     human: &Entity,
     rig: RigType,
     mesh: Mesh,
-    base_mesh: &Res<BaseMesh>,
     rigs: &Res<RigData>,
+    vertex_map: &HashMap<u16, Vec<u16>>,
     inv_bindpose_assets: &mut ResMut<Assets<SkinnedMeshInverseBindposes>>,
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     vg: &Res<VertexGroups>,
-    helpers: Vec<Vec3>,
+    helpers: &Vec<Vec3>,
     spawn_transform: Transform,
 ) -> (Handle<Mesh>, SkinnedMesh) {
     let weights_res = rigs.weights.get(&rig).unwrap();
@@ -242,32 +244,30 @@ pub(crate) fn apply_rig(
 
     // Build bone index and weight arrays
     let mut new_mesh = mesh.clone();
-    let Some(VertexAttributeValues::Float32x3(vertices)) = new_mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("MESH VERTICES FAILURE") };
+    let vertices = get_vertex_positions(&new_mesh);
     let mut indices = vec![[0; 4]; vertices.len()];
     let mut weights = vec![[0.0; 4]; vertices.len()];
 
     for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
         let Some(bone_weights) = weights_res.weights.get(bone_name) else { continue };
         for (mh_id, wt) in bone_weights.iter() {
-            if *mh_id < BODY_VERTICES {
-                let Some(vertices) = base_mesh.body_vertex_map.get(&(*mh_id as u16)) else { continue };
-                for vertex in vertices.iter() {
-                    // get the [u16;4] array we need to insert into (array of 4 bone indices)
-                    let mut indices_vec = indices[*vertex as usize];
-                    // find the first zero index
-                    // vertex should not show up for more than 4 bones but happens sometimes
-                    // TODO
-                    // Should replace smallest weight instead of ignoring
-                    let Some(vec_index) = indices_vec.iter().position(|i| *i == 0) else { continue };
-                    // Set the bone index in this vector
-                    indices_vec[vec_index] = bone_index as u16;
-                    // insert into indices array 
-                    indices[*vertex as usize] = indices_vec;
-                    // use the same vec index to set the weights also
-                    let mut weights_vec = weights[*vertex as usize];
-                    weights_vec[vec_index] = *wt;
-                    weights[*vertex as usize] = weights_vec;
-                }
+            let Some(vertices) = vertex_map.get(&(*mh_id as u16)) else { continue };
+            for vertex in vertices.iter() {
+                // get the [u16;4] array we need to insert into (array of 4 bone indices)
+                let mut indices_vec = indices[*vertex as usize];
+                // find the first zero index
+                // vertex should not show up for more than 4 bones but happens sometimes
+                // TODO
+                // Should replace smallest weight instead of ignoring
+                let Some(vec_index) = indices_vec.iter().position(|i| *i == 0) else { continue };
+                // Set the bone index in this vector
+                indices_vec[vec_index] = bone_index as u16;
+                // insert into indices array 
+                indices[*vertex as usize] = indices_vec;
+                // use the same vec index to set the weights also
+                let mut weights_vec = weights[*vertex as usize];
+                weights_vec[vec_index] = *wt;
+                weights[*vertex as usize] = weights_vec;
             }
         }
     }

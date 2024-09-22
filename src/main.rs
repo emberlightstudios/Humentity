@@ -9,12 +9,12 @@ fn setup_env(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // circular base
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Circle::new(4.0)),
-        material: materials.add(Color::WHITE),
-        transform: Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-        ..default()
-    });
+    //commands.spawn(PbrBundle {
+    //    mesh: meshes.add(Circle::new(4.0)),
+    //    material: materials.add(Color::WHITE),
+    //    transform: Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+    //    ..default()
+    //});
     // point light
     commands.spawn(PointLightBundle {
         point_light: PointLight {
@@ -26,7 +26,7 @@ fn setup_env(
     });
     // camera
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(-0.5, 1.5, 3.5).looking_at(Vec3::ZERO + Vec3::Y * 1.0, Vec3::Y),
+        transform: Transform::from_xyz(-0.5, 1.5, 2.5).looking_at(Vec3::ZERO + Vec3::Y * 1.0, Vec3::Y),
         ..default()   
     });
 
@@ -44,7 +44,7 @@ fn setup_env(
                 skin_albedo = "young_asian_male_diffuse3.png".to_string();
             }
             2 => {
-                shapekeys.insert("caucasion-female-young".to_string(), 1.0);
+                shapekeys.insert("caucasian-female-young".to_string(), 1.0);
                 skin_albedo = "middleage_caucasian_female_diffuse.png".to_string();
             }
             3 => {
@@ -53,13 +53,16 @@ fn setup_env(
             }
             _  => {}
         }
-        let transform = Transform::from_xyz(*i as f32  - 2.0, 0.0, 0.0);
+        let transform = Transform::from_xyz(*i as f32 - 1.5, 0.0, 0.0);
         commands.spawn((
             SpawnTransform(transform),
             HumanConfig {
                 skin_albedo: skin_albedo,
                 rig: RigType::Mixamo,
                 morph_targets: shapekeys,
+                body_parts: vec![
+                    "HighPolyEyes".to_string()
+                ],
             },
         ));
     }
