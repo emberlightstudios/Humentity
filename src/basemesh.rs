@@ -28,15 +28,15 @@ pub(crate) const BODY_SCALE: f32 = 0.1;
 #[derive(Resource, Deserialize, Debug)]
 pub(crate) struct VertexGroups(pub(crate) HashMap<String, Vec<[usize; 2]>>);
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug)]
 pub(crate) struct BaseMesh{
-    pub(crate) handle: Handle<Mesh>,
-    pub(crate) body_handle: Handle<Mesh>,
+    pub(crate) mesh_handle: Handle<Mesh>,
     pub(crate) vertices: Vec<Vec3>,
-    pub(crate) helper_vertex_map: HashMap<u16, Vec<u16>>,
-    pub(crate) body_vertex_map: HashMap<u16, Vec<u16>>,
-    pub(crate) ground_offset: f32
+    pub(crate) vertex_map: HashMap<u16, Vec<u16>>,
 }
+
+#[derive(Resource, Debug)]
+pub(crate) struct HelperMeshHandle(Handle<Mesh>);
 
 impl FromWorld for BaseMesh {
     fn from_world(world: &mut World) -> Self {
@@ -53,69 +53,31 @@ impl FromWorld for BaseMesh {
         let vg: VertexGroups = serde_json::from_reader(reader).unwrap();
 
         world.insert_resource(vg);
+        world.insert_resource(HelperMeshHandle(base_handle.clone()));
 
         let mut next = world.get_resource_mut::<NextState<HumentityState>>().expect("No HumentityState registered");
-        next.set(HumentityState::FixingHelperMesh);
+        next.set(HumentityState::LoadingBodyMesh);
         BaseMesh{
-            handle: base_handle.clone(),
-            body_handle: base_handle,
+            mesh_handle: base_handle,
             vertices: mh_vertices,
-            helper_vertex_map: HashMap::<u16, Vec<u16>>::new(),
-            body_vertex_map: HashMap::<u16, Vec<u16>>::new(),
-            ground_offset: 0.0,
+            vertex_map: HashMap::<u16, Vec<u16>>::new(),
         }
+
     }
 }
         
 /*-----------+
  |  Systems  |
  +-----------*/
-
-// Rescale and set feet on ground
-pub(crate) fn fix_helper_mesh(
-    mut meshes: ResMut<Assets<Mesh>>,
-    vg_res: Option<Res<VertexGroups>>,
-    base_mesh_res: Option<ResMut<BaseMesh>>,
-    mut next: ResMut<NextState<HumentityState>>,
-) {
-    // Have to make sure these resources loaded correctly already
-    let Some(mut base_mesh) = base_mesh_res else { return };
-    let Some(mesh) = meshes.get_mut(&base_mesh.handle) else { return };
-    let Some(vg) = vg_res else { return };
-
-    // Get feet-on-ground offset
-    let v1: usize = vg.0.get("joint-ground").unwrap()[0][0];
-    let v2: usize = vg.0.get("joint-ground").unwrap()[0][1];
-    let offset = (base_mesh.vertices[v1] + base_mesh.vertices[v2]) * 0.5;
-    base_mesh.ground_offset = offset.length();
-
-    // Fix mh_vertices cache
-    for i in 0..base_mesh.vertices.len() {
-        base_mesh.vertices[i] = (base_mesh.vertices[i] - offset) * BODY_SCALE;
-    }
-
-    // Loaded mesh vertices
-    let mut vtx_data = get_vertex_positions(&mesh);
-    for i in 0..vtx_data.len() {
-        vtx_data[i] = (vtx_data[i] - offset) * BODY_SCALE;
-    }
-
-    // Reinsert corrected base mesh
-    let mut new_mesh = mesh.clone();
-    new_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vtx_data);
-    base_mesh.handle = meshes.add(new_mesh);
-
-    // Continue to next loading step
-    next.set(HumentityState::LoadingBodyMesh);
-}
-
 // Remove helper vertices to generate body only mesh
 pub(crate) fn create_body_mesh(
     mut next: ResMut<NextState<HumentityState>>,
     mut base_mesh: ResMut<BaseMesh>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut commands: Commands,
+    helper_handle: Res<HelperMeshHandle>,
 ) {
-    let Some(mesh) = meshes.get(&base_mesh.handle) else { return };
+    let Some(mesh) = meshes.get(&helper_handle.0) else { return };
 
     // Get mesh arrays
     let Some(raw_indices) = mesh.indices() else { panic!("FAILED TO LOAD MESH INDICES") };
@@ -139,9 +101,8 @@ pub(crate) fn create_body_mesh(
     );
 
     // Save values in base mesh resource
-    base_mesh.handle = meshes.add(new_mesh);
-    base_mesh.body_handle = meshes.add(body_mesh);
-    base_mesh.helper_vertex_map = vertex_map;
+    base_mesh.mesh_handle = meshes.add(body_mesh);
+    commands.remove_resource::<HelperMeshHandle>();
     next.set(HumentityState::LoadingBodyVertexMap);
 } 
 
@@ -151,11 +112,11 @@ pub(crate) fn create_body_vertex_map(
     meshes: Res<Assets<Mesh>>,
     mut next: ResMut<NextState<HumentityState>>,
 ) {
-    let Some(body_mesh) = meshes.get(&base_mesh.body_handle) else { return };
+    let Some(body_mesh) = meshes.get(&base_mesh.mesh_handle) else { return };
     let vertices = get_vertex_positions(&body_mesh);
     let body_vertex_map = generate_vertex_map(&base_mesh.vertices, &vertices);
-    base_mesh.body_vertex_map = body_vertex_map;
-    next.set(HumentityState::FixingAssetMeshes);
+    base_mesh.vertex_map = body_vertex_map;
+    next.set(HumentityState::LoadingAssetVertexMaps);
 }
 
 /*---------------------+

@@ -11,7 +11,6 @@ use crate::{
     HumentityGlobalConfig,
     BODY_SCALE,
     HumanMeshAsset,
-    generate_inverse_vertex_map,
 };
 
 pub struct MorphTarget(HashMap<u16, Vec3>);
@@ -65,51 +64,55 @@ impl FromWorld for MorphTargets {
 /*-------------+
  |  Functions  |
  +-------------*/
-pub(crate) fn bake_morphs_to_base_mesh(
+pub(crate) fn adjust_helpers_to_morphs(
     shapekeys: &HashMap<String, f32>,
     targets: &Res<MorphTargets>,
-    meshes: &mut ResMut<Assets<Mesh>>,
     base_mesh: &Res<BaseMesh>,
-) -> (Mesh, Vec<Vec3>) {
-    let mesh = meshes.get(&base_mesh.body_handle).unwrap().clone();
-    let mut vertices = get_vertex_positions(&mesh);
+) -> Vec<Vec3> {
     let mut helpers = base_mesh.vertices.clone();
     for (target_name, &value) in shapekeys.iter() {
-        for (name, target) in targets.names.iter() {
-            if *name != *target_name { continue; }
-            for (&vertex, &offset) in target.0.iter() {
-                if let Some(vtx_list) = base_mesh.body_vertex_map.get(&(vertex as u16)) {
-                    for &vtx in vtx_list.iter() {
-                        let idx = vtx as usize;
-                        vertices[idx] += offset * value;
-                    }
-                    let idx = vertex as usize;
-                    helpers[idx] += offset * value;
-                }
-            }
+        let err_msg = format!("Failed to find morph {}", target_name);
+        let target = targets.names.get(target_name).expect(&err_msg);
+        for (&vertex, &offset) in target.0.iter() {
+            helpers[vertex as usize] += offset * value;
         }
     }
+    helpers
+}
 
+pub(crate) fn bake_body_morphs(
+    meshes: &mut ResMut<Assets<Mesh>>,
+    helpers: &Vec<Vec3>,
+    base_mesh: &Res<BaseMesh>,
+) -> Mesh {
+    let mesh = meshes.get(&base_mesh.mesh_handle).unwrap().clone();
+    let mut vertices = get_vertex_positions(&mesh);
+    for (mh_vert, vtx_list) in base_mesh.vertex_map.iter() {
+        for vtx in vtx_list.iter() {
+            vertices[*vtx as usize] = helpers[*mh_vert as usize];
+        }
+    }
     let mut new_mesh = mesh.clone()
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
     new_mesh.compute_smooth_normals();
     let _ = new_mesh.generate_tangents();
-    (new_mesh, helpers)
+    new_mesh
 }
 
-pub(crate) fn bake_morphs_to_asset_mesh(
+
+pub(crate) fn bake_asset_morphs(
     shapekeys: &HashMap<String, f32>,
     targets: &Res<MorphTargets>,
     meshes: &mut ResMut<Assets<Mesh>>,
-    asset: &HumanMeshAsset,
     helpers: &Vec<Vec3>,
+    asset: &HumanMeshAsset,
 ) -> Mesh {
     let mesh = meshes.get(&asset.mesh_handle).unwrap().clone();
     let mut vertices = get_vertex_positions(&mesh);
-    println!("{}", targets.names.contains_key("caucasian-female-young"));
     for (target_name, &value) in shapekeys.iter() {
         let err_msg = format!("Failed to find morph {}", target_name);
         let target = targets.names.get(target_name).expect(&err_msg);
+
         for (asset_vert, vtx_list) in asset.vertex_map.iter() {
             let helper_map = &asset.helper_maps[*asset_vert as usize];
             for vtx in vtx_list.iter() {
@@ -131,7 +134,6 @@ pub(crate) fn bake_morphs_to_asset_mesh(
             }
         }
     }
-    //println!("{:?}", vertices);
     let mut new_mesh = mesh.clone()
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
     new_mesh.compute_smooth_normals();

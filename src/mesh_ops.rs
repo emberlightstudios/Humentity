@@ -8,11 +8,6 @@ use std::{
     path::Path,
     io::{ BufReader, BufRead },
 };
-use crate::{
-    VertexGroups,
-    BaseMesh,
-    BODY_SCALE,
-};
 
 
 pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
@@ -31,16 +26,6 @@ pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
         }
     }
     vertices
-}
-
-pub(crate) fn fix_mesh_scale(
-    vertices: &mut Vec<Vec3>,
-    base_mesh: &Res<BaseMesh>,
-) {
-    // Fix mh_vertices cache
-    for i in 0..vertices.len() {
-        vertices[i] = (vertices[i] + Vec3::Y * base_mesh.ground_offset) * BODY_SCALE;
-    }
 }
 
 pub(crate) fn get_vertex_positions(mesh: &Mesh) -> Vec<Vec3> {
@@ -74,6 +59,8 @@ pub(crate) fn generate_vertex_map(
 ) -> HashMap<u16, Vec<u16>> {
     let mut vertex_map = HashMap::<u16, Vec<u16>>::new();
     let mut assigned = std::collections::HashSet::<usize>::new();
+    let mut matched = std::collections::HashSet::<usize>::new();
+
     for (i, mh_vertex) in mh_vertices.iter().enumerate() {
         vertex_map.insert(i as u16, Vec::<u16>::new());
         let vec = vertex_map.get_mut(&(i as u16)).unwrap();
@@ -83,19 +70,23 @@ pub(crate) fn generate_vertex_map(
                     panic!("DUPLICATE VERTICES WHEN MAKING VTX MAP") 
                 }
                 assigned.insert(j);
+                matched.insert(j);
                 vec.push(j as u16);
             }
         }
+    }
+    if matched.len() < vertices.len() {
+        panic!("FAILED TO MATCH VERTEX IN VERTEX MAP");
     }
     vertex_map
 }
     
 // Maps bevy vertex ids to mh id
 pub(crate) fn generate_inverse_vertex_map(
-    inverse_map: &HashMap<u16, Vec<u16>>,
+    map: &HashMap<u16, Vec<u16>>,
 ) -> HashMap<u16, u16> {
     let mut inv_vertex_map = HashMap::<u16, u16>::new();
-    for (mhv, verts) in inverse_map.iter() {
+    for (mhv, verts) in map.iter() {
         for vert in verts.iter() { inv_vertex_map.insert(*vert, *mhv); }
     }
     inv_vertex_map

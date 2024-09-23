@@ -15,8 +15,8 @@ use std::{
 };
 use crate::{
     get_vertex_positions,
-    VertexGroups,
-    BODY_VERTICES
+    HelperMap,
+    VertexGroups
 };
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
@@ -30,11 +30,6 @@ pub enum RigType {
 /*---------+
  |  JSON   |
  +---------*/
-#[derive(Deserialize, Debug)]
-struct BoneWeights {
-    weights: HashMap<String, Vec<(u16, f32)>>
- }
-
 #[derive(Deserialize, Debug)]
 struct BoneTransform {
     cube_name: Option<String>,
@@ -53,6 +48,11 @@ struct BoneData {
     tail: BoneTransform,
 }
 
+#[derive(Deserialize, Debug)]
+struct WeightsFile {
+    weights: HashMap<String, Vec<(u16, f32)>>
+}
+
 // Contains an extra layer for some reason.  Usual config is in the bones key
 #[derive(Deserialize, Debug)]
 struct MixamoRigConfig {
@@ -62,11 +62,11 @@ struct MixamoRigConfig {
 /*-----------+
  | Resources |
  +-----------*/
- #[derive(Resource)]
- pub(crate) struct RigData {
-    weights: HashMap<RigType, BoneWeights>,
+#[derive(Resource)]
+pub(crate) struct RigData {
+    weights: HashMap<RigType, HashMap<String, HashMap<u16, f32>>>,
     configs: HashMap<RigType, HashMap<String, BoneData>>,
- }
+}
 
 impl FromWorld for RigData {
     fn from_world(_world: &mut World) -> Self {
@@ -75,7 +75,7 @@ impl FromWorld for RigData {
         type_strings.insert(RigType::Mixamo, "mixamo");
         type_strings.insert(RigType::GameEngine, "game_engine");
 
-        let mut rig_weights = HashMap::<RigType, BoneWeights>::new();
+        let mut rig_weights = HashMap::<RigType, HashMap<String, HashMap<u16, f32>>>::new();
         let mut rig_configs = HashMap::<RigType, HashMap<String, BoneData>>::new();
 
         for (rig_type, name) in type_strings.iter() {
@@ -83,8 +83,13 @@ impl FromWorld for RigData {
             let weights_file = File::open("assets/rigs/weights.".to_string() + type_strings.get(rig_type).unwrap() + ".json").expect(&err_msg);
             let weights_reader = BufReader::new(weights_file);
             let err_msg = "FAILED TO READ WEIGHTS JSON : ".to_string() + name;
-            let weights: BoneWeights = serde_json::from_reader(weights_reader).expect(&err_msg);
-            rig_weights.insert(*rig_type, weights);
+            let weights: WeightsFile = serde_json::from_reader(weights_reader).expect(&err_msg);
+            let mut weights_hashmap = HashMap::<String, HashMap<u16, f32>>::new();
+            for (bone, wts) in weights.weights.iter() {
+                let hashmap: HashMap<u16, f32> = wts.iter().cloned().collect();
+                weights_hashmap.insert(bone.to_string(), hashmap);
+            }
+            rig_weights.insert(*rig_type, weights_hashmap);
 
             let err_msg = "FAILED TO OPEN CONFIG FILE : ".to_string() + name;
             let config_file = File::open("assets/rigs/rig.".to_string() + type_strings.get(rig_type).unwrap() + ".json").expect(&err_msg);
@@ -108,6 +113,7 @@ impl FromWorld for RigData {
 /*------------+
  | Components |
  +------------*/
+ #[allow(dead_code)]
  #[derive(Component)]
  pub(crate) struct Bone(String);
 
@@ -130,20 +136,16 @@ impl FromWorld for RigData {
 /*-----------+
  | Functions |
  +-----------*/
-pub(crate) fn apply_rig(
+pub(crate) fn build_rig(
     human: &Entity,
     rig: RigType,
-    mesh: Mesh,
     rigs: &Res<RigData>,
-    vertex_map: &HashMap<u16, Vec<u16>>,
     inv_bindpose_assets: &mut ResMut<Assets<SkinnedMeshInverseBindposes>>,
     commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
     vg: &Res<VertexGroups>,
     helpers: &Vec<Vec3>,
     spawn_transform: Transform,
-) -> (Handle<Mesh>, SkinnedMesh) {
-    let weights_res = rigs.weights.get(&rig).unwrap();
+) -> (SkinnedMesh, Vec<String>) {
     let config_res = rigs.configs.get(&rig).unwrap();
 
     // Spawn bone entities
@@ -194,7 +196,6 @@ pub(crate) fn apply_rig(
         let bone = config_res.get(name).unwrap();
         let &entity = bone_entities.get(name).unwrap();
         let transform: Transform;
-        // Force root bone at origin
         if !name.eq_ignore_ascii_case("root") {
             transform = spawn_transform * get_bone_transform(
                 &bone.head,
@@ -203,12 +204,14 @@ pub(crate) fn apply_rig(
                 &helpers
             );
         } else {
+            // Force root bone at origin, default rig has it at hips
             transform = spawn_transform;
         }
         let parent = &bone.parent;
         // No idea why this works.  Shouldn't need to multiply by parent
         // Typically you would do this with local transforms to bring them
-        // to the global space.  But these should already be global.
+        // to the global space.  But these are already global so it makes no 
+        // sense but seems to work for some reason.
         let mut xform_mat = transform.compute_matrix();
         if parent != "" {
             let parent_mat = *matrices.get(parent).unwrap();
@@ -216,16 +219,13 @@ pub(crate) fn apply_rig(
         }
         matrices.insert(name.to_string(), xform_mat);
         inv_bindposes.push(xform_mat.inverse());
-        // Also don't understand this.  the transform should be global not local
-        // It is constructed from vertex positions which are global to the model
-        // space and know nothing about the bones.
         commands.entity(entity).insert(TransformBundle {
             local: transform,
             ..default()
         });
     }
 
-    // Mixamo rig has hips as root. Insert human.
+    // Mixamo rig has hips as root. Insert human as root bone.
     let root_str = &sorted_bones[0].clone();
     if root_str.ends_with("Hips") {
         sorted_bones.insert(0, "Root".to_string());
@@ -241,32 +241,48 @@ pub(crate) fn apply_rig(
     }
 
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
+    (SkinnedMesh {
+        inverse_bindposes: inverse_bindposes.clone(),
+        joints: joints,
+    }, sorted_bones)
+}
 
+pub(crate) fn set_basemesh_rig_arrays(
+    rig: RigType,
+    mesh: Mesh,
+    rigs: &Res<RigData>,
+    vertex_map: &HashMap<u16, Vec<u16>>,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    sorted_bones: &Vec<String>,
+) -> Handle<Mesh> {
     // Build bone index and weight arrays
+    let weights_res = rigs.weights.get(&rig).expect("No weights for rig?");
     let mut new_mesh = mesh.clone();
-    let vertices = get_vertex_positions(&new_mesh);
+    let vertices = get_vertex_positions(&mesh);
     let mut indices = vec![[0; 4]; vertices.len()];
     let mut weights = vec![[0.0; 4]; vertices.len()];
 
     for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
-        let Some(bone_weights) = weights_res.weights.get(bone_name) else { continue };
-        for (mh_id, wt) in bone_weights.iter() {
-            let Some(vertices) = vertex_map.get(&(*mh_id as u16)) else { continue };
-            for vertex in vertices.iter() {
-                // get the [u16;4] array we need to insert into (array of 4 bone indices)
+        let Some(bone_weights) = weights_res.get(bone_name) else { continue };
+        // loop over vertex, bone weight pairs from config
+        for (&mh_id, &wt) in bone_weights.iter() {
+            // loop over bevy vertex ids mapping to this mh vertex
+            for vertex in vertex_map.get(&mh_id).unwrap().iter() {
+                // Get the vertex(u16) -> weights(f32) map for this bone
+                // get the array at the vertex index to get the [u16;4] array we need to insert into
                 let mut indices_vec = indices[*vertex as usize];
-                // find the first zero index
-                // vertex should not show up for more than 4 bones but happens sometimes
-                // TODO
-                // Should replace smallest weight instead of ignoring
-                let Some(vec_index) = indices_vec.iter().position(|i| *i == 0) else { continue };
+                // find smallest weight which is also < wt
+                let Some(vec_index) = indices_vec.iter()
+                    .enumerate()
+                    .filter_map(|(index, &value)| if (value as f32) < wt { Some(index) } else { None })
+                    .min() else { continue };
                 // Set the bone index in this vector
                 indices_vec[vec_index] = bone_index as u16;
                 // insert into indices array 
                 indices[*vertex as usize] = indices_vec;
-                // use the same vec index to set the weights also
+                // use the same vertex vec index to set the weights also
                 let mut weights_vec = weights[*vertex as usize];
-                weights_vec[vec_index] = *wt;
+                weights_vec[vec_index] = *bone_weights.get(&mh_id).expect("Failed to get vertex bone weight");
                 weights[*vertex as usize] = weights_vec;
             }
         }
@@ -287,10 +303,104 @@ pub(crate) fn apply_rig(
 
     new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
     new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
-    (meshes.add(new_mesh), SkinnedMesh {
-        inverse_bindposes: inverse_bindposes.clone(),
-        joints: joints,
-    })
+    meshes.add(new_mesh)
+}
+
+pub(crate) fn set_asset_rig_arrays(
+    rig: RigType,
+    mesh: Mesh,
+    rigs: &Res<RigData>,
+    vertex_map: &HashMap<u16, Vec<u16>>,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    helper_maps: &Vec<HelperMap>,
+    sorted_bones: &Vec<String>,
+) -> Handle<Mesh> {
+    let weights_res = rigs.weights.get(&rig).expect("No weights for rig?");
+    let mut new_mesh = mesh.clone();
+    let vertices = get_vertex_positions(&mesh);
+
+    // Build hashmaps to store bone info for each obj vertex id
+    let mut indices_map = HashMap::<u16, Vec<usize>>::with_capacity(vertices.len());
+    let mut weights_map = HashMap::<u16, Vec<f32>>::with_capacity(vertices.len());
+
+    // loop over obj vertices
+    for obj_id in vertex_map.keys() {
+        // Create vec in the map for bone indices and weights
+        let mut indices_vec = Vec::<usize>::new();
+        let mut weights_vec = Vec::<f32>::new();
+        // Check helper map for this obj_id
+        let helper_map = &helper_maps[*obj_id as usize];
+        // loop over bones and find any matching helper indices
+        for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
+            let Some(bone_weights) = weights_res.get(bone_name) else { continue };
+            // For single vertex mapping just apply data for that vertex
+            if let Some(v) = helper_map.single_vertex {
+                let Some(helper_wt) = bone_weights.get(&v) else { continue; };
+                if *helper_wt <= 0.0 { continue };
+                indices_vec.push(bone_index);
+                weights_vec.push(*helper_wt);
+            } else { 
+                // Triangle.  Have to weight the base vertices
+                let triangle = helper_map.triangle.as_ref().unwrap();
+                for (i, mh_id) in triangle.helper_verts.iter().enumerate() {
+                    let Some(helper_wt) = bone_weights.get(&mh_id) else { continue; };
+                    if *helper_wt <= 0.0 { continue };
+                    // Will aggregate below.  For now just allow duplicate entries
+                    // e.g. same bone can have weights on all 3 verts of triangle
+                    indices_vec.push(bone_index);
+                    weights_vec.push(*helper_wt * triangle.helper_weights[i]);
+                }
+            }
+        }
+        indices_map.insert(*obj_id, indices_vec);
+        weights_map.insert(*obj_id, weights_vec);
+    }
+
+    let mut indices = vec![[0; 4]; vertices.len()];
+    let mut weights = vec![[0.0; 4]; vertices.len()];
+    for (obj_id, verts) in vertex_map.iter() {
+        for vtx in verts.iter() {
+            let vtx_indices = indices_map.get(obj_id).expect("Error getting vertex bone indices");
+            let vtx_weights = weights_map.get(obj_id).expect("Error getting vertex bone weights");
+
+            // Deduplicate vertices by summing weights 
+            let mut aggregate = HashMap::<usize, f32>::new();
+            for (&ind, &wt) in vtx_indices.iter().zip(vtx_weights.iter()) {
+                aggregate.insert(ind, wt);
+            }
+            let (mut vtx_indices, mut vtx_weights): (Vec<usize>, Vec<f32>) = aggregate.into_iter().unzip();
+
+            // 4 bone limit for bevy animation
+            if vtx_indices.len() > 4 {
+                // Sort indices based on the values
+                let mut ordering: Vec<usize> = (0..weights.len()).collect();
+                ordering.sort_by(|&i, &j| weights[j].partial_cmp(&weights[i]).unwrap());
+                // Get top 4
+                let top_weights: Vec<usize> = ordering.iter().take(4).copied().collect();
+                let new_vtx_weights: Vec<f32> = top_weights.iter().map(|&i| vtx_weights[i]).collect();
+                let new_vtx_indices: Vec<usize> = top_weights.iter().map(|&i| vtx_indices[i]).collect();
+                vtx_indices = new_vtx_indices;
+                vtx_weights = new_vtx_weights;
+            }
+            // Insert bone indices into final array
+            let mut indices_array = [0 as u16; 4];
+            for (i, &val) in vtx_indices.iter().enumerate() {
+                indices_array[i] = val as u16
+            };
+            indices[*vtx as usize] = indices_array;
+            // Normalize weights and insert
+            let mut weights_array = [0.0; 4];
+            let sum: f32 = vtx_weights.iter().sum();
+            for (i, &val) in vtx_weights.iter().enumerate() {
+                weights_array[i] = val / sum;
+            };
+            weights[*vtx as usize] = weights_array;
+        }
+    }
+
+    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
+    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
+    meshes.add(new_mesh)
 }
 
 fn get_bone_transform(

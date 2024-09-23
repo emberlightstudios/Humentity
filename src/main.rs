@@ -9,12 +9,12 @@ fn setup_env(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // circular base
-    //commands.spawn(PbrBundle {
-    //    mesh: meshes.add(Circle::new(4.0)),
-    //    material: materials.add(Color::WHITE),
-    //    transform: Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-    //    ..default()
-    //});
+    commands.spawn(PbrBundle {
+        mesh: meshes.add(Circle::new(4.0)),
+        material: materials.add(Color::WHITE),
+        transform: Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+        ..default()
+    });
     // point light
     commands.spawn(PointLightBundle {
         point_light: PointLight {
@@ -62,6 +62,9 @@ fn setup_env(
                 morph_targets: shapekeys,
                 body_parts: vec![
                     "HighPolyEyes".to_string()
+                ],
+                equipment: vec![
+                    "SkinnyJeans".to_string()
                 ],
             },
         ));

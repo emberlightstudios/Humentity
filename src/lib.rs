@@ -9,23 +9,24 @@ use std::collections::HashMap;
 use bevy::{prelude::*, render::mesh::skinning::SkinnedMeshInverseBindposes};
 use bevy_obj::ObjPlugin;
 use basemesh::{
-    fix_helper_mesh,
     create_body_mesh,
     create_body_vertex_map,
 };
 use assets::{
     HumanAssetRegistry,
-    fix_asset_meshes,
     generate_asset_vertex_maps,
 };
 use rigs::{
     RigData,
     bone_debug_draw,
-    apply_rig,
+    build_rig,
+    set_basemesh_rig_arrays,
+    set_asset_rig_arrays,
 };
 use morphs::{
-    bake_morphs_to_base_mesh,
-    bake_morphs_to_asset_mesh,
+    adjust_helpers_to_morphs,
+    bake_asset_morphs,
+    bake_body_morphs,
     MorphTargets,
 };
 
@@ -36,15 +37,16 @@ pub(crate) use mesh_ops::{
     generate_vertex_map,
     generate_inverse_vertex_map,
     parse_obj_vertices,
-    fix_mesh_scale,
 };
 pub(crate) use basemesh::{
     BaseMesh,
     VertexGroups,
     BODY_SCALE,
-    BODY_VERTICES,
 };
-pub(crate) use assets::HumanMeshAsset;
+pub(crate) use assets::{
+    HelperMap,
+    HumanMeshAsset,
+};
 
 pub use rigs::RigType;
 pub use global_config::HumentityGlobalConfig;
@@ -85,9 +87,6 @@ impl Plugin for Humentity {
         app.init_resource::<BaseMesh>();
         app.init_resource::<RigData>();
         app.add_systems(Update, (
-            fix_helper_mesh,
-        ).run_if(in_state(HumentityState::FixingHelperMesh)));
-        app.add_systems(Update, (
             create_body_mesh,
         ).run_if(in_state(HumentityState::LoadingBodyMesh)));
         app.add_systems(Update, (
@@ -96,9 +95,6 @@ impl Plugin for Humentity {
         app.add_systems(Update, (
             generate_asset_vertex_maps,
         ).run_if(in_state(HumentityState::LoadingAssetVertexMaps)));
-        app.add_systems(Update, (
-            fix_asset_meshes,
-        ).run_if(in_state(HumentityState::FixingAssetMeshes)));
         app.add_systems(Update, (
             on_human_added,
         ).run_if(in_state(HumentityState::Ready)));
@@ -114,10 +110,8 @@ impl Plugin for Humentity {
 #[derive(States, PartialEq, Eq, Hash, Debug, Clone)]
 pub enum HumentityState {
     Idle,
-    FixingHelperMesh,
     LoadingBodyMesh,
     LoadingBodyVertexMap,
-    FixingAssetMeshes,
     LoadingAssetVertexMaps,
     Ready
 }
@@ -135,7 +129,7 @@ pub struct HumanConfig {
     pub rig: RigType,
     pub skin_albedo: String,
     pub body_parts: Vec<String>,
-    //pub equipment: Vec<String>,
+    pub equipment: Vec<String>,
 }
 
 /*-----------+
@@ -154,7 +148,9 @@ fn on_human_added(
     vg: Res<VertexGroups>,
     new_humans: Query<(Entity, &HumanConfig, &SpawnTransform), Added<HumanConfig>>,
 ) {
-    // TODO wrap all these args up in a single struct to pass to every function
+    // TODO Can we wrap all these args up in a single struct to pass to every function?
+    // tried but couldn't figure out lifetimes
+
     new_humans.iter().for_each(|(human, config, spawn_transform)| {
         // Body Material
         let albedo = asset_server.load("skin_textures/albedo/".to_string() + &config.skin_albedo);
@@ -163,21 +159,40 @@ fn on_human_added(
             ..default()
         });
 
-        // Body Mesh
-        let (mesh, helpers) = bake_morphs_to_base_mesh(
-            &config.morph_targets, 
+        let helpers = adjust_helpers_to_morphs(
+            &config.morph_targets,
             &targets,
-            &mut meshes,
             &base_mesh
         );
-        let (mesh_handle, skinned_mesh) = apply_rig(
-            &human, config.rig, mesh, &rigs, &base_mesh.body_vertex_map,
-            &mut inv_bindposes, &mut commands,
-            &mut meshes, &vg, &helpers, spawn_transform.0);
+        let (skinned_mesh, sorted_bones) = build_rig(
+            &human,
+            config.rig,
+            &rigs,
+            &mut inv_bindposes,
+            &mut commands,
+            &vg,
+            &helpers,
+            spawn_transform.0,
+        );
+
+        // Body Mesh
+        let mesh = bake_body_morphs(
+            &mut meshes,
+            &helpers,
+            &base_mesh,
+        );
+        let mesh_handle = set_basemesh_rig_arrays(
+            config.rig,
+            mesh,
+            &rigs,
+            &base_mesh.vertex_map,
+            &mut meshes,
+            &sorted_bones,
+        );
 
         // Spawn avatar as separate entity
         commands.spawn((
-            skinned_mesh,
+            skinned_mesh.clone(),
             PbrBundle {
                 mesh: mesh_handle,
                 material: material.clone(),
@@ -188,22 +203,60 @@ fn on_human_added(
 
         // Body Parts
         for bp in config.body_parts.iter() {
-            let bp_asset = registry.body_parts.get(bp).unwrap();
-            let mesh = bake_morphs_to_asset_mesh(
-                &config.morph_targets,  &targets, &mut meshes,
-                &bp_asset, &helpers);
-            let mesh_handle = meshes.add(mesh);
-            //let (mesh_handle, skinned_mesh) = apply_rig(
-            //    &human, config.rig, mesh, &rigs, &base_mesh.body_vertex_map,
-            //    &mut inv_bindposes, &mut commands,
-            //    &mut meshes, &vg, &helpers, spawn_transform.0);
-            commands.spawn(
-                //skinned_mesh,
+            let err_msg = format!("FAILED TO FIND BODY PART {}", bp);
+            let asset = registry.body_parts.get(bp).expect(&err_msg);
+            let mesh = bake_asset_morphs(
+                &config.morph_targets, 
+                &targets,
+                &mut meshes,
+                &helpers,
+                &asset,
+            );
+            let mesh_handle = set_asset_rig_arrays(
+                config.rig,
+                mesh,
+                &rigs,
+                &asset.vertex_map,
+                &mut meshes,
+                &asset.helper_maps,
+                &sorted_bones,
+            );
+            commands.spawn((
+                skinned_mesh.clone(),
                 PbrBundle {
                     mesh: mesh_handle,
                     ..default()
                 },
+            ));
+        }
+
+        // Equipment
+        for eq in config.equipment.iter() {
+            let err_msg = format!("FAILED TO FIND EQUIPMENT {}", eq);
+            let asset = registry.equipment.get(eq).expect(&err_msg);
+            let mesh = bake_asset_morphs(
+                &config.morph_targets, 
+                &targets,
+                &mut meshes,
+                &helpers,
+                &asset,
             );
+            let mesh_handle = set_asset_rig_arrays(
+                config.rig,
+                mesh,
+                &rigs,
+                &asset.vertex_map,
+                &mut meshes,
+                &asset.helper_maps,
+                &sorted_bones,
+            );
+            commands.spawn((
+                skinned_mesh.clone(),
+                PbrBundle {
+                    mesh: mesh_handle,
+                    ..default()
+                },
+            ));
         }
     })
 }

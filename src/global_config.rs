@@ -17,7 +17,7 @@ impl Default for HumentityGlobalConfig {
         let path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
         HumentityGlobalConfig {
             body_part_paths: vec![path.join("assets/body_parts")].into_iter().collect(),
-            equipment_paths: vec![path.join("assets/equipment")].into_iter().collect(),
+            equipment_paths: vec![path.join("assets/clothes")].into_iter().collect(),
             target_paths: vec![path.join("assets/targets")].into_iter().collect(),
         }
     }

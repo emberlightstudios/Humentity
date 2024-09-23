@@ -3,22 +3,27 @@ use::std::{
     io::{ BufRead, BufReader, },
     fs::File,
     path::PathBuf,
-    collections::HashMap,
+    collections::{ HashMap, HashSet },
 };
 use walkdir::WalkDir;
 use crate::{
-    fix_mesh_scale, generate_vertex_map, get_vertex_positions, parse_obj_vertices, BaseMesh, HumentityGlobalConfig, HumentityState, VertexGroups
+    generate_vertex_map,
+    get_vertex_positions,
+    parse_obj_vertices,
+    HumentityGlobalConfig,
+    HumentityState,
 };
 
 /*---------+
  |  Types  |
  +---------*/
+ #[allow(dead_code)]
 pub(crate) struct HumanMeshAsset {
    name: String,
    obj_file: PathBuf,
    tags: Vec<String>,
    z_depth: i8,
-   delete_verts: Vec<u16>,
+   delete_verts: HashSet<u16>,
    scale_data: [ScaleData; 3],
    pub(crate) helper_maps: Vec<HelperMap>,
    pub(crate) mesh_handle: Handle<Mesh>,
@@ -37,7 +42,7 @@ impl HumanMeshAsset {
 
 // Each vertex is mapped to either a single helper vertex
 // or triangulated by 3 of them
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct HelperMap {
     pub(crate) single_vertex: Option<u16>,
     pub(crate) triangle: Option<Triangle>,
@@ -97,10 +102,11 @@ impl FromWorld for HumanAssetRegistry {
         let mut body_parts = HashMap::<String, HumanMeshAsset>::new();
         let mut equipment = HashMap::<String, HumanMeshAsset>::new();
 
-        let Some(config) = world.get_resource_mut::<HumentityGlobalConfig>() else {
-            panic!("No global Humentity config loaded");
-        };
-        for dir in config.body_part_paths.clone().iter() {
+        let config = world.get_resource_mut::<HumentityGlobalConfig>().expect("No global Humentity config loaded");
+        let body_part_paths = config.body_part_paths.clone();
+        let equipment_paths = config.equipment_paths.clone();
+
+        for dir in body_part_paths {
             for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
                 //let stem = path.file_stem().unwrap().to_str().unwrap();
@@ -110,6 +116,19 @@ impl FromWorld for HumanAssetRegistry {
                 if extension == "mhclo" {
                     let bp = parse_human_asset(path.to_path_buf(), world);
                     body_parts.insert(bp.name.clone(), bp);
+                }
+            }
+        }
+        for dir in equipment_paths {
+            for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
+                let path = entry.path();
+                //let stem = path.file_stem().unwrap().to_str().unwrap();
+                //if stem.eq_ignore_ascii_case("eyes") { slot = BodyPartSlot::Eyes; }
+                if !path.is_file() { continue; }
+                let Some(extension) = path.extension().and_then(|e| e.to_str()) else { continue };
+                if extension == "mhclo" {
+                    let eq = parse_human_asset(path.to_path_buf(), world);
+                    equipment.insert(eq.name.clone(), eq);
                 }
             }
         }
@@ -124,31 +143,20 @@ impl FromWorld for HumanAssetRegistry {
 /*-----------+
  |  Systems  |
  +-----------*/
- pub(crate) fn fix_asset_meshes(
-    mut registry: ResMut<HumanAssetRegistry>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut next: ResMut<NextState<HumentityState>>,
-    base_mesh: Res<BaseMesh>,
- ) {
-    for (_name, asset) in registry.body_parts.iter_mut() {
-        let mesh = meshes.get(&asset.mesh_handle).expect("ASSET MESH NOT LOADED");
-        let mut vertices = get_vertex_positions(&mesh);
-        fix_mesh_scale(&mut vertices, &base_mesh);
-        let new_mesh = mesh.clone().with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
-        asset.mesh_handle = meshes.add(new_mesh);
-    }
-    next.set(HumentityState::LoadingAssetVertexMaps);
- }
-
  pub(crate) fn generate_asset_vertex_maps(
     mut registry: ResMut<HumanAssetRegistry>,
     mut next: ResMut<NextState<HumentityState>>,
     meshes: Res<Assets<Mesh>>,
-    base_mesh: Res<BaseMesh>,
  ) {
     for (_name, asset) in registry.body_parts.iter_mut() {
-        let mut mh_verts = parse_obj_vertices(&asset.obj_file);
-        fix_mesh_scale(&mut mh_verts, &base_mesh);
+        let mh_verts = parse_obj_vertices(&asset.obj_file);
+        let mesh = meshes.get(&asset.mesh_handle).unwrap();
+        let verts = get_vertex_positions(&mesh);
+        let vertex_map = generate_vertex_map(&mh_verts, &verts);
+        asset.vertex_map = vertex_map;
+    }
+    for (_name, asset) in registry.equipment.iter_mut() {
+        let mh_verts = parse_obj_vertices(&asset.obj_file);
         let mesh = meshes.get(&asset.mesh_handle).unwrap();
         let verts = get_vertex_positions(&mesh);
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
@@ -163,7 +171,7 @@ impl FromWorld for HumanAssetRegistry {
  fn parse_human_asset(path: PathBuf, world: &mut World) -> HumanMeshAsset {
     let mut tags = Vec::<String>::new();
     let mut z_depth = 0 as i8;
-    let mut delete_verts = Vec::<u16>::new();
+    let mut delete_verts = HashSet::<u16>::new();
     let mut helper_map = Vec::<HelperMap>::new();
     let mut x_scale = ScaleData::default();
     let mut y_scale = ScaleData::default();
@@ -243,20 +251,23 @@ impl FromWorld for HumanAssetRegistry {
             } else { panic!("Unparseable vertex line") }
         } else if section == FileSection::DeleteVertices {
             // Either vert index "v" or vert range "v1 - v2"
+            let mut start: Option<u16> = None;
             let mut grouping = false;
-            let mut start: u16 = u16::MAX;
-            let mut end: u16;
             for &v in line_vec.iter() {
                 if grouping {
-                    end = v.parse().unwrap();
-                    for i in start..end+1 {
-                        delete_verts.push(i as u16);
-                    }
-                } else {
-                    if start != u16::MAX { delete_verts.push(start as u16); }
-                    start = v.parse().unwrap();
-                }
-                grouping = v == "-";
+                    let Some(s) = start else { panic!("Failed to parse delete verts") };
+                    for i in s..=v.parse().unwrap() { delete_verts.insert(i); };
+                    start = None;
+                    grouping = false;
+                } else if v != "-" {
+                    if let Some(s) = start { delete_verts.insert(s); }
+                    start = Some(v.parse().unwrap());
+                } else { grouping = true; }
+            }
+
+            // If there's a final start without a pairing, push it
+            if let Some(s) = start {
+                delete_verts.insert(s);
             }
         }
     }
