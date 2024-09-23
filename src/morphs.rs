@@ -81,13 +81,12 @@ pub(crate) fn adjust_helpers_to_morphs(
 }
 
 pub(crate) fn bake_body_morphs(
-    meshes: &mut ResMut<Assets<Mesh>>,
+    mesh: &Mesh,
+    vertex_map: &HashMap<u16, Vec<u16>>,
     helpers: &Vec<Vec3>,
-    base_mesh: &Res<BaseMesh>,
 ) -> Mesh {
-    let mesh = meshes.get(&base_mesh.mesh_handle).unwrap().clone();
     let mut vertices = get_vertex_positions(&mesh);
-    for (mh_vert, vtx_list) in base_mesh.vertex_map.iter() {
+    for (mh_vert, vtx_list) in vertex_map.iter() {
         for vtx in vtx_list.iter() {
             vertices[*vtx as usize] = helpers[*mh_vert as usize];
         }

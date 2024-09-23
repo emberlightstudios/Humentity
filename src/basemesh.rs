@@ -139,16 +139,14 @@ fn generate_mesh_without_helpers(
     // Some vertices will be skipped, changing the vertex indices
     // So face indices will have to be changed as well
     let mut new_vert_indices = HashMap::<u16, u16>::new();
-    let mut i = 0;
 
     let inv_map = generate_inverse_vertex_map(vertex_map);
     for (vertex, mhv) in inv_map.iter() {
         if *mhv < BODY_VERTICES {
-            new_vert_indices.insert(*vertex, i);
+            new_vert_indices.insert(*vertex, vertices.len() as u16);
             vertices.push(vtx_data[*vertex as usize]);
             normals.push(normal_data[*vertex as usize]);
             uv.push(uv_data[*vertex as usize]);
-            i += 1;
         }
     }
     let index_vec: Vec<usize> = indices_data.iter().collect();

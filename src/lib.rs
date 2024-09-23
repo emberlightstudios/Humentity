@@ -5,7 +5,7 @@ mod global_config;
 mod assets;
 mod mesh_ops;
 
-use std::collections::HashMap;
+use std::collections::{ HashMap, HashSet };
 use bevy::{prelude::*, render::mesh::skinning::SkinnedMeshInverseBindposes};
 use bevy_obj::ObjPlugin;
 use basemesh::{
@@ -16,6 +16,7 @@ use assets::{
     HumanAssetRegistry,
     generate_asset_vertex_maps,
 };
+use mesh_ops::delete_mesh_verts;
 use rigs::{
     RigData,
     bone_debug_draw,
@@ -175,36 +176,13 @@ fn on_human_added(
             spawn_transform.0,
         );
 
-        // Body Mesh
-        let mesh = bake_body_morphs(
-            &mut meshes,
-            &helpers,
-            &base_mesh,
-        );
-        let mesh_handle = set_basemesh_rig_arrays(
-            config.rig,
-            mesh,
-            &rigs,
-            &base_mesh.vertex_map,
-            &mut meshes,
-            &sorted_bones,
-        );
-
-        // Spawn avatar as separate entity
-        commands.spawn((
-            skinned_mesh.clone(),
-            PbrBundle {
-                mesh: mesh_handle,
-                material: material.clone(),
-                ..default()
-            },
-        ));
-        commands.entity(human).remove::<SpawnTransform>();
+        let mut delete_verts = HashSet::<u16>::new();
 
         // Body Parts
         for bp in config.body_parts.iter() {
             let err_msg = format!("FAILED TO FIND BODY PART {}", bp);
             let asset = registry.body_parts.get(bp).expect(&err_msg);
+            delete_verts.extend(&asset.delete_verts);
             let mesh = bake_asset_morphs(
                 &config.morph_targets, 
                 &targets,
@@ -234,6 +212,7 @@ fn on_human_added(
         for eq in config.equipment.iter() {
             let err_msg = format!("FAILED TO FIND EQUIPMENT {}", eq);
             let asset = registry.equipment.get(eq).expect(&err_msg);
+            delete_verts.extend(&asset.delete_verts);
             let mesh = bake_asset_morphs(
                 &config.morph_targets, 
                 &targets,
@@ -258,6 +237,35 @@ fn on_human_added(
                 },
             ));
         }
+
+        // Body Mesh
+        // Delete verts
+        let mesh = delete_mesh_verts(&mut meshes, &base_mesh, delete_verts);
+        let vertices = &get_vertex_positions(&mesh);
+        let new_vtx_map = generate_vertex_map(&base_mesh.vertices, vertices);
+
+        // Apply Morphs
+        let mesh = bake_body_morphs(&mesh,&new_vtx_map,&helpers);
+        // Apply Rig
+        let mesh_handle = set_basemesh_rig_arrays(
+            config.rig,
+            mesh,
+            &rigs,
+            &new_vtx_map,
+            &mut meshes,
+            &sorted_bones,
+        );
+
+        // Spawn avatar as separate entity
+        commands.spawn((
+            skinned_mesh.clone(),
+            PbrBundle {
+                mesh: mesh_handle,
+                material: material.clone(),
+                ..default()
+            },
+        ));
+        commands.entity(human).remove::<SpawnTransform>();
     })
 }
 
