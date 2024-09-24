@@ -1,21 +1,13 @@
 use bevy::{
     prelude::*,
-    render::{
-        mesh::{
-            VertexAttributeValues,
-            PrimitiveTopology,
-            Indices,
-        },
-        render_asset::RenderAssetUsages,
-    },
+    render::mesh::VertexAttributeValues,
 };
 use std::{
-    collections::{ HashSet, HashMap },
+    collections::HashMap,
     fs::File,
     path::Path,
     io::{ BufReader, BufRead },
 };
-use crate::BaseMesh;
 
 pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     let path = filename.as_ref();
@@ -115,54 +107,4 @@ pub(crate) fn generate_inverse_vertex_map(
         for vert in verts.iter() { inv_vertex_map.insert(*vert, *mhv); }
     }
     inv_vertex_map
-}
-
-pub(crate) fn delete_mesh_verts(
-    meshes: &mut ResMut<Assets<Mesh>>,
-    base_mesh: &Res<BaseMesh>,
-    delete_verts: HashSet<u16>,
-) -> Mesh {
-    let mesh = meshes.get(&base_mesh.mesh_handle).unwrap().clone();
-    let inv_vertex_map = generate_inverse_vertex_map(&base_mesh.vertex_map);
-
-    let vertices = get_vertex_positions(&mesh);
-    let normals = get_vertex_normals(&mesh);
-    let uv = get_uv_coords(&mesh);
-    let indices = mesh.indices().expect("FAILED TO GET MESH FACES");
-
-    let verts = vertices.len() - delete_verts.len();  // Roughly
-    let mut new_vertices = Vec::<Vec3>::with_capacity(verts);
-    let mut new_normals = Vec::<Vec3>::with_capacity(verts);
-    let mut new_uv = Vec::<Vec2>::with_capacity(verts);
-    let mut new_indices = Vec::<u16>::with_capacity(verts);
-    // map new vertex indices to original before deleting verts
-    let mut indices_map = HashMap::<u16, u16>::with_capacity(verts);
-
-    for (&vtx, &mh_vert) in inv_vertex_map.iter() {
-        if !delete_verts.contains(&mh_vert) {
-            indices_map.insert(vtx, new_vertices.len() as u16);
-            new_vertices.push(vertices[vtx as usize]);
-            new_normals.push(normals[vtx as usize]);
-            new_uv.push(uv[vtx as usize]);
-        }
-    }
-    
-    let indices_vec: Vec<u16> = indices.iter().map(|x| x as u16).collect();
-    // Find new face indices
-    for face in indices_vec.chunks(3) {
-        // Check if all vertices still exist in new mesh verts
-        if !face.iter().all(|&i| indices_map.contains_key(&(i as u16))) { continue; }
-        // Map face to new vertex indices
-        new_indices.extend_from_slice(face);
-    }
-    new_indices = new_indices.iter().map(|x| *indices_map.get(x).unwrap()).collect();
-
-    let mut new_mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, new_vertices)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, new_normals)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, new_uv)
-        .with_inserted_indices(Indices::U16(new_indices));
-    new_mesh.compute_smooth_normals();
-    let _ = new_mesh.generate_tangents();
-    new_mesh
 }

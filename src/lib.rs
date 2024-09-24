@@ -15,8 +15,8 @@ use basemesh::{
 use assets::{
     HumanAssetRegistry,
     generate_asset_vertex_maps,
+    delete_mesh_verts,
 };
-use mesh_ops::delete_mesh_verts;
 use rigs::{
     RigData,
     bone_debug_draw,

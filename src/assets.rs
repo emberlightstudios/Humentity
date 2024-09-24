@@ -1,4 +1,13 @@
-use::bevy::prelude::*;
+use::bevy::{
+    prelude::*,
+    render::{
+        mesh::{
+            PrimitiveTopology,
+            Indices,
+        },
+        render_asset::RenderAssetUsages,
+    },
+};
 use::std::{
     io::{ BufRead, BufReader, },
     fs::File,
@@ -8,10 +17,14 @@ use::std::{
 use walkdir::WalkDir;
 use crate::{
     generate_vertex_map,
+    generate_inverse_vertex_map,
     get_vertex_positions,
     parse_obj_vertices,
+    get_vertex_normals, 
+    get_uv_coords,
     HumentityGlobalConfig,
     HumentityState,
+    BaseMesh,
 };
 
 /*---------+
@@ -286,4 +299,68 @@ impl FromWorld for HumanAssetRegistry {
         mesh_handle: mesh_handle,
         vertex_map: vertex_map,
     }
- }
+}
+
+pub(crate) fn delete_mesh_verts(
+    meshes: &mut ResMut<Assets<Mesh>>,
+    base_mesh: &Res<BaseMesh>,
+    delete_verts: HashSet<u16>,
+) -> Mesh {
+    let mesh = meshes.get(&base_mesh.mesh_handle).unwrap().clone();
+    let inv_vertex_map = generate_inverse_vertex_map(&base_mesh.vertex_map);
+
+    let vertices = get_vertex_positions(&mesh);
+    let normals = get_vertex_normals(&mesh);
+    let uv = get_uv_coords(&mesh);
+    let indices = mesh.indices().expect("FAILED TO GET MESH FACES");
+
+    // Mhclo delete verts isn't actually for verts.  It's for faces.
+    // Faces are deleted if all of their verts are in delete_verts. 
+    let mut actual_delete_verts = HashSet::<u16>::new();
+    let faces_vec: Vec<usize> = indices.iter().collect();
+    for face in faces_vec.chunks(3) {
+        if face.iter().all(|&i| delete_verts.contains(&inv_vertex_map[&(i as u16)])) {
+            let face16: Vec<u16> = face.iter().map(|&i| inv_vertex_map[&(i as u16)]).collect();
+            actual_delete_verts.extend(face16);
+        }
+    }
+    let delete_verts = actual_delete_verts;
+
+    // Set up new storage for the new mesh
+    let verts = vertices.len() - delete_verts.len();  // Roughly
+    let mut new_vertices = Vec::<Vec3>::with_capacity(verts);
+    let mut new_normals = Vec::<Vec3>::with_capacity(verts);
+    let mut new_uv = Vec::<Vec2>::with_capacity(verts);
+    let mut new_indices = Vec::<u16>::with_capacity(verts);
+    
+    // need to map new vertex indices to original before deleting verts
+    let mut indices_map = HashMap::<u16, u16>::with_capacity(verts);
+
+    for (&vtx, &mh_vert) in inv_vertex_map.iter() {
+        if !delete_verts.contains(&mh_vert) {
+            indices_map.insert(vtx, new_vertices.len() as u16);
+            new_vertices.push(vertices[vtx as usize]);
+            new_normals.push(normals[vtx as usize]);
+            new_uv.push(uv[vtx as usize]);
+        }
+    }
+    
+    let indices_vec: Vec<u16> = indices.iter().map(|x| x as u16).collect();
+    // Find new face indices
+    for face in indices_vec.chunks(3) {
+        // Check if all vertices still exist in new mesh verts
+        if !face.iter().all(|&i| indices_map.contains_key(&(i as u16))) { continue; }
+        // Map face to new vertex indices
+        new_indices.extend_from_slice(face);
+    }
+    new_indices = new_indices.iter().map(|x| *indices_map.get(x).unwrap()).collect();
+
+    let mut new_mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, new_vertices)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, new_normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, new_uv)
+        .with_inserted_indices(Indices::U16(new_indices));
+    new_mesh.compute_smooth_normals();
+    let _ = new_mesh.generate_tangents();
+    new_mesh
+}
