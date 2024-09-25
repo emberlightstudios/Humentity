@@ -64,7 +64,8 @@ fn setup_env(
                     "HighPolyEyes".to_string()
                 ],
                 equipment: vec![
-                    "SkinnyJeans".to_string()
+                    "SkinnyJeans".to_string(),
+                    //"MakeHumanTShirt".to_string(),
                 ],
             },
         ));

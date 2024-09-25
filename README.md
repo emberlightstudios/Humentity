@@ -1,6 +1,6 @@
 # Humentity (MakeHuman integration with Bevy)
 
-![Alt text](https://i.imghippo.com/files/JPdFw1727108706.png)
+![Alt text](https://i.imghippo.com/files/RawGn1727237892.png)
 
 This project is a work in progress and is currently missing many features.  See main.rs for sample code
 
@@ -11,11 +11,11 @@ This project is a work in progress and is currently missing many features.  See 
 - Mesh auto-rigging (body and equipment)
 - Vertex deletion under clothes
 - Basic albedo skin textures
+- Clothes/Body Parts materials
 
 ## Future Plans
 - Animation
 - Config presets
-- Clothes/Body Parts materials
 - Texture Overlays
 - Mesh combining
 - Texture atlasing

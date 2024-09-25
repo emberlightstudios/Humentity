@@ -14,6 +14,7 @@ use basemesh::{
 };
 use assets::{
     HumanAssetRegistry,
+    HumanAssetTextures,
     generate_asset_vertex_maps,
     delete_mesh_verts,
 };
@@ -147,6 +148,7 @@ fn on_human_added(
     asset_server: Res<AssetServer>,
     rigs: Res<RigData>,
     vg: Res<VertexGroups>,
+    asset_textures: Res<HumanAssetTextures>,
     new_humans: Query<(Entity, &HumanConfig, &SpawnTransform), Added<HumanConfig>>,
 ) {
     // TODO Can we wrap all these args up in a single struct to pass to every function?
@@ -199,10 +201,22 @@ fn on_human_added(
                 &asset.helper_maps,
                 &sorted_bones,
             );
+            let mut material = StandardMaterial::default();
+            if let Some(albedos) = asset_textures.albedo_maps.get(&asset.name) {
+                if albedos.len() > 0 { material.base_color_texture = Some(albedos[0].clone()); }
+            }
+            if let Some(normal) = asset_textures.normal_map.get(&asset.name) {
+                material.normal_map_texture = Some(normal.clone());
+            }
+            if let Some(ao) = asset_textures.ao_map.get(&asset.name) {
+                material.occlusion_texture = Some(ao.clone());
+            }
+
             commands.spawn((
                 skinned_mesh.clone(),
                 PbrBundle {
                     mesh: mesh_handle,
+                    material: materials.add(material),
                     ..default()
                 },
             ));
@@ -229,10 +243,21 @@ fn on_human_added(
                 &asset.helper_maps,
                 &sorted_bones,
             );
+            let mut material = StandardMaterial::default();
+            if let Some(albedos) = asset_textures.albedo_maps.get(&asset.name) {
+                if albedos.len() > 0 { material.base_color_texture = Some(albedos[0].clone()); }
+            }
+            if let Some(normal) = asset_textures.normal_map.get(&asset.name) {
+                material.normal_map_texture = Some(normal.clone());
+            }
+            if let Some(ao) = asset_textures.ao_map.get(&asset.name) {
+                material.occlusion_texture = Some(ao.clone());
+            }
             commands.spawn((
                 skinned_mesh.clone(),
                 PbrBundle {
                     mesh: mesh_handle,
+                    material: materials.add(material),
                     ..default()
                 },
             ));

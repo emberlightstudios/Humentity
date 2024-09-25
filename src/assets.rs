@@ -31,8 +31,8 @@ use crate::{
  |  Types  |
  +---------*/
  #[allow(dead_code)]
-pub(crate) struct HumanMeshAsset {
-   name: String,
+pub struct HumanMeshAsset {
+   pub name: String,
    obj_file: PathBuf,
    tags: Vec<String>,
    z_depth: i8,
@@ -102,12 +102,19 @@ pub enum EquipmentSlot {
 /*-------------+
  |  Resources  |
  +-------------*/
+#[allow(dead_code)]
+#[derive(Resource)]
+pub struct HumanAssetTextures {
+    pub albedo_maps: HashMap<String, Vec<Handle<Image>>>,
+    pub normal_map: HashMap<String, Handle<Image>>,
+    pub ao_map: HashMap<String, Handle<Image>>,
+}
 
 #[allow(dead_code)]
 #[derive(Resource)]
-pub(crate) struct HumanAssetRegistry {
-    pub(crate) body_parts: HashMap<String, HumanMeshAsset>,
-    pub(crate) equipment: HashMap<String, HumanMeshAsset>,
+pub struct HumanAssetRegistry {
+    pub body_parts: HashMap<String, HumanMeshAsset>,
+    pub equipment: HashMap<String, HumanMeshAsset>,
 }
 
 impl FromWorld for HumanAssetRegistry {
@@ -145,6 +152,40 @@ impl FromWorld for HumanAssetRegistry {
                 }
             }
         }
+
+        // Load textures
+        // It is assumed:
+        // normal maps end with _normal.png
+        // ao maps with _ao.png
+        // all else are albedo maps
+        let mut albedo_textures = HashMap::<String, Vec<Handle<Image>>>::new();
+        let mut normal_texture = HashMap::<String, Handle<Image>>::new();
+        let mut ao_texture = HashMap::<String, Handle<Image>>::new();
+        let Some(asset_server) = world.get_resource::<AssetServer>() else { panic!("Can't load asset server?") };
+        for (name, asset) in equipment.iter().chain(body_parts.iter()) {
+            let dir = asset.obj_file.parent().unwrap();
+            let mut albedos = Vec::<Handle<Image>>::new();
+            for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
+                let path = entry.path().to_path_buf();
+                if path.is_file() {
+                    let Some(extension) = path.extension().and_then(|e| e.to_str()) else { continue };
+                    if extension == "png" {
+                        let image = asset_server.load(path.clone());
+                        if let Some(file) = path.file_name().and_then(|s| s.to_str()) {
+                            if file.ends_with("_normal.png") { normal_texture.insert(name.to_string(), image); }
+                            else if file.ends_with("_ao.png") { ao_texture.insert(name.to_string(), image); }
+                            else { albedos.push(image); }
+                        }
+                    }
+                }
+            }
+            albedo_textures.insert(name.to_string(), albedos);
+        }
+        world.insert_resource(HumanAssetTextures{ 
+            albedo_maps: albedo_textures,
+            normal_map: normal_texture, 
+            ao_map: ao_texture, 
+        });
 
         HumanAssetRegistry {
             body_parts: body_parts,
