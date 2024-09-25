@@ -328,7 +328,7 @@ pub(crate) fn set_asset_rig_arrays(
         // Create vec in the map for bone indices and weights
         let mut indices_vec = Vec::<usize>::new();
         let mut weights_vec = Vec::<f32>::new();
-        // Check helper map for this obj_id
+        // Get helper map for this obj_id
         let helper_map = &helper_maps[*obj_id as usize];
         // loop over bones and find any matching helper indices
         for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
@@ -356,8 +356,11 @@ pub(crate) fn set_asset_rig_arrays(
         weights_map.insert(*obj_id, weights_vec);
     }
 
+    // The acutal arrays that go into the mesh data
     let mut indices = vec![[0; 4]; vertices.len()];
     let mut weights = vec![[0.0; 4]; vertices.len()];
+
+    // Take top 4 weights
     for (obj_id, verts) in vertex_map.iter() {
         for vtx in verts.iter() {
             let vtx_indices = indices_map.get(obj_id).expect("Error getting vertex bone indices");
@@ -366,7 +369,8 @@ pub(crate) fn set_asset_rig_arrays(
             // Deduplicate vertices by summing weights 
             let mut aggregate = HashMap::<usize, f32>::new();
             for (&ind, &wt) in vtx_indices.iter().zip(vtx_weights.iter()) {
-                aggregate.insert(ind, wt);
+                let wtsum = aggregate.entry(ind).or_insert(0.0);
+                *wtsum += wt;
             }
             let (mut vtx_indices, mut vtx_weights): (Vec<usize>, Vec<f32>) = aggregate.into_iter().unzip();
 
@@ -377,6 +381,7 @@ pub(crate) fn set_asset_rig_arrays(
                 ordering.sort_by(|&i, &j| weights[j].partial_cmp(&weights[i]).unwrap());
                 // Get top 4
                 let top_weights: Vec<usize> = ordering.iter().take(4).copied().collect();
+                println!("{}", vtx_weights.len());
                 let new_vtx_weights: Vec<f32> = top_weights.iter().map(|&i| vtx_weights[i]).collect();
                 let new_vtx_indices: Vec<usize> = top_weights.iter().map(|&i| vtx_indices[i]).collect();
                 vtx_indices = new_vtx_indices;

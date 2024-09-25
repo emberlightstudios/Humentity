@@ -65,7 +65,7 @@ fn setup_env(
                 ],
                 equipment: vec![
                     "SkinnyJeans".to_string(),
-                    //"MakeHumanTShirt".to_string(),
+                    "MakeHumanTShirt".to_string(),
                 ],
             },
         ));
