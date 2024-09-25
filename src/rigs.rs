@@ -376,12 +376,12 @@ pub(crate) fn set_asset_rig_arrays(
 
             // 4 bone limit for bevy animation
             if vtx_indices.len() > 4 {
-                // Sort indices based on the values
-                let mut ordering: Vec<usize> = (0..weights.len()).collect();
-                ordering.sort_by(|&i, &j| weights[j].partial_cmp(&weights[i]).unwrap());
-                // Get top 4
+                // Sort vec indices based on the weights
+                let mut ordering: Vec<usize> = (0..vtx_weights.len()).collect();
+                ordering.sort_by(|&i, &j| vtx_weights[j].partial_cmp(&vtx_weights[i]).unwrap());
+                // Get vec indices of top 4 weights
                 let top_weights: Vec<usize> = ordering.iter().take(4).copied().collect();
-                println!("{}", vtx_weights.len());
+                // set back into the original vecs
                 let new_vtx_weights: Vec<f32> = top_weights.iter().map(|&i| vtx_weights[i]).collect();
                 let new_vtx_indices: Vec<usize> = top_weights.iter().map(|&i| vtx_indices[i]).collect();
                 vtx_indices = new_vtx_indices;
