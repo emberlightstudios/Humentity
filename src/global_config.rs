@@ -7,6 +7,7 @@ use std::{
 
 #[derive(Resource, Clone)]
 pub struct HumentityGlobalConfig {
+    pub(crate) core_assets_path: PathBuf,
     pub body_part_paths: HashSet<PathBuf>,
     pub equipment_paths: HashSet<PathBuf>,
     pub target_paths: HashSet<PathBuf>,
@@ -14,8 +15,10 @@ pub struct HumentityGlobalConfig {
 
 impl Default for HumentityGlobalConfig {
     fn default() -> Self {
-        let path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+        let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+        if !path.to_str().unwrap().ends_with("humentity") { path = path.join("src/humentity") }
         HumentityGlobalConfig {
+            core_assets_path: path.join("assets"),
             body_part_paths: vec![path.join("assets/body_parts")].into_iter().collect(),
             equipment_paths: vec![path.join("assets/clothes")].into_iter().collect(),
             target_paths: vec![path.join("assets/targets")].into_iter().collect(),

@@ -142,6 +142,7 @@ fn on_human_added(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut inv_bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
+    config: Res<HumentityGlobalConfig>,
     registry: Res<HumanAssetRegistry>,
     base_mesh: Res<BaseMesh>,
     targets: Res<MorphTargets>,
@@ -153,10 +154,11 @@ fn on_human_added(
 ) {
     // TODO Can we wrap all these args up in a single struct to pass to every function?
     // tried but couldn't figure out lifetimes
+    let path = config.core_assets_path.clone();
 
     new_humans.iter().for_each(|(human, config, spawn_transform)| {
         // Body Material
-        let albedo = asset_server.load("skin_textures/albedo/".to_string() + &config.skin_albedo);
+        let albedo = asset_server.load(path.join("skin_textures/albedo/".to_string() + &config.skin_albedo));
         let material = materials.add(StandardMaterial {
             base_color_texture: Some(albedo),
             ..default()

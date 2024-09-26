@@ -16,7 +16,8 @@ use std::{
 use crate::{
     get_vertex_positions,
     HelperMap,
-    VertexGroups
+    VertexGroups,
+    HumentityGlobalConfig,
 };
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
@@ -69,7 +70,9 @@ pub(crate) struct RigData {
 }
 
 impl FromWorld for RigData {
-    fn from_world(_world: &mut World) -> Self {
+    fn from_world(world: &mut World) -> Self {
+        let config = world.get_resource::<HumentityGlobalConfig>().unwrap();
+        let path = config.core_assets_path.clone();
         let mut type_strings = HashMap::<RigType, &str>::new();
         type_strings.insert(RigType::Default, "default");
         type_strings.insert(RigType::Mixamo, "mixamo");
@@ -80,7 +83,7 @@ impl FromWorld for RigData {
 
         for (rig_type, name) in type_strings.iter() {
             let err_msg = "FAILED TO OPEN WEIGHTS FILE : ".to_string() + name;
-            let weights_file = File::open("assets/rigs/weights.".to_string() + type_strings.get(rig_type).unwrap() + ".json").expect(&err_msg);
+            let weights_file = File::open(path.join("rigs/weights.".to_string() + type_strings.get(rig_type).unwrap() + ".json")).expect(&err_msg);
             let weights_reader = BufReader::new(weights_file);
             let err_msg = "FAILED TO READ WEIGHTS JSON : ".to_string() + name;
             let weights: WeightsFile = serde_json::from_reader(weights_reader).expect(&err_msg);
@@ -92,7 +95,7 @@ impl FromWorld for RigData {
             rig_weights.insert(*rig_type, weights_hashmap);
 
             let err_msg = "FAILED TO OPEN CONFIG FILE : ".to_string() + name;
-            let config_file = File::open("assets/rigs/rig.".to_string() + type_strings.get(rig_type).unwrap() + ".json").expect(&err_msg);
+            let config_file = File::open(path.join("rigs/rig.".to_string() + type_strings.get(rig_type).unwrap() + ".json")).expect(&err_msg);
             let config_reader = BufReader::new(config_file);
             let err_msg = "FAILED TO READ CONFIG JSON : ".to_string() + name;
             if *rig_type == RigType::Mixamo {

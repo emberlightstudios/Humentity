@@ -14,6 +14,7 @@ use crate::{
     get_vertex_normals,
     get_vertex_positions,
     parse_obj_vertices,
+    HumentityGlobalConfig,
     HumentityState,
 }; 
 use serde::Deserialize;
@@ -40,15 +41,18 @@ pub(crate) struct HelperMeshHandle(Handle<Mesh>);
 
 impl FromWorld for BaseMesh {
     fn from_world(world: &mut World) -> Self {
+        let config = world.get_resource::<HumentityGlobalConfig>().expect("NO CONFIG LOADED");
+        let path = config.core_assets_path.clone();
+        println!("{}", path.to_str().unwrap());
         // Get mh vertices from base mesh and helper files
-        let mh_vertices = parse_obj_vertices("assets/base.obj");
+        let mh_vertices = parse_obj_vertices(path.join("base.obj"));
 
         // Load obj into asset server
         let asset_server = world.resource::<AssetServer>();
-        let base_handle: Handle<Mesh> = asset_server.load("base.obj");
+        let base_handle: Handle<Mesh> = asset_server.load(path.join("base.obj"));
 
         let err_msg = "FAILED TO LOAD VERTEX GROUOPS";
-        let file = File::open("assets/basemesh_vertex_groups.json").expect(&err_msg);
+        let file = File::open(path.join("basemesh_vertex_groups.json")).expect(&err_msg);
         let reader = BufReader::new(file);
         let vg: VertexGroups = serde_json::from_reader(reader).unwrap();
 
