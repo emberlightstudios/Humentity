@@ -17,8 +17,8 @@ This project is a work in progress and is currently missing many features.  See 
 - Animation
 - Config presets
 - Texture Overlays
-- Mesh combining
-- Texture atlasing
 - LODs/Visibility Ranges with proxy meshes
 - Face motion capture
 - Skin shader
+- Mesh combining
+- Texture atlasing
