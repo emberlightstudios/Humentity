@@ -44,11 +44,13 @@ pub struct HumanMeshAsset {
 }
 
 impl HumanMeshAsset {
-    pub(crate) fn get_scale(&self, helpers: &Vec<Vec3>) -> Vec3 {
+    pub(crate) fn get_offset_scale(&self, helpers: &Vec<Vec3>) -> Vec3 {
+        // The order is off in mpfb source code [0, 2, 1], maybe due to blender coordinates
+        // Here it is different also
         Vec3::new(
-            (helpers[self.scale_data[0].v1 as usize] - helpers[self.scale_data[0].v2 as usize]).x / self.scale_data[0].scale,
-            (helpers[self.scale_data[1].v1 as usize] - helpers[self.scale_data[1].v2 as usize]).y / self.scale_data[1].scale,
-            (helpers[self.scale_data[2].v1 as usize] - helpers[self.scale_data[2].v2 as usize]).z / self.scale_data[2].scale
+            (helpers[self.scale_data[2].max as usize] - helpers[self.scale_data[2].min as usize]).x / self.scale_data[0].scale,
+            (helpers[self.scale_data[0].max as usize] - helpers[self.scale_data[0].min as usize]).z / self.scale_data[2].scale,
+            (helpers[self.scale_data[1].max as usize] - helpers[self.scale_data[1].min as usize]).y / self.scale_data[1].scale,
         )
     }
 }
@@ -70,8 +72,8 @@ pub(crate) struct Triangle {
 
 #[derive(Default)]
 struct ScaleData {
-   v1: u16,
-   v2: u16,
+   min: u16,
+   max: u16,
    scale: f32,
 }
 
@@ -254,16 +256,16 @@ impl FromWorld for HumanAssetRegistry {
                 obj_file = path.clone();
                 obj_file.set_file_name(filename);
             } else if *line_vec.first().unwrap() == "x_scale" {
-                x_scale.v1 = line_vec[1].parse().unwrap();
-                x_scale.v2 = line_vec[2].parse().unwrap();
+                x_scale.max = line_vec[1].parse().unwrap();
+                x_scale.min = line_vec[2].parse().unwrap();
                 x_scale.scale = line_vec[3].parse().unwrap();
             } else if *line_vec.first().unwrap() == "y_scale" {
-                y_scale.v1 = line_vec[1].parse().unwrap();
-                y_scale.v2 = line_vec[2].parse().unwrap();
+                y_scale.max = line_vec[1].parse().unwrap();
+                y_scale.min = line_vec[2].parse().unwrap();
                 y_scale.scale = line_vec[3].parse().unwrap();
             } else if *line_vec.first().unwrap() == "z_scale" {
-                z_scale.v1 = line_vec[1].parse().unwrap();
-                z_scale.v2 = line_vec[2].parse().unwrap();
+                z_scale.max = line_vec[1].parse().unwrap();
+                z_scale.min = line_vec[2].parse().unwrap();
                 z_scale.scale = line_vec[3].parse().unwrap();
             } else if *line_vec.first().unwrap() == "z_depth" {
                 z_depth = line_vec[1].parse().unwrap();

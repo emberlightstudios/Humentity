@@ -126,7 +126,7 @@ pub(crate) fn bake_asset_morphs(
                         let wt = triangle.helper_weights[i];
                         position += *helpers.get(mh_vert as usize).unwrap() * wt;
                     }
-                    position += asset.get_scale(helpers) * triangle.helper_offset;
+                    position += asset.get_offset_scale(helpers) * triangle.helper_offset;
                     let offset = position - vertices[*vtx as usize];
                     vertices[*vtx as usize] += offset * value;
                 }
