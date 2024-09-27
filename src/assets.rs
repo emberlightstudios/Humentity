@@ -48,10 +48,10 @@ impl HumanMeshAsset {
         // The order is off in mpfb source code [0, 2, 1], maybe due to blender coordinates
         // Here it is different also
         Vec3::new(
-            (helpers[self.scale_data[2].max as usize] - helpers[self.scale_data[2].min as usize]).x / self.scale_data[0].scale,
-            (helpers[self.scale_data[0].max as usize] - helpers[self.scale_data[0].min as usize]).z / self.scale_data[2].scale,
+            (helpers[self.scale_data[0].max as usize] - helpers[self.scale_data[0].min as usize]).x / self.scale_data[0].scale,
             (helpers[self.scale_data[1].max as usize] - helpers[self.scale_data[1].min as usize]).y / self.scale_data[1].scale,
-        )
+            (helpers[self.scale_data[2].max as usize] - helpers[self.scale_data[2].min as usize]).z / self.scale_data[2].scale,
+        ).abs()
     }
 }
 
@@ -204,14 +204,16 @@ impl FromWorld for HumanAssetRegistry {
     mut next: ResMut<NextState<HumentityState>>,
     meshes: Res<Assets<Mesh>>,
  ) {
-    for (_name, asset) in registry.body_parts.iter_mut() {
+    for (name, asset) in registry.body_parts.iter_mut() {
+        println!("Importing body part: {name}");
         let mh_verts = parse_obj_vertices(&asset.obj_file);
         let mesh = meshes.get(&asset.mesh_handle).unwrap();
         let verts = get_vertex_positions(&mesh);
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
         asset.vertex_map = vertex_map;
     }
-    for (_name, asset) in registry.equipment.iter_mut() {
+    for (name, asset) in registry.equipment.iter_mut() {
+        println!("Importing equipment: {name}");
         let mh_verts = parse_obj_vertices(&asset.obj_file);
         let mesh = meshes.get(&asset.mesh_handle).unwrap();
         let verts = get_vertex_positions(&mesh);
@@ -256,16 +258,16 @@ impl FromWorld for HumanAssetRegistry {
                 obj_file = path.clone();
                 obj_file.set_file_name(filename);
             } else if *line_vec.first().unwrap() == "x_scale" {
-                x_scale.max = line_vec[1].parse().unwrap();
-                x_scale.min = line_vec[2].parse().unwrap();
+                x_scale.min = line_vec[1].parse().unwrap();
+                x_scale.max = line_vec[2].parse().unwrap();
                 x_scale.scale = line_vec[3].parse().unwrap();
             } else if *line_vec.first().unwrap() == "y_scale" {
-                y_scale.max = line_vec[1].parse().unwrap();
-                y_scale.min = line_vec[2].parse().unwrap();
+                y_scale.min = line_vec[1].parse().unwrap();
+                y_scale.max = line_vec[2].parse().unwrap();
                 y_scale.scale = line_vec[3].parse().unwrap();
             } else if *line_vec.first().unwrap() == "z_scale" {
-                z_scale.max = line_vec[1].parse().unwrap();
-                z_scale.min = line_vec[2].parse().unwrap();
+                z_scale.min = line_vec[1].parse().unwrap();
+                z_scale.max = line_vec[2].parse().unwrap();
                 z_scale.scale = line_vec[3].parse().unwrap();
             } else if *line_vec.first().unwrap() == "z_depth" {
                 z_depth = line_vec[1].parse().unwrap();
@@ -275,6 +277,8 @@ impl FromWorld for HumanAssetRegistry {
                 name = line_vec.last().unwrap().to_string();
             }
         } else if section == FileSection::Vertices {
+            // Some header lines work there way down here on occasion
+            if line_vec[0] == "material" { continue; }
             if line_vec.len() == 9 {
                 let helper_verts = [
                     line_vec[0].parse().unwrap(),
@@ -304,7 +308,10 @@ impl FromWorld for HumanAssetRegistry {
                     triangle: None,
                     single_vertex: Some(line.parse().unwrap())
                 });
-            } else { panic!("Unparseable vertex line") }
+            } else {
+                println!("{:?}", line);
+                panic!("Unparseable vertex line")
+            }
         } else if section == FileSection::DeleteVertices {
             // Either vert index "v" or vert range "v1 - v2"
             let mut start: Option<u16> = None;

@@ -75,7 +75,6 @@ pub(crate) fn generate_vertex_map(
     vertices: &Vec<Vec3>
 ) -> HashMap<u16, Vec<u16>> {
     let mut vertex_map = HashMap::<u16, Vec<u16>>::new();
-    let mut assigned = std::collections::HashSet::<usize>::new();
     let mut matched = std::collections::HashSet::<usize>::new();
 
     for (i, mh_vertex) in mh_vertices.iter().enumerate() {
@@ -83,10 +82,6 @@ pub(crate) fn generate_vertex_map(
         let vec = vertex_map.get_mut(&(i as u16)).unwrap();
         for (j, vtx) in vertices.iter().enumerate() {
             if vtx == mh_vertex {
-                if assigned.contains(&j) {
-                    panic!("DUPLICATE VERTICES WHEN MAKING VTX MAP") 
-                }
-                assigned.insert(j);
                 matched.insert(j);
                 vec.push(j as u16);
             }

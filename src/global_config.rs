@@ -16,6 +16,7 @@ pub struct HumentityGlobalConfig {
 impl Default for HumentityGlobalConfig {
     fn default() -> Self {
         let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+        // It is assumed this is only one level deep in your source. 
         if !path.to_str().unwrap().ends_with("humentity") { path = path.join("src/humentity") }
         HumentityGlobalConfig {
             core_assets_path: path.join("assets"),
