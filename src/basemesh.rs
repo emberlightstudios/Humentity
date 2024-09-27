@@ -43,7 +43,6 @@ impl FromWorld for BaseMesh {
     fn from_world(world: &mut World) -> Self {
         let config = world.get_resource::<HumentityGlobalConfig>().expect("NO CONFIG LOADED");
         let path = config.core_assets_path.clone();
-        println!("{}", path.to_str().unwrap());
         // Get mh vertices from base mesh and helper files
         let mh_vertices = parse_obj_vertices(path.join("base.obj"));
 

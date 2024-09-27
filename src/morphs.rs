@@ -204,10 +204,12 @@ pub(crate) fn bake_asset_morphs(
 
         for (asset_vert, vtx_list) in asset.vertex_map.iter() {
             let helper_map = &asset.helper_maps[*asset_vert as usize];
-            for vtx in vtx_list.iter() {
-                if helper_map.single_vertex.is_some() {
-                    let offset = *target.get(asset_vert).unwrap();
-                    vertices[*vtx as usize] += offset * value;
+            for &vtx in vtx_list.iter() {
+                if let Some(mh_vtx) = helper_map.single_vertex {
+        // 14636
+        // 14708
+                    let offset = *target.get(&mh_vtx).unwrap();
+                    vertices[vtx as usize] += offset * value;
                 } else { // Triangulation
                     let triangle = helper_map.triangle.as_ref().unwrap();
                     let mut position = Vec3::ZERO;
@@ -217,8 +219,8 @@ pub(crate) fn bake_asset_morphs(
                         position += *helpers.get(mh_vert as usize).unwrap() * wt;
                     }
                     position += asset.get_offset_scale(helpers) * triangle.helper_offset;
-                    let offset = position - vertices[*vtx as usize];
-                    vertices[*vtx as usize] += offset * value;
+                    let offset = position - vertices[vtx as usize];
+                    vertices[vtx as usize] += offset * value;
                 }
             }
         }

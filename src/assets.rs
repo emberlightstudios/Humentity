@@ -45,8 +45,6 @@ pub struct HumanMeshAsset {
 
 impl HumanMeshAsset {
     pub(crate) fn get_offset_scale(&self, helpers: &Vec<Vec3>) -> Vec3 {
-        // The order is off in mpfb source code [0, 2, 1], maybe due to blender coordinates
-        // Here it is different also
         Vec3::new(
             (helpers[self.scale_data[0].max as usize] - helpers[self.scale_data[0].min as usize]).x / self.scale_data[0].scale,
             (helpers[self.scale_data[1].max as usize] - helpers[self.scale_data[1].min as usize]).y / self.scale_data[1].scale,
@@ -285,11 +283,14 @@ impl FromWorld for HumanAssetRegistry {
                     line_vec[1].parse().unwrap(),
                     line_vec[2].parse().unwrap(),
                 ];
-                let helper_weights = [
+                let mut helper_weights = [
                     line_vec[3].parse().unwrap(),
                     line_vec[4].parse().unwrap(),
                     line_vec[5].parse().unwrap(),
                 ];
+                for i in 0..3 {
+                    helper_weights[i] /= helper_weights.iter().sum::<f32>();
+                }
                 let helper_offset = Vec3::new(
                     line_vec[6].parse().unwrap(),
                     line_vec[7].parse().unwrap(),
