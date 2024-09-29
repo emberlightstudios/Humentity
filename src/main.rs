@@ -1,7 +1,9 @@
 use bevy::prelude::*;
-use humentity::{prelude::*, HumentityState};
-use std::collections::HashMap;
-
+use humentity::prelude::*;
+use std::{
+    collections::HashMap,
+    path::Path,
+};
 
 fn setup_env(
     mut commands: Commands,
@@ -48,17 +50,19 @@ fn setup_env(
                 config = HumanConfig {
                     morph_targets: shapekeys,
                     skin_albedo: "young_african_female_diffuse.png".to_string(),
-                    rig: RigType::Mixamo,
                     body_parts: vec![
-                        "LeftEye-EyeballLowPoly".to_string(),
+                        "LeftEyeballLowPoly".to_string(),
                         "LeftEyelash".to_string(),
                         "LeftEyebrow-001".to_string(),
-                        "RightEye-EyeballLowPoly".to_string(),
+                        "RightEyeballLowPoly".to_string(),
                         "RightEyelash".to_string(),
                         "RightEyebrow-001".to_string(),
                     ],
                     equipment: vec![
+                        "SimpleBra".to_string(),
+                        "SimpleBriefs".to_string(),
                     ],
+                    ..default()
                 }
             }
             1 => {
@@ -67,17 +71,18 @@ fn setup_env(
 
                     morph_targets: shapekeys,
                     skin_albedo: "young_asian_male_diffuse3.png".to_string(),
-                    rig: RigType::Mixamo,
                     body_parts: vec![
-                        "LeftEye-EyeballLowPoly".to_string(),
+                        "LeftEyeballLowPoly".to_string(),
                         "LeftEyelash".to_string(),
                         "LeftEyebrow-001".to_string(),
-                        "RightEye-EyeballLowPoly".to_string(),
+                        "RightEyeballLowPoly".to_string(),
                         "RightEyelash".to_string(),
                         "RightEyebrow-001".to_string(),
                     ],
                     equipment: vec![
+                        "SimpleBriefs".to_string(),
                     ],
+                    ..default()
                 }
             }
             2 => {
@@ -85,18 +90,21 @@ fn setup_env(
                 config = HumanConfig {
                     morph_targets: shapekeys,
                     skin_albedo: "middleage_caucasian_female_diffuse.png".to_string(),
-                    rig: RigType::Mixamo,
                     body_parts: vec![
-                        "LeftEye-EyeballLowPoly".to_string(),
-                        "LeftEyelash".to_string(),
+                        "LeftEyeballLowPoly".to_string(),
+                        "FalseLeftEyelash".to_string(),
                         "LeftEyebrow-001".to_string(),
-                        "RightEye-EyeballLowPoly".to_string(),
-                        "RightEyelash".to_string(),
+                        "RightEyeballLowPoly".to_string(),
+                        "FalseRightEyelash".to_string(),
                         "RightEyebrow-001".to_string(),
+                        "Ponytail01".to_string(),
                     ],
                     equipment: vec![
-                        "female_panties_01".to_string(),
+                        "SimpleBra".to_string(),
+                        "SimpleBriefs".to_string(),
                     ],
+                    hair_color: Color::linear_rgb(1.0, 0.2, 0.4),
+                    ..default()
                 }
             }
             3 => {
@@ -104,17 +112,18 @@ fn setup_env(
                 config = HumanConfig {
                     morph_targets: shapekeys,
                     skin_albedo: "old_african_male_diffuse.png".to_string(),
-                    rig: RigType::Mixamo,
                     body_parts: vec![
-                        "LeftEye-EyeballLowPoly".to_string(),
+                        "LeftEyeballLowPoly".to_string(),
                         "LeftEyelash".to_string(),
                         "LeftEyebrow-001".to_string(),
-                        "RightEye-EyeballLowPoly".to_string(),
+                        "RightEyeballLowPoly".to_string(),
                         "RightEyelash".to_string(),
                         "RightEyebrow-001".to_string(),
                     ],
                     equipment: vec![
+                        "SimpleBriefs".to_string(),
                     ],
+                    ..default()
                 }
             }
             _  => { panic!{"uninitialized human"}; }
@@ -123,6 +132,7 @@ fn setup_env(
         commands.spawn((
             SpawnTransform(transform),
             config,
+            AnimationPlayer::default(),
         ));
     }
 }
@@ -130,9 +140,22 @@ fn setup_env(
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .insert_resource(HumentityGlobalConfig::default())
+        .add_plugins(DefaultPlugins.set(
+            WindowPlugin {
+                primary_window: Some(Window {
+                    resolution: (2500.0, 1500.0).into(),
+                    title: "Chaos Theory".to_string(),
+                    ..default()
+                }),
+                ..default()
+            })
+        )
+        .insert_resource(
+            HumentityGlobalConfig::default()
+                .with_animation_library_paths([Path::new("./").to_path_buf()])
+        )
         .add_plugins(Humentity::default())
         .add_systems(OnEnter(HumentityState::Ready), setup_env)
         .run();
 }
+

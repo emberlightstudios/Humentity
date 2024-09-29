@@ -8,12 +8,13 @@ use std::{
 #[derive(Resource, Clone)]
 pub struct HumentityGlobalConfig {
     pub(crate) core_assets_path: PathBuf,
-    pub body_part_paths: HashSet<PathBuf>,
-    pub equipment_paths: HashSet<PathBuf>,
-    pub target_paths: HashSet<PathBuf>,
-    pub body_part_slots: Vec<String>,
-    pub transparent_slots: Vec<String>,
-    pub equipment_slots: Vec<String>,
+    pub(crate) body_part_paths: HashSet<PathBuf>,
+    pub(crate) equipment_paths: HashSet<PathBuf>,
+    pub(crate) target_paths: HashSet<PathBuf>,
+    pub(crate) animation_library_paths: HashSet<PathBuf>,
+    pub(crate) body_part_slots: Vec<String>,
+    pub(crate) transparent_slots: Vec<String>,
+    pub(crate) equipment_slots: Vec<String>,
 }
 
 impl Default for HumentityGlobalConfig {
@@ -53,12 +54,14 @@ impl Default for HumentityGlobalConfig {
             "RightFoot",
             "LeftFoot",
         ];
+        let animation_library_paths = HashSet::<PathBuf>::new();
 
         HumentityGlobalConfig {
             core_assets_path: path.join("assets"),
             body_part_paths: vec![path.join("assets/body_parts")].into_iter().collect(),
             equipment_paths: vec![path.join("assets/clothes")].into_iter().collect(),
             target_paths: vec![path.join("assets/targets")].into_iter().collect(),
+            animation_library_paths: animation_library_paths,
             body_part_slots: body_parts_slots.iter().map(|s| s.to_string()).collect(),
             equipment_slots: equipment_slots.iter().map(|s| s.to_string()).collect(),
             transparent_slots: transparent_slots.iter().map(|s| s.to_string()).collect(),
@@ -67,28 +70,45 @@ impl Default for HumentityGlobalConfig {
 }
 
 impl HumentityGlobalConfig {
-    pub fn with_added_body_parts_paths(&mut self, paths: Vec<PathBuf>) -> &mut Self {
-        for path in paths.iter() { self.body_part_paths.insert(path.to_path_buf()); }
-        self
+    pub fn with_added_body_parts_paths<I>(self, paths: I) -> Self
+    where I: IntoIterator<Item = PathBuf> {
+        let mut new = self;
+        for path in paths.into_iter() { new.body_part_paths.insert(path.to_path_buf()); }
+        new
     }
 
-    pub fn with_added_equipment_paths(&mut self, paths: Vec<PathBuf>) -> &mut Self {
-        for path in paths.iter() { self.equipment_paths.insert(path.to_path_buf()); }
-        self
+    pub fn with_added_equipment_paths<I>(self, paths: I) -> Self
+    where I: IntoIterator<Item = PathBuf> {
+        let mut new = self;
+        for path in paths.into_iter() { new.equipment_paths.insert(path.to_path_buf()); }
+        new
     }
 
-    pub fn with_added_target_paths(&mut self, paths: Vec<PathBuf>) -> &mut Self {
-        for path in paths.iter() { self.target_paths.insert(path.to_path_buf()); }
-        self
+    pub fn with_added_target_paths<I>(self, paths: I) -> Self
+    where I: IntoIterator<Item = PathBuf> {
+        let mut new = self;
+        for path in paths.into_iter() { new.target_paths.insert(path.to_path_buf()); }
+        new
     }
 
-    pub fn with_body_part_slots(&mut self, slots: Vec<String>) -> &mut Self {
-        self.body_part_slots = slots;
-        self
+    pub fn with_animation_library_paths<I>(self, paths: I) -> Self
+    where I: IntoIterator<Item = PathBuf> {
+        let mut new = self;
+        new.animation_library_paths = paths.into_iter().collect();
+        new
     }
 
-    pub fn with_equipment_slots(&mut self, slots: Vec<String>) -> &mut Self {
-        self.equipment_slots = slots;
-        self
+    pub fn with_body_part_slots<I>(self, slots: I) -> Self
+    where I: IntoIterator<Item = String> {
+        let mut new = self;
+        new.body_part_slots = slots.into_iter().collect();
+        new
+    }
+
+    pub fn with_equipment_slots<I>(self, slots: I) -> Self
+    where I: IntoIterator<Item = String> {
+        let mut new = self;
+        new.equipment_slots = slots.into_iter().collect();
+        new
     }
 }

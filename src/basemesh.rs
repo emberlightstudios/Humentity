@@ -14,8 +14,9 @@ use crate::{
     get_vertex_normals,
     get_vertex_positions,
     parse_obj_vertices,
+    LoadingState,
+    LoadingPhase,
     HumentityGlobalConfig,
-    HumentityState,
 }; 
 use serde::Deserialize;
 use serde_json;
@@ -58,8 +59,6 @@ impl FromWorld for BaseMesh {
         world.insert_resource(vg);
         world.insert_resource(HelperMeshHandle(base_handle.clone()));
 
-        let mut next = world.get_resource_mut::<NextState<HumentityState>>().expect("No HumentityState registered");
-        next.set(HumentityState::LoadingBodyMesh);
         BaseMesh{
             mesh_handle: base_handle,
             vertices: mh_vertices,
@@ -74,13 +73,15 @@ impl FromWorld for BaseMesh {
  +-----------*/
 // Remove helper vertices to generate body only mesh
 pub(crate) fn create_body_mesh(
-    mut next: ResMut<NextState<HumentityState>>,
     mut base_mesh: ResMut<BaseMesh>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
-    helper_handle: Res<HelperMeshHandle>,
+    mut loading_state: ResMut<LoadingState>,
+    helper_handle: Option<Res<HelperMeshHandle>>,
 ) {
-    let Some(mesh) = meshes.get(&helper_handle.0) else { return };
+    if *loading_state.0.get(&LoadingPhase::CreateBodyMesh).unwrap() { return; }
+    if helper_handle.is_none() { return; }
+    let Some(mesh) = meshes.get(&helper_handle.unwrap().0) else { return };
 
     // Get mesh arrays
     let Some(raw_indices) = mesh.indices() else { panic!("FAILED TO LOAD MESH INDICES") };
@@ -106,20 +107,22 @@ pub(crate) fn create_body_mesh(
     // Save values in base mesh resource
     base_mesh.mesh_handle = meshes.add(body_mesh);
     commands.remove_resource::<HelperMeshHandle>();
-    next.set(HumentityState::LoadingBodyVertexMap);
+    loading_state.0.insert(LoadingPhase::CreateBodyMesh, true);
 } 
 
 // Load body mesh to calculate vertex maps
 pub(crate) fn create_body_vertex_map(
     mut base_mesh: ResMut<BaseMesh>,
     meshes: Res<Assets<Mesh>>,
-    mut next: ResMut<NextState<HumentityState>>,
+    mut loading_state: ResMut<LoadingState>,
 ) {
+    if !*loading_state.0.get(&LoadingPhase::CreateBodyMesh).unwrap() { return; }
+    if *loading_state.0.get(&LoadingPhase::GenerateBodyVertexMap).unwrap() { return; }
     let Some(body_mesh) = meshes.get(&base_mesh.mesh_handle) else { return };
     let vertices = get_vertex_positions(&body_mesh);
     let body_vertex_map = generate_vertex_map(&base_mesh.vertices, &vertices);
     base_mesh.vertex_map = body_vertex_map;
-    next.set(HumentityState::LoadingAssetVertexMaps);
+    loading_state.0.insert(LoadingPhase::GenerateBodyVertexMap, true);
 }
 
 /*---------------------+

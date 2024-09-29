@@ -24,6 +24,8 @@ use crate::{
     get_uv_coords,
     HumentityGlobalConfig,
     HumentityState,
+    LoadingPhase,
+    LoadingState,
     BaseMesh,
 };
 
@@ -166,7 +168,7 @@ impl FromWorld for HumanAssetRegistry {
         let Some(asset_server) = world.get_resource::<AssetServer>() else { panic!("Can't load asset server?") };
         for (name, asset) in equipment.iter().chain(body_parts.iter()) {
             let dir = asset.obj_file.parent().unwrap();
-            let mut albedos = Vec::<Handle<Image>>::new();
+            let mut asset_albedos = Vec::<Handle<Image>>::new();
             for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
                 let path = entry.path().to_path_buf();
                 if path.is_file() {
@@ -175,14 +177,16 @@ impl FromWorld for HumanAssetRegistry {
                         let image = asset_server.load(path.clone());
                         if let Some(file) = path.file_name().and_then(|s| s.to_str()) {
                             if file.ends_with("_bump.png") { continue; }
-                            else if file.ends_with("_normal.png") { normal_texture.insert(name.to_string(), image); }
-                            else if file.ends_with("_ao.png") { ao_texture.insert(name.to_string(), image); }
-                            else { albedos.push(image); }
+                            if !file.starts_with("overlay_") {
+                                if file.ends_with("_normal.png") { normal_texture.insert(name.to_string(), image); }
+                                else if file.ends_with("_ao.png") { ao_texture.insert(name.to_string(), image); }
+                                else { asset_albedos.push(image); }
+                            }
                         }
                     }
                 }
             }
-            albedo_textures.insert(name.to_string(), albedos);
+            albedo_textures.insert(name.to_string(), asset_albedos);
         }
         world.insert_resource(HumanAssetTextures{ 
             albedo_maps: albedo_textures,
@@ -204,9 +208,17 @@ impl FromWorld for HumanAssetRegistry {
  +-----------*/
  pub(crate) fn generate_asset_vertex_maps(
     mut registry: ResMut<HumanAssetRegistry>,
-    mut next: ResMut<NextState<HumentityState>>,
+    mut loading_state: ResMut<LoadingState>,
     meshes: Res<Assets<Mesh>>,
  ) {
+    if *loading_state.0.get(&LoadingPhase::GenerateAssetVertexMap).unwrap() { return };
+    for (_name, asset) in registry.body_parts.iter_mut() {
+        let Some(_mesh) = meshes.get(&asset.mesh_handle) else { return };
+    }
+    for (_name, asset) in registry.equipment.iter_mut() {
+        let Some(_mesh) = meshes.get(&asset.mesh_handle) else { return };
+    }
+
     for (name, asset) in registry.body_parts.iter_mut() {
         println!("Importing body part: {name}");
         let mh_verts = parse_obj_vertices(&asset.obj_file);
@@ -223,7 +235,7 @@ impl FromWorld for HumanAssetRegistry {
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
         asset.vertex_map = vertex_map;
     }
-    next.set(HumentityState::Ready);
+    loading_state.0.insert(LoadingPhase::GenerateAssetVertexMap, true);
  }
 
 /*------------+

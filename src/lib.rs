@@ -3,10 +3,14 @@ mod morphs;
 mod rigs;
 mod global_config;
 mod assets;
+mod animation;
 mod mesh_ops;
 
+use bevy::{
+    prelude::*,
+    render::mesh::skinning::SkinnedMeshInverseBindposes
+};
 use std::collections::{ HashMap, HashSet };
-use bevy::{prelude::*, render::mesh::skinning::SkinnedMeshInverseBindposes};
 use bevy_obj::ObjPlugin;
 use basemesh::{
     create_body_mesh,
@@ -30,6 +34,10 @@ use morphs::{
     bake_asset_morphs,
     bake_body_morphs,
     MorphTargets,
+};
+use animation::{
+    AnimationLibrarySet,
+    load_animations,
 };
 
 pub(crate) use mesh_ops::{
@@ -57,6 +65,7 @@ pub mod prelude {
     pub use crate::{
         Humentity,
         HumentityGlobalConfig,
+        HumentityState,
         HumanConfig,
         SpawnTransform,
         RigType,
@@ -80,23 +89,29 @@ impl Default for Humentity {
 
 impl Plugin for Humentity {
     fn build(&self, app: &mut App) {
+        let mut loading_state = HashMap::<LoadingPhase, bool>::new();
+        loading_state.insert(LoadingPhase::CreateBodyMesh, false);
+        loading_state.insert(LoadingPhase::GenerateBodyVertexMap, false);
+        loading_state.insert(LoadingPhase::GenerateAssetVertexMap, false);
+        loading_state.insert(LoadingPhase::SetUpAnimationLibraries, false);
+
         if !app.is_plugin_added::<ObjPlugin>() {
             app.add_plugins(ObjPlugin{ compute_smooth_normals: true });
         }
-        app.insert_state(HumentityState::Idle);
+        app.insert_state(HumentityState::Loading);
+        app.insert_resource(LoadingState(loading_state));
         app.init_resource::<MorphTargets>();
         app.init_resource::<HumanAssetRegistry>();
         app.init_resource::<BaseMesh>();
         app.init_resource::<RigData>();
-        app.add_systems(Update, (
+        app.init_resource::<AnimationLibrarySet>();
+        app.add_systems(Update, ((
+            loading_state_checker,
             create_body_mesh,
-        ).run_if(in_state(HumentityState::LoadingBodyMesh)));
-        app.add_systems(Update, (
             create_body_vertex_map,
-        ).run_if(in_state(HumentityState::LoadingBodyVertexMap)));
-        app.add_systems(Update, (
             generate_asset_vertex_maps,
-        ).run_if(in_state(HumentityState::LoadingAssetVertexMaps)));
+            load_animations,
+        )).run_if(in_state(HumentityState::Loading)));
         app.add_systems(Update, (
             on_human_added,
         ).run_if(in_state(HumentityState::Ready)));
@@ -112,11 +127,23 @@ impl Plugin for Humentity {
 #[derive(States, PartialEq, Eq, Hash, Debug, Clone)]
 pub enum HumentityState {
     Idle,
-    LoadingBodyMesh,
-    LoadingBodyVertexMap,
-    LoadingAssetVertexMaps,
+    Loading,
     Ready
 }
+
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
+pub enum LoadingPhase {
+    CreateBodyMesh,
+    GenerateBodyVertexMap,
+    GenerateAssetVertexMap,
+    SetUpAnimationLibraries,
+}
+
+/*-------------+
+ |  Resources  |
+ +-------------*/
+#[derive(Resource)]
+pub(crate) struct LoadingState(HashMap<LoadingPhase, bool>);
 
 /*--------------+
  |  Components  |
@@ -155,7 +182,21 @@ impl Default for HumanConfig {
 /*-----------+
  |  Systems  |
  +-----------*/
+fn loading_state_checker(
+    loading_state: Res<LoadingState>,
+    mut next: ResMut<NextState<HumentityState>>,
+    mut commands: Commands,
+) {
+    if !loading_state.0.get(&LoadingPhase::CreateBodyMesh).unwrap() { return; }
+    if !loading_state.0.get(&LoadingPhase::GenerateBodyVertexMap).unwrap() { return; }
+    if !loading_state.0.get(&LoadingPhase::GenerateAssetVertexMap).unwrap() { return; }
+    if !loading_state.0.get(&LoadingPhase::SetUpAnimationLibraries).unwrap() { return; }
+    commands.remove_resource::<LoadingState>();
+    next.set(HumentityState::Ready);
+}
+
 fn on_human_added(
+    new_humans: Query<(Entity, &HumanConfig, &SpawnTransform), Added<HumanConfig>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -168,7 +209,6 @@ fn on_human_added(
     rigs: Res<RigData>,
     vg: Res<VertexGroups>,
     asset_textures: Res<HumanAssetTextures>,
-    new_humans: Query<(Entity, &HumanConfig, &SpawnTransform), Added<HumanConfig>>,
 ) {
     // TODO Can we wrap all these args up in a single struct to pass to every function?
     // tried but couldn't figure out lifetimes
@@ -235,6 +275,7 @@ fn on_human_added(
             for slot in asset.slots.iter() {
                 if transparent_slots.contains(slot) {
                     material.alpha_mode = AlphaMode::Blend;
+                    material.reflectance = 0.25;
                     if slot.contains("Eyebrow") { material.base_color = config.eyebrow_color; }
                     else if slot.contains("Eye") && !slot.contains("Eyelash") { material.base_color = config.eye_color; }
                     else if slot.contains("Hair") { material.base_color = config.hair_color; }
