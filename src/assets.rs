@@ -33,14 +33,15 @@ use crate::{
  #[allow(dead_code)]
 pub struct HumanMeshAsset {
    pub name: String,
+   pub(crate) mesh_handle: Handle<Mesh>,
+   pub(crate) helper_maps: Vec<HelperMap>,
+   pub(crate) vertex_map: HashMap<u16, Vec<u16>>,
+   pub(crate) delete_verts: HashSet<u16>,
+   pub slots: Vec<String>,
    obj_file: PathBuf,
    tags: Vec<String>,
    z_depth: i8,
    scale_data: [ScaleData; 3],
-   pub(crate) delete_verts: HashSet<u16>,
-   pub(crate) helper_maps: Vec<HelperMap>,
-   pub(crate) mesh_handle: Handle<Mesh>,
-   pub(crate) vertex_map: HashMap<u16, Vec<u16>>,
 }
 
 impl HumanMeshAsset {
@@ -49,7 +50,7 @@ impl HumanMeshAsset {
             (helpers[self.scale_data[0].max as usize] - helpers[self.scale_data[0].min as usize]).x / self.scale_data[0].scale,
             (helpers[self.scale_data[1].max as usize] - helpers[self.scale_data[1].min as usize]).y / self.scale_data[1].scale,
             (helpers[self.scale_data[2].max as usize] - helpers[self.scale_data[2].min as usize]).z / self.scale_data[2].scale,
-        ).abs()
+        )
     }
 }
 
@@ -82,23 +83,6 @@ enum FileSection {
    DeleteVertices,
 }
 
-#[allow(dead_code)]
-#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
-pub enum BodyPartSlot {
-   Eyes,
-   Tongue,
-   Teeth,
-   Eyelashes,
-   Eyebrows,
-   Hair,
-}
-
-#[allow(dead_code)]
-#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
-pub enum EquipmentSlot {
-   Torso,
-}
-
 /*-------------+
  |  Resources  |
  +-------------*/
@@ -115,30 +99,48 @@ pub struct HumanAssetTextures {
 pub struct HumanAssetRegistry {
     pub body_parts: HashMap<String, HumanMeshAsset>,
     pub equipment: HashMap<String, HumanMeshAsset>,
+    pub slot_body_parts: HashMap<String, Vec<String>>,
+    pub slot_equipment: HashMap<String, Vec<String>>,
 }
 
 impl FromWorld for HumanAssetRegistry {
     fn from_world(world: &mut World) -> Self{
         let mut body_parts = HashMap::<String, HumanMeshAsset>::new();
         let mut equipment = HashMap::<String, HumanMeshAsset>::new();
+        let mut slot_body_parts = HashMap::<String, Vec<String>>::new();
+        let mut slot_equipment = HashMap::<String, Vec<String>>::new();
 
         let config = world.get_resource_mut::<HumentityGlobalConfig>().expect("No global Humentity config loaded");
         let body_part_paths = config.body_part_paths.clone();
         let equipment_paths = config.equipment_paths.clone();
+        let body_part_slots = config.body_part_slots.clone();
+        let equipment_slots = config.body_part_slots.clone();
 
         for dir in body_part_paths {
             for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
-                //let stem = path.file_stem().unwrap().to_str().unwrap();
-                //if stem.eq_ignore_ascii_case("eyes") { slot = BodyPartSlot::Eyes; }
                 if !path.is_file() { continue; }
                 let Some(extension) = path.extension().and_then(|e| e.to_str()) else { continue };
                 if extension == "mhclo" {
-                    let bp = parse_human_asset(path.to_path_buf(), world);
+                    // parse
+                    let mut bp = parse_human_asset(path.to_path_buf(), world);
+                    // set slots
+                    let mut slots = Vec::<String>::new();
+                    for tag in &bp.tags {
+                        if body_part_slots.contains(tag) { slots.push(tag.to_string()) };
+                    }
+                    bp.slots = slots.clone();
+                    // insert into slots hashmap
+                    for slot in slots.iter() {
+                        let bp_vec = slot_body_parts.entry(slot.to_string()).or_insert(Vec::<String>::new());
+                        bp_vec.push(bp.name.clone());
+                    }
+                    // insert into name hashmap
                     body_parts.insert(bp.name.clone(), bp);
                 }
             }
         }
+
         for dir in equipment_paths {
             for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
@@ -172,7 +174,8 @@ impl FromWorld for HumanAssetRegistry {
                     if extension == "png" {
                         let image = asset_server.load(path.clone());
                         if let Some(file) = path.file_name().and_then(|s| s.to_str()) {
-                            if file.ends_with("_normal.png") { normal_texture.insert(name.to_string(), image); }
+                            if file.ends_with("_bump.png") { continue; }
+                            else if file.ends_with("_normal.png") { normal_texture.insert(name.to_string(), image); }
                             else if file.ends_with("_ao.png") { ao_texture.insert(name.to_string(), image); }
                             else { albedos.push(image); }
                         }
@@ -190,6 +193,8 @@ impl FromWorld for HumanAssetRegistry {
         HumanAssetRegistry {
             body_parts: body_parts,
             equipment: equipment,
+            slot_body_parts: slot_body_parts,
+            slot_equipment: slot_equipment,
         }
     }
 }
@@ -244,6 +249,7 @@ impl FromWorld for HumanAssetRegistry {
     for line_result in BufReader::new(file).lines() {
 
         let Ok(line) = line_result else { break };
+        if line.starts_with("#") { continue; }
         if line.trim().is_empty() { continue; }
         if line.starts_with("verts 0") { section = FileSection::Vertices; continue; }
         if line.starts_with("delete_verts") { section = FileSection::DeleteVertices; continue; }
@@ -349,6 +355,7 @@ impl FromWorld for HumanAssetRegistry {
         scale_data: [x_scale, y_scale, z_scale],
         mesh_handle: mesh_handle,
         vertex_map: vertex_map,
+        slots: vec![],
     }
 }
 
@@ -364,18 +371,6 @@ pub(crate) fn delete_mesh_verts(
     let normals = get_vertex_normals(&mesh);
     let uv = get_uv_coords(&mesh);
     let indices = mesh.indices().expect("FAILED TO GET MESH FACES");
-
-    // Mhclo delete verts isn't actually for verts.  It's for faces.
-    // Faces are deleted if all of their verts are in delete_verts. 
-    let mut actual_delete_verts = HashSet::<u16>::new();
-    let faces_vec: Vec<usize> = indices.iter().collect();
-    for face in faces_vec.chunks(3) {
-        if face.iter().all(|&i| delete_verts.contains(&inv_vertex_map[&(i as u16)])) {
-            let face16: Vec<u16> = face.iter().map(|&i| inv_vertex_map[&(i as u16)]).collect();
-            actual_delete_verts.extend(face16);
-        }
-    }
-    let delete_verts = actual_delete_verts;
 
     // Set up new storage for the new mesh
     let verts = vertices.len() - delete_verts.len();  // Roughly

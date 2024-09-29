@@ -181,11 +181,10 @@ pub(crate) fn bake_body_morphs(
             vertices[*vtx as usize] = helpers[*mh_vert as usize];
         }
     }
-    let mut new_mesh = mesh.clone()
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
-    new_mesh.compute_smooth_normals();
-    let _ = new_mesh.generate_tangents();
-    new_mesh
+    mesh.clone()
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+        .with_computed_smooth_normals()
+        .with_generated_tangents().unwrap()
 }
 
 
@@ -206,8 +205,6 @@ pub(crate) fn bake_asset_morphs(
             let helper_map = &asset.helper_maps[*asset_vert as usize];
             for &vtx in vtx_list.iter() {
                 if let Some(mh_vtx) = helper_map.single_vertex {
-        // 14636
-        // 14708
                     let offset = *target.get(&mh_vtx).unwrap();
                     vertices[vtx as usize] += offset * value;
                 } else { // Triangulation
@@ -225,10 +222,9 @@ pub(crate) fn bake_asset_morphs(
             }
         }
     }
-    let mut new_mesh = mesh.clone()
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
-    new_mesh.compute_smooth_normals();
-    let _ = new_mesh.generate_tangents();
-    new_mesh
+    mesh.clone()
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+        .with_computed_smooth_normals()
+        .with_generated_tangents().unwrap()
 }
 

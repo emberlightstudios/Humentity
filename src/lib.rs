@@ -132,6 +132,24 @@ pub struct HumanConfig {
     pub skin_albedo: String,
     pub body_parts: Vec<String>,
     pub equipment: Vec<String>,
+    pub eye_color: Color,
+    pub eyebrow_color: Color,
+    pub hair_color: Color,
+}
+
+impl Default for HumanConfig {
+    fn default() -> Self {
+        HumanConfig {
+            morph_targets: HashMap::<String, f32>::new(),
+            rig: RigType::Mixamo,
+            skin_albedo: String::new(),
+            body_parts: vec![],
+            equipment: vec![],
+            eye_color: Color::BLACK,
+            eyebrow_color: Color::BLACK,
+            hair_color: Color::BLACK,
+        }
+    }
 }
 
 /*-----------+
@@ -142,7 +160,7 @@ fn on_human_added(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut inv_bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
-    config: Res<HumentityGlobalConfig>,
+    global_config: Res<HumentityGlobalConfig>,
     registry: Res<HumanAssetRegistry>,
     base_mesh: Res<BaseMesh>,
     targets: Res<MorphTargets>,
@@ -154,7 +172,8 @@ fn on_human_added(
 ) {
     // TODO Can we wrap all these args up in a single struct to pass to every function?
     // tried but couldn't figure out lifetimes
-    let path = config.core_assets_path.clone();
+    let path = global_config.core_assets_path.clone();
+    let transparent_slots = global_config.transparent_slots.clone();
 
     new_humans.iter().for_each(|(human, config, spawn_transform)| {
         // Body Material
@@ -212,6 +231,14 @@ fn on_human_added(
             }
             if let Some(ao) = asset_textures.ao_map.get(&asset.name) {
                 material.occlusion_texture = Some(ao.clone());
+            }
+            for slot in asset.slots.iter() {
+                if transparent_slots.contains(slot) {
+                    material.alpha_mode = AlphaMode::Blend;
+                    if slot.contains("Eyebrow") { material.base_color = config.eyebrow_color; }
+                    else if slot.contains("Eye") && !slot.contains("Eyelash") { material.base_color = config.eye_color; }
+                    else if slot.contains("Hair") { material.base_color = config.hair_color; }
+                }
             }
 
             commands.spawn((
