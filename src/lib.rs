@@ -35,10 +35,7 @@ use morphs::{
     bake_body_morphs,
     MorphTargets,
 };
-use animation::{
-    AnimationLibrarySet,
-    load_animations,
-};
+use animation::load_animations;
 
 pub(crate) use mesh_ops::{
     get_vertex_positions,
@@ -60,6 +57,7 @@ pub(crate) use assets::{
 
 pub use rigs::RigType;
 pub use global_config::HumentityGlobalConfig;
+pub use animation::AnimationLibrarySet;
 
 pub mod prelude {
     pub use crate::{
@@ -69,6 +67,7 @@ pub mod prelude {
         HumanConfig,
         SpawnTransform,
         RigType,
+        AnimationLibrarySet,
     };
 }
 

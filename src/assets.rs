@@ -220,7 +220,7 @@ impl FromWorld for HumanAssetRegistry {
     }
 
     for (name, asset) in registry.body_parts.iter_mut() {
-        println!("Importing body part: {name}");
+        //println!("Importing body part: {name}");
         let mh_verts = parse_obj_vertices(&asset.obj_file);
         let mesh = meshes.get(&asset.mesh_handle).unwrap();
         let verts = get_vertex_positions(&mesh);
@@ -228,7 +228,7 @@ impl FromWorld for HumanAssetRegistry {
         asset.vertex_map = vertex_map;
     }
     for (name, asset) in registry.equipment.iter_mut() {
-        println!("Importing equipment: {name}");
+        //println!("Importing equipment: {name}");
         let mh_verts = parse_obj_vertices(&asset.obj_file);
         let mesh = meshes.get(&asset.mesh_handle).unwrap();
         let verts = get_vertex_positions(&mesh);
