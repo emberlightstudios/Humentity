@@ -140,21 +140,15 @@ fn setup_env(
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(
-            WindowPlugin {
-                primary_window: Some(Window {
-                    resolution: (2500.0, 1500.0).into(),
-                    title: "Chaos Theory".to_string(),
-                    ..default()
-                }),
-                ..default()
-            })
-        )
+        .add_plugins(DefaultPlugins)
         .insert_resource(
             HumentityGlobalConfig::default()
-                .with_animation_library_paths([Path::new("./").to_path_buf()])
+                .with_animation_libraries(AnimationLibrarySettings {
+                    paths: vec![Path::new("./assets").to_path_buf()],
+                    rig_type: RigType::Mixamo,
+                })
         )
-        .add_plugins(Humentity::default())
+        .add_plugins(Humentity{ debug: true })
         .add_systems(OnEnter(HumentityState::Ready), setup_env)
         .run();
 }

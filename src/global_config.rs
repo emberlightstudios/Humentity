@@ -1,4 +1,5 @@
 use bevy::prelude::Resource;
+use crate::AnimationLibrarySettings;
 use std::{
     path::PathBuf,
     env,
@@ -11,7 +12,7 @@ pub struct HumentityGlobalConfig {
     pub(crate) body_part_paths: HashSet<PathBuf>,
     pub(crate) equipment_paths: HashSet<PathBuf>,
     pub(crate) target_paths: HashSet<PathBuf>,
-    pub(crate) animation_library_paths: HashSet<PathBuf>,
+    pub(crate) animation_libraries: AnimationLibrarySettings,
     pub(crate) body_part_slots: Vec<String>,
     pub(crate) transparent_slots: Vec<String>,
     pub(crate) equipment_slots: Vec<String>,
@@ -54,14 +55,13 @@ impl Default for HumentityGlobalConfig {
             "RightFoot",
             "LeftFoot",
         ];
-        let animation_library_paths = HashSet::<PathBuf>::new();
 
         HumentityGlobalConfig {
             core_assets_path: path.join("assets"),
             body_part_paths: vec![path.join("assets/body_parts")].into_iter().collect(),
             equipment_paths: vec![path.join("assets/clothes")].into_iter().collect(),
             target_paths: vec![path.join("assets/targets")].into_iter().collect(),
-            animation_library_paths: animation_library_paths,
+            animation_libraries: AnimationLibrarySettings::default(),
             body_part_slots: body_parts_slots.iter().map(|s| s.to_string()).collect(),
             equipment_slots: equipment_slots.iter().map(|s| s.to_string()).collect(),
             transparent_slots: transparent_slots.iter().map(|s| s.to_string()).collect(),
@@ -91,10 +91,9 @@ impl HumentityGlobalConfig {
         new
     }
 
-    pub fn with_animation_library_paths<I>(self, paths: I) -> Self
-    where I: IntoIterator<Item = PathBuf> {
+    pub fn with_animation_libraries(self, animation_library_settings: AnimationLibrarySettings) -> Self {
         let mut new = self;
-        new.animation_library_paths = paths.into_iter().collect();
+        new.animation_libraries = animation_library_settings;
         new
     }
 

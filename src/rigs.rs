@@ -1,10 +1,8 @@
 use bevy::{
-    prelude::*,
-    render::mesh::{
+    animation::{AnimationTarget, AnimationTargetId}, color::palettes::css::RED, prelude::*, render::mesh::{
         skinning::{ SkinnedMesh, SkinnedMeshInverseBindposes},
         VertexAttributeValues,
-    },
-    color::palettes::css::RED,
+    }
 };
 use serde::Deserialize;
 use serde_json;
@@ -45,7 +43,7 @@ struct BoneData {
     head: BoneTransform,
     //inherit_scale: String,
     parent: String,
-    //roll: f32,
+    roll: f32,
     tail: BoneTransform,
 }
 
@@ -118,24 +116,24 @@ impl FromWorld for RigData {
  +------------*/
  #[allow(dead_code)]
  #[derive(Component)]
- pub(crate) struct Bone(String);
+ pub(crate) struct Bone;
 
 /*---------+
  | Systems |
  +---------*/
  pub(crate) fn bone_debug_draw(
-    query: Query<(&Transform, &Parent), With<Bone>>,
-    transforms: Query<&Transform, With<Bone>>,
+    query: Query<(&GlobalTransform, &Parent), With<Bone>>,
+    transforms: Query<&GlobalTransform, With<Bone>>,
     mut gizmos: Gizmos,
  ) {
     query.iter().for_each(|(transform, parent)| {
-        let start = transform.translation;
+        let start = transform.translation();
         if let Ok(end) = transforms.get(parent.get()) {
-            gizmos.line(start, end.translation, RED);
+            gizmos.line(start, end.translation(), RED);
         }
     })
  }
-
+    
 /*-----------+
  | Functions |
  +-----------*/
@@ -153,13 +151,17 @@ pub(crate) fn build_rig(
 
     // Spawn bone entities
     // Use human as root of skeleton
-    commands.entity(*human).insert(Bone("Root".to_string()));
+    let mut bone_names = HashMap::<String, Name>::new();
+    commands.entity(*human).insert(Bone);
     let mut bone_entities = HashMap::<String, Entity>::with_capacity(config_res.len());
     for (name, bone) in config_res.iter() {
+        let bone_name = Name::new(name.clone());
+        bone_names.insert(name.clone(), bone_name.clone());
         if bone.parent == "" && name.eq_ignore_ascii_case("root"){
             bone_entities.insert(name.to_string(), *human);
+            commands.entity(*human).insert(bone_name);
         } else {
-            bone_entities.insert(name.to_string(), commands.spawn(Bone(name.to_string())).id());
+            bone_entities.insert(name.to_string(), commands.spawn((Bone, bone_name)).id());
         }
     }
 
@@ -192,38 +194,35 @@ pub(crate) fn build_rig(
         *bone_entities.get(name).unwrap()
     }).collect();
 
+    // Get all global transforms
+    let mut transforms = HashMap::<String, Transform>::new();
+    for (name, bone) in config_res.iter() {
+        transforms.insert(name.to_string(), get_bone_transform(&bone, &vg, &helpers));
+    }
+
+    let mut local_transforms = HashMap::<String, Transform>::new();
+    // Convert to local space
+    for name in sorted_bones.iter() {
+        let mut bone = config_res.get(name).unwrap();
+        let mut parents = Vec::<String>::new();
+        while bone.parent != "" {
+            parents.push(bone.parent.clone());
+            bone = config_res.get(&bone.parent).unwrap();
+        }
+        let mut mat = transforms.get(name).unwrap().compute_matrix();
+        for parent in parents.iter().rev() {
+            mat = local_transforms.get(parent).unwrap().compute_matrix().inverse() * mat;
+        }
+        local_transforms.insert(name.clone(), Transform::from_matrix(mat));
+    }
+
     // Set transforms and inverse bind poses
     let mut inv_bindposes = Vec::<Mat4>::with_capacity(joints.len());
-    let mut matrices = HashMap::<String, Mat4>::with_capacity(joints.len());
     for name in sorted_bones.iter() {
-        let bone = config_res.get(name).unwrap();
         let &entity = bone_entities.get(name).unwrap();
-        let transform: Transform;
-        if !name.eq_ignore_ascii_case("root") {
-            transform = spawn_transform * get_bone_transform(
-                &bone.head,
-                &bone.tail,
-                &vg,
-                &helpers
-            );
-        } else {
-            // Force root bone at origin, default rig has it at hips
-            transform = spawn_transform;
-        }
-        let parent = &bone.parent;
-        // No idea why this works.  Shouldn't need to multiply by parent
-        // Typically you would do this with local transforms to bring them
-        // to the global space.  But these are already global so it makes no 
-        // sense but seems to work for some reason.
-        let mut xform_mat = transform.compute_matrix();
-        if parent != "" {
-            let parent_mat = *matrices.get(parent).unwrap();
-            xform_mat = parent_mat * xform_mat;
-        }
-        matrices.insert(name.to_string(), xform_mat);
-        inv_bindposes.push(xform_mat.inverse());
-        commands.entity(entity).insert(TransformBundle {
-            local: transform,
+        inv_bindposes.push(transforms.get(name).unwrap().compute_matrix().inverse());
+        commands.entity(entity).insert(TransformBundle{
+            local: *local_transforms.get(name).unwrap(),
             ..default()
         });
     }
@@ -235,12 +234,30 @@ pub(crate) fn build_rig(
         bone_entities.insert("Root".to_string(), *human);
         let &old_root = bone_entities.get(root_str).unwrap();
         commands.entity(*human).push_children(&[old_root]);
-        commands.entity(*human).insert(TransformBundle{
-            local: spawn_transform,
-            ..default()
-        });
+        commands.entity(*human).insert(TransformBundle{local:spawn_transform, ..default()});
         joints.insert(0, *human);
         inv_bindposes.insert(0, Mat4::IDENTITY)
+    } else {  // Set positions on already existant root bone
+        let &root = bone_entities.get(root_str).unwrap();
+        commands.entity(root).insert(TransformBundle{local:spawn_transform, ..default()});
+    }
+
+    // Set AnimationTarget Components
+    for (name, bone) in config_res.iter() {
+        if name == "Root" { continue; }
+        let &bone_entity = bone_entities.get(name).unwrap();
+        let mut bone_path: Vec<Name> = vec![bone_names.get(name).unwrap().clone()];
+        let mut parent = bone.parent.clone();
+        while parent != "" {
+            if parent.eq_ignore_ascii_case("root") { break; }
+            bone_path.push(bone_names.get(&parent).unwrap().clone());
+            parent = config_res.get(&parent).unwrap().parent.clone();
+        }
+        bone_path.push(Name::new("Human.rig"));
+        commands.entity(bone_entity).insert(AnimationTarget{
+            player: *human,
+            id: AnimationTargetId::from_names(bone_path.iter().rev())
+        });
     }
 
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
@@ -290,7 +307,6 @@ pub(crate) fn set_basemesh_rig_arrays(
             }
         }
     }
-
     // Make sure weights sum to 1 for each vertex
     for i in 0..weights.iter().len() {
         let wvec = weights[i];
@@ -412,17 +428,18 @@ pub(crate) fn set_asset_rig_arrays(
 }
 
 fn get_bone_transform(
-    bone_head: &BoneTransform,
-    bone_tail: &BoneTransform,
+    bone: &BoneData,
     vg: &Res<VertexGroups>,
     mh_vertices: &Vec<Vec3>,
 ) -> Transform {
-    let (v1, v2) = get_bone_vertices(bone_head, vg);
-    let (v3, v4) = get_bone_vertices(bone_tail, vg);
+    let (v1, v2) = get_bone_vertices(&bone.head, vg);
+    let (v3, v4) = get_bone_vertices(&bone.tail, vg);
     let start = (mh_vertices[v1 as usize] + mh_vertices[v2 as usize]) * 0.5;
     let end = (mh_vertices[v3 as usize] + mh_vertices[v4 as usize]) * 0.5;
-    Transform::from_translation(start)
-        .with_rotation(Quat::from_rotation_arc(Vec3::Y, (end - start).normalize()))
+    let mut transform = Transform::from_translation(start)
+        .with_rotation(Quat::from_rotation_arc(Vec3::Y, (end - start).normalize()));
+    transform.rotate_local_y(bone.roll);
+    transform
 }
 
 fn get_bone_vertices(

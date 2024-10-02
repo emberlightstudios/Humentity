@@ -57,7 +57,10 @@ pub(crate) use assets::{
 
 pub use rigs::RigType;
 pub use global_config::HumentityGlobalConfig;
-pub use animation::AnimationLibrarySet;
+pub use animation::{
+    AnimationLibrarySet,
+    AnimationLibrarySettings,
+};
 
 pub mod prelude {
     pub use crate::{
@@ -68,6 +71,7 @@ pub mod prelude {
         SpawnTransform,
         RigType,
         AnimationLibrarySet,
+        AnimationLibrarySettings,
     };
 }
 
@@ -75,7 +79,7 @@ pub mod prelude {
  |  Plugin  |
  +----------*/
 pub struct Humentity{
-    debug: bool,
+    pub debug: bool,
 }
 
 impl Default for Humentity {
@@ -360,6 +364,8 @@ fn on_human_added(
             },
         ));
         commands.entity(human).remove::<SpawnTransform>();
+        commands.entity(human).insert(AnimationPlayer::default());
     })
+
 }
 

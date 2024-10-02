@@ -11,7 +11,25 @@ use crate::{
     HumentityGlobalConfig,
     LoadingPhase,
     LoadingState,
+    RigType,
 };
+
+#[allow(dead_code)]
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct AnimationLibrarySettings {
+    pub paths: Vec<PathBuf>,
+    pub rig_type: RigType,
+    //pub added_root_bone: bool,
+}
+
+impl Default for AnimationLibrarySettings {
+    fn default() -> Self {
+        AnimationLibrarySettings {
+            paths: Vec::<PathBuf>::new(),
+            rig_type: RigType::Mixamo,
+        }
+    }
+}
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -33,8 +51,8 @@ impl FromWorld for AnimationLibrarySet {
         let mut handles = HashMap::<String, Handle<Gltf>>::new();
 
         // We will search the folder(s) provided for glb/gltf files 
-        for path in config.animation_library_paths.iter() {
-            for entry in read_dir(path).unwrap() {
+        for path in config.animation_libraries.paths.iter() {
+            for entry in read_dir(path.clone()).unwrap() {
                 let file = entry.expect("Unspecified file Error");
                 if !file.file_type().unwrap().is_file() { continue; }
                 let path = file.path();
@@ -62,6 +80,9 @@ impl FromWorld for AnimationLibrarySet {
     }
 }
 
+/*---------+
+ | Systems |
+ +---------*/
 pub(crate) fn load_animations(
     gltfs: Res<Assets<Gltf>>,
     mut animations: ResMut<AnimationLibrarySet>,
