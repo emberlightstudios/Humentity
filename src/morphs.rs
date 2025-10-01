@@ -1,28 +1,22 @@
 use bevy::prelude::*;
 use std::{
-    collections::{ HashMap, HashSet },
     fs::File,
     io::{ BufReader, BufRead },
     path::PathBuf,
 };
+use fxhash::{FxHashMap};
 use serde::Deserialize;
 use serde_json;
 use walkdir::WalkDir;
-use crate::{ 
-    get_vertex_positions,
-    BaseMesh,
-    HumentityGlobalConfig,
-    BODY_SCALE,
-    HumanMeshAsset,
-};
+use crate::{mesh_ops::get_vertex_positions, BaseMesh, HumanMeshAsset, HumentityGlobalConfig, BODY_SCALE};
 
 /*--------------+
  |  JSON Types  |
  +--------------*/
 #[derive(Deserialize, Debug)]
 struct MacroData {
-    macrotargets: HashMap<String, MacroBounds>,
-    combinations: HashMap<String, Vec<String>>,
+    macrotargets: FxHashMap<String, MacroBounds>,
+    combinations: FxHashMap<String, Vec<String>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -39,7 +33,7 @@ struct MacroBound {
 }
 
 #[derive(Deserialize, Debug)]
-struct MorphCategoriesJSON(HashMap<String, MorphCategoryJSON>);
+struct MorphCategoriesJSON(FxHashMap<String, MorphCategoryJSON>);
 
 
 #[derive(Deserialize, Debug)]
@@ -78,31 +72,28 @@ struct Opposites {
  +-------------*/
 #[allow(dead_code)]
 #[derive(Resource)]
-pub struct MorphSliders(HashMap<String, Vec<CompositeMorph>>);
+pub struct MorphSliders(FxHashMap<String, Vec<CompositeMorph>>);
 
 #[derive(Resource)]
 struct MacroSliders(MacroData);
 
 #[derive(Resource)]
-pub struct MorphTargets(HashMap<String, HashMap<u16, Vec3>>);
+pub struct MorphTargets(FxHashMap<String, FxHashMap<u16, Vec3>>);
 
 
 impl FromWorld for MorphTargets {
     fn from_world(world: &mut World) -> Self {
         // Create Morph Target Entities from all the .target files
         let core_path: PathBuf;
-        let target_paths: HashSet<PathBuf>;
-        if let Some(config) = world.get_resource::<HumentityGlobalConfig>() {
-            core_path = config.core_assets_path.clone();
-            target_paths = config.target_paths.clone();
-        } else {
-            panic!("No global Humentity config loaded");
-        };
-        let mut names = HashMap::<String, HashMap<u16, Vec3>>::new();
+        let config = world.get_resource::<HumentityGlobalConfig>()
+            .expect("No global Humentity config loaded");
+        core_path = config.core_assets_path.clone();
+        let target_paths = config.target_paths.clone();
+        let mut names = FxHashMap::<String, FxHashMap<u16, Vec3>>::default();
         for target_path in target_paths.iter() {
             for entry in WalkDir::new(target_path).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
-                let mut offsets = HashMap::<u16, Vec3>::new();
+                let mut offsets = FxHashMap::<u16, Vec3>::default();
                 if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("target") {
                     let Some(filename) = path.file_name().unwrap().to_str() else { continue };
                     let Some(stem) = path.file_stem().unwrap().to_str() else { continue };
@@ -132,7 +123,7 @@ impl FromWorld for MorphTargets {
         let file = File::open(core_path.join("targets/target.json")).expect("FAILED TO OPEN target.json");
         let reader = BufReader::new(file);
         let categories_json: MorphCategoriesJSON = serde_json::from_reader(reader).expect("FAILED TO PARSE target.json");
-        let mut categories = HashMap::<String, Vec<CompositeMorph>>::new();
+        let mut categories = FxHashMap::<String, Vec<CompositeMorph>>::default();
         for (category, targets) in categories_json.0.iter() {
             let mut cat = targets.categories.clone();
             for target in cat.iter_mut() {
@@ -155,7 +146,7 @@ impl FromWorld for MorphTargets {
  |  Functions  |
  +-------------*/
 pub(crate) fn adjust_helpers_to_morphs(
-    shapekeys: &HashMap<String, f32>,
+    shapekeys: &FxHashMap<String, f32>,
     targets: &Res<MorphTargets>,
     base_mesh: &Res<BaseMesh>,
 ) -> Vec<Vec3> {
@@ -172,7 +163,7 @@ pub(crate) fn adjust_helpers_to_morphs(
 
 pub(crate) fn bake_body_morphs(
     mesh: &Mesh,
-    vertex_map: &HashMap<u16, Vec<u16>>,
+    vertex_map: &FxHashMap<u16, Vec<u16>>,
     helpers: &Vec<Vec3>,
 ) -> Mesh {
     let mut vertices = get_vertex_positions(&mesh);
@@ -189,7 +180,7 @@ pub(crate) fn bake_body_morphs(
 
 
 pub(crate) fn bake_asset_morphs(
-    shapekeys: &HashMap<String, f32>,
+    shapekeys: &FxHashMap<String, f32>,
     targets: &Res<MorphTargets>,
     meshes: &mut ResMut<Assets<Mesh>>,
     helpers: &Vec<Vec3>,

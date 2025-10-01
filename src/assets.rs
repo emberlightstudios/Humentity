@@ -1,33 +1,19 @@
+use bevy::asset::RenderAssetUsages;
 use::bevy::{
     prelude::*,
-    render::{
-        mesh::{
-            PrimitiveTopology,
-            Indices,
-        },
-        render_asset::RenderAssetUsages,
+    mesh::{
+        PrimitiveTopology,
+        Indices,
     },
 };
 use::std::{
     io::{ BufRead, BufReader, },
     fs::File,
     path::PathBuf,
-    collections::{ HashMap, HashSet },
 };
+use fxhash::{FxHashMap, FxHashSet};
 use walkdir::WalkDir;
-use crate::{
-    generate_vertex_map,
-    generate_inverse_vertex_map,
-    get_vertex_positions,
-    parse_obj_vertices,
-    get_vertex_normals, 
-    get_uv_coords,
-    HumentityGlobalConfig,
-    HumentityState,
-    LoadingPhase,
-    LoadingState,
-    BaseMesh,
-};
+use crate::{mesh_ops::{generate_inverse_vertex_map, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, parse_obj_vertices}, BaseMesh, HumentityGlobalConfig};
 
 /*---------+
  |  Types  |
@@ -37,8 +23,8 @@ pub struct HumanMeshAsset {
    pub name: String,
    pub(crate) mesh_handle: Handle<Mesh>,
    pub(crate) helper_maps: Vec<HelperMap>,
-   pub(crate) vertex_map: HashMap<u16, Vec<u16>>,
-   pub(crate) delete_verts: HashSet<u16>,
+   pub(crate) vertex_map: FxHashMap<u16, Vec<u16>>,
+   pub(crate) delete_verts: FxHashSet<u16>,
    pub slots: Vec<String>,
    obj_file: PathBuf,
    tags: Vec<String>,
@@ -91,32 +77,32 @@ enum FileSection {
 #[allow(dead_code)]
 #[derive(Resource)]
 pub struct HumanAssetTextures {
-    pub albedo_maps: HashMap<String, Vec<Handle<Image>>>,
-    pub normal_map: HashMap<String, Handle<Image>>,
-    pub ao_map: HashMap<String, Handle<Image>>,
+    pub albedo_maps: FxHashMap<String, Vec<Handle<Image>>>,
+    pub normal_map: FxHashMap<String, Handle<Image>>,
+    pub ao_map: FxHashMap<String, Handle<Image>>,
 }
 
 #[allow(dead_code)]
 #[derive(Resource)]
 pub struct HumanAssetRegistry {
-    pub body_parts: HashMap<String, HumanMeshAsset>,
-    pub equipment: HashMap<String, HumanMeshAsset>,
-    pub slot_body_parts: HashMap<String, Vec<String>>,
-    pub slot_equipment: HashMap<String, Vec<String>>,
+    pub body_parts: FxHashMap<String, HumanMeshAsset>,
+    pub equipment: FxHashMap<String, HumanMeshAsset>,
+    pub slot_body_parts: FxHashMap<String, Vec<String>>,
+    pub slot_equipment: FxHashMap<String, Vec<String>>,
 }
 
 impl FromWorld for HumanAssetRegistry {
     fn from_world(world: &mut World) -> Self{
-        let mut body_parts = HashMap::<String, HumanMeshAsset>::new();
-        let mut equipment = HashMap::<String, HumanMeshAsset>::new();
-        let mut slot_body_parts = HashMap::<String, Vec<String>>::new();
-        let mut slot_equipment = HashMap::<String, Vec<String>>::new();
+        let mut body_parts = FxHashMap::<String, HumanMeshAsset>::default();
+        let mut equipment = FxHashMap::<String, HumanMeshAsset>::default();
+        let mut slot_body_parts = FxHashMap::<String, Vec<String>>::default();
+        let mut slot_equipment = FxHashMap::<String, Vec<String>>::default();
 
         let config = world.get_resource_mut::<HumentityGlobalConfig>().expect("No global Humentity config loaded");
-        let body_part_paths = config.body_part_paths.clone();
+        let body_part_paths = config.face_asset_paths.clone();
         let equipment_paths = config.equipment_paths.clone();
-        let body_part_slots = config.body_part_slots.clone();
-        let equipment_slots = config.body_part_slots.clone();
+        let body_part_slots = config.face_slots.clone();
+        let equipment_slots = config.face_slots.clone();
 
         for dir in body_part_paths {
             for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
@@ -162,9 +148,9 @@ impl FromWorld for HumanAssetRegistry {
         // normal maps end with _normal.png
         // ao maps with _ao.png
         // all else are albedo maps
-        let mut albedo_textures = HashMap::<String, Vec<Handle<Image>>>::new();
-        let mut normal_texture = HashMap::<String, Handle<Image>>::new();
-        let mut ao_texture = HashMap::<String, Handle<Image>>::new();
+        let mut albedo_textures = FxHashMap::<String, Vec<Handle<Image>>>::default();
+        let mut normal_texture = FxHashMap::<String, Handle<Image>>::default();
+        let mut ao_texture = FxHashMap::<String, Handle<Image>>::default();
         let Some(asset_server) = world.get_resource::<AssetServer>() else { panic!("Can't load asset server?") };
         for (name, asset) in equipment.iter().chain(body_parts.iter()) {
             let dir = asset.obj_file.parent().unwrap();
@@ -208,10 +194,8 @@ impl FromWorld for HumanAssetRegistry {
  +-----------*/
  pub(crate) fn generate_asset_vertex_maps(
     mut registry: ResMut<HumanAssetRegistry>,
-    mut loading_state: ResMut<LoadingState>,
     meshes: Res<Assets<Mesh>>,
  ) {
-    if *loading_state.0.get(&LoadingPhase::GenerateAssetVertexMap).unwrap() { return };
     for (_name, asset) in registry.body_parts.iter_mut() {
         let Some(_mesh) = meshes.get(&asset.mesh_handle) else { return };
     }
@@ -235,16 +219,15 @@ impl FromWorld for HumanAssetRegistry {
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
         asset.vertex_map = vertex_map;
     }
-    loading_state.0.insert(LoadingPhase::GenerateAssetVertexMap, true);
  }
 
-/*------------+
- |  Funtions  |
- +------------*/
- fn parse_human_asset(path: PathBuf, world: &mut World) -> HumanMeshAsset {
+/*-------------+
+ |  Functions  |
+ +-------------*/
+fn parse_human_asset(path: PathBuf, world: &mut World) -> HumanMeshAsset {
     let mut tags = Vec::<String>::new();
     let mut z_depth = 0 as i8;
-    let mut delete_verts = HashSet::<u16>::new();
+    let mut delete_verts = FxHashSet::<u16>::default();
     let mut helper_map = Vec::<HelperMap>::new();
     let mut x_scale = ScaleData::default();
     let mut y_scale = ScaleData::default();
@@ -355,7 +338,7 @@ impl FromWorld for HumanAssetRegistry {
     }
 
     let mesh_handle = asset_server.load(obj_file.clone());
-    let vertex_map = HashMap::<u16, Vec<u16>>::new();
+    let vertex_map = FxHashMap::<u16, Vec<u16>>::default();
 
     HumanMeshAsset {
         name: name,
@@ -374,7 +357,7 @@ impl FromWorld for HumanAssetRegistry {
 pub(crate) fn delete_mesh_verts(
     meshes: &mut ResMut<Assets<Mesh>>,
     base_mesh: &Res<BaseMesh>,
-    delete_verts: HashSet<u16>,
+    delete_verts: FxHashSet<u16>,
 ) -> Mesh {
     let mesh = meshes.get(&base_mesh.mesh_handle).unwrap().clone();
     let inv_vertex_map = generate_inverse_vertex_map(&base_mesh.vertex_map);
@@ -392,7 +375,7 @@ pub(crate) fn delete_mesh_verts(
     let mut new_indices = Vec::<u16>::with_capacity(verts);
     
     // need to map new vertex indices to original before deleting verts
-    let mut indices_map = HashMap::<u16, u16>::with_capacity(verts);
+    let mut indices_map = FxHashMap::<u16, u16>::default();
 
     for (&vtx, &mh_vert) in inv_vertex_map.iter() {
         if !delete_verts.contains(&mh_vert) {
@@ -419,6 +402,6 @@ pub(crate) fn delete_mesh_verts(
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, new_uv)
         .with_inserted_indices(Indices::U16(new_indices));
     new_mesh.compute_smooth_normals();
-    let _ = new_mesh.generate_tangents();
+    new_mesh.generate_tangents().ok();
     new_mesh
 }

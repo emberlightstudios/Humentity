@@ -3,17 +3,18 @@ use crate::AnimationLibrarySettings;
 use std::{
     path::PathBuf,
     env,
-    collections::HashSet
 };
+use fxhash::FxHashSet;
+
 
 #[derive(Resource, Clone)]
 pub struct HumentityGlobalConfig {
     pub(crate) core_assets_path: PathBuf,
-    pub(crate) body_part_paths: HashSet<PathBuf>,
-    pub(crate) equipment_paths: HashSet<PathBuf>,
-    pub(crate) target_paths: HashSet<PathBuf>,
+    pub(crate) face_asset_paths: FxHashSet<PathBuf>,
+    pub(crate) equipment_paths: FxHashSet<PathBuf>,
+    pub(crate) target_paths: FxHashSet<PathBuf>,
     pub(crate) animation_libraries: AnimationLibrarySettings,
-    pub(crate) body_part_slots: Vec<String>,
+    pub(crate) face_slots: Vec<String>,
     pub(crate) transparent_slots: Vec<String>,
     pub(crate) equipment_slots: Vec<String>,
 }
@@ -23,7 +24,7 @@ impl Default for HumentityGlobalConfig {
         let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
         // It is assumed this is only one level deep in your source. 
         if !path.to_str().unwrap().ends_with("humentity") { path = path.join("src/humentity") }
-        let body_parts_slots = vec![
+        let face_slots = vec![
             "LeftEye",
             "LeftEyebrow",
             "LeftEyelash",
@@ -58,11 +59,11 @@ impl Default for HumentityGlobalConfig {
 
         HumentityGlobalConfig {
             core_assets_path: path.join("assets"),
-            body_part_paths: vec![path.join("assets/body_parts")].into_iter().collect(),
+            face_asset_paths: vec![path.join("assets/body_parts")].into_iter().collect(),
             equipment_paths: vec![path.join("assets/clothes")].into_iter().collect(),
             target_paths: vec![path.join("assets/targets")].into_iter().collect(),
             animation_libraries: AnimationLibrarySettings::default(),
-            body_part_slots: body_parts_slots.iter().map(|s| s.to_string()).collect(),
+            face_slots: face_slots.iter().map(|s| s.to_string()).collect(),
             equipment_slots: equipment_slots.iter().map(|s| s.to_string()).collect(),
             transparent_slots: transparent_slots.iter().map(|s| s.to_string()).collect(),
         }
@@ -73,7 +74,7 @@ impl HumentityGlobalConfig {
     pub fn with_added_body_parts_paths<I>(self, paths: I) -> Self
     where I: IntoIterator<Item = PathBuf> {
         let mut new = self;
-        for path in paths.into_iter() { new.body_part_paths.insert(path.to_path_buf()); }
+        for path in paths.into_iter() { new.face_asset_paths.insert(path.to_path_buf()); }
         new
     }
 
@@ -100,7 +101,7 @@ impl HumentityGlobalConfig {
     pub fn with_body_part_slots<I>(self, slots: I) -> Self
     where I: IntoIterator<Item = String> {
         let mut new = self;
-        new.body_part_slots = slots.into_iter().collect();
+        new.face_slots = slots.into_iter().collect();
         new
     }
 

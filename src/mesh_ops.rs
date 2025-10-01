@@ -1,18 +1,18 @@
 use bevy::{
     prelude::*,
-    render::mesh::VertexAttributeValues,
+    mesh::VertexAttributeValues,
 };
 use std::{
-    collections::HashMap,
     fs::File,
     path::Path,
     io::{ BufReader, BufRead },
 };
+use fxhash::{FxHashMap, FxHashSet};
 
 pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     let path = filename.as_ref();
-    let err_msg = format!("Couldn't open file {:?}", path);
-    let file = File::open(path).expect(&err_msg);
+    let file = File::open(path)
+        .expect(&format!("Couldn't open file {:?}", path));
     let mut vertices = Vec::<Vec3>::new();
     for line_result in BufReader::new(file).lines() {
         let Ok(line) = line_result else { break };
@@ -73,9 +73,9 @@ pub(crate) fn get_joint_weights(mesh: &Mesh) -> Vec<Vec4> {
 pub(crate) fn generate_vertex_map(
     mh_vertices: &Vec<Vec3>,
     vertices: &Vec<Vec3>
-) -> HashMap<u16, Vec<u16>> {
-    let mut vertex_map = HashMap::<u16, Vec<u16>>::new();
-    let mut matched = std::collections::HashSet::<usize>::new();
+) -> FxHashMap<u16, Vec<u16>> {
+    let mut vertex_map = FxHashMap::<u16, Vec<u16>>::default();
+    let mut matched = FxHashSet::<usize>::default();
 
     for (i, mh_vertex) in mh_vertices.iter().enumerate() {
         vertex_map.insert(i as u16, Vec::<u16>::new());
@@ -95,9 +95,9 @@ pub(crate) fn generate_vertex_map(
     
 // Maps bevy vertex ids to mh id
 pub(crate) fn generate_inverse_vertex_map(
-    map: &HashMap<u16, Vec<u16>>,
-) -> HashMap<u16, u16> {
-    let mut inv_vertex_map = HashMap::<u16, u16>::new();
+    map: &FxHashMap<u16, Vec<u16>>,
+) -> FxHashMap<u16, u16> {
+    let mut inv_vertex_map = FxHashMap::<u16, u16>::default();
     for (mhv, verts) in map.iter() {
         for vert in verts.iter() { inv_vertex_map.insert(*vert, *mhv); }
     }

@@ -1,22 +1,12 @@
 use bevy::{
-    animation::{AnimationTarget, AnimationTargetId}, color::palettes::css::RED, prelude::*, render::mesh::{
-        skinning::{ SkinnedMesh, SkinnedMeshInverseBindposes},
-        VertexAttributeValues,
-    }
+    animation::{AnimationTarget, AnimationTargetId}, color::palettes::css::RED, mesh::{skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, VertexAttributeValues}, prelude::* 
 };
 use serde::Deserialize;
 use serde_json;
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::BufReader,
-};
-use crate::{
-    get_vertex_positions,
-    HelperMap,
-    VertexGroups,
-    HumentityGlobalConfig,
-};
+use std::{fs::File, io::BufReader};
+use fxhash::FxHashMap;
+
+use crate::{mesh_ops::get_vertex_positions, HelperMap, HumentityGlobalConfig, VertexGroups};
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
 pub enum RigType {
@@ -49,13 +39,13 @@ struct BoneData {
 
 #[derive(Deserialize, Debug)]
 struct WeightsFile {
-    weights: HashMap<String, Vec<(u16, f32)>>
+    weights: FxHashMap<String, Vec<(u16, f32)>>
 }
 
 // Contains an extra layer for some reason.  Usual config is in the bones key
 #[derive(Deserialize, Debug)]
 struct MixamoRigConfig {
-    bones: HashMap<String, BoneData>
+    bones: FxHashMap<String, BoneData>
 }
 
 /*-----------+
@@ -63,21 +53,21 @@ struct MixamoRigConfig {
  +-----------*/
 #[derive(Resource)]
 pub(crate) struct RigData {
-    weights: HashMap<RigType, HashMap<String, HashMap<u16, f32>>>,
-    configs: HashMap<RigType, HashMap<String, BoneData>>,
+    weights: FxHashMap<RigType, FxHashMap<String, FxHashMap<u16, f32>>>,
+    configs: FxHashMap<RigType, FxHashMap<String, BoneData>>,
 }
 
 impl FromWorld for RigData {
     fn from_world(world: &mut World) -> Self {
         let config = world.get_resource::<HumentityGlobalConfig>().unwrap();
         let path = config.core_assets_path.clone();
-        let mut type_strings = HashMap::<RigType, &str>::new();
+        let mut type_strings = FxHashMap::<RigType, &str>::default();
         type_strings.insert(RigType::Default, "default");
         type_strings.insert(RigType::Mixamo, "mixamo");
         type_strings.insert(RigType::GameEngine, "game_engine");
 
-        let mut rig_weights = HashMap::<RigType, HashMap<String, HashMap<u16, f32>>>::new();
-        let mut rig_configs = HashMap::<RigType, HashMap<String, BoneData>>::new();
+        let mut rig_weights = FxHashMap::<RigType, FxHashMap<String, FxHashMap<u16, f32>>>::default();
+        let mut rig_configs = FxHashMap::<RigType, FxHashMap<String, BoneData>>::default();
 
         for (rig_type, name) in type_strings.iter() {
             let err_msg = "FAILED TO OPEN WEIGHTS FILE : ".to_string() + name;
@@ -85,9 +75,9 @@ impl FromWorld for RigData {
             let weights_reader = BufReader::new(weights_file);
             let err_msg = "FAILED TO READ WEIGHTS JSON : ".to_string() + name;
             let weights: WeightsFile = serde_json::from_reader(weights_reader).expect(&err_msg);
-            let mut weights_hashmap = HashMap::<String, HashMap<u16, f32>>::new();
+            let mut weights_hashmap = FxHashMap::<String, FxHashMap<u16, f32>>::default();
             for (bone, wts) in weights.weights.iter() {
-                let hashmap: HashMap<u16, f32> = wts.iter().cloned().collect();
+                let hashmap: FxHashMap<u16, f32> = wts.iter().cloned().collect();
                 weights_hashmap.insert(bone.to_string(), hashmap);
             }
             rig_weights.insert(*rig_type, weights_hashmap);
@@ -100,7 +90,7 @@ impl FromWorld for RigData {
                 let config: MixamoRigConfig = serde_json::from_reader(config_reader).expect(&err_msg);
                 rig_configs.insert(*rig_type, config.bones);
             } else {
-                let config: HashMap<String, BoneData> = serde_json::from_reader(config_reader).expect(&err_msg);
+                let config: FxHashMap<String, BoneData> = serde_json::from_reader(config_reader).expect(&err_msg);
                 rig_configs.insert(*rig_type, config);
             }
         }
@@ -122,13 +112,13 @@ impl FromWorld for RigData {
  | Systems |
  +---------*/
  pub(crate) fn bone_debug_draw(
-    query: Query<(&GlobalTransform, &Parent), With<Bone>>,
+    query: Query<(&GlobalTransform, &ChildOf), With<Bone>>,
     transforms: Query<&GlobalTransform, With<Bone>>,
     mut gizmos: Gizmos,
  ) {
     query.iter().for_each(|(transform, parent)| {
         let start = transform.translation();
-        if let Ok(end) = transforms.get(parent.get()) {
+        if let Ok(end) = transforms.get(parent.parent()) {
             gizmos.line(start, end.translation(), RED);
         }
     })
@@ -145,15 +135,15 @@ pub(crate) fn build_rig(
     commands: &mut Commands,
     vg: &Res<VertexGroups>,
     helpers: &Vec<Vec3>,
-    spawn_transform: Transform,
+    base_transform: &Transform,
 ) -> (SkinnedMesh, Vec<String>) {
     let config_res = rigs.configs.get(&rig).unwrap();
 
     // Spawn bone entities
     // Use human as root of skeleton
-    let mut bone_names = HashMap::<String, Name>::new();
+    let mut bone_names = FxHashMap::<String, Name>::default();
     commands.entity(*human).insert(Bone);
-    let mut bone_entities = HashMap::<String, Entity>::with_capacity(config_res.len());
+    let mut bone_entities = FxHashMap::<String, Entity>::default();
     for (name, bone) in config_res.iter() {
         let bone_name = Name::new(name.clone());
         bone_names.insert(name.clone(), bone_name.clone());
@@ -166,14 +156,14 @@ pub(crate) fn build_rig(
     }
 
     // For finding in-degree of each bone in the tree
-    let mut in_degree = HashMap::<String, usize>::with_capacity(config_res.len());
+    let mut in_degree = FxHashMap::<String, usize>::default();
 
     // Set up parent child relationships
     for (name, bone) in config_res.iter() {
         in_degree.insert(name.to_string(), 0);
         let &child = bone_entities.get(name).unwrap();
         if let Some(parent) = bone_entities.get(&bone.parent) {
-            commands.entity(*parent).push_children(&[child]);
+            commands.entity(*parent).add_child(child);
         }
     }
 
@@ -195,12 +185,12 @@ pub(crate) fn build_rig(
     }).collect();
 
     // Get all global transforms
-    let mut transforms = HashMap::<String, Transform>::new();
+    let mut transforms = FxHashMap::<String, Transform>::default();
     for (name, bone) in config_res.iter() {
         transforms.insert(name.to_string(), get_bone_transform(&bone, &vg, &helpers));
     }
 
-    let mut local_transforms = HashMap::<String, Transform>::new();
+    let mut local_transforms = FxHashMap::<String, Transform>::default();
     // Convert to local space
     for name in sorted_bones.iter() {
         let mut bone = config_res.get(name).unwrap();
@@ -209,9 +199,9 @@ pub(crate) fn build_rig(
             parents.push(bone.parent.clone());
             bone = config_res.get(&bone.parent).unwrap();
         }
-        let mut mat = transforms.get(name).unwrap().compute_matrix();
+        let mut mat = transforms.get(name).unwrap().to_matrix();
         for parent in parents.iter().rev() {
-            mat = local_transforms.get(parent).unwrap().compute_matrix().inverse() * mat;
+            mat = local_transforms.get(parent).unwrap().to_matrix().inverse() * mat;
         }
         local_transforms.insert(name.clone(), Transform::from_matrix(mat));
     }
@@ -220,11 +210,11 @@ pub(crate) fn build_rig(
     let mut inv_bindposes = Vec::<Mat4>::with_capacity(joints.len());
     for name in sorted_bones.iter() {
         let &entity = bone_entities.get(name).unwrap();
-        inv_bindposes.push(transforms.get(name).unwrap().compute_matrix().inverse());
-        commands.entity(entity).insert(TransformBundle{
-            local: *local_transforms.get(name).unwrap(),
-            ..default()
-        });
+        inv_bindposes.push(transforms.get(name).unwrap().to_matrix().inverse());
+        let transform = *local_transforms.get(name).unwrap();
+        commands.entity(entity).insert((
+            Transform::from(transform),
+        ));
     }
 
     // Mixamo rig has hips as root. Insert human as root bone.
@@ -233,13 +223,17 @@ pub(crate) fn build_rig(
         sorted_bones.insert(0, "Root".to_string());
         bone_entities.insert("Root".to_string(), *human);
         let &old_root = bone_entities.get(root_str).unwrap();
-        commands.entity(*human).push_children(&[old_root]);
-        commands.entity(*human).insert(TransformBundle{local:spawn_transform, ..default()});
+        commands.entity(*human).add_child(old_root);
+        commands.entity(*human).insert((
+            *base_transform,
+        ));
         joints.insert(0, *human);
         inv_bindposes.insert(0, Mat4::IDENTITY)
     } else {  // Set positions on already existant root bone
         let &root = bone_entities.get(root_str).unwrap();
-        commands.entity(root).insert(TransformBundle{local:spawn_transform, ..default()});
+        commands.entity(root).insert((
+            *base_transform,
+        ));
     }
 
     // Set AnimationTarget Components
@@ -271,7 +265,7 @@ pub(crate) fn set_basemesh_rig_arrays(
     rig: RigType,
     mesh: Mesh,
     rigs: &Res<RigData>,
-    vertex_map: &HashMap<u16, Vec<u16>>,
+    vertex_map: &FxHashMap<u16, Vec<u16>>,
     meshes: &mut ResMut<Assets<Mesh>>,
     sorted_bones: &Vec<String>,
 ) -> Handle<Mesh> {
@@ -329,7 +323,7 @@ pub(crate) fn set_asset_rig_arrays(
     rig: RigType,
     mesh: Mesh,
     rigs: &Res<RigData>,
-    vertex_map: &HashMap<u16, Vec<u16>>,
+    vertex_map: &FxHashMap<u16, Vec<u16>>,
     meshes: &mut ResMut<Assets<Mesh>>,
     helper_maps: &Vec<HelperMap>,
     sorted_bones: &Vec<String>,
@@ -339,8 +333,8 @@ pub(crate) fn set_asset_rig_arrays(
     let vertices = get_vertex_positions(&mesh);
 
     // Build hashmaps to store bone info for each obj vertex id
-    let mut indices_map = HashMap::<u16, Vec<usize>>::with_capacity(vertices.len());
-    let mut weights_map = HashMap::<u16, Vec<f32>>::with_capacity(vertices.len());
+    let mut indices_map = FxHashMap::<u16, Vec<usize>>::default();
+    let mut weights_map = FxHashMap::<u16, Vec<f32>>::default();
 
     // loop over obj vertices
     for obj_id in vertex_map.keys() {
@@ -386,7 +380,7 @@ pub(crate) fn set_asset_rig_arrays(
             let vtx_weights = weights_map.get(obj_id).expect("Error getting vertex bone weights");
 
             // Deduplicate vertices by summing weights 
-            let mut aggregate = HashMap::<usize, f32>::new();
+            let mut aggregate = FxHashMap::<usize, f32>::default();
             for (&ind, &wt) in vtx_indices.iter().zip(vtx_weights.iter()) {
                 let wtsum = aggregate.entry(ind).or_insert(0.0);
                 *wtsum += wt;

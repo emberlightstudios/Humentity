@@ -6,69 +6,28 @@ mod assets;
 mod animation;
 mod mesh_ops;
 
-use bevy::{
-    prelude::*,
-    render::mesh::skinning::SkinnedMeshInverseBindposes
-};
-use std::collections::{ HashMap, HashSet };
+use bevy::{prelude::*, mesh::skinning::SkinnedMeshInverseBindposes};
+use bevy::ecs::schedule::common_conditions::run_once;
 use bevy_obj::ObjPlugin;
-use basemesh::{
-    create_body_mesh,
-    create_body_vertex_map,
-};
-use assets::{
-    HumanAssetRegistry,
-    HumanAssetTextures,
-    generate_asset_vertex_maps,
-    delete_mesh_verts,
-};
-use rigs::{
-    RigData,
-    bone_debug_draw,
-    build_rig,
-    set_basemesh_rig_arrays,
-    set_asset_rig_arrays,
-};
-use morphs::{
-    adjust_helpers_to_morphs,
-    bake_asset_morphs,
-    bake_body_morphs,
-    MorphTargets,
-};
-use animation::load_animations;
+use assets::{HumanAssetRegistry, HumanAssetTextures};
+use fxhash::{FxHashMap, FxHashSet};
+use morphs::{MorphTargets};
 
-pub(crate) use mesh_ops::{
-    get_vertex_positions,
-    get_vertex_normals,
-    get_uv_coords,
-    generate_vertex_map,
-    generate_inverse_vertex_map,
-    parse_obj_vertices,
-};
-pub(crate) use basemesh::{
-    BaseMesh,
-    VertexGroups,
-    BODY_SCALE,
-};
-pub(crate) use assets::{
-    HelperMap,
-    HumanMeshAsset,
-};
+pub(crate) use basemesh::{BaseMesh, VertexGroups, BODY_SCALE};
+pub(crate) use assets::{HelperMap, HumanMeshAsset};
 
 pub use rigs::RigType;
 pub use global_config::HumentityGlobalConfig;
-pub use animation::{
-    AnimationLibrarySet,
-    AnimationLibrarySettings,
-};
+pub use animation::{AnimationLibrarySet, AnimationLibrarySettings};
+
+use crate::basemesh::HelperMeshHandle;
 
 pub mod prelude {
     pub use crate::{
         Humentity,
+        HumentityLoading,
         HumentityGlobalConfig,
-        HumentityState,
         HumanConfig,
-        SpawnTransform,
         RigType,
         AnimationLibrarySet,
         AnimationLibrarySettings,
@@ -92,72 +51,51 @@ impl Default for Humentity {
 
 impl Plugin for Humentity {
     fn build(&self, app: &mut App) {
-        let mut loading_state = HashMap::<LoadingPhase, bool>::new();
-        loading_state.insert(LoadingPhase::CreateBodyMesh, false);
-        loading_state.insert(LoadingPhase::GenerateBodyVertexMap, false);
-        loading_state.insert(LoadingPhase::GenerateAssetVertexMap, false);
-        loading_state.insert(LoadingPhase::SetUpAnimationLibraries, false);
-
         if !app.is_plugin_added::<ObjPlugin>() {
-            app.add_plugins(ObjPlugin{ compute_smooth_normals: true });
+            app.add_plugins(ObjPlugin);
         }
-        app.insert_state(HumentityState::Loading);
-        app.insert_resource(LoadingState(loading_state));
-        app.init_resource::<MorphTargets>();
-        app.init_resource::<HumanAssetRegistry>();
+        app.insert_resource(HumentityLoading);
         app.init_resource::<BaseMesh>();
-        app.init_resource::<RigData>();
+        app.init_resource::<HumanAssetRegistry>();
+        app.init_resource::<MorphTargets>();
+        app.init_resource::<rigs::RigData>();
         app.init_resource::<AnimationLibrarySet>();
-        app.add_systems(Update, ((
-            loading_state_checker,
-            create_body_mesh,
-            create_body_vertex_map,
-            generate_asset_vertex_maps,
-            load_animations,
-        )).run_if(in_state(HumentityState::Loading)));
+
         app.add_systems(Update, (
+            (
+                basemesh::create_body_mesh
+                    .run_if(resource_exists::<HelperMeshHandle>),
+                basemesh::create_body_vertex_map
+                    .run_if(resource_exists::<HumentityLoading>
+                            .and(not(resource_exists::<HelperMeshHandle>))),
+                assets::generate_asset_vertex_maps
+                    .run_if(run_once),
+                animation::load_animations
+                    .run_if(run_once),
+            ).run_if(resource_exists::<HumentityLoading>),
+
             on_human_added,
-        ).run_if(in_state(HumentityState::Ready)));
+        ));
+
         if self.debug {
-            app.add_systems(Update, bone_debug_draw);
+            app.add_systems(Update, rigs::bone_debug_draw);
         }
     }
-}
-
-/*----------+
- |  States  |
- +----------*/
-#[derive(States, PartialEq, Eq, Hash, Debug, Clone)]
-pub enum HumentityState {
-    Idle,
-    Loading,
-    Ready
-}
-
-#[derive(PartialEq, Eq, Hash, Debug, Clone)]
-pub enum LoadingPhase {
-    CreateBodyMesh,
-    GenerateBodyVertexMap,
-    GenerateAssetVertexMap,
-    SetUpAnimationLibraries,
 }
 
 /*-------------+
  |  Resources  |
  +-------------*/
 #[derive(Resource)]
-pub(crate) struct LoadingState(HashMap<LoadingPhase, bool>);
+pub struct HumentityLoading;
 
 /*--------------+
  |  Components  |
  +--------------*/
-#[derive(Component)]
-pub struct SpawnTransform(pub Transform);
 
 #[derive(Component)]
 pub struct HumanConfig {
-    // Could be f16 (unstable type warning)
-    pub morph_targets: HashMap<String, f32>,
+    pub morph_targets: FxHashMap<String, f32>,
     pub rig: RigType,
     pub skin_albedo: String,
     pub body_parts: Vec<String>,
@@ -170,7 +108,7 @@ pub struct HumanConfig {
 impl Default for HumanConfig {
     fn default() -> Self {
         HumanConfig {
-            morph_targets: HashMap::<String, f32>::new(),
+            morph_targets: FxHashMap::<String, f32>::default(),
             rig: RigType::Mixamo,
             skin_albedo: String::new(),
             body_parts: vec![],
@@ -185,21 +123,8 @@ impl Default for HumanConfig {
 /*-----------+
  |  Systems  |
  +-----------*/
-fn loading_state_checker(
-    loading_state: Res<LoadingState>,
-    mut next: ResMut<NextState<HumentityState>>,
-    mut commands: Commands,
-) {
-    if !loading_state.0.get(&LoadingPhase::CreateBodyMesh).unwrap() { return; }
-    if !loading_state.0.get(&LoadingPhase::GenerateBodyVertexMap).unwrap() { return; }
-    if !loading_state.0.get(&LoadingPhase::GenerateAssetVertexMap).unwrap() { return; }
-    if !loading_state.0.get(&LoadingPhase::SetUpAnimationLibraries).unwrap() { return; }
-    commands.remove_resource::<LoadingState>();
-    next.set(HumentityState::Ready);
-}
-
 fn on_human_added(
-    new_humans: Query<(Entity, &HumanConfig, &SpawnTransform), Added<HumanConfig>>,
+    new_humans: Query<(Entity, &HumanConfig, &Transform), Added<HumanConfig>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -209,29 +134,30 @@ fn on_human_added(
     base_mesh: Res<BaseMesh>,
     targets: Res<MorphTargets>,
     asset_server: Res<AssetServer>,
-    rigs: Res<RigData>,
+    rigs: Res<rigs::RigData>,
     vg: Res<VertexGroups>,
     asset_textures: Res<HumanAssetTextures>,
 ) {
     // TODO Can we wrap all these args up in a single struct to pass to every function?
     // tried but couldn't figure out lifetimes
-    let path = global_config.core_assets_path.clone();
-    let transparent_slots = global_config.transparent_slots.clone();
+    let path = &global_config.core_assets_path;
+    let transparent_slots = &global_config.transparent_slots;
 
-    new_humans.iter().for_each(|(human, config, spawn_transform)| {
+    new_humans.iter().for_each(|(human, config, transform)| {
         // Body Material
-        let albedo = asset_server.load(path.join("skin_textures/albedo/".to_string() + &config.skin_albedo));
+        //let albedo = asset_server.load(path.join("skin_textures/albedo/".to_string() + &config.skin_albedo));
         let material = materials.add(StandardMaterial {
-            base_color_texture: Some(albedo),
+            //base_color_texture: Some(albedo),
+            base_color: Color::LinearRgba( LinearRgba::new(1.0, 0., 0., 1.)),
             ..default()
         });
 
-        let helpers = adjust_helpers_to_morphs(
+        let helpers = morphs::adjust_helpers_to_morphs(
             &config.morph_targets,
             &targets,
             &base_mesh
         );
-        let (skinned_mesh, sorted_bones) = build_rig(
+        let (skinned_mesh, sorted_bones) = rigs::build_rig(
             &human,
             config.rig,
             &rigs,
@@ -239,24 +165,24 @@ fn on_human_added(
             &mut commands,
             &vg,
             &helpers,
-            spawn_transform.0,
+            transform,
         );
 
-        let mut delete_verts = HashSet::<u16>::new();
+        let mut delete_verts = FxHashSet::<u16>::default();
 
         // Body Parts
         for bp in config.body_parts.iter() {
             let err_msg = format!("FAILED TO FIND BODY PART {}", bp);
             let asset = registry.body_parts.get(bp).expect(&err_msg);
-            delete_verts.extend(&asset.delete_verts);
-            let mesh = bake_asset_morphs(
+            //delete_verts.extend(&asset.delete_verts);
+            let mesh = morphs::bake_asset_morphs(
                 &config.morph_targets, 
                 &targets,
                 &mut meshes,
                 &helpers,
                 &asset,
             );
-            let mesh_handle = set_asset_rig_arrays(
+            let mesh_handle = rigs::set_asset_rig_arrays(
                 config.rig,
                 mesh,
                 &rigs,
@@ -284,15 +210,16 @@ fn on_human_added(
                     else if slot.contains("Hair") { material.base_color = config.hair_color; }
                 }
             }
+            let material = materials.add(material);
 
-            commands.spawn((
-                skinned_mesh.clone(),
-                PbrBundle {
-                    mesh: mesh_handle,
-                    material: materials.add(material),
-                    ..default()
-                },
-            ));
+            commands.entity(human).insert(
+                //children!
+                (
+                    skinned_mesh.clone(),
+                    Mesh3d(mesh_handle),
+                    MeshMaterial3d(material)
+                )
+            );
         }
 
         // Equipment
@@ -300,14 +227,14 @@ fn on_human_added(
             let err_msg = format!("FAILED TO FIND EQUIPMENT {}", eq);
             let asset = registry.equipment.get(eq).expect(&err_msg);
             delete_verts.extend(&asset.delete_verts);
-            let mesh = bake_asset_morphs(
+            let mesh = morphs::bake_asset_morphs(
                 &config.morph_targets, 
                 &targets,
                 &mut meshes,
                 &helpers,
                 &asset,
             );
-            let mesh_handle = set_asset_rig_arrays(
+            let mesh_handle = rigs::set_asset_rig_arrays(
                 config.rig,
                 mesh,
                 &rigs,
@@ -326,26 +253,27 @@ fn on_human_added(
             if let Some(ao) = asset_textures.ao_map.get(&asset.name) {
                 material.occlusion_texture = Some(ao.clone());
             }
-            commands.spawn((
-                skinned_mesh.clone(),
-                PbrBundle {
-                    mesh: mesh_handle,
-                    material: materials.add(material),
-                    ..default()
-                },
-            ));
+
+            commands.entity(human).insert(
+                //children!
+                (
+                    skinned_mesh.clone(),
+                    Mesh3d(mesh_handle),
+                    MeshMaterial3d(materials.add(material)),
+                )
+            );
         }
 
         // Body Mesh
         // Delete verts
-        let mesh = delete_mesh_verts(&mut meshes, &base_mesh, delete_verts);
-        let vertices = &get_vertex_positions(&mesh);
-        let new_vtx_map = generate_vertex_map(&base_mesh.vertices, vertices);
+        let mesh = assets::delete_mesh_verts(&mut meshes, &base_mesh, delete_verts);
+        let vertices = &mesh_ops::get_vertex_positions(&mesh);
+        let new_vtx_map = mesh_ops::generate_vertex_map(&base_mesh.vertices, vertices);
 
         // Apply Morphs
-        let mesh = bake_body_morphs(&mesh,&new_vtx_map,&helpers);
+        let mesh = morphs::bake_body_morphs(&mesh,&new_vtx_map,&helpers);
         // Apply Rig
-        let mesh_handle = set_basemesh_rig_arrays(
+        let mesh_handle = rigs::set_basemesh_rig_arrays(
             config.rig,
             mesh,
             &rigs,
@@ -355,15 +283,14 @@ fn on_human_added(
         );
 
         // Spawn avatar as separate entity
-        commands.spawn((
-            skinned_mesh.clone(),
-            PbrBundle {
-                mesh: mesh_handle,
-                material: material.clone(),
-                ..default()
-            },
-        ));
-        commands.entity(human).remove::<SpawnTransform>();
+        commands.entity(human).insert(
+            //children!
+            (
+                skinned_mesh.clone(),
+                Mesh3d(mesh_handle),
+                MeshMaterial3d(material),
+            )
+        );
         commands.entity(human).insert(AnimationPlayer::default());
     })
 

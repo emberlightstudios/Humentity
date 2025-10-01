@@ -1,9 +1,7 @@
-use bevy::prelude::*;
+use bevy::{input::mouse::MouseMotion, math::VectorSpace, prelude::*};
 use humentity::prelude::*;
-use std::{
-    collections::HashMap,
-    path::Path,
-};
+use std::{path::Path};
+use fxhash::FxHashMap;
 
 fn setup_env(
     mut commands: Commands,
@@ -11,38 +9,36 @@ fn setup_env(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // circular base
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Circle::new(4.0)),
-        material: materials.add(Color::WHITE),
-        transform: Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-        ..default()
-    });
-    // point light
-    commands.spawn(PointLightBundle {
-        point_light: PointLight {
+    let mesh = meshes.add(Circle::new(4.0));
+    let material = materials.add(Color::WHITE);
+
+    commands.spawn((
+        Mesh3d(mesh),
+        MeshMaterial3d(material),
+        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+    ));
+
+    // A light:
+    commands.spawn((
+        PointLight {
+            intensity: 15_000_0.0,
+            radius: 20.,
+            range: 20.,
             shadows_enabled: true,
             ..default()
         },
-        transform: Transform::from_xyz(4.0, 8.0, 5.0),
-        ..default()
-    });
-    // camera
+        Transform::from_xyz(0.0, 5.0, 0.0),
+    ));
+
+    // A camera:
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_xyz(-0.5, 1.5, 3.5).looking_at(Vec3::ZERO + Vec3::Y * 1.0, Vec3::Y),
-            projection: PerspectiveProjection {
-                fov: std::f32::consts::PI / 4.0, // Field of view
-                near: 0.001, // Near clipping distance
-                far: 1000.0, // Far clipping distance
-                ..Default::default()
-            }.into(),
-            ..default()   
-        },
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 2.0, 4.0).looking_at(Vec3::Y, Vec3::Y),
     ));
 
     // set up humans
     for i in [0,1,2,3].iter() {
-        let mut shapekeys = HashMap::<String, f32>::new();
+        let mut shapekeys = FxHashMap::<String, f32>::default();
         let config: HumanConfig;
         match i {
             0 => {
@@ -59,8 +55,8 @@ fn setup_env(
                         "RightEyebrow-001".to_string(),
                     ],
                     equipment: vec![
-                        "SimpleBra".to_string(),
-                        "SimpleBriefs".to_string(),
+                        //"SimpleBra".to_string(),
+                        //"SimpleBriefs".to_string(),
                     ],
                     ..default()
                 }
@@ -80,7 +76,7 @@ fn setup_env(
                         "RightEyebrow-001".to_string(),
                     ],
                     equipment: vec![
-                        "SimpleBriefs".to_string(),
+                        //"SimpleBriefs".to_string(),
                     ],
                     ..default()
                 }
@@ -100,8 +96,8 @@ fn setup_env(
                         "Ponytail01".to_string(),
                     ],
                     equipment: vec![
-                        "SimpleBra".to_string(),
-                        "SimpleBriefs".to_string(),
+                        //"SimpleBra".to_string(),
+                        //"SimpleBriefs".to_string(),
                     ],
                     hair_color: Color::linear_rgb(1.0, 0.2, 0.4),
                     ..default()
@@ -121,7 +117,7 @@ fn setup_env(
                         "RightEyebrow-001".to_string(),
                     ],
                     equipment: vec![
-                        "SimpleBriefs".to_string(),
+                        //"SimpleBriefs".to_string(),
                     ],
                     ..default()
                 }
@@ -130,17 +126,47 @@ fn setup_env(
         }
         let transform = Transform::from_xyz(*i as f32 - 1.5, 0.0, 0.0);
         commands.spawn((
-            SpawnTransform(transform),
+            transform,
             config,
+            InheritedVisibility::VISIBLE,
             AnimationPlayer::default(),
         ));
     }
 }
 
+fn cam_controls(
+    mut cam: Query<&mut Transform, With<Camera3d>>,
+    mut mouse_motion: MessageReader<MouseMotion>,
+    kb_input: Res<ButtonInput<KeyCode>>,
+    mut pitch: Local<f32>,
+    mut yaw: Local<f32>,
+) {
+    const MS: f32 = 5e-3;
+    const LS: f32 = 5e-3;
+    let Ok(transform) = cam.single().cloned() else { return };
+    let Ok(mut cam) = cam.single_mut() else { return };
+    for ev in mouse_motion.read() {
+        *yaw -= ev.delta.x * LS;
+        *pitch -= ev.delta.y * LS;
+    }
+    cam.rotation = Quat::from_euler(EulerRot::YXZ, *yaw, *pitch, 0.);
+    let mut mv = Vec3::ZERO;
+    if kb_input.pressed(KeyCode::KeyD) { mv.x += MS }
+    if kb_input.pressed(KeyCode::KeyA) { mv.x -= MS }
+    if kb_input.pressed(KeyCode::KeyS) { mv.z += MS }
+    if kb_input.pressed(KeyCode::KeyW) { mv.z -= MS }
+    if kb_input.pressed(KeyCode::KeyQ) { mv.y -= MS }
+    if kb_input.pressed(KeyCode::KeyE) { mv.y += MS }
+    cam.translation += Transform::from_rotation(transform.rotation) * mv;
+}
+
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(AssetPlugin {
+            unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+            ..Default::default()
+        }))
         .insert_resource(
             HumentityGlobalConfig::default()
                 .with_animation_libraries(AnimationLibrarySettings {
@@ -149,7 +175,10 @@ fn main() {
                 })
         )
         .add_plugins(Humentity{ debug: true })
-        .add_systems(OnEnter(HumentityState::Ready), setup_env)
+        .add_systems(Update, (
+            setup_env.run_if(resource_removed::<HumentityLoading>),
+            cam_controls,
+        ))
         .run();
 }
 

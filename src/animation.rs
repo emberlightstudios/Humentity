@@ -1,18 +1,7 @@
-use bevy::{
-    prelude::*,
-    gltf::Gltf,
-};
-use std::{
-    collections::HashMap,
-    fs::read_dir,
-    path::PathBuf,
-};
-use crate::{
-    HumentityGlobalConfig,
-    LoadingPhase,
-    LoadingState,
-    RigType,
-};
+use bevy::{prelude::*, gltf::Gltf};
+use std::{fs::read_dir, path::PathBuf};
+use fxhash::FxHashMap;
+use crate::{HumentityGlobalConfig, RigType};
 
 #[allow(dead_code)]
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -33,22 +22,24 @@ impl Default for AnimationLibrarySettings {
 
 #[allow(dead_code)]
 #[derive(Debug)]
-pub struct AnimationLibrary(pub HashMap<String, Handle<AnimationClip>>);
+pub struct AnimationLibrary(pub FxHashMap<String, Handle<AnimationClip>>);
 
 /*-----------+
  | Resources |
  +-----------*/
 #[derive(Resource, Debug)]
 pub struct AnimationLibrarySet{
-    gltf_handles: HashMap<String, Handle<Gltf>>,
-    pub libraries: HashMap<String, AnimationLibrary>,
+    gltf_handles: FxHashMap<String, Handle<Gltf>>,
+    pub libraries: FxHashMap<String, AnimationLibrary>,
 }
 
 impl FromWorld for AnimationLibrarySet {
     fn from_world(world: &mut World) -> Self {
-        let config = world.get_resource::<HumentityGlobalConfig>().expect("No global config loaded");
-        let asset_server = world.get_resource::<AssetServer>().expect("No asset server loaded");
-        let mut handles = HashMap::<String, Handle<Gltf>>::new();
+        let config = world.get_resource::<HumentityGlobalConfig>()
+            .expect("No global config loaded");
+        let asset_server = world.get_resource::<AssetServer>()
+            .expect("No asset server loaded");
+        let mut handles = FxHashMap::<String, Handle<Gltf>>::default();
 
         // We will search the folder(s) provided for glb/gltf files 
         for path in config.animation_libraries.paths.iter() {
@@ -75,7 +66,7 @@ impl FromWorld for AnimationLibrarySet {
 
         AnimationLibrarySet {
             gltf_handles: handles,
-            libraries: HashMap::<String, AnimationLibrary>::new(),
+            libraries: FxHashMap::<String, AnimationLibrary>::default(),
         }
     }
 }
@@ -86,9 +77,7 @@ impl FromWorld for AnimationLibrarySet {
 pub(crate) fn load_animations(
     gltfs: Res<Assets<Gltf>>,
     mut animations: ResMut<AnimationLibrarySet>,
-    mut loading_state: ResMut<LoadingState>,
 ) {
-    if let Some(&done) = loading_state.0.get(&LoadingPhase::SetUpAnimationLibraries) { if done { return; } }
     for (_name, handle) in animations.gltf_handles.iter() {
         let Some(_gltf) = gltfs.get(&*handle) else { return; };
     }
@@ -97,8 +86,7 @@ pub(crate) fn load_animations(
         let animation_clips: Vec<(&Box<str>, &Handle<AnimationClip>)> = gltf.named_animations.iter()
             .map(|animation| animation.clone())
             .collect();
-        let library: HashMap<String, Handle<AnimationClip>> = animation_clips.iter().map(|(s, &ref c)| (s.to_string(), c.clone())).collect();
+        let library: FxHashMap<String, Handle<AnimationClip>> = animation_clips.iter().map(|(s, &ref c)| (s.to_string(), c.clone())).collect();
         animations.libraries.insert(name.to_string(), AnimationLibrary(library));
     }
-    loading_state.0.insert(LoadingPhase::SetUpAnimationLibraries, true);
 }

@@ -1,25 +1,15 @@
 use bevy::prelude::*;
-use bevy::render::mesh::{
-    Mesh, Indices,
-};
+use bevy::mesh::{Indices, Mesh, VertexAttributeValues};
 use std::{
     io::BufReader,
     fs::File,
-    collections::HashMap,
 };
-use crate::{
-    generate_inverse_vertex_map,
-    generate_vertex_map,
-    get_uv_coords,
-    get_vertex_normals,
-    get_vertex_positions,
-    parse_obj_vertices,
-    LoadingState,
-    LoadingPhase,
-    HumentityGlobalConfig,
-}; 
+use fxhash::FxHashMap;
 use serde::Deserialize;
 use serde_json;
+
+use crate::mesh_ops::{generate_inverse_vertex_map, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, parse_obj_vertices};
+use crate::{HumentityGlobalConfig, HumentityLoading};
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
 pub(crate) const BODY_SCALE: f32 = 0.1;
@@ -28,18 +18,19 @@ pub(crate) const BODY_SCALE: f32 = 0.1;
  |  Resources  |
  +-------------*/
 #[derive(Resource, Deserialize, Debug)]
-pub(crate) struct VertexGroups(pub(crate) HashMap<String, Vec<[usize; 2]>>);
+pub(crate) struct VertexGroups(pub(crate) FxHashMap<String, Vec<[usize; 2]>>);
 
 #[derive(Resource, Debug)]
 pub(crate) struct BaseMesh{
     pub(crate) mesh_handle: Handle<Mesh>,
     pub(crate) vertices: Vec<Vec3>,
-    pub(crate) vertex_map: HashMap<u16, Vec<u16>>,
+    pub(crate) vertex_map: FxHashMap<u16, Vec<u16>>,
 }
 
 #[derive(Resource, Debug)]
 pub(crate) struct HelperMeshHandle(Handle<Mesh>);
 
+// Load base mesh with helpers and vertex group data
 impl FromWorld for BaseMesh {
     fn from_world(world: &mut World) -> Self {
         let config = world.get_resource::<HumentityGlobalConfig>().expect("NO CONFIG LOADED");
@@ -51,8 +42,8 @@ impl FromWorld for BaseMesh {
         let asset_server = world.resource::<AssetServer>();
         let base_handle: Handle<Mesh> = asset_server.load(path.join("base.obj"));
 
-        let err_msg = "FAILED TO LOAD VERTEX GROUOPS";
-        let file = File::open(path.join("basemesh_vertex_groups.json")).expect(&err_msg);
+        let file = File::open(path.join("basemesh_vertex_groups.json"))
+            .expect("FAILED TO LOAD VERTEX GROUOPS");
         let reader = BufReader::new(file);
         let vg: VertexGroups = serde_json::from_reader(reader).unwrap();
 
@@ -62,29 +53,26 @@ impl FromWorld for BaseMesh {
         BaseMesh{
             mesh_handle: base_handle,
             vertices: mh_vertices,
-            vertex_map: HashMap::<u16, Vec<u16>>::new(),
+            vertex_map: FxHashMap::<u16, Vec<u16>>::default(),
         }
 
     }
 }
         
-/*-----------+
- |  Systems  |
- +-----------*/
 // Remove helper vertices to generate body only mesh
 pub(crate) fn create_body_mesh(
     mut base_mesh: ResMut<BaseMesh>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
-    mut loading_state: ResMut<LoadingState>,
     helper_handle: Option<Res<HelperMeshHandle>>,
 ) {
-    if *loading_state.0.get(&LoadingPhase::CreateBodyMesh).unwrap() { return; }
     if helper_handle.is_none() { return; }
-    let Some(mesh) = meshes.get(&helper_handle.unwrap().0) else { return };
+    let Some(mesh) = meshes.get_mut(&helper_handle.unwrap().0) else { return };
+    // TODO: Check alternate smoothing algos
+    //mesh.compute_smooth_normals();
 
     // Get mesh arrays
-    let Some(raw_indices) = mesh.indices() else { panic!("FAILED TO LOAD MESH INDICES") };
+    let raw_indices = mesh.indices().expect("FAILED TO LOAD MESH INDICES");
     let vtx_data = get_vertex_positions(&mesh);
     let normal_data = get_vertex_normals(&mesh); 
     let uv_data = get_uv_coords(&mesh);
@@ -95,42 +83,38 @@ pub(crate) fn create_body_mesh(
     new_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vtx_data.clone());
 
     // Create mesh without helpers
-    let body_mesh = generate_mesh_without_helpers(
+    let mut body_mesh = generate_mesh_without_helpers(
         &new_mesh,
         &vertex_map,
-        vtx_data.clone(),
+        vtx_data,
         normal_data,
         uv_data,
         raw_indices
     );
-
+    let body_mesh = body_mesh.with_computed_smooth_normals();
     // Save values in base mesh resource
     base_mesh.mesh_handle = meshes.add(body_mesh);
     commands.remove_resource::<HelperMeshHandle>();
-    loading_state.0.insert(LoadingPhase::CreateBodyMesh, true);
 } 
 
 // Load body mesh to calculate vertex maps
 pub(crate) fn create_body_vertex_map(
     mut base_mesh: ResMut<BaseMesh>,
     meshes: Res<Assets<Mesh>>,
-    mut loading_state: ResMut<LoadingState>,
+    mut commands: Commands,
 ) {
-    if !*loading_state.0.get(&LoadingPhase::CreateBodyMesh).unwrap() { return; }
-    if *loading_state.0.get(&LoadingPhase::GenerateBodyVertexMap).unwrap() { return; }
     let Some(body_mesh) = meshes.get(&base_mesh.mesh_handle) else { return };
-    let vertices = get_vertex_positions(&body_mesh);
-    let body_vertex_map = generate_vertex_map(&base_mesh.vertices, &vertices);
-    base_mesh.vertex_map = body_vertex_map;
-    loading_state.0.insert(LoadingPhase::GenerateBodyVertexMap, true);
+    if base_mesh.vertex_map.iter().len() == 0 {
+        let vertices = get_vertex_positions(&body_mesh);
+        let body_vertex_map = generate_vertex_map(&base_mesh.vertices, &vertices);
+        base_mesh.vertex_map = body_vertex_map;
+        commands.remove_resource::<HumentityLoading>();
+    }
 }
 
-/*---------------------+
- |  Utility Functions  |
- +---------------------*/
 fn generate_mesh_without_helpers(
     original_mesh: &Mesh,
-    vertex_map: &HashMap<u16, Vec<u16>>,
+    vertex_map: &FxHashMap<u16, Vec<u16>>,
     vtx_data: Vec<Vec3>,
     normal_data: Vec<Vec3>,
     uv_data: Vec<Vec2>,
@@ -144,7 +128,7 @@ fn generate_mesh_without_helpers(
     // For remapping face indices buffer
     // Some vertices will be skipped, changing the vertex indices
     // So face indices will have to be changed as well
-    let mut new_vert_indices = HashMap::<u16, u16>::new();
+    let mut new_vert_indices = FxHashMap::<u16, u16>::default();
 
     let inv_map = generate_inverse_vertex_map(vertex_map);
     for (vertex, mhv) in inv_map.iter() {
@@ -168,10 +152,10 @@ fn generate_mesh_without_helpers(
     u16indices = u16indices.iter().map(|x| *new_vert_indices.get(x).unwrap()).collect();
 
     let mut body_mesh = original_mesh.clone()
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices.clone())
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-    .with_inserted_indices(Indices::U16(u16indices));
-    let _ = body_mesh.generate_tangents();
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices.clone())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+        .with_inserted_indices(Indices::U16(u16indices));
+    body_mesh.generate_tangents().ok();
     body_mesh
 }
