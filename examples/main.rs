@@ -27,7 +27,7 @@ fn setup_env(
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(0.0, 5.0, 0.0),
+        Transform::from_xyz(0.0, 1.0, 3.0),
     ));
 
     // A camera:

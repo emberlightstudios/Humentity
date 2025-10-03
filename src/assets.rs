@@ -1,10 +1,10 @@
-use bevy::asset::RenderAssetUsages;
 use::bevy::{
     prelude::*,
     mesh::{
         PrimitiveTopology,
         Indices,
     },
+    asset::RenderAssetUsages,
 };
 use::std::{
     io::{ BufRead, BufReader, },
@@ -13,17 +13,16 @@ use::std::{
 };
 use fxhash::{FxHashMap, FxHashSet};
 use walkdir::WalkDir;
-use crate::{mesh_ops::{generate_inverse_vertex_map, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, parse_obj_vertices}, BaseMesh, HumentityGlobalConfig};
+use crate::{mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, parse_obj_vertices}, BaseMesh, HumentityGlobalConfig};
 
 /*---------+
  |  Types  |
  +---------*/
- #[allow(dead_code)]
 pub struct HumanMeshAsset {
    pub name: String,
    pub(crate) mesh_handle: Handle<Mesh>,
    pub(crate) helper_maps: Vec<HelperMap>,
-   pub(crate) vertex_map: FxHashMap<u16, Vec<u16>>,
+   pub(crate) mhid_lookup: Vec<u16>,
    pub(crate) delete_verts: FxHashSet<u16>,
    pub slots: Vec<String>,
    obj_file: PathBuf,
@@ -196,6 +195,7 @@ impl FromWorld for HumanAssetRegistry {
     mut registry: ResMut<HumanAssetRegistry>,
     meshes: Res<Assets<Mesh>>,
  ) {
+    println!("{}", registry.body_parts.len());
     for (_name, asset) in registry.body_parts.iter_mut() {
         let Some(_mesh) = meshes.get(&asset.mesh_handle) else { return };
     }
@@ -203,22 +203,25 @@ impl FromWorld for HumanAssetRegistry {
         let Some(_mesh) = meshes.get(&asset.mesh_handle) else { return };
     }
 
-    for (name, asset) in registry.body_parts.iter_mut() {
+    for (_name, asset) in registry.body_parts.iter_mut() {
         //println!("Importing body part: {name}");
         let mh_verts = parse_obj_vertices(&asset.obj_file);
         let mesh = meshes.get(&asset.mesh_handle).unwrap();
         let verts = get_vertex_positions(&mesh);
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
-        asset.vertex_map = vertex_map;
+        asset.mhid_lookup = generate_mhid_lookup(&vertex_map);
+        println!("{}", asset.mhid_lookup.len());
     }
-    for (name, asset) in registry.equipment.iter_mut() {
+    for (_name, asset) in registry.equipment.iter_mut() {
         //println!("Importing equipment: {name}");
         let mh_verts = parse_obj_vertices(&asset.obj_file);
         let mesh = meshes.get(&asset.mesh_handle).unwrap();
         let verts = get_vertex_positions(&mesh);
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
-        asset.vertex_map = vertex_map;
+        asset.mhid_lookup = generate_mhid_lookup(&vertex_map);
+        println!("{}", asset.mhid_lookup.len());
     }
+    panic!("");
  }
 
 /*-------------+
@@ -339,17 +342,18 @@ fn parse_human_asset(path: PathBuf, world: &mut World) -> HumanMeshAsset {
 
     let mesh_handle = asset_server.load(obj_file.clone());
     let vertex_map = FxHashMap::<u16, Vec<u16>>::default();
+    let mhid_lookup = generate_mhid_lookup(&vertex_map);
 
     HumanMeshAsset {
-        name: name,
+        name,
         obj_file: obj_file,
-        tags: tags,
+        tags,
         z_depth: z_depth,
         helper_maps: helper_map,
         delete_verts: delete_verts,
         scale_data: [x_scale, y_scale, z_scale],
-        mesh_handle: mesh_handle,
-        vertex_map: vertex_map,
+        mesh_handle,
+        mhid_lookup,
         slots: vec![],
     }
 }
@@ -360,7 +364,6 @@ pub(crate) fn delete_mesh_verts(
     delete_verts: FxHashSet<u16>,
 ) -> Mesh {
     let mesh = meshes.get(&base_mesh.mesh_handle).unwrap().clone();
-    let inv_vertex_map = generate_inverse_vertex_map(&base_mesh.vertex_map);
 
     let vertices = get_vertex_positions(&mesh);
     let normals = get_vertex_normals(&mesh);
@@ -377,9 +380,9 @@ pub(crate) fn delete_mesh_verts(
     // need to map new vertex indices to original before deleting verts
     let mut indices_map = FxHashMap::<u16, u16>::default();
 
-    for (&vtx, &mh_vert) in inv_vertex_map.iter() {
+    for (vtx, &mh_vert) in base_mesh.mhid_lookup.iter().enumerate() {
         if !delete_verts.contains(&mh_vert) {
-            indices_map.insert(vtx, new_vertices.len() as u16);
+            indices_map.insert(vtx as u16, new_vertices.len() as u16);
             new_vertices.push(vertices[vtx as usize]);
             new_normals.push(normals[vtx as usize]);
             new_uv.push(uv[vtx as usize]);
@@ -401,7 +404,7 @@ pub(crate) fn delete_mesh_verts(
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, new_normals)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, new_uv)
         .with_inserted_indices(Indices::U16(new_indices));
-    new_mesh.compute_smooth_normals();
+    new_mesh.compute_area_weighted_normals();
     new_mesh.generate_tangents().ok();
     new_mesh
 }

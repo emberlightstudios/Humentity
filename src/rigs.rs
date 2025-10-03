@@ -104,21 +104,23 @@ impl FromWorld for RigData {
 /*------------+
  | Components |
  +------------*/
- #[allow(dead_code)]
  #[derive(Component)]
- pub(crate) struct Bone;
+ pub struct Bone;
+
+ #[derive(Component)]
+ pub struct Rig;
 
 /*---------+
  | Systems |
  +---------*/
  pub(crate) fn bone_debug_draw(
-    query: Query<(&GlobalTransform, &ChildOf), With<Bone>>,
+    query: Query<(&GlobalTransform, &ChildOf, &Name), With<Bone>>,
     transforms: Query<&GlobalTransform, With<Bone>>,
     mut gizmos: Gizmos,
  ) {
-    query.iter().for_each(|(transform, parent)| {
+    query.iter().for_each(|(transform, child, name)| {
         let start = transform.translation();
-        if let Ok(end) = transforms.get(parent.parent()) {
+        if let Ok(end) = transforms.get(child.parent()) {
             gizmos.line(start, end.translation(), RED);
         }
     })
@@ -137,67 +139,64 @@ pub(crate) fn build_rig(
     helpers: &Vec<Vec3>,
     base_transform: &Transform,
 ) -> (SkinnedMesh, Vec<String>) {
-    let config_res = rigs.configs.get(&rig).unwrap();
+    let config = rigs.configs.get(&rig).unwrap();
 
     // Spawn bone entities
-    // Use human as root of skeleton
+    // TODO DOn't attach skeleton to human, but as child
+    let rig = commands.spawn((Rig, base_transform.clone())).id();
+    commands.entity(*human).add_child(rig);
+
     let mut bone_names = FxHashMap::<String, Name>::default();
-    commands.entity(*human).insert(Bone);
     let mut bone_entities = FxHashMap::<String, Entity>::default();
-    for (name, bone) in config_res.iter() {
+
+    for (name, bone) in config.iter() {
         let bone_name = Name::new(name.clone());
         bone_names.insert(name.clone(), bone_name.clone());
-        if bone.parent == "" && name.eq_ignore_ascii_case("root"){
-            bone_entities.insert(name.to_string(), *human);
-            commands.entity(*human).insert(bone_name);
-        } else {
-            bone_entities.insert(name.to_string(), commands.spawn((Bone, bone_name)).id());
-        }
+        bone_entities.insert(name.to_string(), commands.spawn((Bone, bone_name)).id());
     }
 
     // For finding in-degree of each bone in the tree
     let mut in_degree = FxHashMap::<String, usize>::default();
 
     // Set up parent child relationships
-    for (name, bone) in config_res.iter() {
+    for (name, bone) in config.iter() {
         in_degree.insert(name.to_string(), 0);
         let &child = bone_entities.get(name).unwrap();
         if let Some(parent) = bone_entities.get(&bone.parent) {
             commands.entity(*parent).add_child(child);
         }
     }
-
     // Find in-degree of the bones
-    for (name, bone) in config_res.iter() {
-        let mut parent = bone.parent.clone();
+    for (name, bone) in config.iter() {
+        let mut parent = &bone.parent;
         while parent != "" {
             *in_degree.entry(name.to_string()).or_insert(0) += 1;
-            parent = config_res.get(&parent).unwrap().parent.clone();
+            parent = &config.get(parent).unwrap().parent;
         }
     }
 
     // Get bone vecs sorted by degree
     let mut in_degree_vec: Vec<(String, usize)> = in_degree.into_iter().collect();
     in_degree_vec.sort_by(|a, b| a.1.cmp(&b.1));
-    let mut sorted_bones: Vec<String> = in_degree_vec.into_iter().map(|(k, _)| k.clone()).collect();
-    let mut joints: Vec<Entity> = sorted_bones.iter().map(|name| {
+    let mut sorted_bone_names: Vec<String> = in_degree_vec.into_iter().map(|(k, _)| k.clone()).collect();
+    let mut joint_entities: Vec<Entity> = sorted_bone_names.iter().map(|name| {
         *bone_entities.get(name).unwrap()
     }).collect();
 
     // Get all global transforms
     let mut transforms = FxHashMap::<String, Transform>::default();
-    for (name, bone) in config_res.iter() {
+    for (name, bone) in config.iter() {
         transforms.insert(name.to_string(), get_bone_transform(&bone, &vg, &helpers));
     }
 
     let mut local_transforms = FxHashMap::<String, Transform>::default();
     // Convert to local space
-    for name in sorted_bones.iter() {
-        let mut bone = config_res.get(name).unwrap();
+    for name in sorted_bone_names.iter() {
+        let mut bone = config.get(name).unwrap();
         let mut parents = Vec::<String>::new();
         while bone.parent != "" {
             parents.push(bone.parent.clone());
-            bone = config_res.get(&bone.parent).unwrap();
+            bone = config.get(&bone.parent).unwrap();
         }
         let mut mat = transforms.get(name).unwrap().to_matrix();
         for parent in parents.iter().rev() {
@@ -207,37 +206,32 @@ pub(crate) fn build_rig(
     }
 
     // Set transforms and inverse bind poses
-    let mut inv_bindposes = Vec::<Mat4>::with_capacity(joints.len());
-    for name in sorted_bones.iter() {
-        let &entity = bone_entities.get(name).unwrap();
+    let mut inv_bindposes = Vec::<Mat4>::with_capacity(joint_entities.len());
+    for name in sorted_bone_names.iter() {
+        let &bone_entity = bone_entities.get(name).unwrap();
         inv_bindposes.push(transforms.get(name).unwrap().to_matrix().inverse());
-        let transform = *local_transforms.get(name).unwrap();
-        commands.entity(entity).insert((
-            Transform::from(transform),
-        ));
+        let local_transform = *local_transforms.get(name).unwrap();
+        commands.entity(bone_entity).insert(Transform::from(local_transform));
     }
 
-    // Mixamo rig has hips as root. Insert human as root bone.
-    let root_str = &sorted_bones[0].clone();
+    // Mixamo rig has hips as root. Insert new root bone as parent.
+    let root_str = &sorted_bone_names[0].clone();
     if root_str.ends_with("Hips") {
-        sorted_bones.insert(0, "Root".to_string());
-        bone_entities.insert("Root".to_string(), *human);
+        let root = commands.spawn((Bone, Name::new("Root"), Transform::IDENTITY)).id();
+        sorted_bone_names.insert(0, "Root".to_string());
+        bone_entities.insert("Root".to_string(), root);
         let &old_root = bone_entities.get(root_str).unwrap();
-        commands.entity(*human).add_child(old_root);
-        commands.entity(*human).insert((
-            *base_transform,
-        ));
-        joints.insert(0, *human);
+        commands.entity(root).add_child(old_root);
+        joint_entities.insert(0, root);
         inv_bindposes.insert(0, Mat4::IDENTITY)
-    } else {  // Set positions on already existant root bone
-        let &root = bone_entities.get(root_str).unwrap();
-        commands.entity(root).insert((
-            *base_transform,
-        ));
-    }
+    } 
+
+    // Add skeleton to Rig entity as child
+    let root = bone_entities.get(&sorted_bone_names[0]).unwrap();
+    commands.entity(rig).add_child(*root);
 
     // Set AnimationTarget Components
-    for (name, bone) in config_res.iter() {
+    for (name, bone) in config.iter() {
         if name == "Root" { continue; }
         let &bone_entity = bone_entities.get(name).unwrap();
         let mut bone_path: Vec<Name> = vec![bone_names.get(name).unwrap().clone()];
@@ -245,11 +239,11 @@ pub(crate) fn build_rig(
         while parent != "" {
             if parent.eq_ignore_ascii_case("root") { break; }
             bone_path.push(bone_names.get(&parent).unwrap().clone());
-            parent = config_res.get(&parent).unwrap().parent.clone();
+            parent = config.get(&parent).unwrap().parent.clone();
         }
         bone_path.push(Name::new("Human.rig"));
         commands.entity(bone_entity).insert(AnimationTarget{
-            player: *human,
+            player: rig,
             id: AnimationTargetId::from_names(bone_path.iter().rev())
         });
     }
@@ -257,15 +251,15 @@ pub(crate) fn build_rig(
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
     (SkinnedMesh {
         inverse_bindposes: inverse_bindposes.clone(),
-        joints: joints,
-    }, sorted_bones)
+        joints: joint_entities,
+    }, sorted_bone_names)
 }
 
 pub(crate) fn set_basemesh_rig_arrays(
     rig: RigType,
     mesh: Mesh,
     rigs: &Res<RigData>,
-    vertex_map: &FxHashMap<u16, Vec<u16>>,
+    mhid_lookup: &Vec<u16>,
     meshes: &mut ResMut<Assets<Mesh>>,
     sorted_bones: &Vec<String>,
 ) -> Handle<Mesh> {
@@ -278,29 +272,35 @@ pub(crate) fn set_basemesh_rig_arrays(
 
     for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
         let Some(bone_weights) = weights_res.get(bone_name) else { continue };
+
         // loop over vertex, bone weight pairs from config
-        for (&mh_id, &wt) in bone_weights.iter() {
-            // loop over bevy vertex ids mapping to this mh vertex
-            for vertex in vertex_map.get(&mh_id).unwrap().iter() {
-                // Get the vertex(u16) -> weights(f32) map for this bone
-                // get the array at the vertex index to get the [u16;4] array we need to insert into
-                let mut indices_vec = indices[*vertex as usize];
-                // find smallest weight which is also < wt
-                let Some(vec_index) = indices_vec.iter()
-                    .enumerate()
-                    .filter_map(|(index, &value)| if (value as f32) < wt { Some(index) } else { None })
-                    .min() else { continue };
-                // Set the bone index in this vector
-                indices_vec[vec_index] = bone_index as u16;
-                // insert into indices array 
-                indices[*vertex as usize] = indices_vec;
-                // use the same vertex vec index to set the weights also
-                let mut weights_vec = weights[*vertex as usize];
-                weights_vec[vec_index] = *bone_weights.get(&mh_id).expect("Failed to get vertex bone weight");
-                weights[*vertex as usize] = weights_vec;
-            }
+        for (vert, mhv) in mhid_lookup.iter().enumerate() {
+
+            let Some(&wt) = bone_weights.get(mhv) else { continue };
+
+            // Get the vertex(u16) -> weights(f32) map for this bone
+            // get the array at the vertex index to get the [u16;4] array we need to insert into
+            let mut indices_vec = indices[vert];
+
+            // find smallest weight which is also < wt
+            let Some(vec_index) = indices_vec.iter()
+                .enumerate()
+                .filter_map(|(index, &value)| if (value as f32) < wt { Some(index) } else { None })
+                .min() else { continue };
+
+            // Set the bone index in this vector
+            indices_vec[vec_index] = bone_index as u16;
+
+            // insert into indices array 
+            indices[vert as usize] = indices_vec;
+
+            // use the same vertex vec index to set the weights also
+            let mut weights_vec = weights[vert as usize];
+            weights_vec[vec_index] = *bone_weights.get(mhv).expect("Failed to get vertex bone weight");
+            weights[vert as usize] = weights_vec;
         }
     }
+
     // Make sure weights sum to 1 for each vertex
     for i in 0..weights.iter().len() {
         let wvec = weights[i];
@@ -323,31 +323,33 @@ pub(crate) fn set_asset_rig_arrays(
     rig: RigType,
     mesh: Mesh,
     rigs: &Res<RigData>,
-    vertex_map: &FxHashMap<u16, Vec<u16>>,
+    mhid_lookup: &Vec<u16>,
     meshes: &mut ResMut<Assets<Mesh>>,
     helper_maps: &Vec<HelperMap>,
     sorted_bones: &Vec<String>,
 ) -> Handle<Mesh> {
     let weights_res = rigs.weights.get(&rig).expect("No weights for rig?");
     let mut new_mesh = mesh.clone();
-    let vertices = get_vertex_positions(&mesh);
 
     // Build hashmaps to store bone info for each obj vertex id
-    let mut indices_map = FxHashMap::<u16, Vec<usize>>::default();
-    let mut weights_map = FxHashMap::<u16, Vec<f32>>::default();
+    let mut indices = Vec::<[u16; 4]>::default();
+    let mut weights = Vec::<[f32; 4]>::default();
 
     // loop over obj vertices
-    for obj_id in vertex_map.keys() {
+    for (vert, mhv) in mhid_lookup.iter().enumerate() {
         // Create vec in the map for bone indices and weights
         let mut indices_vec = Vec::<usize>::new();
         let mut weights_vec = Vec::<f32>::new();
+
         // Get helper map for this obj_id
-        let helper_map = &helper_maps[*obj_id as usize];
+        let helper_map = &helper_maps[*mhv as usize];
+
         // loop over bones and find any matching helper indices
         for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
             let Some(bone_weights) = weights_res.get(bone_name) else { continue };
-            // For single vertex mapping just apply data for that vertex
+
             if let Some(v) = helper_map.single_vertex {
+                // For single vertex mapping just apply data for that vertex
                 let Some(helper_wt) = bone_weights.get(&v) else { continue; };
                 if *helper_wt <= 0.0 { continue };
                 indices_vec.push(bone_index);
@@ -358,6 +360,7 @@ pub(crate) fn set_asset_rig_arrays(
                 for (i, mh_id) in triangle.helper_verts.iter().enumerate() {
                     let Some(helper_wt) = bone_weights.get(&mh_id) else { continue; };
                     if *helper_wt <= 0.0 { continue };
+
                     // Will aggregate below.  For now just allow duplicate entries
                     // e.g. same bone can have weights on all 3 verts of triangle
                     indices_vec.push(bone_index);
@@ -365,55 +368,40 @@ pub(crate) fn set_asset_rig_arrays(
                 }
             }
         }
-        indices_map.insert(*obj_id, indices_vec);
-        weights_map.insert(*obj_id, weights_vec);
-    }
 
-    // The acutal arrays that go into the mesh data
-    let mut indices = vec![[0; 4]; vertices.len()];
-    let mut weights = vec![[0.0; 4]; vertices.len()];
-
-    // Take top 4 weights
-    for (obj_id, verts) in vertex_map.iter() {
-        for vtx in verts.iter() {
-            let vtx_indices = indices_map.get(obj_id).expect("Error getting vertex bone indices");
-            let vtx_weights = weights_map.get(obj_id).expect("Error getting vertex bone weights");
-
-            // Deduplicate vertices by summing weights 
-            let mut aggregate = FxHashMap::<usize, f32>::default();
-            for (&ind, &wt) in vtx_indices.iter().zip(vtx_weights.iter()) {
-                let wtsum = aggregate.entry(ind).or_insert(0.0);
-                *wtsum += wt;
-            }
-            let (mut vtx_indices, mut vtx_weights): (Vec<usize>, Vec<f32>) = aggregate.into_iter().unzip();
-
-            // 4 bone limit for bevy animation
-            if vtx_indices.len() > 4 {
-                // Sort vec indices based on the weights
-                let mut ordering: Vec<usize> = (0..vtx_weights.len()).collect();
-                ordering.sort_by(|&i, &j| vtx_weights[j].partial_cmp(&vtx_weights[i]).unwrap());
-                // Get vec indices of top 4 weights
-                let top_weights: Vec<usize> = ordering.iter().take(4).copied().collect();
-                // set back into the original vecs
-                let new_vtx_weights: Vec<f32> = top_weights.iter().map(|&i| vtx_weights[i]).collect();
-                let new_vtx_indices: Vec<usize> = top_weights.iter().map(|&i| vtx_indices[i]).collect();
-                vtx_indices = new_vtx_indices;
-                vtx_weights = new_vtx_weights;
-            }
-            // Insert bone indices into final array
-            let mut indices_array = [0 as u16; 4];
-            for (i, &val) in vtx_indices.iter().enumerate() {
-                indices_array[i] = val as u16
-            };
-            indices[*vtx as usize] = indices_array;
-            // Normalize weights and insert
-            let mut weights_array = [0.0; 4];
-            let sum: f32 = vtx_weights.iter().sum();
-            for (i, &val) in vtx_weights.iter().enumerate() {
-                weights_array[i] = val / sum;
-            };
-            weights[*vtx as usize] = weights_array;
+        // Deduplicate vertices by summing weights 
+        let mut aggregate = FxHashMap::<u16, f32>::default();
+        for (&ind, &wt) in indices_vec.iter().zip(weights_vec.iter()) {
+            let wtsum = aggregate.entry(ind as u16).or_insert(0.0);
+            *wtsum += wt;
         }
+        let (mut vtx_indices, mut vtx_weights): (Vec<u16>, Vec<f32>) = aggregate.into_iter().unzip();
+
+        // 4 bone limit for bevy animation. Take top 4 weights
+        if vtx_indices.len() > 4 {
+
+            // Sort vec indices based on the weights
+            let mut ordering: Vec<usize> = (0..vtx_weights.len()).collect();
+            ordering.sort_by(|&i, &j| vtx_weights[j].partial_cmp(&vtx_weights[i]).unwrap());
+
+            // Get vec indices of top 4 weights
+            let top_weights: Vec<usize> = ordering.iter().take(4).copied().collect();
+
+            // set back into the original vecs
+            let new_vtx_weights: Vec<f32> = top_weights.iter().map(|&i| vtx_weights[i]).collect();
+            let new_vtx_indices: Vec<u16> = top_weights.iter().map(|&i| vtx_indices[i]).collect();
+            vtx_indices = new_vtx_indices;
+            vtx_weights = new_vtx_weights;
+        }
+
+        indices[vert] = vtx_indices[..4].try_into().unwrap();
+
+        let mut raw_weights: [f32; 4] = vtx_weights[..4].try_into().unwrap();
+        let sum: f32 = vtx_weights.iter().sum();
+        for (i, &val) in vtx_weights.iter().enumerate() {
+            raw_weights[i] = val / sum;
+        };
+        weights[vert] = raw_weights;
     }
 
     new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));

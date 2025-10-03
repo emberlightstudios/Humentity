@@ -18,9 +18,9 @@ pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
         let Ok(line) = line_result else { break };
         if line.starts_with("v ") {
             let coords: Vec<f32> = line.split_whitespace()
-                             .skip(1)
-                             .filter_map(|x| x.parse().ok())
-                             .collect();
+                .skip(1)
+                .filter_map(|x| x.parse().ok())
+                .collect();
             vertices.push(Vec3::new(coords[0], coords[1], coords[2]));
         }
     }
@@ -29,26 +29,23 @@ pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
 
 pub(crate) fn get_vertex_positions(mesh: &Mesh) -> Vec<Vec3> {
     let Some(VertexAttributeValues::Float32x3(verts)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-            else { panic!("FAILED TO LOAD MESH VERTEX POSITIONS") };
-    let d: Vec<Vec3> = verts.iter()
-            .map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect(); 
-    d
+        else { panic!("FAILED TO LOAD MESH VERTEX POSITIONS") };
+    verts.iter()
+        .map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect::<Vec<Vec3>>()
 }
 
 pub(crate) fn get_vertex_normals(mesh: &Mesh) -> Vec<Vec3> {
     let Some(VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
-            else { panic!("FAILED TO LOAD MESH VERTEX NORMALS") };
-    let d: Vec<Vec3> = normals.iter()
-            .map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect(); 
-    d
+        else { panic!("FAILED TO LOAD MESH VERTEX NORMALS") };
+    normals.iter()
+        .map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect::<Vec<Vec3>>()
 }
 
 pub(crate) fn get_uv_coords(mesh: &Mesh) -> Vec<Vec2> {
     let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
-            else { panic!("FAILED TO LOAD MESH UV DATA") };
-    let d: Vec<Vec2> = uv.iter()
-            .map(|arr| Vec2::new(arr[0], arr[1])).collect(); 
-    d
+        else { panic!("FAILED TO LOAD MESH UV DATA") };
+    uv.iter()
+        .map(|arr| Vec2::new(arr[0], arr[1])).collect::<Vec<Vec2>>()
 }
 
 /*
@@ -71,8 +68,8 @@ pub(crate) fn get_joint_weights(mesh: &Mesh) -> Vec<Vec4> {
 
 // Maps mh vertex ids to vec of bevy ids
 pub(crate) fn generate_vertex_map(
-    mh_vertices: &Vec<Vec3>,
-    vertices: &Vec<Vec3>
+    mh_vertices: &[Vec3],
+    vertices: &[Vec3]
 ) -> FxHashMap<u16, Vec<u16>> {
     let mut vertex_map = FxHashMap::<u16, Vec<u16>>::default();
     let mut matched = FxHashSet::<usize>::default();
@@ -94,12 +91,18 @@ pub(crate) fn generate_vertex_map(
 }
     
 // Maps bevy vertex ids to mh id
-pub(crate) fn generate_inverse_vertex_map(
+pub(crate) fn generate_mhid_lookup(
     map: &FxHashMap<u16, Vec<u16>>,
-) -> FxHashMap<u16, u16> {
-    let mut inv_vertex_map = FxHashMap::<u16, u16>::default();
-    for (mhv, verts) in map.iter() {
-        for vert in verts.iter() { inv_vertex_map.insert(*vert, *mhv); }
+) -> Vec<u16> {
+    let verts = map
+        .iter()
+        .map(|(_, v)| v.len())
+        .sum::<usize>();
+    let mut lkup: Vec<u16> = vec![0; verts];
+    for (&mhv, verts) in map.iter() {
+        for &vert in verts.iter() {
+            lkup[vert as usize] = mhv;
+        }
     }
-    inv_vertex_map
+    lkup
 }

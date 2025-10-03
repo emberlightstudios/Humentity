@@ -65,9 +65,6 @@ impl Plugin for Humentity {
             (
                 basemesh::create_body_mesh
                     .run_if(resource_exists::<HelperMeshHandle>),
-                basemesh::create_body_vertex_map
-                    .run_if(resource_exists::<HumentityLoading>
-                            .and(not(resource_exists::<HelperMeshHandle>))),
                 assets::generate_asset_vertex_maps
                     .run_if(run_once),
                 animation::load_animations
@@ -138,17 +135,15 @@ fn on_human_added(
     vg: Res<VertexGroups>,
     asset_textures: Res<HumanAssetTextures>,
 ) {
-    // TODO Can we wrap all these args up in a single struct to pass to every function?
-    // tried but couldn't figure out lifetimes
     let path = &global_config.core_assets_path;
     let transparent_slots = &global_config.transparent_slots;
 
     new_humans.iter().for_each(|(human, config, transform)| {
         // Body Material
-        //let albedo = asset_server.load(path.join("skin_textures/albedo/".to_string() + &config.skin_albedo));
+        let albedo = asset_server.load(path.join("skin_textures/albedo/".to_string() + &config.skin_albedo));
         let material = materials.add(StandardMaterial {
-            //base_color_texture: Some(albedo),
-            base_color: Color::LinearRgba( LinearRgba::new(1.0, 0., 0., 1.)),
+            base_color_texture: Some(albedo),
+            perceptual_roughness: 1.,
             ..default()
         });
 
@@ -186,7 +181,7 @@ fn on_human_added(
                 config.rig,
                 mesh,
                 &rigs,
-                &asset.vertex_map,
+                &asset.mhid_lookup,
                 &mut meshes,
                 &asset.helper_maps,
                 &sorted_bones,
@@ -213,12 +208,13 @@ fn on_human_added(
             let material = materials.add(material);
 
             commands.entity(human).insert(
-                //children!
-                (
-                    skinned_mesh.clone(),
-                    Mesh3d(mesh_handle),
-                    MeshMaterial3d(material)
-                )
+                children![
+                    (
+                        skinned_mesh.clone(),
+                        Mesh3d(mesh_handle),
+                        MeshMaterial3d(material)
+                    )
+                ]
             );
         }
 
@@ -238,7 +234,7 @@ fn on_human_added(
                 config.rig,
                 mesh,
                 &rigs,
-                &asset.vertex_map,
+                &asset.mhid_lookup,
                 &mut meshes,
                 &asset.helper_maps,
                 &sorted_bones,
@@ -255,43 +251,43 @@ fn on_human_added(
             }
 
             commands.entity(human).insert(
-                //children!
-                (
-                    skinned_mesh.clone(),
-                    Mesh3d(mesh_handle),
-                    MeshMaterial3d(materials.add(material)),
-                )
+                children! [
+                    (
+                        skinned_mesh.clone(),
+                        Mesh3d(mesh_handle),
+                        MeshMaterial3d(materials.add(material)),
+                    )
+                ]
             );
         }
 
         // Body Mesh
         // Delete verts
         let mesh = assets::delete_mesh_verts(&mut meshes, &base_mesh, delete_verts);
-        let vertices = &mesh_ops::get_vertex_positions(&mesh);
-        let new_vtx_map = mesh_ops::generate_vertex_map(&base_mesh.vertices, vertices);
-
         // Apply Morphs
-        let mesh = morphs::bake_body_morphs(&mesh,&new_vtx_map,&helpers);
+        let mesh = morphs::bake_body_morphs(&mesh, &base_mesh.mhid_lookup, &helpers);
         // Apply Rig
         let mesh_handle = rigs::set_basemesh_rig_arrays(
             config.rig,
             mesh,
             &rigs,
-            &new_vtx_map,
+            &base_mesh.mhid_lookup,
             &mut meshes,
             &sorted_bones,
         );
 
+        
         // Spawn avatar as separate entity
         commands.entity(human).insert(
-            //children!
-            (
-                skinned_mesh.clone(),
-                Mesh3d(mesh_handle),
-                MeshMaterial3d(material),
-            )
+            children! [
+                (
+                    skinned_mesh.clone(),
+                    Mesh3d(mesh_handle),
+                    MeshMaterial3d(material),
+                )
+            ]
         );
-        commands.entity(human).insert(AnimationPlayer::default());
+        commands.entity(human).insert(children![(AnimationPlayer::default())]);
     })
 
 }

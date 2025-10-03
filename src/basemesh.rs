@@ -1,5 +1,6 @@
+use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
-use bevy::mesh::{Indices, Mesh, VertexAttributeValues};
+use bevy::mesh::{Indices, Mesh};
 use std::{
     io::BufReader,
     fs::File,
@@ -8,7 +9,7 @@ use fxhash::FxHashMap;
 use serde::Deserialize;
 use serde_json;
 
-use crate::mesh_ops::{generate_inverse_vertex_map, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, parse_obj_vertices};
+use crate::mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, parse_obj_vertices};
 use crate::{HumentityGlobalConfig, HumentityLoading};
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
@@ -24,10 +25,10 @@ pub(crate) struct VertexGroups(pub(crate) FxHashMap<String, Vec<[usize; 2]>>);
 pub(crate) struct BaseMesh{
     pub(crate) mesh_handle: Handle<Mesh>,
     pub(crate) vertices: Vec<Vec3>,
-    pub(crate) vertex_map: FxHashMap<u16, Vec<u16>>,
+    pub(crate) mhid_lookup: Vec<u16>,
 }
 
-#[derive(Resource, Debug)]
+#[derive(Resource, Debug, Clone)]
 pub(crate) struct HelperMeshHandle(Handle<Mesh>);
 
 // Load base mesh with helpers and vertex group data
@@ -53,7 +54,7 @@ impl FromWorld for BaseMesh {
         BaseMesh{
             mesh_handle: base_handle,
             vertices: mh_vertices,
-            vertex_map: FxHashMap::<u16, Vec<u16>>::default(),
+            mhid_lookup: vec![],
         }
 
     }
@@ -66,96 +67,74 @@ pub(crate) fn create_body_mesh(
     mut commands: Commands,
     helper_handle: Option<Res<HelperMeshHandle>>,
 ) {
-    if helper_handle.is_none() { return; }
-    let Some(mesh) = meshes.get_mut(&helper_handle.unwrap().0) else { return };
-    // TODO: Check alternate smoothing algos
-    //mesh.compute_smooth_normals();
+    let Some(helper_handle) = helper_handle else { return; };
+    let Some(mesh) = meshes.get_mut(&helper_handle.0) else { return };
 
     // Get mesh arrays
     let raw_indices = mesh.indices().expect("FAILED TO LOAD MESH INDICES");
     let vtx_data = get_vertex_positions(&mesh);
-    let normal_data = get_vertex_normals(&mesh); 
     let uv_data = get_uv_coords(&mesh);
-
     let vertex_map = generate_vertex_map(&base_mesh.vertices, &vtx_data);
-    
-    let mut new_mesh = mesh.clone();
-    new_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vtx_data.clone());
+    let mhid_lookup = generate_mhid_lookup(&vertex_map);
 
     // Create mesh without helpers
-    let mut body_mesh = generate_mesh_without_helpers(
-        &new_mesh,
-        &vertex_map,
+    let mesh = generate_mesh_without_helpers(
+        &mhid_lookup,
         vtx_data,
-        normal_data,
         uv_data,
         raw_indices
-    );
-    let body_mesh = body_mesh.with_computed_smooth_normals();
+    )
+        .with_computed_area_weighted_normals()
+        .with_generated_tangents().unwrap();
+
+    let vtx_data = get_vertex_positions(&mesh);
+    let vertex_map = generate_vertex_map(&base_mesh.vertices[..BODY_VERTICES as usize], &vtx_data);
+
     // Save values in base mesh resource
-    base_mesh.mesh_handle = meshes.add(body_mesh);
+    base_mesh.mesh_handle = meshes.add(mesh);
+    base_mesh.mhid_lookup = generate_mhid_lookup(&vertex_map);
     commands.remove_resource::<HelperMeshHandle>();
+    commands.remove_resource::<HumentityLoading>();
 } 
 
-// Load body mesh to calculate vertex maps
-pub(crate) fn create_body_vertex_map(
-    mut base_mesh: ResMut<BaseMesh>,
-    meshes: Res<Assets<Mesh>>,
-    mut commands: Commands,
-) {
-    let Some(body_mesh) = meshes.get(&base_mesh.mesh_handle) else { return };
-    if base_mesh.vertex_map.iter().len() == 0 {
-        let vertices = get_vertex_positions(&body_mesh);
-        let body_vertex_map = generate_vertex_map(&base_mesh.vertices, &vertices);
-        base_mesh.vertex_map = body_vertex_map;
-        commands.remove_resource::<HumentityLoading>();
-    }
-}
-
 fn generate_mesh_without_helpers(
-    original_mesh: &Mesh,
-    vertex_map: &FxHashMap<u16, Vec<u16>>,
+    mhid_lookup: &Vec<u16>,
     vtx_data: Vec<Vec3>,
-    normal_data: Vec<Vec3>,
     uv_data: Vec<Vec2>,
     indices_data: &Indices,
 ) -> Mesh {
+    // Final buffers
     let mut vertices = Vec::<Vec3>::new();
-    let mut normals = Vec::<Vec3>::new();
     let mut uv = Vec::<Vec2>::new();
-    let mut indices = Vec::<usize>::new();
 
-    // For remapping face indices buffer
-    // Some vertices will be skipped, changing the vertex indices
-    // So face indices will have to be changed as well
-    let mut new_vert_indices = FxHashMap::<u16, u16>::default();
+    // Mapping old vertex index -> new vertex index
+    let mut new_vert_indices = std::collections::HashMap::<u16, u16>::default();
 
-    let inv_map = generate_inverse_vertex_map(vertex_map);
-    for (vertex, mhv) in inv_map.iter() {
-        if *mhv < BODY_VERTICES {
-            new_vert_indices.insert(*vertex, vertices.len() as u16);
-            vertices.push(vtx_data[*vertex as usize]);
-            normals.push(normal_data[*vertex as usize]);
-            uv.push(uv_data[*vertex as usize]);
+    // Build new vertex buffer, and UVs
+    for (vertex, &mh_id) in mhid_lookup.iter().enumerate() {
+        if mh_id < BODY_VERTICES {
+            new_vert_indices.insert(vertex as u16, vertices.len() as u16);
+            vertices.push(vtx_data[vertex as usize]);
+            uv.push(uv_data[vertex as usize]);
         }
     }
-    let index_vec: Vec<usize> = indices_data.iter().collect();
-    for chunk in index_vec.chunks(3) {
-        if chunk.iter().all(|&x| *inv_map.get(&(x as u16)).unwrap() < BODY_VERTICES) {
-            indices.extend_from_slice(chunk);
+
+    // Build new index buffer
+    let indices_data: &Vec<u16> = match indices_data {
+        Indices::U16(indices_data) => indices_data,
+        Indices::U32(indices_data) => &indices_data.iter().map(|&i| i as u16).collect(),
+    };
+    let mut new_indices = Vec::<u16>::new();
+    for chunk in indices_data.iter().as_slice().chunks(3) {
+        // Only include triangles where all vertices exist in new_vert_indices
+        if chunk.iter().all(|x| new_vert_indices.contains_key(x)) {
+            new_indices.extend(chunk.iter().map(|x| new_vert_indices[x]));
         }
     }
-    let mut u16indices = Vec::<u16>::with_capacity(indices.len());
-    for x in indices { u16indices.push(x as u16); }
-    // Since some vertices have been removed the face indices will change
-    //  we have to reindex them
-    u16indices = u16indices.iter().map(|x| *new_vert_indices.get(x).unwrap()).collect();
 
-    let mut body_mesh = original_mesh.clone()
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices.clone())
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    // Create the new mesh
+    Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-        .with_inserted_indices(Indices::U16(u16indices));
-    body_mesh.generate_tangents().ok();
-    body_mesh
+        .with_inserted_indices(Indices::U16(new_indices))
 }

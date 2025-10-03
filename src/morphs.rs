@@ -163,24 +163,22 @@ pub(crate) fn adjust_helpers_to_morphs(
 
 pub(crate) fn bake_body_morphs(
     mesh: &Mesh,
-    vertex_map: &FxHashMap<u16, Vec<u16>>,
+    mhid_lookup: &Vec<u16>,
     helpers: &Vec<Vec3>,
 ) -> Mesh {
     let mut vertices = get_vertex_positions(&mesh);
-    for (mh_vert, vtx_list) in vertex_map.iter() {
-        for vtx in vtx_list.iter() {
-            vertices[*vtx as usize] = helpers[*mh_vert as usize];
-        }
+    for (vert, mh_vert) in mhid_lookup.iter().enumerate() {
+        vertices[vert] = helpers[*mh_vert as usize];
     }
     mesh.clone()
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-        .with_computed_smooth_normals()
+        .with_computed_area_weighted_normals()
         .with_generated_tangents().unwrap()
 }
 
 
 pub(crate) fn bake_asset_morphs(
-    shapekeys: &FxHashMap<String, f32>,
+    morphs: &FxHashMap<String, f32>,
     targets: &Res<MorphTargets>,
     meshes: &mut ResMut<Assets<Mesh>>,
     helpers: &Vec<Vec3>,
@@ -188,34 +186,32 @@ pub(crate) fn bake_asset_morphs(
 ) -> Mesh {
     let mesh = meshes.get(&asset.mesh_handle).unwrap().clone();
     let mut vertices = get_vertex_positions(&mesh);
-    for (target_name, &value) in shapekeys.iter() {
+    for (target_name, &value) in morphs.iter() {
         let err_msg = format!("Failed to find morph {}", target_name);
         let target = targets.0.get(target_name).expect(&err_msg);
 
-        for (asset_vert, vtx_list) in asset.vertex_map.iter() {
-            let helper_map = &asset.helper_maps[*asset_vert as usize];
-            for &vtx in vtx_list.iter() {
-                if let Some(mh_vtx) = helper_map.single_vertex {
-                    let offset = *target.get(&mh_vtx).unwrap();
-                    vertices[vtx as usize] += offset * value;
-                } else { // Triangulation
-                    let triangle = helper_map.triangle.as_ref().unwrap();
-                    let mut position = Vec3::ZERO;
-                    for i in 0..3 {
-                        let mh_vert = triangle.helper_verts[i];
-                        let wt = triangle.helper_weights[i];
-                        position += *helpers.get(mh_vert as usize).unwrap() * wt;
-                    }
-                    position += asset.get_offset_scale(helpers) * triangle.helper_offset;
-                    let offset = position - vertices[vtx as usize];
-                    vertices[vtx as usize] += offset * value;
+        for (vert, mh_vert) in asset.mhid_lookup.iter().enumerate() {
+            let helper_map = &asset.helper_maps[*mh_vert as usize];
+            if let Some(mh_vtx) = helper_map.single_vertex {
+                let offset = *target.get(&mh_vtx).unwrap();
+                vertices[vert] += offset * value;
+            } else { // Triangulation
+                let triangle = helper_map.triangle.as_ref().unwrap();
+                let mut position = Vec3::ZERO;
+                for i in 0..3 {
+                    let mh_vert = triangle.helper_verts[i];
+                    let wt = triangle.helper_weights[i];
+                    position += *helpers.get(mh_vert as usize).unwrap() * wt;
                 }
+                position += asset.get_offset_scale(helpers) * triangle.helper_offset;
+                let offset = position - vertices[vert];
+                vertices[vert] += offset * value;
             }
         }
     }
     mesh.clone()
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-        .with_computed_smooth_normals()
+        .with_computed_area_weighted_normals()
         .with_generated_tangents().unwrap()
 }
 
