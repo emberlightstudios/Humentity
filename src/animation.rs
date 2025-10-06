@@ -1,7 +1,8 @@
 use bevy::{prelude::*, gltf::Gltf};
 use std::{fs::read_dir, path::PathBuf};
 use fxhash::FxHashMap;
-use crate::{HumentityGlobalConfig, RigType};
+
+use crate::{prelude::HumentityGlobalConfig, rigs::RigType};
 
 #[allow(dead_code)]
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -21,7 +22,7 @@ impl Default for AnimationLibrarySettings {
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Deref)]
 pub struct AnimationLibrary(pub FxHashMap<String, Handle<AnimationClip>>);
 
 /*-----------+
@@ -59,7 +60,7 @@ impl FromWorld for AnimationLibrarySet {
                     let handle = asset_server.load(relative_path);
                     handles.insert(name.to_string(), handle);
                 } else {
-                    println!("The directory '{}' was not found in the path.", "assets");
+                    warn!("The directory '{}' was not found in the path.", "assets");
                 }
             }
         }

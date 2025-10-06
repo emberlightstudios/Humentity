@@ -1,7 +1,32 @@
-use bevy::{input::mouse::MouseMotion, math::VectorSpace, prelude::*};
+use bevy::{input::mouse::MouseMotion, prelude::*};
+use bevy_obj::ObjPlugin;
 use humentity::prelude::*;
 use std::{path::Path};
 use fxhash::FxHashMap;
+
+
+fn main() {
+    let mut app = App::new();
+    app
+        .add_plugins((
+            Humentity {
+                config: HumentityGlobalConfig::new("./")
+                    .with_animation_libraries(AnimationLibrarySettings {
+                        paths: vec![Path::new(".").to_path_buf()],
+                        rig_type: RigType::Mixamo,
+                    }),
+                debug: true,
+            },
+            DefaultPlugins,
+        ))
+        .add_systems(Update, (
+            setup_env.run_if(resource_removed::<HumentityLoading>),
+            animate,
+            cam_controls,
+        ));
+
+    app.run();
+}
 
 fn setup_env(
     mut commands: Commands,
@@ -47,12 +72,12 @@ fn setup_env(
                     morph_targets: shapekeys,
                     skin_albedo: "young_african_female_diffuse.png".to_string(),
                     body_parts: vec![
-                        "LeftEyeballLowPoly".to_string(),
-                        "LeftEyelash".to_string(),
-                        "LeftEyebrow-001".to_string(),
-                        "RightEyeballLowPoly".to_string(),
-                        "RightEyelash".to_string(),
-                        "RightEyebrow-001".to_string(),
+                        //"LeftEyeballLowPoly".to_string(),
+                        //"LeftEyelash".to_string(),
+                        //"LeftEyebrow-001".to_string(),
+                        //"RightEyeballLowPoly".to_string(),
+                        //"RightEyelash".to_string(),
+                        //"RightEyebrow-001".to_string(),
                     ],
                     equipment: vec![
                         //"SimpleBra".to_string(),
@@ -68,12 +93,12 @@ fn setup_env(
                     morph_targets: shapekeys,
                     skin_albedo: "young_asian_male_diffuse3.png".to_string(),
                     body_parts: vec![
-                        "LeftEyeballLowPoly".to_string(),
-                        "LeftEyelash".to_string(),
-                        "LeftEyebrow-001".to_string(),
-                        "RightEyeballLowPoly".to_string(),
-                        "RightEyelash".to_string(),
-                        "RightEyebrow-001".to_string(),
+                        //"LeftEyeballLowPoly".to_string(),
+                        //"LeftEyelash".to_string(),
+                        //"LeftEyebrow-001".to_string(),
+                        //"RightEyeballLowPoly".to_string(),
+                        //"RightEyelash".to_string(),
+                        //"RightEyebrow-001".to_string(),
                     ],
                     equipment: vec![
                         //"SimpleBriefs".to_string(),
@@ -87,13 +112,13 @@ fn setup_env(
                     morph_targets: shapekeys,
                     skin_albedo: "middleage_caucasian_female_diffuse.png".to_string(),
                     body_parts: vec![
-                        "LeftEyeballLowPoly".to_string(),
-                        "FalseLeftEyelash".to_string(),
-                        "LeftEyebrow-001".to_string(),
-                        "RightEyeballLowPoly".to_string(),
-                        "FalseRightEyelash".to_string(),
-                        "RightEyebrow-001".to_string(),
-                        "Ponytail01".to_string(),
+                        //"LeftEyeballLowPoly".to_string(),
+                        //"FalseLeftEyelash".to_string(),
+                        //"LeftEyebrow-001".to_string(),
+                        //"RightEyeballLowPoly".to_string(),
+                        //"FalseRightEyelash".to_string(),
+                        //"RightEyebrow-001".to_string(),
+                        //"Ponytail01".to_string(),
                     ],
                     equipment: vec![
                         //"SimpleBra".to_string(),
@@ -109,12 +134,12 @@ fn setup_env(
                     morph_targets: shapekeys,
                     skin_albedo: "old_african_male_diffuse.png".to_string(),
                     body_parts: vec![
-                        "LeftEyeballLowPoly".to_string(),
-                        "LeftEyelash".to_string(),
-                        "LeftEyebrow-001".to_string(),
-                        "RightEyeballLowPoly".to_string(),
-                        "RightEyelash".to_string(),
-                        "RightEyebrow-001".to_string(),
+                        //"LeftEyeballLowPoly".to_string(),
+                        //"LeftEyelash".to_string(),
+                        //"LeftEyebrow-001".to_string(),
+                        //"RightEyeballLowPoly".to_string(),
+                        //"RightEyelash".to_string(),
+                        //"RightEyebrow-001".to_string(),
                     ],
                     equipment: vec![
                         //"SimpleBriefs".to_string(),
@@ -131,6 +156,17 @@ fn setup_env(
             InheritedVisibility::VISIBLE,
             AnimationPlayer::default(),
         ));
+    }
+}
+
+fn animate(
+    animations: Res<AnimationLibrarySet>,
+) {
+    for (name, library) in animations.libraries.iter() {
+        println!("Library {name}");
+        for (name, clip) in library.iter() {
+            println!("clip {name}");
+        }
     }
 }
 
@@ -159,26 +195,3 @@ fn cam_controls(
     if kb_input.pressed(KeyCode::KeyE) { mv.y += MS }
     cam.translation += Transform::from_rotation(transform.rotation) * mv;
 }
-
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(AssetPlugin {
-            unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
-            ..Default::default()
-        }))
-        .insert_resource(
-            HumentityGlobalConfig::default()
-                .with_animation_libraries(AnimationLibrarySettings {
-                    paths: vec![Path::new("./assets").to_path_buf()],
-                    rig_type: RigType::Mixamo,
-                })
-        )
-        .add_plugins(Humentity{ debug: true })
-        .add_systems(Update, (
-            setup_env.run_if(resource_removed::<HumentityLoading>),
-            cam_controls,
-        ))
-        .run();
-}
-

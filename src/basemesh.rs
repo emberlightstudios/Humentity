@@ -1,6 +1,4 @@
-use bevy::asset::RenderAssetUsages;
-use bevy::prelude::*;
-use bevy::mesh::{Indices, Mesh};
+use bevy::{prelude::*, asset::{RenderAssetUsages, AssetPath}, mesh::{Indices, Mesh}};
 use std::{
     io::BufReader,
     fs::File,
@@ -9,8 +7,9 @@ use fxhash::FxHashMap;
 use serde::Deserialize;
 use serde_json;
 
-use crate::mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, parse_obj_vertices};
-use crate::{HumentityGlobalConfig, HumentityLoading};
+use crate::mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_positions, parse_obj_vertices};
+use crate::prelude::HumentityGlobalConfig;
+use crate::{HumentityLoading};
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
 pub(crate) const BODY_SCALE: f32 = 0.1;
@@ -22,7 +21,7 @@ pub(crate) const BODY_SCALE: f32 = 0.1;
 pub(crate) struct VertexGroups(pub(crate) FxHashMap<String, Vec<[usize; 2]>>);
 
 #[derive(Resource, Debug)]
-pub(crate) struct BaseMesh{
+pub struct BaseMesh{
     pub(crate) mesh_handle: Handle<Mesh>,
     pub(crate) vertices: Vec<Vec3>,
     pub(crate) mhid_lookup: Vec<u16>,
@@ -36,12 +35,15 @@ impl FromWorld for BaseMesh {
     fn from_world(world: &mut World) -> Self {
         let config = world.get_resource::<HumentityGlobalConfig>().expect("NO CONFIG LOADED");
         let path = config.core_assets_path.clone();
+        if !path.join("base.obj").exists() {
+            panic!("base.obj not found.  Did you provide the correct path to the Humentity crate?")
+        }
         // Get mh vertices from base mesh and helper files
         let mh_vertices = parse_obj_vertices(path.join("base.obj"));
 
         // Load obj into asset server
         let asset_server = world.resource::<AssetServer>();
-        let base_handle: Handle<Mesh> = asset_server.load(path.join("base.obj"));
+        let base_handle: Handle<Mesh> = asset_server.load("humentity://base.obj");
 
         let file = File::open(path.join("basemesh_vertex_groups.json"))
             .expect("FAILED TO LOAD VERTEX GROUOPS");
@@ -93,6 +95,7 @@ pub(crate) fn create_body_mesh(
     // Save values in base mesh resource
     base_mesh.mesh_handle = meshes.add(mesh);
     base_mesh.mhid_lookup = generate_mhid_lookup(&vertex_map);
+
     commands.remove_resource::<HelperMeshHandle>();
     commands.remove_resource::<HumentityLoading>();
 } 

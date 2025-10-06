@@ -1,12 +1,12 @@
 use bevy::{
-    animation::{AnimationTarget, AnimationTargetId}, color::palettes::css::RED, mesh::{skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, VertexAttributeValues}, prelude::* 
+    color::palettes::css::RED, mesh::{skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, VertexAttributeValues}, prelude::* 
 };
 use serde::Deserialize;
 use serde_json;
 use std::{fs::File, io::BufReader};
 use fxhash::FxHashMap;
 
-use crate::{mesh_ops::get_vertex_positions, HelperMap, HumentityGlobalConfig, VertexGroups};
+use crate::{assets::HelperMap, basemesh::VertexGroups, mesh_ops::get_vertex_positions, prelude::*};
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
 pub enum RigType {
@@ -52,7 +52,7 @@ struct MixamoRigConfig {
  | Resources |
  +-----------*/
 #[derive(Resource)]
-pub(crate) struct RigData {
+pub struct RigData {
     weights: FxHashMap<RigType, FxHashMap<String, FxHashMap<u16, f32>>>,
     configs: FxHashMap<RigType, FxHashMap<String, BoneData>>,
 }
@@ -114,11 +114,11 @@ impl FromWorld for RigData {
  | Systems |
  +---------*/
  pub(crate) fn bone_debug_draw(
-    query: Query<(&GlobalTransform, &ChildOf, &Name), With<Bone>>,
+    query: Query<(&GlobalTransform, &ChildOf), With<Bone>>,
     transforms: Query<&GlobalTransform, With<Bone>>,
     mut gizmos: Gizmos,
  ) {
-    query.iter().for_each(|(transform, child, name)| {
+    query.iter().for_each(|(transform, child)| {
         let start = transform.translation();
         if let Ok(end) = transforms.get(child.parent()) {
             gizmos.line(start, end.translation(), RED);
@@ -129,6 +129,127 @@ impl FromWorld for RigData {
 /*-----------+
  | Functions |
  +-----------*/
+
+/// Returns a deterministic ordering of bones (root first, children after)
+fn get_sorted_bones(config: &FxHashMap<String, BoneData>) -> Vec<String> {
+    let mut depths = FxHashMap::<&String, usize>::default();
+
+    for (name, bone) in config.iter() {
+        let mut depth = 0;
+        let mut parent = &bone.parent;
+        while !parent.is_empty() {
+            depth += 1;
+            parent = &config.get(parent).unwrap().parent;
+        }
+        depths.insert(name, depth);
+    }
+
+    let mut sorted: Vec<(&String, usize)> = depths.into_iter().collect();
+    sorted.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
+    sorted.into_iter().map(|(name, _)| name.clone()).collect()
+}
+
+/// Spawns bone entities and sets up the hierarchy
+fn build_rig_hierarchy(
+    commands: &mut Commands,
+    rig_entity: Entity,
+    config: &FxHashMap<String, BoneData>,
+    sorted_bones: &[String],
+) -> (FxHashMap<String, Entity>, Vec<Entity>) {
+    let mut bone_entities = FxHashMap::<String, Entity>::default();
+
+    // Spawn all bones
+    for name in sorted_bones {
+        let entity = commands.spawn((Bone, Name::new(name.clone()))).id();
+        bone_entities.insert(name.clone(), entity);
+    }
+
+    // Wire up parent-child relationships
+    for name in sorted_bones {
+        let &child = bone_entities.get(name).unwrap();
+        if let Some(parent_name) = config.get(name).map(|b| b.parent.as_str()) {
+            if !parent_name.is_empty() {
+                if let Some(&parent) = bone_entities.get(parent_name) {
+                    commands.entity(parent).add_child(child);
+                }
+            }
+        }
+    }
+
+    // Attach root(s) to rig entity
+    for name in sorted_bones {
+        if let Some(bone) = config.get(name) {
+            if bone.parent.is_empty() {
+                commands.entity(rig_entity).add_child(bone_entities[name]);
+            }
+        }
+    }
+
+    let joint_entities = sorted_bones
+        .iter()
+        .map(|n| bone_entities[n])
+        .collect::<Vec<_>>();
+
+    (bone_entities, joint_entities)
+}
+
+/// Computes global transforms and inverse bind poses, inserts Transform into entities
+fn compute_bindposes(
+    commands: &mut Commands,
+    config: &FxHashMap<String, BoneData>,
+    sorted_bones: &[String],
+    bone_entities: &FxHashMap<String, Entity>,
+    vg: &Res<VertexGroups>,
+    helpers: &Vec<Vec3>,
+) -> Vec<Mat4> {
+    use bevy::prelude::*;
+
+    // Step 1: compute global transforms
+    let mut global_transforms = FxHashMap::<&String, Transform>::default();
+    for name in sorted_bones {
+        let bone = &config[name];
+        global_transforms.insert(name, get_bone_transform(bone, vg, helpers));
+    }
+
+    // Step 2: compute local transforms relative to parent
+    let mut local_transforms = FxHashMap::<&String, Transform>::default();
+    for name in sorted_bones {
+        let mut mat = global_transforms[name].to_matrix();
+        let mut parent_names = Vec::new();
+
+        let mut bone = &config[name];
+        while !bone.parent.is_empty() {
+            parent_names.push(&bone.parent);
+            bone = &config[&bone.parent];
+        }
+
+        // Apply inverse of each parent's local transform
+        for parent_name in parent_names.iter().rev() {
+            let parent_local = local_transforms[parent_name].to_matrix();
+            mat = parent_local.inverse() * mat;
+        }
+
+        local_transforms.insert(name, Transform::from_matrix(mat));
+    }
+
+    // Step 3: insert local transforms and compute inverse bindposes
+    let mut inv_bindposes = Vec::with_capacity(sorted_bones.len());
+    for name in sorted_bones {
+        let entity = bone_entities[name];
+        let local = local_transforms[name];
+        let global = global_transforms[name];
+
+        commands.entity(entity).insert(local);
+
+        // Inverse bindpose is always from global transform
+        inv_bindposes.push(global.to_matrix().inverse());
+    }
+
+    inv_bindposes
+}
+
+
+/// Orchestrates rig creation
 pub(crate) fn build_rig(
     human: &Entity,
     rig: RigType,
@@ -141,119 +262,29 @@ pub(crate) fn build_rig(
 ) -> (SkinnedMesh, Vec<String>) {
     let config = rigs.configs.get(&rig).unwrap();
 
-    // Spawn bone entities
-    // TODO DOn't attach skeleton to human, but as child
-    let rig = commands.spawn((Rig, base_transform.clone())).id();
-    commands.entity(*human).add_child(rig);
+    // Spawn Rig entity under human
+    let rig_entity = commands.spawn((Rig, base_transform.clone())).id();
+    commands.entity(*human).add_child(rig_entity);
 
-    let mut bone_names = FxHashMap::<String, Name>::default();
-    let mut bone_entities = FxHashMap::<String, Entity>::default();
+    // Step 1: get deterministic bone order
+    let sorted_bones = get_sorted_bones(config);
 
-    for (name, bone) in config.iter() {
-        let bone_name = Name::new(name.clone());
-        bone_names.insert(name.clone(), bone_name.clone());
-        bone_entities.insert(name.to_string(), commands.spawn((Bone, bone_name)).id());
-    }
+    // Step 2: spawn hierarchy
+    let (bone_entities, joint_entities) =
+        build_rig_hierarchy(commands, rig_entity, config, &sorted_bones);
 
-    // For finding in-degree of each bone in the tree
-    let mut in_degree = FxHashMap::<String, usize>::default();
-
-    // Set up parent child relationships
-    for (name, bone) in config.iter() {
-        in_degree.insert(name.to_string(), 0);
-        let &child = bone_entities.get(name).unwrap();
-        if let Some(parent) = bone_entities.get(&bone.parent) {
-            commands.entity(*parent).add_child(child);
-        }
-    }
-    // Find in-degree of the bones
-    for (name, bone) in config.iter() {
-        let mut parent = &bone.parent;
-        while parent != "" {
-            *in_degree.entry(name.to_string()).or_insert(0) += 1;
-            parent = &config.get(parent).unwrap().parent;
-        }
-    }
-
-    // Get bone vecs sorted by degree
-    let mut in_degree_vec: Vec<(String, usize)> = in_degree.into_iter().collect();
-    in_degree_vec.sort_by(|a, b| a.1.cmp(&b.1));
-    let mut sorted_bone_names: Vec<String> = in_degree_vec.into_iter().map(|(k, _)| k.clone()).collect();
-    let mut joint_entities: Vec<Entity> = sorted_bone_names.iter().map(|name| {
-        *bone_entities.get(name).unwrap()
-    }).collect();
-
-    // Get all global transforms
-    let mut transforms = FxHashMap::<String, Transform>::default();
-    for (name, bone) in config.iter() {
-        transforms.insert(name.to_string(), get_bone_transform(&bone, &vg, &helpers));
-    }
-
-    let mut local_transforms = FxHashMap::<String, Transform>::default();
-    // Convert to local space
-    for name in sorted_bone_names.iter() {
-        let mut bone = config.get(name).unwrap();
-        let mut parents = Vec::<String>::new();
-        while bone.parent != "" {
-            parents.push(bone.parent.clone());
-            bone = config.get(&bone.parent).unwrap();
-        }
-        let mut mat = transforms.get(name).unwrap().to_matrix();
-        for parent in parents.iter().rev() {
-            mat = local_transforms.get(parent).unwrap().to_matrix().inverse() * mat;
-        }
-        local_transforms.insert(name.clone(), Transform::from_matrix(mat));
-    }
-
-    // Set transforms and inverse bind poses
-    let mut inv_bindposes = Vec::<Mat4>::with_capacity(joint_entities.len());
-    for name in sorted_bone_names.iter() {
-        let &bone_entity = bone_entities.get(name).unwrap();
-        inv_bindposes.push(transforms.get(name).unwrap().to_matrix().inverse());
-        let local_transform = *local_transforms.get(name).unwrap();
-        commands.entity(bone_entity).insert(Transform::from(local_transform));
-    }
-
-    // Mixamo rig has hips as root. Insert new root bone as parent.
-    let root_str = &sorted_bone_names[0].clone();
-    if root_str.ends_with("Hips") {
-        let root = commands.spawn((Bone, Name::new("Root"), Transform::IDENTITY)).id();
-        sorted_bone_names.insert(0, "Root".to_string());
-        bone_entities.insert("Root".to_string(), root);
-        let &old_root = bone_entities.get(root_str).unwrap();
-        commands.entity(root).add_child(old_root);
-        joint_entities.insert(0, root);
-        inv_bindposes.insert(0, Mat4::IDENTITY)
-    } 
-
-    // Add skeleton to Rig entity as child
-    let root = bone_entities.get(&sorted_bone_names[0]).unwrap();
-    commands.entity(rig).add_child(*root);
-
-    // Set AnimationTarget Components
-    for (name, bone) in config.iter() {
-        if name == "Root" { continue; }
-        let &bone_entity = bone_entities.get(name).unwrap();
-        let mut bone_path: Vec<Name> = vec![bone_names.get(name).unwrap().clone()];
-        let mut parent = bone.parent.clone();
-        while parent != "" {
-            if parent.eq_ignore_ascii_case("root") { break; }
-            bone_path.push(bone_names.get(&parent).unwrap().clone());
-            parent = config.get(&parent).unwrap().parent.clone();
-        }
-        bone_path.push(Name::new("Human.rig"));
-        commands.entity(bone_entity).insert(AnimationTarget{
-            player: rig,
-            id: AnimationTargetId::from_names(bone_path.iter().rev())
-        });
-    }
+    // Step 3: compute bindposes
+    let inv_bindposes =
+        compute_bindposes(commands, config, &sorted_bones, &bone_entities, vg, helpers);
 
     let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
+
     (SkinnedMesh {
-        inverse_bindposes: inverse_bindposes.clone(),
+        inverse_bindposes,
         joints: joint_entities,
-    }, sorted_bone_names)
+    }, sorted_bones)
 }
+
 
 pub(crate) fn set_basemesh_rig_arrays(
     rig: RigType,

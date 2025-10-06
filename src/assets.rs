@@ -13,7 +13,7 @@ use::std::{
 };
 use fxhash::{FxHashMap, FxHashSet};
 use walkdir::WalkDir;
-use crate::{mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, parse_obj_vertices}, BaseMesh, HumentityGlobalConfig};
+use crate::{prelude::*, mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, parse_obj_vertices}};
 
 /*---------+
  |  Types  |
@@ -98,19 +98,21 @@ impl FromWorld for HumanAssetRegistry {
         let mut slot_equipment = FxHashMap::<String, Vec<String>>::default();
 
         let config = world.get_resource_mut::<HumentityGlobalConfig>().expect("No global Humentity config loaded");
-        let body_part_paths = config.face_asset_paths.clone();
+        let root_path = config.core_assets_path.clone();
+        let body_part_paths = config.body_part_paths.clone();
         let equipment_paths = config.equipment_paths.clone();
         let body_part_slots = config.face_slots.clone();
         let equipment_slots = config.face_slots.clone();
 
         for dir in body_part_paths {
-            for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
+            for entry in WalkDir::new(root_path.join(dir)).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
                 if !path.is_file() { continue; }
                 let Some(extension) = path.extension().and_then(|e| e.to_str()) else { continue };
                 if extension == "mhclo" {
                     // parse
-                    let mut bp = parse_human_asset(path.to_path_buf(), world);
+                    let asset_path = path.strip_prefix(&root_path).unwrap().to_path_buf();
+                    let mut bp = parse_human_asset(path.to_path_buf(), asset_path, world);
                     // set slots
                     let mut slots = Vec::<String>::new();
                     for tag in &bp.tags {
@@ -136,7 +138,8 @@ impl FromWorld for HumanAssetRegistry {
                 if !path.is_file() { continue; }
                 let Some(extension) = path.extension().and_then(|e| e.to_str()) else { continue };
                 if extension == "mhclo" {
-                    let eq = parse_human_asset(path.to_path_buf(), world);
+                    let asset_path = path.strip_prefix(&root_path).unwrap().to_path_buf();
+                    let eq = parse_human_asset(path.to_path_buf(), asset_path, world);
                     equipment.insert(eq.name.clone(), eq);
                 }
             }
@@ -154,12 +157,13 @@ impl FromWorld for HumanAssetRegistry {
         for (name, asset) in equipment.iter().chain(body_parts.iter()) {
             let dir = asset.obj_file.parent().unwrap();
             let mut asset_albedos = Vec::<Handle<Image>>::new();
-            for entry in WalkDir::new(dir).into_iter().filter_map(Result::ok) {
+            for entry in WalkDir::new(root_path.join(dir)).into_iter().filter_map(Result::ok) {
                 let path = entry.path().to_path_buf();
                 if path.is_file() {
                     let Some(extension) = path.extension().and_then(|e| e.to_str()) else { continue };
                     if extension == "png" {
-                        let image = asset_server.load(path.clone());
+                        let asset_path = path.strip_prefix(&root_path).unwrap().to_path_buf();
+                        let image = asset_server.load(format!("humentity://{}", asset_path.to_str().unwrap()));
                         if let Some(file) = path.file_name().and_then(|s| s.to_str()) {
                             if file.ends_with("_bump.png") { continue; }
                             if !file.starts_with("overlay_") {
@@ -194,8 +198,8 @@ impl FromWorld for HumanAssetRegistry {
  pub(crate) fn generate_asset_vertex_maps(
     mut registry: ResMut<HumanAssetRegistry>,
     meshes: Res<Assets<Mesh>>,
+    config: Res<HumentityGlobalConfig>,
  ) {
-    println!("{}", registry.body_parts.len());
     for (_name, asset) in registry.body_parts.iter_mut() {
         let Some(_mesh) = meshes.get(&asset.mesh_handle) else { return };
     }
@@ -205,29 +209,28 @@ impl FromWorld for HumanAssetRegistry {
 
     for (_name, asset) in registry.body_parts.iter_mut() {
         //println!("Importing body part: {name}");
-        let mh_verts = parse_obj_vertices(&asset.obj_file);
+        let obj_file = config.core_assets_path.join(&asset.obj_file);
+        let mh_verts = parse_obj_vertices(obj_file);
         let mesh = meshes.get(&asset.mesh_handle).unwrap();
         let verts = get_vertex_positions(&mesh);
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
         asset.mhid_lookup = generate_mhid_lookup(&vertex_map);
-        println!("{}", asset.mhid_lookup.len());
     }
     for (_name, asset) in registry.equipment.iter_mut() {
         //println!("Importing equipment: {name}");
-        let mh_verts = parse_obj_vertices(&asset.obj_file);
+        let obj_file = config.core_assets_path.join(&asset.obj_file);
+        let mh_verts = parse_obj_vertices(obj_file);
         let mesh = meshes.get(&asset.mesh_handle).unwrap();
         let verts = get_vertex_positions(&mesh);
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
         asset.mhid_lookup = generate_mhid_lookup(&vertex_map);
-        println!("{}", asset.mhid_lookup.len());
     }
-    panic!("");
  }
 
 /*-------------+
  |  Functions  |
  +-------------*/
-fn parse_human_asset(path: PathBuf, world: &mut World) -> HumanMeshAsset {
+fn parse_human_asset(file_path: PathBuf, asset_path: PathBuf, world: &mut World) -> HumanMeshAsset {
     let mut tags = Vec::<String>::new();
     let mut z_depth = 0 as i8;
     let mut delete_verts = FxHashSet::<u16>::default();
@@ -242,8 +245,8 @@ fn parse_human_asset(path: PathBuf, world: &mut World) -> HumanMeshAsset {
     let mut section = FileSection::Header;
 
 
-    let err_msg = format!("Couldn't open target file {}", path.to_string_lossy());
-    let file = File::open(&path).expect(&err_msg);
+    let err_msg = format!("Couldn't open target file {}", file_path.to_string_lossy());
+    let file = File::open(&file_path).expect(&err_msg);
     for line_result in BufReader::new(file).lines() {
 
         let Ok(line) = line_result else { break };
@@ -257,7 +260,7 @@ fn parse_human_asset(path: PathBuf, world: &mut World) -> HumanMeshAsset {
         if section == FileSection::Header {
             if *line_vec.first().unwrap() == "obj_file" {
                 let filename = line_vec.last().unwrap();
-                obj_file = path.clone();
+                obj_file = asset_path.clone();
                 obj_file.set_file_name(filename);
             } else if *line_vec.first().unwrap() == "x_scale" {
                 x_scale.min = line_vec[1].parse().unwrap();
@@ -340,7 +343,7 @@ fn parse_human_asset(path: PathBuf, world: &mut World) -> HumanMeshAsset {
         }
     }
 
-    let mesh_handle = asset_server.load(obj_file.clone());
+    let mesh_handle = asset_server.load(format!("humentity://{}", obj_file.clone().to_str().unwrap()));
     let vertex_map = FxHashMap::<u16, Vec<u16>>::default();
     let mhid_lookup = generate_mhid_lookup(&vertex_map);
 
