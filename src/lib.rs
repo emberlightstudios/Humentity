@@ -27,7 +27,7 @@ pub mod prelude {
         prefab::{HumanArchetypePrefab, HumanArchetypePrefabs, HumanShapeArchetype, HumanAnimationArchetype},
         assets::{HumanAsset, HumanAssetRegistry, HumanPart, HumanBodyTextures},
         animation::HumanAnimationClips,
-        spawning::HumanConfig,
+        spawning::HumanShapeConfig,
     };
 }
 
@@ -52,7 +52,7 @@ pub struct Humentity{
 
 impl Humentity {
     pub fn new(config: paths_config::HumentityPathsConfig) -> Self {
-        Humentity { config, debug: false }
+        Humentity { config, debug: true }
     }
 }
 
@@ -88,9 +88,10 @@ impl Plugin for Humentity {
                 animation::retarget_animations
                     .run_if(in_state(HumentityLoadState::RetargetingAnimations)),
                 (
-                    spawning::on_human_added,
+                    spawning::spawn_rig_scene,
+                    spawning::fit_skeleton_to_shape,
                     spawning::setup_human_parts,
-                ).run_if(
+                ).chain().run_if(
                     in_state(HumentityLoadState::Ready)
                     .and(resource_exists::<HumanAssetRegistry>)
                 )

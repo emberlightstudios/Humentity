@@ -18,7 +18,10 @@
 //! customization, and keeping instancing/batching intact, since each prefab
 //! is still the same mesh handle (assuming they all use the same material also). 
 
+mod shared;
+
 use bevy::prelude::*;
+use shared::cam_controls;
 use ahash::AHashMap;
 use humentity::prelude::*;
 
@@ -39,17 +42,8 @@ fn main() {
             OnEnter(HumentityLoadState::Ready),
             add_humans
         )
-        .add_systems(Update, add_material)
-        .add_systems(Update, test)
+        .add_systems(Update, (cam_controls, add_material))
         .run();
-}
-
-fn test(
-    mut commands: Commands,
-    basemesh: Res<BaseMesh>,
-    meshes: Query<&Mesh3d>,
-) {
-    //info!("{}", meshes.count());
 }
 
 fn setup_env(
@@ -82,14 +76,14 @@ fn setup_env(
     // A camera:
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 3.0, 9.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
+        Transform::from_xyz(0.0, 3.0, 4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
     ));
 }
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     // When feeding in morphs you can ignore the categories here.
     // They are only for helping you organize a UI
-    info!("Available morphs: {:#?}", morphs.get_morph_names());
+    //info!("Available morphs: {:#?}", morphs.get_morph_names());
 
     // Let's create a prefab that can take different shapes
     // If race is not specified, defaults to caucasian (caucasian = 1, african = 0, asian = 0)
@@ -140,21 +134,25 @@ fn add_humans(
     mut commands: Commands,
 ) {
     // Previously defined shapes will now appear as morph targets on the prefab's mesh
-    // The HumanConfig type controls prefab access and applies our morph targets.
+    // The HumanShapeConfig type controls prefab access and applies our morph targets.
     let prefab_name = Name::new("ExampleHumanPrefab");
     let baby = Name::new("baby");
     let bodybuilder = Name::new("bodybuilder");
 
     // The base mesh
+    let proxy = HumanPart::ProxyMesh(Name::new("male_generic"));
     let mut morphs = MorphTargets::default();
     morphs.insert(baby.clone(), 0.);
     morphs.insert(bodybuilder.clone(), 0.);
     commands.spawn((
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
-        HumanConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         children![(
-            HumanPart::BaseMesh
+            // This is broken for some reason.  I can't figure it out.  The mesh renders
+            // at the wrong location, or not at all.  Makes no sense.
+            //HumanPart::BaseMesh 
+            proxy.clone()
         )]
     ));
 
@@ -164,9 +162,10 @@ fn add_humans(
     commands.spawn((
         Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
-        HumanConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         children![(
-            HumanPart::BaseMesh
+            //HumanPart::BaseMesh
+            proxy.clone(),
         )]
     ));
 
@@ -176,9 +175,10 @@ fn add_humans(
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         InheritedVisibility::default(),
-        HumanConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         children![(
-            HumanPart::BaseMesh
+            proxy.clone(),
+            //HumanPart::BaseMesh
         )]
     ));
 
@@ -189,9 +189,10 @@ fn add_humans(
     commands.spawn((
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
-        HumanConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         children![(
-            HumanPart::BaseMesh
+            proxy.clone(),
+            //HumanPart::BaseMesh
         )]
     ));
 
@@ -203,9 +204,10 @@ fn add_humans(
     commands.spawn((
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
-        HumanConfig::new(prefab_name, morphs),
+        HumanShapeConfig::new(prefab_name, morphs),
         children![(
-            HumanPart::BaseMesh
+            proxy.clone(),
+            //HumanPart::BaseMesh
         )]
     ));
 }

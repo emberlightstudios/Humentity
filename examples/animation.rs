@@ -1,3 +1,4 @@
+
 use bevy::{input::mouse::MouseMotion, prelude::*, scene::SceneInstanceReady, window::PresentMode};
 use humentity::prelude::*;
 use fxhash::FxHashMap;
@@ -64,7 +65,7 @@ fn setup_env(
         Name::new("Muh Human"),
         Transform::from_xyz(1.5, 0.0, 0.0),
         InheritedVisibility::VISIBLE,
-        HumanConfig {
+        HumanShapeConfig {
             prefab_morph_targets: morphs,
             rig_archetype: Name::new("Rig1"),
         },
@@ -118,7 +119,7 @@ fn animation_clip_on_imported_glb(
 fn setup_graph_on_new_human(
     rigs: Res<HumanArchetypePrefabs>,
     spawned_rigs: Query<(Entity, &ChildOf), Added<HumanRigScene>>,
-    humans: Query<(Entity, &HumanConfig)>,
+    humans: Query<(Entity, &HumanShapeConfig)>,
     children: Query<&Children>,
     player: Query<Entity, With<AnimationPlayer>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,

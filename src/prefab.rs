@@ -1,5 +1,5 @@
-use bevy::{animation::{AnimationTarget, AnimationTargetId}, asset::RenderAssetUsages, mesh::{morph::{MorphAttributes, MorphTargetImage}, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, PrimitiveTopology}, prelude::*};
-use crate::{basemesh::VertexGroups, mesh_ops::{get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, MeshProcessingState}, morphs, prelude::*, animation::get_skeleton_rotations, rigs::{get_bone_order, set_basemesh_rig_arrays, BoneData, RigData}};
+use bevy::{animation::{AnimationTarget, AnimationTargetId}, asset::RenderAssetUsages, mesh::{morph::{self, MorphAttributes, MorphTargetImage}, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, PrimitiveTopology}, prelude::*};
+use crate::{animation::get_skeleton_rotations, basemesh::VertexGroups, mesh_ops::{get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, MeshProcessingState}, morphs::{self, adjust_helpers_to_morphs}, prelude::*, rigs::{get_bone_order, set_basemesh_rig_arrays, BoneData, RigData}};
 use ahash::{AHashMap};
 
 /// In order to dynamically reshape humans at runtime, we can define a HumanArchetype which is a mesh 
@@ -51,6 +51,18 @@ pub struct HumanArchetypePrefab {
 impl HumanArchetypePrefab {
     pub fn new(shapes: impl IntoIterator<Item = HumanShapeArchetype>, rig: HumanAnimationArchetype) -> Self {
         Self { shapes: shapes.into_iter().collect(), rig }
+    }
+
+    pub(crate) fn get_helpers(&self, morph_values: &MorphTargets, basemesh: &BaseMesh, morph_targets: &HumanMorphs) -> Vec<Vec3> {
+        let mut mh_morphs = MorphTargets::default();
+        for shape in self.shapes.iter() {
+            let Some(weight) = morph_values.get(&shape.name) else { continue };
+            for (k, v) in shape.morphs.iter() {
+                let entry = mh_morphs.entry(k.clone()).or_insert(0.);
+                *entry += *v * weight;
+            }
+        }
+        adjust_helpers_to_morphs(&mh_morphs, morph_targets, basemesh)
     }
 }
 

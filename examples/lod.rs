@@ -2,6 +2,8 @@
 //! can be used for lods with the VisibilityRanges component
  
 
+mod shared;
+use shared::cam_controls;
 use ahash::AHashMap;
 use bevy::{camera::visibility::VisibilityRange, input::mouse::MouseMotion, prelude::*};
 use humentity::prelude::*;
@@ -41,7 +43,7 @@ fn add_humans(
 
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 1.)),
-        HumanConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         LevelOfDetail, // Just a marker component for this example
         InheritedVisibility::default(),
         children![(
@@ -79,7 +81,7 @@ fn add_humans(
     // The base mesh (highest poly-count ~19k tris)
     commands.spawn((
         Transform::from_translation(Vec3::new(-1.5, 0., 0.)),
-        HumanConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         InheritedVisibility::default(),
         children![(
             HumanPart::BaseMesh
@@ -89,7 +91,7 @@ fn add_humans(
     // male_generic (high poly-count 13k tris)
     commands.spawn((
         Transform::from_translation(Vec3::new(-0.5, 0., 0.)),
-        HumanConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         InheritedVisibility::default(),
         children![(
             HumanPart::ProxyMesh(lod1)
@@ -99,7 +101,7 @@ fn add_humans(
     //  male1591 (low poly-count)
     commands.spawn((
         Transform::from_translation(Vec3::new(0.5, 0., 0.)),
-        HumanConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         InheritedVisibility::default(),
         children![(
             HumanPart::ProxyMesh(lod2)
@@ -109,7 +111,7 @@ fn add_humans(
     // proxy741 (very low poly-count)
     commands.spawn((
         Transform::from_translation(Vec3::new(1.5, 0., 0.)),
-        HumanConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         InheritedVisibility::default(),
         children![(
             HumanPart::ProxyMesh(lod3)
@@ -173,33 +175,6 @@ fn setup_env(
         Transform::from_xyz(0.0, 2.0, 4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
     ));
 }
-
-fn cam_controls(
-    mut cam: Query<&mut Transform, With<Camera3d>>,
-    mut mouse_motion: MessageReader<MouseMotion>,
-    kb_input: Res<ButtonInput<KeyCode>>,
-    mut pitch: Local<f32>,
-    mut yaw: Local<f32>,
-) {
-    const MS: f32 = 5e-2;
-    const LS: f32 = 5e-3;
-    let Ok(transform) = cam.single().cloned() else { return };
-    let Ok(mut cam) = cam.single_mut() else { return };
-    for ev in mouse_motion.read() {
-        *yaw -= ev.delta.x * LS;
-        *pitch -= ev.delta.y * LS;
-    }
-    //cam.rotation = Quat::from_euler(EulerRot::YXZ, *yaw, *pitch, 0.);
-    let mut mv = Vec3::ZERO;
-    if kb_input.pressed(KeyCode::KeyD) { mv.x += MS }
-    if kb_input.pressed(KeyCode::KeyA) { mv.x -= MS }
-    if kb_input.pressed(KeyCode::KeyS) { mv.z += MS }
-    if kb_input.pressed(KeyCode::KeyW) { mv.z -= MS }
-    if kb_input.pressed(KeyCode::KeyQ) { mv.y -= MS }
-    if kb_input.pressed(KeyCode::KeyE) { mv.y += MS }
-    cam.translation += Transform::from_rotation(transform.rotation) * mv;
-}
-
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     let mut morph_targets = MorphTargets::default();

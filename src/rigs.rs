@@ -311,9 +311,9 @@ pub(crate) fn set_asset_rig_arrays(
 }
 
 pub(crate) fn get_model_space_skeleton_transforms(
-    bone_order: &Vec<Name>, helpers: &Vec<Vec3>, rig: RigType, bone_rotations: &AHashMap<Name, Quat>, vg: &VertexGroups, rig_data: &RigData
+    bone_order: &Vec<Name>, helpers: &Vec<Vec3>, rig_type: RigType, bone_rotations: &AHashMap<Name, Quat>, vg: &VertexGroups, rig_data: &RigData
 ) -> AHashMap<Name, Transform> {
-    let mh_config = &rig_data.configs[&rig];
+    let mh_config = &rig_data.configs[&rig_type];
     // Compute global transforms
     let mut global_transforms = AHashMap::<Name, Transform>::default();
     for name in bone_order.iter() {
@@ -325,10 +325,10 @@ pub(crate) fn get_model_space_skeleton_transforms(
 }
 
 pub(crate) fn get_local_skeleton_transforms(
-    bone_order: &Vec<Name>, rig: RigType, rig_data: &RigData, global_transforms: &AHashMap<Name, Transform>
+    bone_order: &Vec<Name>, rig_type: RigType, rig_data: &RigData, global_transforms: &AHashMap<Name, Transform>
 ) -> AHashMap<Name, Transform> {
     // Compute local transforms relative to parent
-    let mh_config = &rig_data.configs[&rig];
+    let mh_config = &rig_data.configs[&rig_type];
     let mut local_transforms = AHashMap::<Name, Transform>::default();
     for name in bone_order.iter() {
         let mut mat = global_transforms[&name].to_matrix();
