@@ -10,7 +10,7 @@ fn main() {
     app
         .add_plugins((
             Humentity {
-                config: HumentityGlobalConfig::new("./")
+                config: HumentityPathsConfig::new("./")
                     .with_animation_libraries(AnimationLibrarySettings {
                         paths: vec![Path::new(".").to_path_buf()],
                         rig_type: RigType::Mixamo,
@@ -69,7 +69,7 @@ fn setup_env(
             0 => {
                 shapekeys.insert("african-female-baby".to_string(), 1.0);
                 config = HumanConfig {
-                    morph_targets: shapekeys,
+                    prefab_morph_targets: shapekeys,
                     skin_albedo: "young_african_female_diffuse.png".to_string(),
                     body_parts: vec![
                         //"LeftEyeballLowPoly".to_string(),
@@ -90,7 +90,7 @@ fn setup_env(
                 shapekeys.insert("asian-male-child".to_string(), 1.0);
                 config = HumanConfig {
 
-                    morph_targets: shapekeys,
+                    prefab_morph_targets: shapekeys,
                     skin_albedo: "young_asian_male_diffuse3.png".to_string(),
                     body_parts: vec![
                         //"LeftEyeballLowPoly".to_string(),
@@ -109,7 +109,7 @@ fn setup_env(
             2 => {
                 shapekeys.insert("caucasian-female-young".to_string(), 1.0);
                 config = HumanConfig {
-                    morph_targets: shapekeys,
+                    prefab_morph_targets: shapekeys,
                     skin_albedo: "middleage_caucasian_female_diffuse.png".to_string(),
                     body_parts: vec![
                         //"LeftEyeballLowPoly".to_string(),
@@ -131,7 +131,7 @@ fn setup_env(
             3 => {
                 shapekeys.insert("african-male-old".to_string(), 1.0);
                 config = HumanConfig {
-                    morph_targets: shapekeys,
+                    prefab_morph_targets: shapekeys,
                     skin_albedo: "old_african_male_diffuse.png".to_string(),
                     body_parts: vec![
                         //"LeftEyeballLowPoly".to_string(),

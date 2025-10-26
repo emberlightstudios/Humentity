@@ -1,19 +1,28 @@
 use bevy::{
-    color::palettes::css::RED, mesh::{skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, VertexAttributeValues}, prelude::* 
+    animation::AnimationTarget, color::palettes::css::RED, ecs::intern::Internable, mesh::VertexAttributeValues, prelude::*
 };
 use serde::Deserialize;
 use serde_json;
 use std::{fs::File, io::BufReader};
-use fxhash::FxHashMap;
+use ahash::AHashMap;
 
 use crate::{assets::HelperMap, basemesh::VertexGroups, mesh_ops::get_vertex_positions, prelude::*};
 
-#[derive(Eq, PartialEq, Hash, Copy, Clone)]
+/*---------+
+ |  Types  |
+ +---------*/
+#[derive(Eq, PartialEq, Hash, Copy, Clone, Default)]
 pub enum RigType {
-    None,
+    #[default]
     Default,
     Mixamo,
     GameEngine,
+}
+
+pub(crate) struct BoneData {
+    pub(crate) local_space_transform: Transform,
+    pub(crate) model_space_transform: Transform,
+    pub(crate) parent: Name,
 }
 
 /*---------+
@@ -21,53 +30,54 @@ pub enum RigType {
  +---------*/
 #[derive(Deserialize, Debug)]
 struct BoneTransform {
-    cube_name: Option<String>,
+    cube_name: Option<Name>,
     //default_position: Vec3,
-    strategy: String,
+    strategy: Name,
     vertex_indices: Option<Vec<u16>>,
     vertex_index: Option<u16>,
 }
 
 #[derive(Deserialize, Debug)]
-struct BoneData {
-    head: BoneTransform,
+pub(crate) struct BoneJson {
+    pub(crate) head: BoneTransform,
     //inherit_scale: String,
-    parent: String,
-    roll: f32,
-    tail: BoneTransform,
+    pub(crate) parent: Name,
+    //roll: f32,
+    pub(crate) tail: BoneTransform,
 }
 
 #[derive(Deserialize, Debug)]
 struct WeightsFile {
-    weights: FxHashMap<String, Vec<(u16, f32)>>
+    weights: AHashMap<Name, Vec<(u16, f32)>>
 }
 
 // Contains an extra layer for some reason.  Usual config is in the bones key
 #[derive(Deserialize, Debug)]
-struct MixamoRigConfig {
-    bones: FxHashMap<String, BoneData>
+struct MixamoConfig {
+    bones: AHashMap<Name, BoneJson>
 }
 
 /*-----------+
  | Resources |
  +-----------*/
+/// Raw rig data from makehuman json files
 #[derive(Resource)]
-pub struct RigData {
-    weights: FxHashMap<RigType, FxHashMap<String, FxHashMap<u16, f32>>>,
-    configs: FxHashMap<RigType, FxHashMap<String, BoneData>>,
+pub(crate) struct RigData {
+    pub(crate) weights: AHashMap<RigType, AHashMap<Name, AHashMap<u16, f32>>>,
+    pub(crate) configs: AHashMap<RigType, AHashMap<Name, BoneJson>>,
 }
 
 impl FromWorld for RigData {
     fn from_world(world: &mut World) -> Self {
-        let config = world.get_resource::<HumentityGlobalConfig>().unwrap();
+        let config = world.get_resource::<HumentityPathsConfig>().unwrap();
         let path = config.core_assets_path.clone();
-        let mut type_strings = FxHashMap::<RigType, &str>::default();
+        let mut type_strings = AHashMap::<RigType, &str>::default();
         type_strings.insert(RigType::Default, "default");
         type_strings.insert(RigType::Mixamo, "mixamo");
         type_strings.insert(RigType::GameEngine, "game_engine");
 
-        let mut rig_weights = FxHashMap::<RigType, FxHashMap<String, FxHashMap<u16, f32>>>::default();
-        let mut rig_configs = FxHashMap::<RigType, FxHashMap<String, BoneData>>::default();
+        let mut rig_weights = AHashMap::<RigType, AHashMap<Name, AHashMap<u16, f32>>>::default();
+        let mut rig_configs = AHashMap::<RigType, AHashMap<Name, BoneJson>>::default();
 
         for (rig_type, name) in type_strings.iter() {
             let err_msg = "FAILED TO OPEN WEIGHTS FILE : ".to_string() + name;
@@ -75,10 +85,10 @@ impl FromWorld for RigData {
             let weights_reader = BufReader::new(weights_file);
             let err_msg = "FAILED TO READ WEIGHTS JSON : ".to_string() + name;
             let weights: WeightsFile = serde_json::from_reader(weights_reader).expect(&err_msg);
-            let mut weights_hashmap = FxHashMap::<String, FxHashMap<u16, f32>>::default();
+            let mut weights_hashmap = AHashMap::<Name, AHashMap<u16, f32>>::default();
             for (bone, wts) in weights.weights.iter() {
-                let hashmap: FxHashMap<u16, f32> = wts.iter().cloned().collect();
-                weights_hashmap.insert(bone.to_string(), hashmap);
+                let hashmap: AHashMap<u16, f32> = wts.iter().cloned().collect();
+                weights_hashmap.insert(Name::new(NAME_INTERNER.intern(bone).leak()), hashmap);
             }
             rig_weights.insert(*rig_type, weights_hashmap);
 
@@ -87,10 +97,10 @@ impl FromWorld for RigData {
             let config_reader = BufReader::new(config_file);
             let err_msg = "FAILED TO READ CONFIG JSON : ".to_string() + name;
             if *rig_type == RigType::Mixamo {
-                let config: MixamoRigConfig = serde_json::from_reader(config_reader).expect(&err_msg);
+                let config: MixamoConfig = serde_json::from_reader(config_reader).expect(&err_msg);
                 rig_configs.insert(*rig_type, config.bones);
             } else {
-                let config: FxHashMap<String, BoneData> = serde_json::from_reader(config_reader).expect(&err_msg);
+                let config: AHashMap<Name, BoneJson> = serde_json::from_reader(config_reader).expect(&err_msg);
                 rig_configs.insert(*rig_type, config);
             }
         }
@@ -101,21 +111,12 @@ impl FromWorld for RigData {
     }
 }
 
-/*------------+
- | Components |
- +------------*/
- #[derive(Component)]
- pub struct Bone;
-
- #[derive(Component)]
- pub struct Rig;
-
 /*---------+
  | Systems |
  +---------*/
  pub(crate) fn bone_debug_draw(
-    query: Query<(&GlobalTransform, &ChildOf), With<Bone>>,
-    transforms: Query<&GlobalTransform, With<Bone>>,
+    query: Query<(&GlobalTransform, &ChildOf), With<AnimationTarget>>,
+    transforms: Query<&GlobalTransform, With<AnimationTarget>>,
     mut gizmos: Gizmos,
  ) {
     query.iter().for_each(|(transform, child)| {
@@ -125,187 +126,49 @@ impl FromWorld for RigData {
         }
     })
  }
-    
+
 /*-----------+
  | Functions |
  +-----------*/
-
-/// Returns a deterministic ordering of bones (root first, children after)
-fn get_sorted_bones(config: &FxHashMap<String, BoneData>) -> Vec<String> {
-    let mut depths = FxHashMap::<&String, usize>::default();
-
-    for (name, bone) in config.iter() {
+pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<Name> {
+    let mh_config = world.get_resource::<RigData>()
+        .expect("Humentitiy not loaded");
+    let mh_config = &mh_config.configs[&rig];
+    let mut depths = AHashMap::<Name, usize>::default();
+    for (name, bone) in mh_config.iter() {
         let mut depth = 0;
         let mut parent = &bone.parent;
         while !parent.is_empty() {
             depth += 1;
-            parent = &config.get(parent).unwrap().parent;
+            parent = &mh_config.get(parent).unwrap().parent;
         }
-        depths.insert(name, depth);
+        depths.insert(name.clone(), depth);
     }
 
-    let mut sorted: Vec<(&String, usize)> = depths.into_iter().collect();
-    sorted.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
-    sorted.into_iter().map(|(name, _)| name.clone()).collect()
+    let mut sorted_bones: Vec<(Name, usize)> = depths.into_iter().collect();
+    sorted_bones.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    sorted_bones.into_iter().map(|(name, _)| name).collect::<Vec<Name>>()
 }
-
-/// Spawns bone entities and sets up the hierarchy
-fn build_rig_hierarchy(
-    commands: &mut Commands,
-    rig_entity: Entity,
-    config: &FxHashMap<String, BoneData>,
-    sorted_bones: &[String],
-) -> (FxHashMap<String, Entity>, Vec<Entity>) {
-    let mut bone_entities = FxHashMap::<String, Entity>::default();
-
-    // Spawn all bones
-    for name in sorted_bones {
-        let entity = commands.spawn((Bone, Name::new(name.clone()))).id();
-        bone_entities.insert(name.clone(), entity);
-    }
-
-    // Wire up parent-child relationships
-    for name in sorted_bones {
-        let &child = bone_entities.get(name).unwrap();
-        if let Some(parent_name) = config.get(name).map(|b| b.parent.as_str()) {
-            if !parent_name.is_empty() {
-                if let Some(&parent) = bone_entities.get(parent_name) {
-                    commands.entity(parent).add_child(child);
-                }
-            }
-        }
-    }
-
-    // Attach root(s) to rig entity
-    for name in sorted_bones {
-        if let Some(bone) = config.get(name) {
-            if bone.parent.is_empty() {
-                commands.entity(rig_entity).add_child(bone_entities[name]);
-            }
-        }
-    }
-
-    let joint_entities = sorted_bones
-        .iter()
-        .map(|n| bone_entities[n])
-        .collect::<Vec<_>>();
-
-    (bone_entities, joint_entities)
-}
-
-/// Computes global transforms and inverse bind poses, inserts Transform into entities
-fn compute_bindposes(
-    commands: &mut Commands,
-    config: &FxHashMap<String, BoneData>,
-    sorted_bones: &[String],
-    bone_entities: &FxHashMap<String, Entity>,
-    vg: &Res<VertexGroups>,
-    helpers: &Vec<Vec3>,
-) -> Vec<Mat4> {
-    use bevy::prelude::*;
-
-    // Step 1: compute global transforms
-    let mut global_transforms = FxHashMap::<&String, Transform>::default();
-    for name in sorted_bones {
-        let bone = &config[name];
-        global_transforms.insert(name, get_bone_transform(bone, vg, helpers));
-    }
-
-    // Step 2: compute local transforms relative to parent
-    let mut local_transforms = FxHashMap::<&String, Transform>::default();
-    for name in sorted_bones {
-        let mut mat = global_transforms[name].to_matrix();
-        let mut parent_names = Vec::new();
-
-        let mut bone = &config[name];
-        while !bone.parent.is_empty() {
-            parent_names.push(&bone.parent);
-            bone = &config[&bone.parent];
-        }
-
-        // Apply inverse of each parent's local transform
-        for parent_name in parent_names.iter().rev() {
-            let parent_local = local_transforms[parent_name].to_matrix();
-            mat = parent_local.inverse() * mat;
-        }
-
-        local_transforms.insert(name, Transform::from_matrix(mat));
-    }
-
-    // Step 3: insert local transforms and compute inverse bindposes
-    let mut inv_bindposes = Vec::with_capacity(sorted_bones.len());
-    for name in sorted_bones {
-        let entity = bone_entities[name];
-        let local = local_transforms[name];
-        let global = global_transforms[name];
-
-        commands.entity(entity).insert(local);
-
-        // Inverse bindpose is always from global transform
-        inv_bindposes.push(global.to_matrix().inverse());
-    }
-
-    inv_bindposes
-}
-
-
-/// Orchestrates rig creation
-pub(crate) fn build_rig(
-    human: &Entity,
-    rig: RigType,
-    rigs: &Res<RigData>,
-    inv_bindpose_assets: &mut ResMut<Assets<SkinnedMeshInverseBindposes>>,
-    commands: &mut Commands,
-    vg: &Res<VertexGroups>,
-    helpers: &Vec<Vec3>,
-    base_transform: &Transform,
-) -> (SkinnedMesh, Vec<String>) {
-    let config = rigs.configs.get(&rig).unwrap();
-
-    // Spawn Rig entity under human
-    let rig_entity = commands.spawn((Rig, base_transform.clone())).id();
-    commands.entity(*human).add_child(rig_entity);
-
-    // Step 1: get deterministic bone order
-    let sorted_bones = get_sorted_bones(config);
-
-    // Step 2: spawn hierarchy
-    let (bone_entities, joint_entities) =
-        build_rig_hierarchy(commands, rig_entity, config, &sorted_bones);
-
-    // Step 3: compute bindposes
-    let inv_bindposes =
-        compute_bindposes(commands, config, &sorted_bones, &bone_entities, vg, helpers);
-
-    let inverse_bindposes = inv_bindpose_assets.add(inv_bindposes);
-
-    (SkinnedMesh {
-        inverse_bindposes,
-        joints: joint_entities,
-    }, sorted_bones)
-}
-
 
 pub(crate) fn set_basemesh_rig_arrays(
-    rig: RigType,
-    mesh: Mesh,
-    rigs: &Res<RigData>,
-    mhid_lookup: &Vec<u16>,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    sorted_bones: &Vec<String>,
+    mut mesh: Mesh,
+    basemesh: &BaseMesh,
+    meshes: &mut Assets<Mesh>,
+    bone_order: &Vec<Name>,
+    rig_type: RigType,
+    rig_data: &RigData,
 ) -> Handle<Mesh> {
     // Build bone index and weight arrays
-    let weights_res = rigs.weights.get(&rig).expect("No weights for rig?");
-    let mut new_mesh = mesh.clone();
+    let weights_res = rig_data.weights.get(&rig_type).expect("No weights for rig?");
     let vertices = get_vertex_positions(&mesh);
     let mut indices = vec![[0; 4]; vertices.len()];
     let mut weights = vec![[0.0; 4]; vertices.len()];
 
-    for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
+    for (bone_index, bone_name) in bone_order.iter().enumerate() {
         let Some(bone_weights) = weights_res.get(bone_name) else { continue };
 
         // loop over vertex, bone weight pairs from config
-        for (vert, mhv) in mhid_lookup.iter().enumerate() {
+        for (vert, mhv) in basemesh.mhid_lookup.iter().enumerate() {
 
             let Some(&wt) = bone_weights.get(mhv) else { continue };
 
@@ -345,26 +208,25 @@ pub(crate) fn set_basemesh_rig_arrays(
         ];
     }
 
-    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
-    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
-    meshes.add(new_mesh)
+    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
+    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
+
+    meshes.add(mesh)
 }
 
 pub(crate) fn set_asset_rig_arrays(
-    rig: RigType,
-    mesh: Mesh,
-    rigs: &Res<RigData>,
+    mut mesh: Mesh,
+    meshes: &mut Assets<Mesh>,
+    rig_data: &RigData,
     mhid_lookup: &Vec<u16>,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    helper_maps: &Vec<HelperMap>,
-    sorted_bones: &Vec<String>,
+    helper_map: &Vec<HelperMap>,
+    rig: &HumanAnimationArchetype,
 ) -> Handle<Mesh> {
-    let weights_res = rigs.weights.get(&rig).expect("No weights for rig?");
-    let mut new_mesh = mesh.clone();
+    let weights_res = rig_data.weights.get(&rig.rig_type).expect("No weights for rig?");
 
     // Build hashmaps to store bone info for each obj vertex id
-    let mut indices = Vec::<[u16; 4]>::default();
-    let mut weights = Vec::<[f32; 4]>::default();
+    let mut indices: Vec<[u16; 4]> = vec![[0; 4]; mhid_lookup.len()];
+    let mut weights: Vec<[f32; 4]> = vec![[0.; 4]; mhid_lookup.len()];
 
     // loop over obj vertices
     for (vert, mhv) in mhid_lookup.iter().enumerate() {
@@ -373,10 +235,10 @@ pub(crate) fn set_asset_rig_arrays(
         let mut weights_vec = Vec::<f32>::new();
 
         // Get helper map for this obj_id
-        let helper_map = &helper_maps[*mhv as usize];
+        let helper_map = &helper_map[*mhv as usize];
 
         // loop over bones and find any matching helper indices
-        for (bone_index, bone_name) in sorted_bones.iter().enumerate() {
+        for (bone_index, bone_name) in rig.bone_order.iter().enumerate() {
             let Some(bone_weights) = weights_res.get(bone_name) else { continue };
 
             if let Some(v) = helper_map.single_vertex {
@@ -401,7 +263,7 @@ pub(crate) fn set_asset_rig_arrays(
         }
 
         // Deduplicate vertices by summing weights 
-        let mut aggregate = FxHashMap::<u16, f32>::default();
+        let mut aggregate = AHashMap::<u16, f32>::default();
         for (&ind, &wt) in indices_vec.iter().zip(weights_vec.iter()) {
             let wtsum = aggregate.entry(ind as u16).or_insert(0.0);
             *wtsum += wt;
@@ -425,9 +287,17 @@ pub(crate) fn set_asset_rig_arrays(
             vtx_weights = new_vtx_weights;
         }
 
-        indices[vert] = vtx_indices[..4].try_into().unwrap();
+        for i in vtx_indices.len()..4 {
+            vtx_indices.push(vtx_indices[i % vtx_indices.len()]);
+        }
+        for i in vtx_weights.len()..4 {
+            vtx_weights.push(vtx_weights[i % vtx_weights.len()]);
+        }
 
-        let mut raw_weights: [f32; 4] = vtx_weights[..4].try_into().unwrap();
+        indices[vert] = vtx_indices[..4].try_into().unwrap();
+        let mut raw_weights: [f32; 4];
+        raw_weights = vtx_weights[..4].try_into().unwrap();
+
         let sum: f32 = vtx_weights.iter().sum();
         for (i, &val) in vtx_weights.iter().enumerate() {
             raw_weights[i] = val / sum;
@@ -435,40 +305,83 @@ pub(crate) fn set_asset_rig_arrays(
         weights[vert] = raw_weights;
     }
 
-    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
-    new_mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
-    meshes.add(new_mesh)
+    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
+    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
+    meshes.add(mesh)
 }
 
-fn get_bone_transform(
-    bone: &BoneData,
-    vg: &Res<VertexGroups>,
+pub(crate) fn get_model_space_skeleton_transforms(
+    bone_order: &Vec<Name>, helpers: &Vec<Vec3>, rig: RigType, bone_rotations: &AHashMap<Name, Quat>, vg: &VertexGroups, rig_data: &RigData
+) -> AHashMap<Name, Transform> {
+    let mh_config = &rig_data.configs[&rig];
+    // Compute global transforms
+    let mut global_transforms = AHashMap::<Name, Transform>::default();
+    for name in bone_order.iter() {
+        let bone = &mh_config[name];
+        let base_rot = bone_rotations[name];
+        global_transforms.insert(name.clone(), get_bone_transform(bone, base_rot, vg, helpers));
+    }
+    global_transforms
+}
+
+pub(crate) fn get_local_skeleton_transforms(
+    bone_order: &Vec<Name>, rig: RigType, rig_data: &RigData, global_transforms: &AHashMap<Name, Transform>
+) -> AHashMap<Name, Transform> {
+    // Compute local transforms relative to parent
+    let mh_config = &rig_data.configs[&rig];
+    let mut local_transforms = AHashMap::<Name, Transform>::default();
+    for name in bone_order.iter() {
+        let mut mat = global_transforms[&name].to_matrix();
+        let mut parent_names = Vec::<&Name>::new();
+
+        let mut bone = &mh_config[name];
+        while !bone.parent.is_empty() {
+            parent_names.push(&bone.parent);
+            bone = &mh_config[&bone.parent];
+        }
+
+        // Apply inverse of each parent's local transform
+        for &parent_name in parent_names.iter().rev() {
+            let parent_local = local_transforms[&parent_name].to_matrix();
+            mat = parent_local.inverse() * mat;
+        }
+
+        local_transforms.insert(name.clone(), Transform::from_matrix(mat));
+    }
+    local_transforms
+}
+
+pub(crate) fn get_bone_transform(
+    bone: &BoneJson,
+    base_rot: Quat,
+    vg: &VertexGroups,
     mh_vertices: &Vec<Vec3>,
 ) -> Transform {
     let (v1, v2) = get_bone_vertices(&bone.head, vg);
     let (v3, v4) = get_bone_vertices(&bone.tail, vg);
     let start = (mh_vertices[v1 as usize] + mh_vertices[v2 as usize]) * 0.5;
     let end = (mh_vertices[v3 as usize] + mh_vertices[v4 as usize]) * 0.5;
-    let mut transform = Transform::from_translation(start)
-        .with_rotation(Quat::from_rotation_arc(Vec3::Y, (end - start).normalize()));
-    transform.rotate_local_y(bone.roll);
-    transform
+
+    let orientation = (end - start).normalize();
+    let correction = Quat::from_rotation_arc(base_rot * Vec3::Y, orientation);
+
+    Transform::from_translation(start).with_rotation(correction * base_rot)
 }
 
 fn get_bone_vertices(
     bone: &BoneTransform,
-    vg: &Res<VertexGroups>,
+    vg: &VertexGroups,
 ) -> (u16, u16) {
     let v1: u16;
     let v2: u16;
-    if bone.strategy == "MEAN" {
+    if bone.strategy == Name::new("MEAN") {
         v1 = bone.vertex_indices.as_ref().unwrap()[0];
         v2 = bone.vertex_indices.as_ref().unwrap()[1];
-    } else if bone.strategy == "CUBE" {
+    } else if bone.strategy == Name::new("CUBE") {
         let joint = bone.cube_name.as_ref().unwrap();
         v1 = vg.0.get(joint).unwrap()[0][0] as u16;
         v2 = vg.0.get(joint).unwrap()[0][1] as u16;
-    } else if bone.strategy == "VERTEX" {
+    } else if bone.strategy == Name::new("VERTEX") {
         v1 = bone.vertex_index.unwrap();
         v2 = bone.vertex_index.unwrap();
     } else { panic!("Unrecognized bone strategy {}", bone.strategy) }

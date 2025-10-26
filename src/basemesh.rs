@@ -1,15 +1,14 @@
-use bevy::{prelude::*, asset::{RenderAssetUsages, AssetPath}, mesh::{Indices, Mesh}};
+use bevy::{prelude::*, asset::{RenderAssetUsages}, mesh::{Indices, Mesh}};
 use std::{
     io::BufReader,
     fs::File,
 };
-use fxhash::FxHashMap;
+use ahash::AHashMap;
 use serde::Deserialize;
 use serde_json;
 
-use crate::mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_positions, parse_obj_vertices};
-use crate::prelude::HumentityGlobalConfig;
-use crate::{HumentityLoading};
+use crate::mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_positions, parse_obj_vertices, MeshProcessingState, PrefabLoadState};
+use crate::prelude::*;
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
 pub(crate) const BODY_SCALE: f32 = 0.1;
@@ -18,12 +17,17 @@ pub(crate) const BODY_SCALE: f32 = 0.1;
  |  Resources  |
  +-------------*/
 #[derive(Resource, Deserialize, Debug)]
-pub(crate) struct VertexGroups(pub(crate) FxHashMap<String, Vec<[usize; 2]>>);
+pub(crate) struct VertexGroups(pub(crate) AHashMap<Name, Vec<[usize; 2]>>);
 
-#[derive(Resource, Debug)]
+#[derive(Resource)]
 pub struct BaseMesh{
+    /// A handle to the raw base mesh
     pub(crate) mesh_handle: Handle<Mesh>,
+    /// The prefab mesh loading state
+    pub(crate) prefab_state: PrefabLoadState,
+    /// The (makehuman/obj) positions in the base mesh
     pub(crate) vertices: Vec<Vec3>,
+    /// A map from bevy indices to obj indices
     pub(crate) mhid_lookup: Vec<u16>,
 }
 
@@ -33,7 +37,7 @@ pub(crate) struct HelperMeshHandle(Handle<Mesh>);
 // Load base mesh with helpers and vertex group data
 impl FromWorld for BaseMesh {
     fn from_world(world: &mut World) -> Self {
-        let config = world.get_resource::<HumentityGlobalConfig>().expect("NO CONFIG LOADED");
+        let config = world.get_resource::<HumentityPathsConfig>().expect("NO CONFIG LOADED");
         let path = config.core_assets_path.clone();
         if !path.join("base.obj").exists() {
             panic!("base.obj not found.  Did you provide the correct path to the Humentity crate?")
@@ -57,6 +61,7 @@ impl FromWorld for BaseMesh {
             mesh_handle: base_handle,
             vertices: mh_vertices,
             mhid_lookup: vec![],
+            prefab_state: PrefabLoadState::default(),
         }
 
     }
@@ -68,6 +73,7 @@ pub(crate) fn create_body_mesh(
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
     helper_handle: Option<Res<HelperMeshHandle>>,
+    mut state: ResMut<NextState<HumentityLoadState>>,
 ) {
     let Some(helper_handle) = helper_handle else { return; };
     let Some(mesh) = meshes.get_mut(&helper_handle.0) else { return };
@@ -85,9 +91,7 @@ pub(crate) fn create_body_mesh(
         vtx_data,
         uv_data,
         raw_indices
-    )
-        .with_computed_area_weighted_normals()
-        .with_generated_tangents().unwrap();
+    );
 
     let vtx_data = get_vertex_positions(&mesh);
     let vertex_map = generate_vertex_map(&base_mesh.vertices[..BODY_VERTICES as usize], &vtx_data);
@@ -97,7 +101,7 @@ pub(crate) fn create_body_mesh(
     base_mesh.mhid_lookup = generate_mhid_lookup(&vertex_map);
 
     commands.remove_resource::<HelperMeshHandle>();
-    commands.remove_resource::<HumentityLoading>();
+    state.set(HumentityLoadState::BuildingPrefabs)
 } 
 
 fn generate_mesh_without_helpers(
@@ -111,7 +115,7 @@ fn generate_mesh_without_helpers(
     let mut uv = Vec::<Vec2>::new();
 
     // Mapping old vertex index -> new vertex index
-    let mut new_vert_indices = std::collections::HashMap::<u16, u16>::default();
+    let mut new_vert_indices = AHashMap::<u16, u16>::default();
 
     // Build new vertex buffer, and UVs
     for (vertex, &mh_id) in mhid_lookup.iter().enumerate() {
@@ -140,4 +144,7 @@ fn generate_mesh_without_helpers(
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
         .with_inserted_indices(Indices::U16(new_indices))
+        .with_computed_area_weighted_normals()
+        .with_generated_tangents()
+        .unwrap()
 }

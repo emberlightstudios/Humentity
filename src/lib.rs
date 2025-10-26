@@ -1,44 +1,58 @@
 mod basemesh;
+mod spawning;
 mod morphs;
 mod rigs;
-mod global_config;
+mod paths_config;
 mod assets;
-mod animation;
 mod mesh_ops;
-mod human_config;
+mod animation;
+mod prefab;
 
 use bevy::asset::io::AssetSourceBuilder;
 use bevy::prelude::*;
-use bevy::ecs::schedule::common_conditions::run_once;
 use bevy_obj::ObjPlugin;
+use bevy::ecs::intern::Interner;
+use prelude::*;
+
+pub static NAME_INTERNER: Interner<str> = Interner::new();
 
 pub mod prelude {
     pub use crate::{
-        Humentity,
-        HumentityLoading,
-        assets::HumanAssetRegistry,
-        morphs::MorphTargets,
-        global_config::HumentityGlobalConfig,
-        human_config::HumanConfig,
+        NAME_INTERNER,
+        Humentity, HumentityLoadState,
         rigs::RigType,
-        animation::AnimationLibrarySet,
-        animation::AnimationLibrarySettings,
+        morphs::{HumanMorphs, MorphTargets},
         basemesh::BaseMesh,
-        rigs::RigData,
+        paths_config::HumentityPathsConfig,
+        prefab::{HumanArchetypePrefab, HumanArchetypePrefabs, HumanShapeArchetype, HumanAnimationArchetype},
+        assets::{HumanAsset, HumanAssetRegistry, HumanPart, HumanBodyTextures},
+        animation::HumanAnimationClips,
+        spawning::HumanConfig,
     };
+}
+
+#[derive(States, Debug, Hash, Eq, PartialEq, Copy, Clone)]
+pub enum HumentityLoadState {
+    LoadingCoreAssets,
+    BuildingPrefabs,
+    RetargetingAnimations,
+    Ready,
 }
 
 /*----------+
  |  Plugin  |
  +----------*/
+ /// The plugin struct
 pub struct Humentity{
-    pub config: global_config::HumentityGlobalConfig,
+    /// The paths used by the plugin
+    pub config: paths_config::HumentityPathsConfig,
+    /// Enable this to draw bone gizmos
     pub debug: bool,
 }
 
 impl Humentity {
-    pub fn new(config: global_config::HumentityGlobalConfig, debug: bool) -> Self {
-        Humentity { config, debug }
+    pub fn new(config: paths_config::HumentityPathsConfig) -> Self {
+        Humentity { config, debug: false }
     }
 }
 
@@ -48,25 +62,39 @@ impl Plugin for Humentity {
             panic!("Humentity plugin must be added before AssetServer/DefaultPlugins.")
         }
 
-        app.insert_resource(self.config.clone());
-        app.insert_resource(HumentityLoading);
-        app.register_asset_source("humentity", AssetSourceBuilder::platform_default(
-            self.config.core_assets_path.to_str()
-                .expect("Failed to get path str"),
-            None
-        ));
-
-        app.add_systems(Update, (
-            (
-                basemesh::create_body_mesh
-                    .run_if(resource_exists::<basemesh::HelperMeshHandle>),
-                assets::generate_asset_vertex_maps
-                    .run_if(run_once),
-                animation::load_animations
-                    .run_if(run_once),
-            ).run_if(resource_exists::<HumentityLoading>),
-            human_config::on_human_added,
-        ));
+        app
+            .insert_resource(self.config.clone())
+            .register_asset_source("humentity", AssetSourceBuilder::platform_default(
+                self.config.core_assets_path.to_str()
+                    .expect("Failed to get path str"),
+                None
+            ))
+            .add_systems(Update, (
+                (
+                    basemesh::create_body_mesh
+                        .run_if(resource_exists::<basemesh::HelperMeshHandle>),
+                ).run_if(in_state(HumentityLoadState::LoadingCoreAssets)),
+                (                    
+                    (
+                        prefab::create_human_prefab_rig_scenes,
+                        prefab::create_basemesh_prefab_shapes,
+                        prefab::create_basemesh_prefab_morphable_mesh,
+                        prefab::rig_prefab_meshes,
+                    ).chain().run_if(
+                        resource_exists::<HumanArchetypePrefabs>
+                        .and(in_state(HumentityLoadState::BuildingPrefabs))
+                    ),
+                ),
+                animation::retarget_animations
+                    .run_if(in_state(HumentityLoadState::RetargetingAnimations)),
+                (
+                    spawning::on_human_added,
+                    spawning::setup_human_parts,
+                ).run_if(
+                    in_state(HumentityLoadState::Ready)
+                    .and(resource_exists::<HumanAssetRegistry>)
+                )
+            ));
 
         if self.debug {
             app.add_systems(Update, rigs::bone_debug_draw);
@@ -74,14 +102,15 @@ impl Plugin for Humentity {
     }
 
     fn finish(&self, app: &mut App) {
+        app.insert_state(HumentityLoadState::LoadingCoreAssets);
         if !app.is_plugin_added::<ObjPlugin>() {
             app.add_plugins(ObjPlugin);
         }
-        app.init_resource::<basemesh::BaseMesh>();
-        app.init_resource::<assets::HumanAssetRegistry>();
-        app.init_resource::<morphs::MorphTargets>();
-        app.init_resource::<rigs::RigData>();
-        app.init_resource::<animation::AnimationLibrarySet>();
+        app
+            .init_resource::<basemesh::BaseMesh>()
+            .init_resource::<assets::HumanAssetRegistry>()
+            .init_resource::<morphs::HumanMorphs>()
+            .init_resource::<rigs::RigData>();
     }
 }
 

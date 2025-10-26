@@ -7,7 +7,20 @@ use std::{
     path::Path,
     io::{ BufReader, BufRead },
 };
-use fxhash::{FxHashMap, FxHashSet};
+
+use ahash::{AHashMap, AHashSet};
+
+#[derive(Default, Eq, PartialEq, Clone)]
+pub(crate) enum MeshProcessingState {
+    #[default]
+    Unprocessed,
+    //ObjLoaded(Handle<Mesh>),       // Loaded obj
+    Shaped(Vec<Handle<Mesh>>),     // Reshaped, one per shape, per prefab
+    Morphed(Handle<Mesh>),         // Mesh morphs instead of shapes, one per prefab
+    Ready(Handle<Mesh>),           // Rigged, one per prefab
+}
+
+pub(crate) type PrefabLoadState = AHashMap<Name, MeshProcessingState>;
 
 pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     let path = filename.as_ref();
@@ -34,6 +47,13 @@ pub(crate) fn get_vertex_positions(mesh: &Mesh) -> Vec<Vec3> {
         .map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect::<Vec<Vec3>>()
 }
 
+pub(crate) fn get_vertex_tangents(mesh: &Mesh) -> Result<Vec<Vec3>, BevyError> {
+    let Some(VertexAttributeValues::Float32x4(verts)) = mesh.attribute(Mesh::ATTRIBUTE_TANGENT)
+        else { return Err(BevyError::from("NO TANGENTS PRESENT ON MESH")) };
+    Ok(verts.iter()
+        .map(|arr| Vec3::new(arr[0], arr[1], arr[2])).collect::<Vec<Vec3>>())
+}
+
 pub(crate) fn get_vertex_normals(mesh: &Mesh) -> Vec<Vec3> {
     let Some(VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
         else { panic!("FAILED TO LOAD MESH VERTEX NORMALS") };
@@ -48,7 +68,6 @@ pub(crate) fn get_uv_coords(mesh: &Mesh) -> Vec<Vec2> {
         .map(|arr| Vec2::new(arr[0], arr[1])).collect::<Vec<Vec2>>()
 }
 
-/*
 pub(crate) fn get_joint_indices(mesh: &Mesh) -> Vec<UVec4> {
     let Some(VertexAttributeValues::Uint32x4(ind)) = mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
             else { panic!("FAILED TO LOAD MESH JOINT INDICES") };
@@ -64,15 +83,14 @@ pub(crate) fn get_joint_weights(mesh: &Mesh) -> Vec<Vec4> {
             .map(|arr| Vec4::new(arr[0], arr[1], arr[2], arr[3])).collect(); 
     d
 }
-*/
 
 // Maps mh vertex ids to vec of bevy ids
 pub(crate) fn generate_vertex_map(
     mh_vertices: &[Vec3],
     vertices: &[Vec3]
-) -> FxHashMap<u16, Vec<u16>> {
-    let mut vertex_map = FxHashMap::<u16, Vec<u16>>::default();
-    let mut matched = FxHashSet::<usize>::default();
+) -> AHashMap<u16, Vec<u16>> {
+    let mut vertex_map = AHashMap::<u16, Vec<u16>>::default();
+    let mut matched = AHashSet::<usize>::default();
 
     for (i, mh_vertex) in mh_vertices.iter().enumerate() {
         vertex_map.insert(i as u16, Vec::<u16>::new());
@@ -92,7 +110,7 @@ pub(crate) fn generate_vertex_map(
     
 // Maps bevy vertex ids to mh id
 pub(crate) fn generate_mhid_lookup(
-    map: &FxHashMap<u16, Vec<u16>>,
+    map: &AHashMap<u16, Vec<u16>>,
 ) -> Vec<u16> {
     let verts = map
         .iter()

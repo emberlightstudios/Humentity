@@ -1,0 +1,287 @@
+use bevy::{mesh::{morph::MeshMorphWeights, skinning::SkinnedMesh}, prelude::*};
+use crate::{assets::HumanAssetRegistry, mesh_ops::{get_vertex_positions, MeshProcessingState}, prelude::*, rigs::RigData};
+
+
+/*--------------+
+ |  Components  |
+ +--------------*/
+#[derive(Component, Clone, Default)]
+pub struct HumanConfig {
+    pub prefab_morph_targets: MorphTargets,
+    pub prefab: Name,
+}
+
+impl HumanConfig {
+    pub fn new(prefab: Name, morphs: MorphTargets) -> Self {
+        Self { prefab, prefab_morph_targets: morphs}
+    }
+}
+
+//#[derive(Component, Clone, Default)]
+//pub struct HumanAssetConfig {
+//    pub equipment: Vec<Name>,
+//    pub body_parts: Vec<Name>,
+//    pub eye_color: Color,
+//    pub eyebrow_color: Color,
+//    pub hair_color: Color,
+//}
+
+/*-----------+
+ |  Systems  |
+ +-----------*/
+pub(crate) fn on_human_added(
+    new_humans: Query<(Entity, &HumanConfig), Added<HumanConfig>>,
+    prefabs: Res<HumanArchetypePrefabs>,
+    mut commands: Commands,
+) {
+    new_humans.iter().for_each(|(human, config)| {
+        // Spawn rig scene
+        if let Some(prefab) = prefabs.get(&config.prefab) {
+            let cached_scene = prefab.rig.scene.clone()
+                .expect("No rig archetype scene found");
+            let cached_scene = commands
+                .spawn((
+                    DynamicSceneRoot::from(cached_scene),
+                ))
+                .id();
+            commands.entity(human).add_child(cached_scene);
+        }
+    })
+}
+
+pub(crate) fn setup_human_parts(
+    parts: Query<(Entity, &HumanPart, &ChildOf), Without<Mesh3d>>,
+    configs: Query<(Entity, &HumanConfig)>,
+    children: Query<&Children>,
+    skinned_meshes: Query<&SkinnedMesh>,
+    mut registry: ResMut<HumanAssetRegistry>,
+    prefabs: Res<HumanArchetypePrefabs>,
+    rig_data: Res<RigData>,
+    basemesh: Res<BaseMesh>,
+    morph_targets: Res<HumanMorphs>,
+    paths: Res<HumentityPathsConfig>,
+    mut asset_server: ResMut<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+    mut commands: Commands,
+) {
+    for (entity, part, child_of) in parts.iter() {
+        let Ok((root, config)) = configs.get(child_of.parent()) else { continue };
+        let prefab = &prefabs[&config.prefab];
+
+        let mut skinned_mesh: &SkinnedMesh = &SkinnedMesh::default();
+        for child in children.iter_descendants(root) {
+            if let Ok(skm) = skinned_meshes.get(child) { skinned_mesh = skm }
+        }
+        let morph_weights = prefab.shapes
+            .iter()
+            .map(|s| config.prefab_morph_targets[&s.name])
+            .collect::<Vec<_>>();
+        let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
+        
+        match part {
+            HumanPart::BaseMesh => {
+                let MeshProcessingState::Ready(handle) = &basemesh.prefab_state[&config.prefab] else { continue };
+                commands.entity(entity).insert((
+                    Transform::IDENTITY,
+                    Mesh3d(handle.clone()),
+                    skinned_mesh.clone(),
+                    morph_weights,
+                ));
+            }
+            HumanPart::BodyPart(_) | HumanPart::Equipment(_) | HumanPart::ProxyMesh(_) => {
+                let Some(asset) = registry.get_mut(part) else { continue };
+                if let Some(mesh_handle) = asset.get_rigged_mesh_handle(
+                    &mut *asset_server, &config.prefab, prefab, &*rig_data,
+                    &*basemesh, &*morph_targets, &*paths, &mut *meshes, &mut *images
+                ) {
+                    commands.entity(entity).insert((
+                        InheritedVisibility::default(),
+                        Mesh3d(mesh_handle.clone()),
+                        skinned_mesh.clone(),
+                        morph_weights,
+                    ));
+                }
+            }
+        }
+    }
+}
+
+
+//pub(crate) fn on_human_assets_changed(
+//    mut new_humans: Query<(Entity, &HumanMeshConfig, Option<&HumanAssetConfig>), Added<HumanMeshConfig>>,
+//    mut commands: Commands,
+//    mut meshes: ResMut<Assets<Mesh>>,
+//    mut materials: ResMut<Assets<StandardMaterial>>,
+//    mut clips: ResMut<Assets<AnimationClip>>,
+//    mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
+//    global_config: Res<HumentityGlobalConfig>,
+//    registry: Res<HumanAssetRegistry>,
+//    base_mesh: Res<crate::basemesh::BaseMesh>,
+//    targets: Res<MorphTargets>,
+//    asset_server: Res<AssetServer>,
+//    rigs: Res<rigs::RigData>,
+//    vg: Res<VertexGroups>,
+//    asset_textures: Res<HumanAssetTextures>,
+//) {
+//    if new_humans.count() == 0 { return }
+//    let transparent_slots = &global_config.transparent_slots;
+//
+//    new_humans.iter_mut().for_each(|(human, config, mut anim_config)| {
+//        // Body Material
+//        let albedo = asset_server.load("humentity://skin_textures/albedo/".to_string() + &config.skin_albedo);
+//        let material = materials.add(StandardMaterial {
+//            base_color_texture: Some(albedo),
+//            perceptual_roughness: 1.,
+//            ..default()
+//        });
+//
+//        // Get morphed helper mesh
+//        let helpers = morphs::adjust_helpers_to_morphs(
+//            &config.morph_targets, &targets, &base_mesh
+//        );
+//        let mut delete_verts = AHashSet::<u16>::default();
+//
+//        // Setup animation related data
+//        let mut skinned_mesh: SkinnedMesh = SkinnedMesh::default();
+//        let mut sorted_bones: Vec<String> = vec![];
+//        let mut inv_bindposes: Vec<Mat4> = vec![];
+//        let mut local_bone_transforms: AHashMap<String, Transform> = AHashMap::default();
+//        if let Some(anim_config) = anim_config.as_mut() {
+//            (skinned_mesh, sorted_bones, inv_bindposes, local_bone_transforms) = rigs::build_rig(
+//                &human, anim_config.rig, &rigs, &mut inv_bindpose_assets, &mut commands, &vg, &helpers
+//            );
+//        }
+//
+//        // Body Parts
+//        for bp in config.body_parts.iter() {
+//
+//            // Set up mesh
+//            let asset = registry.body_parts.get(bp)
+//                .expect(&format!("FAILED TO FIND BODY PART {}", bp));
+//            //delete_verts.extend(&asset.delete_verts);
+//            let mesh = morphs::bake_asset_morphs(
+//                &config.morph_targets, &targets, &mut meshes, &helpers, &asset,
+//            );
+//            let mesh_handle: Handle<Mesh> = if let Some(anim_config) = anim_config.as_mut() {
+//                rigs::set_asset_rig_arrays(
+//                    anim_config.rig, mesh, &rigs, &asset.mhid_lookup, &mut meshes, &asset.helper_maps, &sorted_bones,
+//                )
+//            } else {
+//                meshes.add(mesh)
+//            };
+//
+//            // Set up material
+//            let mut material = StandardMaterial::default();
+//            if let Some(albedos) = asset_textures.albedo_maps.get(&asset.name) {
+//                if albedos.len() > 0 { material.base_color_texture = Some(albedos[0].clone()); }
+//            }
+//            if let Some(normal) = asset_textures.normal_map.get(&asset.name) {
+//                material.normal_map_texture = Some(normal.clone());
+//            }
+//            if let Some(ao) = asset_textures.ao_map.get(&asset.name) {
+//                material.occlusion_texture = Some(ao.clone());
+//            }
+//            for slot in asset.slots.iter() {
+//                if transparent_slots.contains(slot) {
+//                    material.alpha_mode = AlphaMode::Blend;
+//                    material.reflectance = 0.25;
+//                    if slot.contains("Eyebrow") { material.base_color = config.eyebrow_color; }
+//                    else if slot.contains("Eye") && !slot.contains("Eyelash") { material.base_color = config.eye_color; }
+//                    else if slot.contains("Hair") { material.base_color = config.hair_color; }
+//                }
+//            }
+//            let material = materials.add(material);
+//
+//            // Spawn entity
+//            let bp = commands.spawn((
+//                Mesh3d(mesh_handle),
+//                MeshMaterial3d(material),
+//                Transform::IDENTITY,
+//            )).id();
+//            if let Some(_) = anim_config {
+//                commands.entity(bp).insert(skinned_mesh.clone());
+//            }
+//            commands.entity(human).add_child(bp);
+//        }
+//
+//        // Equipment
+//        for eq in config.equipment.iter() {
+//            // Set up mesh
+//            let asset = registry.equipment.get(eq)
+//                .expect(&format!("FAILED TO FIND EQUIPMENT {}", eq));
+//            delete_verts.extend(&asset.delete_verts);
+//            let mesh = morphs::bake_asset_morphs(
+//                &config.morph_targets, &targets, &mut meshes, &helpers, &asset,
+//            );
+//            let mesh_handle: Handle<Mesh> = if let Some(anim_config) = anim_config.as_mut() {
+//                rigs::set_asset_rig_arrays(
+//                    anim_config.rig, mesh, &rigs, &asset.mhid_lookup, &mut meshes, &asset.helper_maps, &sorted_bones,
+//                )
+//            } else {
+//                meshes.add(mesh)
+//            };
+//
+//            // Set up material
+//            let mut material = StandardMaterial::default();
+//            if let Some(albedos) = asset_textures.albedo_maps.get(&asset.name) {
+//                if albedos.len() > 0 { material.base_color_texture = Some(albedos[0].clone()); }
+//            }
+//            if let Some(normal) = asset_textures.normal_map.get(&asset.name) {
+//                material.normal_map_texture = Some(normal.clone());
+//            }
+//            if let Some(ao) = asset_textures.ao_map.get(&asset.name) {
+//                material.occlusion_texture = Some(ao.clone());
+//            }
+//
+//            // Spawn entity
+//            let asset = commands.spawn((
+//                skinned_mesh.clone(),
+//                Mesh3d(mesh_handle),
+//                MeshMaterial3d(materials.add(material)),
+//                Transform::IDENTITY,
+//            )).id();
+//            if let Some(_) = anim_config {
+//                commands.entity(asset).insert(skinned_mesh.clone());
+//            }
+//            commands.entity(human).add_child(asset);
+//        }
+//
+//        // Body Mesh
+//        let mesh = assets::delete_mesh_verts(&mut meshes, &base_mesh, delete_verts);
+//        let mesh = morphs::bake_body_morphs(&mesh, &base_mesh.mhid_lookup, &helpers);
+//        let mesh_handle: Handle<Mesh> = if let Some(anim_config) = anim_config.as_mut() {
+//            rigs::set_basemesh_rig_arrays(anim_config.rig, mesh, &rigs, &base_mesh.mhid_lookup, &mut meshes, &sorted_bones)
+//        } else {
+//            meshes.add(mesh)
+//        };
+//        
+//        // Spawn avatar entity
+//        let avatar = commands.spawn((
+//            Name::new("Avatar"),
+//            Mesh3d(mesh_handle),
+//            MeshMaterial3d(material),
+//            Transform::IDENTITY,
+//        )).id();
+//        if let Some(_) = anim_config {
+//            commands.entity(avatar).insert(skinned_mesh.clone());
+//        }
+//        commands.entity(human).add_child(avatar);
+//
+//        if let Some(anim_config) = anim_config.as_mut() {
+//            let glbs = anim_config.animation_glbs.clone();
+//            for path in glbs.iter() {
+//                let clips = get_animation_clips(path, &local_bone_transforms)
+//                    .expect("Failed to build animation clips")
+//                    .iter()
+//                    .map(|(k, v)| (k.clone(), clips.add(v.clone())))
+//                    .collect::<AHashMap<String, Handle<AnimationClip>>>();
+//                anim_config.clip_handles.extend(clips);
+//
+//            }
+//        }
+//    })
+//
+//}
+//
+//
