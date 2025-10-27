@@ -140,7 +140,6 @@ fn add_humans(
     let bodybuilder = Name::new("bodybuilder");
 
     // The base mesh
-    let proxy = HumanPart::ProxyMesh(Name::new("male_generic"));
     let mut morphs = MorphTargets::default();
     morphs.insert(baby.clone(), 0.);
     morphs.insert(bodybuilder.clone(), 0.);
@@ -151,8 +150,7 @@ fn add_humans(
         children![(
             // This is broken for some reason.  I can't figure it out.  The mesh renders
             // at the wrong location, or not at all.  Makes no sense.
-            //HumanPart::BaseMesh 
-            proxy.clone()
+            HumanPart::BaseMesh 
         )]
     ));
 
@@ -164,8 +162,7 @@ fn add_humans(
         InheritedVisibility::default(),
         HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         children![(
-            //HumanPart::BaseMesh
-            proxy.clone(),
+            HumanPart::BaseMesh
         )]
     ));
 
@@ -177,8 +174,7 @@ fn add_humans(
         InheritedVisibility::default(),
         HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         children![(
-            proxy.clone(),
-            //HumanPart::BaseMesh
+            HumanPart::BaseMesh
         )]
     ));
 
@@ -191,8 +187,7 @@ fn add_humans(
         InheritedVisibility::default(),
         HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
         children![(
-            proxy.clone(),
-            //HumanPart::BaseMesh
+            HumanPart::BaseMesh
         )]
     ));
 
@@ -206,8 +201,7 @@ fn add_humans(
         InheritedVisibility::default(),
         HumanShapeConfig::new(prefab_name, morphs),
         children![(
-            proxy.clone(),
-            //HumanPart::BaseMesh
+            HumanPart::BaseMesh
         )]
     ));
 }

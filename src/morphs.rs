@@ -42,8 +42,8 @@ impl FromWorld for HumanMorphs {
                 if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("target") {
                     let Some(filename) = path.file_name().unwrap().to_str() else { continue };
                     let Some(stem) = path.file_stem().unwrap().to_str() else { continue };
-                    let err_msg = "Couldn't open target file ".to_string() + filename;
-                    let file = File::open(path).expect(&err_msg);
+                    let file = File::open(path)
+                        .expect(&format!("Couldn't open target file {}", filename));
                     for line_result in BufReader::new(file).lines() {
                         let Ok(line) = line_result else { break };
                         let mut line_elements = line.split_whitespace();
@@ -404,8 +404,8 @@ pub(crate) fn adjust_helpers_to_morphs(
 ) -> Vec<Vec3> {
     let mut helpers = basemesh.vertices.clone();
     for (target_name, &value) in morph_values.iter() {
-        let err_msg = format!("Failed to find morph {}", target_name);
-        let target = morph_targets.targets.get(target_name).expect(&err_msg);
+        let target = morph_targets.targets.get(target_name)
+            .expect(&format!("Failed to find morph {}", target_name));
         for (&vertex, &offset) in target.iter() {
             helpers[vertex as usize] += offset * value;
         }
@@ -423,14 +423,16 @@ pub(crate) fn asset_mesh_from_helpers(
     let mesh = meshes.get(&asset_data.base_mesh_handle).unwrap().clone();
     let mut vertices = get_vertex_positions(&mesh);
     for (target_name, &value) in morph_values.iter() {
-        let err_msg = format!("Failed to find morph {}", target_name);
-        let target = morph_targets.targets.get(target_name).expect(&err_msg);
+        let target = morph_targets.targets.get(target_name)
+            .expect(&format!("Failed to find morph {}", target_name));
 
         for (vert, mh_vert) in asset_data.mhid_lookup.iter().enumerate() {
             let helper_map = &asset_data.helper_map[*mh_vert as usize];
             if let Some(mh_vtx) = helper_map.single_vertex {
                 if let Some(offset) = target.get(&mh_vtx) {
-                    vertices[vert] += offset * value;
+                    vertices[vert] = helpers[*mh_vert as usize] + offset * value;
+                } else {
+                    vertices[vert] = helpers[*mh_vert as usize];
                 }
             } else { // Triangulation
                 let triangle = helper_map.triangle.as_ref().unwrap();
@@ -440,9 +442,8 @@ pub(crate) fn asset_mesh_from_helpers(
                     let wt = triangle.helper_weights[i];
                     position += *helpers.get(mh_vert as usize).unwrap() * wt;
                 }
-                position += asset_data.get_offset_scale(helpers) * triangle.helper_offset;
-                let offset = position - vertices[vert];
-                vertices[vert] += offset * value;
+                let offset = asset_data.get_offset_scale(helpers) * triangle.helper_offset;
+                vertices[vert] = position + offset * value;
             }
         }
     }
