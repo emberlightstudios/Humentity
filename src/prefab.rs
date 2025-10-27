@@ -116,7 +116,7 @@ pub(crate) fn create_basemesh_prefab_shapes(
     }
 }
 
-pub(crate) fn create_basemesh_prefab_morphable_mesh(
+pub(crate) fn create_basemesh_prefab_morphable_meshes(
     prefabs: ResMut<HumanArchetypePrefabs>,
     mut basemesh: ResMut<BaseMesh>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -220,7 +220,7 @@ pub fn create_human_prefab_rig_scenes(world: &mut World) {
     }
 }
 
-pub(crate) fn rig_prefab_meshes(
+pub(crate) fn rig_basemesh_prefab_meshes(
     mut basemesh: ResMut<BaseMesh>,
     prefabs: Res<HumanArchetypePrefabs>,
     rig_data: Res<RigData>,
@@ -246,7 +246,7 @@ pub(crate) fn rig_prefab_meshes(
         basemesh.prefab_state.insert(name.clone(), MeshProcessingState::Ready(handle));
     }
 
-    commands.set_state(HumentityLoadState::RetargetingAnimations);
+    commands.set_state(HumentityLoadState::AnimationProcessing);
 }
 
 /// Spawns bone entities and sets up the hierarchy

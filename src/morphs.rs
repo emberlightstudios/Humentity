@@ -426,13 +426,13 @@ pub(crate) fn asset_mesh_from_helpers(
         let target = morph_targets.targets.get(target_name)
             .expect(&format!("Failed to find morph {}", target_name));
 
-        for (vert, mh_vert) in asset_data.mhid_lookup.iter().enumerate() {
-            let helper_map = &asset_data.helper_map[*mh_vert as usize];
-            if let Some(mh_vtx) = helper_map.single_vertex {
-                if let Some(offset) = target.get(&mh_vtx) {
-                    vertices[vert] = helpers[*mh_vert as usize] + offset * value;
+        for (vert, mh_asset_vertex) in asset_data.mhid_lookup.iter().enumerate() {
+            let helper_map = &asset_data.helper_map[*mh_asset_vertex as usize];
+            if let Some(mh_helper_vertex) = helper_map.single_vertex {
+                if let Some(offset) = target.get(&mh_helper_vertex) {
+                    vertices[vert] = helpers[mh_helper_vertex as usize] + offset * value;
                 } else {
-                    vertices[vert] = helpers[*mh_vert as usize];
+                    vertices[vert] = helpers[mh_helper_vertex as usize];
                 }
             } else { // Triangulation
                 let triangle = helper_map.triangle.as_ref().unwrap();

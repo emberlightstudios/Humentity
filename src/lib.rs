@@ -35,7 +35,7 @@ pub mod prelude {
 pub enum HumentityLoadState {
     LoadingCoreAssets,
     BuildingPrefabs,
-    RetargetingAnimations,
+    AnimationProcessing,
     Ready,
 }
 
@@ -70,23 +70,30 @@ impl Plugin for Humentity {
                 None
             ))
             .add_systems(Update, (
+                // PHASE 1 : LOADING CORE ASSETS
                 (
                     basemesh::create_body_mesh
                         .run_if(resource_exists::<basemesh::HelperMeshHandle>),
                 ).run_if(in_state(HumentityLoadState::LoadingCoreAssets)),
+
+                // PHASE 2 : BUILDING ARCHETYPES
                 (                    
                     (
                         prefab::create_human_prefab_rig_scenes,
                         prefab::create_basemesh_prefab_shapes,
-                        prefab::create_basemesh_prefab_morphable_mesh,
-                        prefab::rig_prefab_meshes,
+                        prefab::create_basemesh_prefab_morphable_meshes,
+                        prefab::rig_basemesh_prefab_meshes,
                     ).chain().run_if(
                         resource_exists::<HumanArchetypePrefabs>
                         .and(in_state(HumentityLoadState::BuildingPrefabs))
                     ),
                 ),
-                animation::retarget_animations
-                    .run_if(in_state(HumentityLoadState::RetargetingAnimations)),
+
+                // PHASE 3 : REBUILDING ANIMATION CLIPS
+                animation::rebuild_animations
+                    .run_if(in_state(HumentityLoadState::AnimationProcessing)),
+
+                // PHASE 4 : READY TO BUILD HUMANS
                 (
                     spawning::spawn_rig_scene,
                     spawning::fit_skeleton_to_shape,
@@ -104,9 +111,12 @@ impl Plugin for Humentity {
 
     fn finish(&self, app: &mut App) {
         app.insert_state(HumentityLoadState::LoadingCoreAssets);
+        // We do this becuase the sequence of plugin load order must be 
+        // Humentity -> AssetServer -> ObjPlugin
         if !app.is_plugin_added::<ObjPlugin>() {
             app.add_plugins(ObjPlugin);
         }
+        // Most of the core assets are loaded in the FromWorld impl for these resources
         app
             .init_resource::<basemesh::BaseMesh>()
             .init_resource::<assets::HumanAssetRegistry>()
@@ -114,9 +124,3 @@ impl Plugin for Humentity {
             .init_resource::<rigs::RigData>();
     }
 }
-
-/*-------------+
- |  Resources  |
- +-------------*/
-#[derive(Resource)]
-pub struct HumentityLoading;

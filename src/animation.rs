@@ -8,7 +8,7 @@ use crate::{prelude::*, rigs::RigType};
 #[derive(Resource, Deref, DerefMut)]
 pub struct HumanAnimationClips(AHashMap::<Name, Handle<AnimationClip>>);
 
-pub(crate) fn retarget_animations(
+pub(crate) fn rebuild_animations(
     prefabs: Res<HumanArchetypePrefabs>,
     mut clips_assets: ResMut<Assets<AnimationClip>>,
     mut commands: Commands,

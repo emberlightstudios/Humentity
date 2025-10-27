@@ -1,11 +1,11 @@
 //! Makehuman comes with several lower poly proxy meshes.  These
 //! can be used for lods with the VisibilityRanges component
- 
+//! In this example we switch lods early just for clarity. 
 
 mod shared;
 use shared::cam_controls;
 use ahash::AHashMap;
-use bevy::{camera::visibility::VisibilityRange, input::mouse::MouseMotion, prelude::*};
+use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
 
 fn main() {
@@ -50,28 +50,28 @@ fn add_humans(
             HumanPart::BaseMesh,
             VisibilityRange {
                 start_margin: 0.0..0.0,
-                end_margin: 4.0..4.5,
+                end_margin: 2.0..2.,
                 use_aabb: false,
             }
         ), (
             HumanPart::ProxyMesh(lod1.clone()),
             VisibilityRange {
-                start_margin: 4.0..4.5,
-                end_margin: 8.0..8.5,
+                start_margin: 2.0..2.0,
+                end_margin: 4.0..4.0,
                 use_aabb: false,
             }
         ), (
             HumanPart::ProxyMesh(lod2.clone()),
             VisibilityRange {
-                start_margin: 8.0..8.5,
-                end_margin: 15.0..15.5,
+                start_margin: 4.0..4.,
+                end_margin: 6.0..6.,
                 use_aabb: false,
             }
         ), (
             HumanPart::ProxyMesh(lod3.clone()),
             VisibilityRange {
-                start_margin: 15.0..15.5,
-                end_margin: 50.0..50.0,
+                start_margin: 6.0..6.0,
+                end_margin: 8.0..10.0,
                 use_aabb: false,
             }
         )]
