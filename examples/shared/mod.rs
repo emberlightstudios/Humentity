@@ -15,7 +15,7 @@ pub fn cam_controls(
         *yaw -= ev.delta.x * LS;
         *pitch -= ev.delta.y * LS;
     }
-    cam.rotation = Quat::from_euler(EulerRot::YXZ, *yaw, *pitch, 0.);
+    //cam.rotation = Quat::from_euler(EulerRot::YXZ, *yaw, *pitch, 0.);
     let mut mv = Vec3::ZERO;
     if kb_input.pressed(KeyCode::KeyD) { mv.x += MS }
     if kb_input.pressed(KeyCode::KeyA) { mv.x -= MS }
@@ -26,3 +26,14 @@ pub fn cam_controls(
     cam.translation += Transform::from_rotation(transform.rotation) * mv;
 }
 
+
+pub fn add_material(
+    humans: Query<Entity, (With<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    for human in humans.iter() {
+        let mat = materials.add(StandardMaterial::from_color(Color::BLACK));
+        commands.entity(human).insert(MeshMaterial3d(mat));
+    }
+}
