@@ -15,7 +15,7 @@ pub fn cam_controls(
         *yaw -= ev.delta.x * LS;
         *pitch -= ev.delta.y * LS;
     }
-    //cam.rotation = Quat::from_euler(EulerRot::YXZ, *yaw, *pitch, 0.);
+    cam.rotation = Quat::from_euler(EulerRot::YXZ, *yaw, *pitch, 0.);
     let mut mv = Vec3::ZERO;
     if kb_input.pressed(KeyCode::KeyD) { mv.x += MS }
     if kb_input.pressed(KeyCode::KeyA) { mv.x -= MS }

@@ -21,7 +21,7 @@
 mod shared;
 
 use bevy::prelude::*;
-use shared::cam_controls;
+use shared::{cam_controls, add_material};
 use ahash::AHashMap;
 use humentity::prelude::*;
 
@@ -204,16 +204,4 @@ fn add_humans(
             HumanPart::BaseMesh
         )]
     ));
-}
-
-// Adds a simple black material to humans
-fn add_material(
-    humans: Query<Entity, (With<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut commands: Commands,
-) {
-    let mat = materials.add(StandardMaterial::from_color(Color::BLACK));
-    for human in humans {
-        commands.entity(human).insert(MeshMaterial3d(mat.clone()));
-    }
 }
