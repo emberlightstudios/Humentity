@@ -1,5 +1,5 @@
 use bevy::{
-    animation::AnimationTarget, color::palettes::css::RED, ecs::intern::Internable, mesh::VertexAttributeValues, prelude::*
+    animation::AnimationTarget, color::palettes::css::RED, ecs::intern::Internable, math::VectorSpace, mesh::VertexAttributeValues, prelude::*
 };
 use serde::Deserialize;
 use serde_json;
@@ -19,19 +19,13 @@ pub enum RigType {
     GameEngine,
 }
 
-pub(crate) struct BoneData {
-    pub(crate) local_space_transform: Transform,
-    pub(crate) model_space_transform: Transform,
-    pub(crate) parent: Name,
-}
 
 /*---------+
  |  JSON   |
  +---------*/
 #[derive(Deserialize, Debug)]
-struct BoneTransform {
+pub struct BoneTransform {
     cube_name: Option<Name>,
-    //default_position: Vec3,
     strategy: Name,
     vertex_indices: Option<Vec<u16>>,
     vertex_index: Option<u16>,
@@ -39,11 +33,11 @@ struct BoneTransform {
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct BoneJson {
-    pub(crate) head: BoneTransform,
     //inherit_scale: String,
     pub(crate) parent: Name,
     //roll: f32,
-    pub(crate) tail: BoneTransform,
+    head: BoneTransform,
+    tail: BoneTransform,
 }
 
 #[derive(Deserialize, Debug)]
@@ -355,12 +349,10 @@ pub(crate) fn get_bone_transform(
     bone: &BoneJson,
     base_rot: Quat,
     vg: &VertexGroups,
-    mh_vertices: &Vec<Vec3>,
+    helpers: &Vec<Vec3>,
 ) -> Transform {
-    let (v1, v2) = get_bone_vertices(&bone.head, vg);
-    let (v3, v4) = get_bone_vertices(&bone.tail, vg);
-    let start = (mh_vertices[v1 as usize] + mh_vertices[v2 as usize]) * 0.5;
-    let end = (mh_vertices[v3 as usize] + mh_vertices[v4 as usize]) * 0.5;
+    let start = get_bone_position(&bone.head, vg, helpers);
+    let end = get_bone_position(&bone.tail, vg, helpers);
 
     let orientation = (end - start).normalize();
     let correction = Quat::from_rotation_arc(base_rot * Vec3::Y, orientation);
@@ -368,22 +360,27 @@ pub(crate) fn get_bone_transform(
     Transform::from_translation(start).with_rotation(correction * base_rot)
 }
 
-fn get_bone_vertices(
+fn get_bone_position(
     bone: &BoneTransform,
     vg: &VertexGroups,
-) -> (u16, u16) {
+    helpers: &Vec<Vec3>,
+) -> Vec3 {
     let v1: u16;
     let v2: u16;
     if bone.strategy == Name::new("MEAN") {
         v1 = bone.vertex_indices.as_ref().unwrap()[0];
         v2 = bone.vertex_indices.as_ref().unwrap()[1];
+        (helpers[v2 as usize] + helpers[v1 as usize]) / 2.
     } else if bone.strategy == Name::new("CUBE") {
         let joint = bone.cube_name.as_ref().unwrap();
         v1 = vg.0.get(joint).unwrap()[0][0] as u16;
         v2 = vg.0.get(joint).unwrap()[0][1] as u16;
+        let mut pos = Vec3::ZERO;
+        for v in v1..v2+1 {
+            pos += helpers[v as usize];
+        }
+        pos / (v2 - v1 + 1) as f32
     } else if bone.strategy == Name::new("VERTEX") {
-        v1 = bone.vertex_index.unwrap();
-        v2 = bone.vertex_index.unwrap();
-    } else { panic!("Unrecognized bone strategy {}", bone.strategy) }
-    (v1, v2)
+        helpers[bone.vertex_index.unwrap() as usize]
+    } else { unimplemented!("Unrecognized bone strategy {}", bone.strategy) }
 }

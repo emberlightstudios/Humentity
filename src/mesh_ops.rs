@@ -68,21 +68,21 @@ pub(crate) fn get_uv_coords(mesh: &Mesh) -> Vec<Vec2> {
         .map(|arr| Vec2::new(arr[0], arr[1])).collect::<Vec<Vec2>>()
 }
 
-pub(crate) fn get_joint_indices(mesh: &Mesh) -> Vec<UVec4> {
-    let Some(VertexAttributeValues::Uint32x4(ind)) = mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
-            else { panic!("FAILED TO LOAD MESH JOINT INDICES") };
-    let d: Vec<UVec4> = ind.iter()
-            .map(|arr| UVec4::new(arr[0], arr[1], arr[2], arr[3])).collect(); 
-    d
-}
-
-pub(crate) fn get_joint_weights(mesh: &Mesh) -> Vec<Vec4> {
-    let Some(VertexAttributeValues::Float32x4(wts)) = mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
-            else { panic!("FAILED TO LOAD MESH JOINT INDICES") };
-    let d: Vec<Vec4> = wts.iter()
-            .map(|arr| Vec4::new(arr[0], arr[1], arr[2], arr[3])).collect(); 
-    d
-}
+//pub(crate) fn get_joint_indices(mesh: &Mesh) -> Vec<UVec4> {
+//    let Some(VertexAttributeValues::Uint32x4(ind)) = mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
+//            else { panic!("FAILED TO LOAD MESH JOINT INDICES") };
+//    let d: Vec<UVec4> = ind.iter()
+//            .map(|arr| UVec4::new(arr[0], arr[1], arr[2], arr[3])).collect(); 
+//    d
+//}
+//
+//pub(crate) fn get_joint_weights(mesh: &Mesh) -> Vec<Vec4> {
+//    let Some(VertexAttributeValues::Float32x4(wts)) = mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
+//            else { panic!("FAILED TO LOAD MESH JOINT INDICES") };
+//    let d: Vec<Vec4> = wts.iter()
+//            .map(|arr| Vec4::new(arr[0], arr[1], arr[2], arr[3])).collect(); 
+//    d
+//}
 
 // Maps mh vertex ids to vec of bevy ids
 pub(crate) fn generate_vertex_map(
@@ -93,8 +93,7 @@ pub(crate) fn generate_vertex_map(
     let mut matched = AHashSet::<usize>::default();
 
     for (i, mh_vertex) in mh_vertices.iter().enumerate() {
-        vertex_map.insert(i as u16, Vec::<u16>::new());
-        let vec = vertex_map.get_mut(&(i as u16)).unwrap();
+        let vec = vertex_map.entry(i as u16).or_insert(vec![]);
         for (j, vtx) in vertices.iter().enumerate() {
             if vtx == mh_vertex {
                 matched.insert(j);

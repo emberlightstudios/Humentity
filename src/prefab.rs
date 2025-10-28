@@ -1,5 +1,5 @@
 use bevy::{animation::{AnimationTarget, AnimationTargetId}, asset::RenderAssetUsages, mesh::{morph::{self, MorphAttributes, MorphTargetImage}, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, PrimitiveTopology}, prelude::*};
-use crate::{animation::get_skeleton_rotations, basemesh::VertexGroups, mesh_ops::{get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, MeshProcessingState}, morphs::{self, adjust_helpers_to_morphs}, prelude::*, rigs::{get_bone_order, set_basemesh_rig_arrays, BoneData, RigData}};
+use crate::{animation::get_skeleton_rotations, basemesh::VertexGroups, mesh_ops::{get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, MeshProcessingState}, morphs::{self, adjust_helpers_to_morphs}, prelude::*, rigs::{get_bone_order, set_basemesh_rig_arrays, RigData}};
 use ahash::{AHashMap};
 
 /// In order to dynamically reshape humans at runtime, we can define a HumanArchetype which is a mesh 
@@ -25,7 +25,6 @@ pub struct HumanAnimationArchetype {
     pub rig_type: RigType,
     pub(crate) scene: Option<Handle<DynamicScene>>,
     pub(crate) bone_order: Vec<Name>,
-    pub(crate) bones: AHashMap<Name, BoneData>,
 }
 
 impl HumanAnimationArchetype {
@@ -208,14 +207,13 @@ pub fn create_human_prefab_rig_scenes(world: &mut World) {
         let bone_order = get_bone_order(world, rig_type);
         let base_mesh = world.get_resource::<BaseMesh>().unwrap();
         let helpers = &base_mesh.vertices.clone();
-        let (scene, bones) = build_human_rig_scene(
+        let scene = build_human_rig_scene(
             &helpers, rig_type, &bone_rotations, &bone_order, world
         );
         
         let mut prefabs = world.resource_mut::<HumanArchetypePrefabs>();
         let prefab = prefabs.get_mut(&name).unwrap();
         prefab.rig.scene = Some(scene);
-        prefab.rig.bones = bones;
         prefab.rig.bone_order = bone_order.clone();
     }
 }
@@ -256,7 +254,7 @@ pub(crate) fn build_human_rig_scene(
     bone_rotations: &AHashMap<Name, Quat>,
     bone_order: &Vec<Name>,
     world: &mut World
-) -> (Handle<DynamicScene>, AHashMap<Name, BoneData>) {
+) -> Handle<DynamicScene> {
     let mh_config = &world.resource::<RigData>().configs[&rig];
 
     // Set up some convenient data structures for tracking joints/bones and entities
@@ -335,16 +333,6 @@ pub(crate) fn build_human_rig_scene(
         inverse_bindposes.push(global.to_matrix().inverse());
     }
 
-    // Cache bone data in RigConfig struct for retargeting and runtime skinning
-    let mut bones = AHashMap::<Name, BoneData>::default();
-    for bone in bone_order.iter() {
-        bones.insert(bone.clone(), BoneData {
-            local_space_transform: local_transforms[&bone],
-            model_space_transform: global_transforms[&bone],
-            parent: mh_config[&bone].parent.clone(),
-        });
-    }
-
     // Setup SkinnedMesh component and AnimationPlayer
     let mut inverse_bindpose_assets = world.resource_mut::<Assets<SkinnedMeshInverseBindposes>>();
     let inverse_bindposes = inverse_bindpose_assets.add(inverse_bindposes);
@@ -361,8 +349,5 @@ pub(crate) fn build_human_rig_scene(
     scene_world.entity_mut(rig_entity).insert(skinned_mesh);
 
     let mut ds = world.resource_mut::<Assets<DynamicScene>>();
-    (
-        ds.add(DynamicScene::from_world(&scene_world)),
-        bones,
-    )
+    ds.add(DynamicScene::from_world(&scene_world))
 }
