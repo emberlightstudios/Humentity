@@ -17,7 +17,7 @@ pub(crate) const BODY_SCALE: f32 = 0.1;
  |  Resources  |
  +-------------*/
 #[derive(Resource, Deserialize, Debug)]
-pub(crate) struct VertexGroups(pub(crate) AHashMap<Name, Vec<[usize; 2]>>);
+pub(crate) struct VertexGroups(pub(crate) AHashMap<String, Vec<[usize; 2]>>);
 
 #[derive(Resource)]
 pub struct BaseMesh{

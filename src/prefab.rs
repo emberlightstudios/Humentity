@@ -1,4 +1,4 @@
-use bevy::{animation::{AnimationTarget, AnimationTargetId}, asset::RenderAssetUsages, mesh::{morph::{self, MorphAttributes, MorphTargetImage}, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, PrimitiveTopology}, prelude::*};
+use bevy::{animation::{AnimationTarget, AnimationTargetId}, asset::RenderAssetUsages, ecs::intern::Internable, mesh::{morph::{self, MorphAttributes, MorphTargetImage}, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, PrimitiveTopology}, prelude::*};
 use crate::{animation::get_skeleton_rotations, basemesh::VertexGroups, mesh_ops::{get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, MeshProcessingState}, morphs::{self, adjust_helpers_to_morphs}, prelude::*, rigs::{get_bone_order, set_basemesh_rig_arrays, RigData}};
 use ahash::{AHashMap};
 
@@ -7,12 +7,12 @@ use ahash::{AHashMap};
 /// mesh, and the rest of the makehuman shapekeys are removed.  Use this for distinct faces or body types.
 /// You can also blend between them, since they are just shapekeys.
 pub struct HumanShapeArchetype {
-    pub name: Name,
+    pub name: &'static str,
     pub morphs: MorphTargets,
 }
 
 impl HumanShapeArchetype {
-    pub fn new(name: Name, morphs: MorphTargets) -> Self {
+    pub fn new(name: &'static str, morphs: MorphTargets) -> Self {
         Self { name, morphs }
     }
 }
@@ -20,20 +20,19 @@ impl HumanShapeArchetype {
 /// Encapsulates all the animation properties and cached data associated with an archetype/prefab.
 #[derive(Default)]
 pub struct HumanAnimationArchetype {
-    pub animations: AHashMap<Name, Handle<AnimationClip>>,
-    pub animation_glbs: Vec<Name>,
+    pub animations: AHashMap<&'static str, Handle<AnimationClip>>,
+    pub animation_glbs: Vec<&'static str>,
     pub rig_type: RigType,
     pub(crate) scene: Option<Handle<DynamicScene>>,
-    pub(crate) bone_order: Vec<Name>,
+    pub(crate) bone_order: Vec<&'static str>,
 }
 
 impl HumanAnimationArchetype {
-    pub fn new(rig_type: RigType, animation_glbs: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+    pub fn new(rig_type: RigType, animation_glbs: impl IntoIterator<Item = &'static str>) -> Self {
         let mut instance = Self::default();
         instance.rig_type = rig_type;
         instance.animation_glbs = animation_glbs
             .into_iter()
-            .map(|g| Name::new(g.as_ref().to_string()))
             .collect::<Vec<_>>();
         instance
     }
@@ -69,11 +68,11 @@ impl HumanArchetypePrefab {
  | Resources |
  +-----------*/
 #[derive(Resource, Default, Deref, DerefMut)]
-pub struct HumanArchetypePrefabs(AHashMap<Name, HumanArchetypePrefab>);
+pub struct HumanArchetypePrefabs(AHashMap<&'static str, HumanArchetypePrefab>);
 
 impl HumanArchetypePrefabs {
-    pub fn new(prefabs: impl IntoIterator<Item = (Name, HumanArchetypePrefab)>) -> Self {
-        Self(prefabs.into_iter().collect::<AHashMap<Name, HumanArchetypePrefab>>())
+    pub fn new(prefabs: impl IntoIterator<Item = (&'static str, HumanArchetypePrefab)>) -> Self {
+        Self(prefabs.into_iter().collect::<AHashMap<&'static str, HumanArchetypePrefab>>())
     }
 }
 
@@ -134,7 +133,7 @@ pub(crate) fn create_basemesh_prefab_morphable_meshes(
     }
     let basemesh_mesh = meshes.get(&basemesh.mesh_handle).unwrap().clone();
 
-    for (name, prefab) in prefabs.iter() {
+    for (&name, prefab) in prefabs.iter() {
         let MeshProcessingState::Shaped(shaped_meshes) = &basemesh.prefab_state[name] 
             else { unimplemented!("This should not happen") };
         let mut morphs = vec![];
@@ -166,7 +165,7 @@ pub(crate) fn create_basemesh_prefab_morphable_meshes(
                 }
             }
 
-            morph_names.push(String::from(&shape.name));
+            morph_names.push(String::from(shape.name));
             morphs.push(morph.into_iter());
         }
 
@@ -251,14 +250,14 @@ pub(crate) fn rig_basemesh_prefab_meshes(
 pub(crate) fn build_human_rig_scene(
     helpers: &Vec<Vec3>,
     rig: RigType,
-    bone_rotations: &AHashMap<Name, Quat>,
-    bone_order: &Vec<Name>,
+    bone_rotations: &AHashMap<&'static str, Quat>,
+    bone_order: &Vec<&'static str>,
     world: &mut World
 ) -> Handle<DynamicScene> {
     let mh_config = &world.resource::<RigData>().configs[&rig];
 
     // Set up some convenient data structures for tracking joints/bones and entities
-    let mut bone_entities = AHashMap::<Name, Entity>::default();
+    let mut bone_entities = AHashMap::<&'static str, Entity>::default();
 
     // Start scene world with rig entity
     let registry = world.resource::<AppTypeRegistry>();
@@ -271,19 +270,20 @@ pub(crate) fn build_human_rig_scene(
     )).id();
 
     // Spawn all bone entities
-    for name in bone_order.iter() {
+    for &name in bone_order.iter() {
         let mut path = Vec::<Name>::new();
-        path.push(name.clone());
-        let mut bone = &mh_config[name];
+        path.push(Name::from(name));
+        let mut bone = &mh_config[&name];
 
         while !bone.parent.is_empty() {
-            path.push(bone.parent.clone());
-            bone = &mh_config[&bone.parent];
+            let parent = NAME_INTERNER.intern(&bone.parent).leak();
+            path.push(Name::new(parent));
+            bone = &mh_config[&parent];
         }
         path.push(Name::new("Human.rig"));
 
         let entity = scene_world.spawn((
-            name.clone(),
+            Name::new(name),
             AnimationTarget {
                 id: AnimationTargetId::from_names(path.iter().rev()),
                 player: rig_entity,
@@ -293,11 +293,11 @@ pub(crate) fn build_human_rig_scene(
     }
 
     // Wire up parent-child relationships
-    for name in bone_order.iter() {
+    for &name in bone_order.iter() {
         let &child = bone_entities.get(&name).unwrap();
         if let Some(parent_name) = mh_config.get(&name).map(|b| b.parent.to_string()) {
             if !parent_name.is_empty() {
-                if let Some(&parent) = bone_entities.get(&Name::new(parent_name)) {
+                if let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak()) {
                     scene_world.entity_mut(child).insert(ChildOf(parent));
                 }
             }
@@ -305,7 +305,7 @@ pub(crate) fn build_human_rig_scene(
     }
 
     // Attach root(s) to rig entity
-    for name in bone_order.iter() {
+    for &name in bone_order.iter() {
         if let Some(bone) = mh_config.get(&name) {
             if bone.parent.is_empty() {
                 scene_world.entity_mut(bone_entities[&name]).insert(ChildOf(rig_entity));
@@ -322,7 +322,7 @@ pub(crate) fn build_human_rig_scene(
 
     // compute inverse bindposes
     let mut inverse_bindposes = Vec::with_capacity(bone_order.len());
-    for name in bone_order.iter() {
+    for &name in bone_order.iter() {
         let entity = bone_entities[&name];
         let local = local_transforms[&name];
         let global = global_transforms[&name];

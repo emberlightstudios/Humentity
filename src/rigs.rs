@@ -25,8 +25,8 @@ pub enum RigType {
  +---------*/
 #[derive(Deserialize, Debug)]
 pub struct BoneTransform {
-    cube_name: Option<Name>,
-    strategy: Name,
+    cube_name: Option<String>,
+    strategy: String,
     vertex_indices: Option<Vec<u16>>,
     vertex_index: Option<u16>,
 }
@@ -34,7 +34,7 @@ pub struct BoneTransform {
 #[derive(Deserialize, Debug)]
 pub(crate) struct BoneJson {
     //inherit_scale: String,
-    pub(crate) parent: Name,
+    pub(crate) parent: String,
     //roll: f32,
     head: BoneTransform,
     tail: BoneTransform,
@@ -42,13 +42,13 @@ pub(crate) struct BoneJson {
 
 #[derive(Deserialize, Debug)]
 struct WeightsFile {
-    weights: AHashMap<Name, Vec<(u16, f32)>>
+    weights: AHashMap<String, Vec<(u16, f32)>>
 }
 
 // Contains an extra layer for some reason.  Usual config is in the bones key
 #[derive(Deserialize, Debug)]
 struct MixamoConfig {
-    bones: AHashMap<Name, BoneJson>
+    bones: AHashMap<String, BoneJson>
 }
 
 /*-----------+
@@ -57,8 +57,8 @@ struct MixamoConfig {
 /// Raw rig data from makehuman json files
 #[derive(Resource)]
 pub(crate) struct RigData {
-    pub(crate) weights: AHashMap<RigType, AHashMap<Name, AHashMap<u16, f32>>>,
-    pub(crate) configs: AHashMap<RigType, AHashMap<Name, BoneJson>>,
+    pub(crate) weights: AHashMap<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>,
+    pub(crate) configs: AHashMap<RigType, AHashMap<&'static str, BoneJson>>,
 }
 
 impl FromWorld for RigData {
@@ -70,8 +70,8 @@ impl FromWorld for RigData {
         type_strings.insert(RigType::Mixamo, "mixamo");
         type_strings.insert(RigType::GameEngine, "game_engine");
 
-        let mut rig_weights = AHashMap::<RigType, AHashMap<Name, AHashMap<u16, f32>>>::default();
-        let mut rig_configs = AHashMap::<RigType, AHashMap<Name, BoneJson>>::default();
+        let mut rig_weights = AHashMap::<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>::default();
+        let mut rig_configs = AHashMap::<RigType, AHashMap<&'static str, BoneJson>>::default();
 
         for (rig_type, name) in type_strings.iter() {
             let err_msg = "FAILED TO OPEN WEIGHTS FILE : ".to_string() + name;
@@ -79,10 +79,10 @@ impl FromWorld for RigData {
             let weights_reader = BufReader::new(weights_file);
             let err_msg = "FAILED TO READ WEIGHTS JSON : ".to_string() + name;
             let weights: WeightsFile = serde_json::from_reader(weights_reader).expect(&err_msg);
-            let mut weights_hashmap = AHashMap::<Name, AHashMap<u16, f32>>::default();
+            let mut weights_hashmap = AHashMap::<&'static str, AHashMap<u16, f32>>::default();
             for (bone, wts) in weights.weights.iter() {
                 let hashmap: AHashMap<u16, f32> = wts.iter().cloned().collect();
-                weights_hashmap.insert(Name::new(NAME_INTERNER.intern(bone).leak()), hashmap);
+                weights_hashmap.insert(NAME_INTERNER.intern(bone).leak(), hashmap);
             }
             rig_weights.insert(*rig_type, weights_hashmap);
 
@@ -92,10 +92,22 @@ impl FromWorld for RigData {
             let err_msg = "FAILED TO READ CONFIG JSON : ".to_string() + name;
             if *rig_type == RigType::Mixamo {
                 let config: MixamoConfig = serde_json::from_reader(config_reader).expect(&err_msg);
-                rig_configs.insert(*rig_type, config.bones);
+                rig_configs.insert(
+                    *rig_type,
+                    config.bones
+                        .into_iter()
+                        .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x))
+                        .collect::<AHashMap<&'static str, BoneJson>>()
+                );
             } else {
-                let config: AHashMap<Name, BoneJson> = serde_json::from_reader(config_reader).expect(&err_msg);
-                rig_configs.insert(*rig_type, config);
+                let config: AHashMap<String, BoneJson> = serde_json::from_reader(config_reader).expect(&err_msg);
+                rig_configs.insert(
+                    *rig_type,
+                    config
+                        .into_iter()
+                        .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x))
+                        .collect::<AHashMap<&'static str, BoneJson>>()
+                );
             }
         }
         RigData {
@@ -124,31 +136,31 @@ impl FromWorld for RigData {
 /*-----------+
  | Functions |
  +-----------*/
-pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<Name> {
+pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static str> {
     let mh_config = world.get_resource::<RigData>()
         .expect("Humentitiy not loaded");
     let mh_config = &mh_config.configs[&rig];
-    let mut depths = AHashMap::<Name, usize>::default();
+    let mut depths = AHashMap::<&'static str, usize>::default();
     for (name, bone) in mh_config.iter() {
         let mut depth = 0;
         let mut parent = &bone.parent;
         while !parent.is_empty() {
             depth += 1;
-            parent = &mh_config.get(parent).unwrap().parent;
+            parent = &mh_config.get(NAME_INTERNER.intern(&parent).leak()).unwrap().parent;
         }
         depths.insert(name.clone(), depth);
     }
 
-    let mut sorted_bones: Vec<(Name, usize)> = depths.into_iter().collect();
+    let mut sorted_bones: Vec<(&'static str, usize)> = depths.into_iter().collect();
     sorted_bones.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
-    sorted_bones.into_iter().map(|(name, _)| name).collect::<Vec<Name>>()
+    sorted_bones.into_iter().map(|(name, _)| name).collect::<Vec<&'static str>>()
 }
 
 pub(crate) fn set_basemesh_rig_arrays(
     mut mesh: Mesh,
     basemesh: &BaseMesh,
     meshes: &mut Assets<Mesh>,
-    bone_order: &Vec<Name>,
+    bone_order: &Vec<&'static str>,
     rig_type: RigType,
     rig_data: &RigData,
 ) -> Handle<Mesh> {
@@ -305,12 +317,17 @@ pub(crate) fn set_asset_rig_arrays(
 }
 
 pub(crate) fn get_model_space_skeleton_transforms(
-    bone_order: &Vec<Name>, helpers: &Vec<Vec3>, rig_type: RigType, bone_rotations: &AHashMap<Name, Quat>, vg: &VertexGroups, rig_data: &RigData
-) -> AHashMap<Name, Transform> {
+    bone_order: &Vec<&'static str>,
+    helpers: &Vec<Vec3>,
+    rig_type: RigType,
+    bone_rotations: &AHashMap<&'static str, Quat>,
+    vg: &VertexGroups,
+    rig_data: &RigData
+) -> AHashMap<&'static str, Transform> {
     let mh_config = &rig_data.configs[&rig_type];
     // Compute global transforms
-    let mut global_transforms = AHashMap::<Name, Transform>::default();
-    for name in bone_order.iter() {
+    let mut global_transforms = AHashMap::<&'static str, Transform>::default();
+    for &name in bone_order.iter() {
         let bone = &mh_config[name];
         let base_rot = bone_rotations[name];
         global_transforms.insert(name.clone(), get_bone_transform(bone, base_rot, vg, helpers));
@@ -319,19 +336,19 @@ pub(crate) fn get_model_space_skeleton_transforms(
 }
 
 pub(crate) fn get_local_skeleton_transforms(
-    bone_order: &Vec<Name>, rig_type: RigType, rig_data: &RigData, global_transforms: &AHashMap<Name, Transform>
-) -> AHashMap<Name, Transform> {
+    bone_order: &Vec<&'static str>, rig_type: RigType, rig_data: &RigData, global_transforms: &AHashMap<&'static str, Transform>
+) -> AHashMap<&'static str, Transform> {
     // Compute local transforms relative to parent
     let mh_config = &rig_data.configs[&rig_type];
-    let mut local_transforms = AHashMap::<Name, Transform>::default();
-    for name in bone_order.iter() {
-        let mut mat = global_transforms[&name].to_matrix();
-        let mut parent_names = Vec::<&Name>::new();
+    let mut local_transforms = AHashMap::<&'static str, Transform>::default();
+    for &name in bone_order.iter() {
+        let mut mat = global_transforms[name].to_matrix();
+        let mut parent_names = Vec::<&'static str>::new();
 
         let mut bone = &mh_config[name];
         while !bone.parent.is_empty() {
             parent_names.push(&bone.parent);
-            bone = &mh_config[&bone.parent];
+            bone = &mh_config[NAME_INTERNER.intern(&bone.parent).leak()];
         }
 
         // Apply inverse of each parent's local transform
@@ -367,11 +384,11 @@ fn get_bone_position(
 ) -> Vec3 {
     let v1: u16;
     let v2: u16;
-    if bone.strategy == Name::new("MEAN") {
+    if bone.strategy == "MEAN" {
         v1 = bone.vertex_indices.as_ref().unwrap()[0];
         v2 = bone.vertex_indices.as_ref().unwrap()[1];
         (helpers[v2 as usize] + helpers[v1 as usize]) / 2.
-    } else if bone.strategy == Name::new("CUBE") {
+    } else if bone.strategy == "CUBE" {
         let joint = bone.cube_name.as_ref().unwrap();
         v1 = vg.0.get(joint).unwrap()[0][0] as u16;
         v2 = vg.0.get(joint).unwrap()[0][1] as u16;
@@ -380,7 +397,7 @@ fn get_bone_position(
             pos += helpers[v as usize];
         }
         pos / (v2 - v1 + 1) as f32
-    } else if bone.strategy == Name::new("VERTEX") {
+    } else if bone.strategy == "VERTEX" {
         helpers[bone.vertex_index.unwrap() as usize]
     } else { unimplemented!("Unrecognized bone strategy {}", bone.strategy) }
 }

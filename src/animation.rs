@@ -6,7 +6,7 @@ use gltf::Skin;
 use crate::{prelude::*, rigs::RigType};
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct HumanAnimationClips(AHashMap::<Name, Handle<AnimationClip>>);
+pub struct HumanAnimationClips(AHashMap::<&'static str, Handle<AnimationClip>>);
 
 pub(crate) fn rebuild_animations(
     prefabs: Res<HumanArchetypePrefabs>,
@@ -18,11 +18,11 @@ pub(crate) fn rebuild_animations(
         .flat_map(|(_, &ref p)| p.rig.animation_glbs.iter())
         .collect::<Vec<_>>();
 
-    let mut clip_handles = AHashMap::<Name, Handle<AnimationClip>>::new();
+    let mut clip_handles = AHashMap::<&'static str, Handle<AnimationClip>>::new();
     for glb in glbs.iter() {
         let clips = get_animation_clips(glb.to_string())
             .expect("Failed to retarget animation clips");
-        let mut handles: AHashMap<Name, Handle<AnimationClip>> = AHashMap::default();
+        let mut handles: AHashMap<&'static str, Handle<AnimationClip>> = AHashMap::default();
         for (name, clip) in clips.into_iter() {
             handles.insert(name, clips_assets.add(clip));
         }
@@ -32,7 +32,7 @@ pub(crate) fn rebuild_animations(
     commands.set_state(HumentityLoadState::Ready);
 }
 
-pub(crate) fn get_skeleton_rotations(world: &mut World, rig: RigType) -> Result<AHashMap<Name, Quat>, BevyError> {
+pub(crate) fn get_skeleton_rotations(world: &mut World, rig: RigType) -> Result<AHashMap<&'static str, Quat>, BevyError> {
     let config = world.get_resource::<HumentityPathsConfig>()
         .expect("Humentity not loaded");
     let mut path = config.core_assets_path.clone();
@@ -43,24 +43,24 @@ pub(crate) fn get_skeleton_rotations(world: &mut World, rig: RigType) -> Result<
     let (document, ..) = gltf::import(path)?;
     if document.skins().len() > 1 { return Err(BevyError::from("More than one skin present in file")) };
     let Some(skin) = document.skins().next() else { return Err(BevyError::from("No skins available")) };
-    let mut transforms = AHashMap::<Name, Transform>::default();
-    let mut node_indices = AHashMap::<Name, usize>::default();
+    let mut transforms = AHashMap::<&'static str, Transform>::default();
+    let mut node_indices = AHashMap::<&'static str, usize>::default();
 
     // Get joint local transforms
     for joint in skin.joints() {
         let name = joint.name().expect("No name for bone in skeleton file?");
-        node_indices.insert(Name::new(NAME_INTERNER.intern(name).leak()), joint.index());
+        node_indices.insert(NAME_INTERNER.intern(name).leak(), joint.index());
         let (pos, rot, scale) = joint.transform().decomposed();
         let transform = Transform {
             translation: Vec3::from_array(pos),
             rotation: Quat::from_array(rot),
             scale: Vec3::from_array(scale),
         };
-        transforms.insert(Name::new(NAME_INTERNER.intern(name).leak()), transform);
+        transforms.insert(NAME_INTERNER.intern(name).leak(), transform);
     }
 
     // Convert to global transforms
-    let mut global_transforms = AHashMap::<Name, Transform>::default();
+    let mut global_transforms = AHashMap::<&'static str, Transform>::default();
     let root = &find_root_joints(&skin);
     compute_global_transform(root, &transforms, &mut global_transforms, Transform::IDENTITY)?;
 
@@ -68,30 +68,30 @@ pub(crate) fn get_skeleton_rotations(world: &mut World, rig: RigType) -> Result<
         global_transforms
             .iter()
             .map(|(n, t)| (n.clone(), t.rotation))
-            .collect::<AHashMap<Name, Quat>>()
+            .collect::<AHashMap<&'static str, Quat>>()
     )
 }
 
 pub(crate) fn get_animation_clips(
     path: impl AsRef<Path>,
-) -> Result<AHashMap<Name, AnimationClip>, BevyError> {
+) -> Result<AHashMap<&'static str, AnimationClip>, BevyError> {
     let (document, buffers, _) = gltf::import(path)?;
     if document.skins().len() > 1 { return Err(BevyError::from("More than one skin present in file")) };
     let Some(skin) = document.skins().next() else { return Err(BevyError::from("No skins available")) };
-    let mut transforms = AHashMap::<Name, Transform>::default();
-    let mut node_indices = AHashMap::<Name, usize>::default();
+    let mut transforms = AHashMap::<&'static str, Transform>::default();
+    let mut node_indices = AHashMap::<&'static str, usize>::default();
 
     // Get joint local transforms
     for joint in skin.joints() {
         let name = joint.name().unwrap_or("");
-        node_indices.insert(Name::new(NAME_INTERNER.intern(name).leak()), joint.index());
+        node_indices.insert(NAME_INTERNER.intern(name).leak(), joint.index());
         let (pos, rot, scale) = joint.transform().decomposed();
         let transform = Transform {
             translation: Vec3::from_array(pos),
             rotation: Quat::from_array(rot),
             scale: Vec3::from_array(scale),
         };
-        transforms.insert(Name::new(NAME_INTERNER.intern(name).leak()), transform);
+        transforms.insert(NAME_INTERNER.intern(name).leak(), transform);
     }
 
     // Convert to global transforms
@@ -210,7 +210,7 @@ pub(crate) fn get_animation_clips(
                 _ => { continue }
             }
         }
-        new_clips.insert(Name::new(NAME_INTERNER.intern(clip_name).leak()), clip);
+        new_clips.insert(NAME_INTERNER.intern(clip_name).leak(), clip);
     }
 
     Ok(new_clips)
@@ -218,12 +218,12 @@ pub(crate) fn get_animation_clips(
 
 fn compute_global_transform(
     root: &gltf::Node,
-    local_transforms: &AHashMap<Name, Transform>,
-    global_transforms: &mut AHashMap<Name, Transform>,
+    local_transforms: &AHashMap<&'static str, Transform>,
+    global_transforms: &mut AHashMap<&'static str, Transform>,
     parent_global: Transform,
 ) -> Result<(), BevyError> {
     let name = root.name().ok_or(BevyError::from("No name for bone"))?;
-    let name = Name::new(NAME_INTERNER.intern(name).leak());
+    let name = NAME_INTERNER.intern(name).leak();
     let local = local_transforms.get(&name).ok_or(BevyError::from("Missing local transform"))?;
     let global = Transform::from_matrix(parent_global.to_matrix() * local.to_matrix());
     global_transforms.insert(name.clone(), global);

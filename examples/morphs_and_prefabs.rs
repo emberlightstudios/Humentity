@@ -90,11 +90,11 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     // If gender is not specified, defaults to male (gender = 1)
     // If age is not specified, defaults to (young) adult (age = 0.5)
     let mut morph_targets = MorphTargets::default();
-    morph_targets.insert(Name::new("age"), 0.);
+    morph_targets.insert("age", 0.);
 
     // We'll give our prefab 2 shapes, a baby archetype and a bodybuilder archetype
     let baby_shape = HumanShapeArchetype::new(
-        Name::new("baby"),
+        "baby",
         // This fn call is necessary to deconstruct compound "morph" values
         // down to the level of individual makehuman morph targets.
         // Many of the available morphs (see line 83) actually drive multiple
@@ -104,10 +104,10 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
 
     morph_targets.clear();
     // These are desinged in makehuman such that you don't have to normalize their sum.
-    morph_targets.insert(Name::new("weight"), 1.);
-    morph_targets.insert(Name::new("muscle"), 1.);
+    morph_targets.insert("weight", 1.);
+    morph_targets.insert("muscle", 1.);
     let bodybuilder_shape = HumanShapeArchetype::new(
-        Name::new("bodybuilder"),
+        "bodybuilder",
         morphs.compute_target_weights(&morph_targets),
     );
 
@@ -120,7 +120,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     // You can have more than one prefab, but for this example just one.
     // Prefabs have a name also
     prefabs.insert(
-        Name::new("ExampleHumanPrefab"),
+        "ExampleHumanPrefab",
         HumanArchetypePrefab::new(
             vec![baby_shape, bodybuilder_shape],
             HumanAnimationArchetype::default(), // No animation in this example
@@ -135,18 +135,18 @@ fn add_humans(
 ) {
     // Previously defined shapes will now appear as morph targets on the prefab's mesh
     // The HumanShapeConfig type controls prefab access and applies our morph targets.
-    let prefab_name = Name::new("ExampleHumanPrefab");
-    let baby = Name::new("baby");
-    let bodybuilder = Name::new("bodybuilder");
+    let prefab_name = "ExampleHumanPrefab";
+    let baby = "baby";
+    let bodybuilder = "bodybuilder";
 
     // The base mesh
     let mut morphs = MorphTargets::default();
-    morphs.insert(baby.clone(), 0.);
-    morphs.insert(bodybuilder.clone(), 0.);
+    morphs.insert(baby, 0.);
+    morphs.insert(bodybuilder, 0.);
     commands.spawn((
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
-        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name, morphs.clone()),
         children![(
             // This is broken for some reason.  I can't figure it out.  The mesh renders
             // at the wrong location, or not at all.  Makes no sense.
@@ -155,24 +155,24 @@ fn add_humans(
     ));
 
     // A baby
-    morphs.insert(baby.clone(), 1.);
-    morphs.insert(bodybuilder.clone(), 0.);
+    morphs.insert(baby, 1.);
+    morphs.insert(bodybuilder, 0.);
     commands.spawn((
         Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
-        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name, morphs.clone()),
         children![(
             HumanPart::BaseMesh
         )]
     ));
 
     // A bodybuilder
-    morphs.insert(baby.clone(), 0.);
-    morphs.insert(bodybuilder.clone(), 1.);
+    morphs.insert(baby, 0.);
+    morphs.insert(bodybuilder, 1.);
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         InheritedVisibility::default(),
-        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name, morphs.clone()),
         children![(
             HumanPart::BaseMesh
         )]
@@ -180,12 +180,12 @@ fn add_humans(
 
     // Half baby/half bodybuilder, ha!
     // Note that the shapekey weights sum to 1
-    morphs.insert(baby.clone(), 0.5);
-    morphs.insert(bodybuilder.clone(), 0.5);
+    morphs.insert(baby, 0.5);
+    morphs.insert(bodybuilder, 0.5);
     commands.spawn((
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
-        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name, morphs.clone()),
         children![(
             HumanPart::BaseMesh
         )]

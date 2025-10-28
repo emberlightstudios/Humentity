@@ -1,7 +1,6 @@
 use ahash::AHashMap;
-use bevy::{mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
-use gltf::json::extensions::skin;
-use crate::{assets::HumanAssetRegistry, basemesh::VertexGroups, mesh_ops::{get_vertex_positions, MeshProcessingState}, prelude::*, rigs::{get_local_skeleton_transforms, get_model_space_skeleton_transforms, RigData}};
+use bevy::{ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
+use crate::{assets::HumanAssetRegistry, basemesh::VertexGroups, mesh_ops::{MeshProcessingState}, prelude::*, rigs::{get_local_skeleton_transforms, get_model_space_skeleton_transforms, RigData}};
 
 
 /*--------------+
@@ -10,11 +9,11 @@ use crate::{assets::HumanAssetRegistry, basemesh::VertexGroups, mesh_ops::{get_v
 #[derive(Component, Clone, Default)]
 pub struct HumanShapeConfig {
     pub prefab_morph_targets: MorphTargets,
-    pub prefab: Name,
+    pub prefab: &'static str,
 }
 
 impl HumanShapeConfig {
-    pub fn new(prefab: Name, morphs: MorphTargets) -> Self {
+    pub fn new(prefab: &'static str, morphs: MorphTargets) -> Self {
         Self { prefab, prefab_morph_targets: morphs}
     }
 }
@@ -24,8 +23,8 @@ pub struct FitSkeleton;
 
 //#[derive(Component, Clone, Default)]
 //pub struct HumanAssetConfig {
-//    pub equipment: Vec<Name>,
-//    pub body_parts: Vec<Name>,
+//    pub equipment: Vec<&'static str>,
+//    pub body_parts: Vec<&'static str>,
 //    pub eye_color: Color,
 //    pub eyebrow_color: Color,
 //    pub hair_color: Color,
@@ -84,7 +83,7 @@ pub(crate) fn fit_skeleton_to_shape(
                     if let Ok(transform) = global_transforms.get(child) {
                         let name = names.get(child).unwrap();
                         bone_rotations.insert(
-                            name.clone(),
+                            NAME_INTERNER.intern(name.as_str()).leak(),
                             Transform::from_matrix(model_transform.to_matrix().inverse() * transform.to_matrix()).rotation
                         );
                     }
@@ -102,7 +101,7 @@ pub(crate) fn fit_skeleton_to_shape(
         let mut local_bone_transforms = get_local_skeleton_transforms(
             &prefab.rig.bone_order, prefab.rig.rig_type, &*rig_data, &global_bone_transforms);
         for child in children.iter_descendants(rig_entity) {
-            let name = names.get(child).unwrap();
+            let name = names.get(child).unwrap().as_str();
             let mut transform = local_transforms.get_mut(child).unwrap();
             *transform = local_bone_transforms.remove(name).unwrap();
         }

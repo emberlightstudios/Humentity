@@ -29,9 +29,9 @@ use crate::{
 #[derive(Component, Clone, Eq, PartialEq, Hash)]
 pub enum HumanPart {
     BaseMesh,
-    ProxyMesh(Name),
-    BodyPart(Name),
-    Equipment(Name),
+    ProxyMesh(&'static str),
+    BodyPart(&'static str),
+    Equipment(&'static str),
 }
 
 /// The texture types which can be loaded for materials which go on [`HumanAsset`] meshes
@@ -53,9 +53,9 @@ pub struct HumanAsset {
 }
 
 impl HumanAsset {
-    pub fn get_name(&self) -> Name {
+    pub fn get_name(&self) -> &'static str {
         match &self.part {
-            HumanPart::BaseMesh => Name::new("basemesh"),
+            HumanPart::BaseMesh => "basemesh",
             HumanPart::ProxyMesh(name) |
             HumanPart::Equipment(name) |
             HumanPart::BodyPart(name) => name.clone()
@@ -88,7 +88,7 @@ impl HumanAsset {
     /// Return the mesh handle of the asset which has been augmented with arrays for skinning with the given rig
     pub(crate) fn get_rigged_mesh_handle(
         &mut self, asset_server: &mut AssetServer, 
-        prefab_name: &Name,
+        prefab_name: &&'static str,
         prefab: &HumanArchetypePrefab,
         rig_data: &RigData,
         basemesh: &BaseMesh,
@@ -107,7 +107,7 @@ impl HumanAsset {
 
     /// Get a texture by name, loading into Assets if necessary
     pub fn get_texture_handle(
-        &mut self, name: Name, texture_type: HumanAssetTextureType, asset_server: &mut AssetServer
+        &mut self, name: &'static str, texture_type: HumanAssetTextureType, asset_server: &mut AssetServer
     ) -> Handle<Image> {
         if self.data.is_none() {
             self.load_asset_if_unloaded(asset_server);
@@ -154,9 +154,9 @@ impl HumanAsset {
 #[derive(Default)]
 struct HumanMeshAssetFilePaths {
     mh_file: PathBuf,
-    albedo_maps: AHashMap<Name, PathBuf>,
-    normal_maps: AHashMap<Name, PathBuf>,
-    ao_maps: AHashMap<Name, PathBuf>,
+    albedo_maps: AHashMap<&'static str, PathBuf>,
+    normal_maps: AHashMap<&'static str, PathBuf>,
+    ao_maps: AHashMap<&'static str, PathBuf>,
 }
 
 /// The cached data for the asset, includes handles to relevant assets and
@@ -168,14 +168,14 @@ pub struct HumanAssetData {
     pub equipment_slots: Vec<EquipmentSlot>,
     pub(crate) base_mesh_handle: Handle<Mesh>,
     pub(crate) prefab_load_state: PrefabLoadState,
-    pub(crate) albedo_map_handles: AHashMap<Name, Handle<Image>>,
-    pub(crate) normal_map_handles: AHashMap<Name, Handle<Image>>,
-    pub(crate) ao_map_handles: AHashMap<Name, Handle<Image>>,
+    pub(crate) albedo_map_handles: AHashMap<&'static str, Handle<Image>>,
+    pub(crate) normal_map_handles: AHashMap<&'static str, Handle<Image>>,
+    pub(crate) ao_map_handles: AHashMap<&'static str, Handle<Image>>,
     pub(crate) helper_map: Vec<HelperMap>,
     pub(crate) mhid_lookup: Vec<u16>,
     pub(crate) delete_verts: AHashSet<u16>,
     obj_file: PathBuf,
-    tags: Vec<Name>,
+    tags: Vec<&'static str>,
     z_depth: i8,
     scale_data: [ScaleData; 3],
 }
@@ -196,7 +196,7 @@ impl HumanAssetData {
 
     pub(crate) fn get_rigged_mesh_handle(
         &mut self,
-        prefab_name: &Name,
+        prefab_name: &&'static str,
         prefab: &HumanArchetypePrefab,
         basemesh: &BaseMesh,
         morph_targets: &HumanMorphs,
@@ -264,7 +264,7 @@ impl HumanAssetData {
                         }
                     }
 
-                    morph_names.push(String::from(&shape.name));
+                    morph_names.push(String::from(shape.name));
                     morphs.push(morph.into_iter());
                 }
 
@@ -351,7 +351,7 @@ pub enum BodyPartSlot {
     Teeth,
     Hair,
     FacialHair,
-    Custom(Name),
+    Custom(&'static str),
 }
 
 impl BodyPartSlot {
@@ -368,7 +368,7 @@ impl BodyPartSlot {
             "Hair" => BodyPartSlot::Hair,
             "FacialHair" => BodyPartSlot::FacialHair,
             _ => {
-                BodyPartSlot::Custom(Name::new(NAME_INTERNER.intern(name.as_ref()).leak()))
+                BodyPartSlot::Custom(NAME_INTERNER.intern(name.as_ref()).leak())
             }
         }
     }
@@ -391,7 +391,7 @@ pub enum EquipmentSlot {
     RightLeg,
     LeftFoot,
     RightFoot,
-    Custom(Name),
+    Custom(&'static str),
 }
 
 impl EquipmentSlot {
@@ -412,7 +412,7 @@ impl EquipmentSlot {
             "RightFoot" => EquipmentSlot::RightFoot,
             "LeftLeg" => EquipmentSlot::LeftLeg,
             "RightLeg" => EquipmentSlot::RightLeg,
-            _ => EquipmentSlot::Custom(Name::new(NAME_INTERNER.intern(name.as_ref()).leak()))
+            _ => EquipmentSlot::Custom(NAME_INTERNER.intern(name.as_ref()).leak())
         }
     }
 }
@@ -455,18 +455,18 @@ enum FileSection {
 #[derive(Default, Resource)]
 #[allow(dead_code)]
 pub struct HumanBodyTextures {
-    albedo_maps: AHashMap<Name, PathBuf>,
-    normal_maps: AHashMap<Name, PathBuf>,
-    ao_maps: AHashMap<Name, PathBuf>,
-    sss_maps: AHashMap<Name, PathBuf>,
+    albedo_maps: AHashMap<&'static str, PathBuf>,
+    normal_maps: AHashMap<&'static str, PathBuf>,
+    ao_maps: AHashMap<&'static str, PathBuf>,
+    sss_maps: AHashMap<&'static str, PathBuf>,
 }
 
 #[derive(Resource)]
 #[allow(dead_code)]
 pub struct HumanAssetRegistry {
     pub assets: AHashMap<HumanPart, HumanAsset>,
-    //pub bodypart_slots: AHashMap<BodyPartSlot, Vec<Name>>,
-    //pub equipment_slots: AHashMap<EquipmentSlot, Vec<Name>>,
+    //pub bodypart_slots: AHashMap<BodyPartSlot, Vec<&'static str>>,
+    //pub equipment_slots: AHashMap<EquipmentSlot, Vec<&'static str>>,
 }
 
 impl HumanAssetRegistry {
@@ -482,8 +482,8 @@ impl HumanAssetRegistry {
 impl FromWorld for HumanAssetRegistry {
     fn from_world(world: &mut World) -> Self{
         let mut assets = AHashMap::<HumanPart, HumanAsset>::default();
-        //let mut body_parts = AHashMap::<BodyPartSlot, Vec<Name>>::default();
-        //let mut equipment = AHashMap::<EquipmentSlot, Vec<Name>>::default();
+        //let mut body_parts = AHashMap::<BodyPartSlot, Vec<&'static str>>::default();
+        //let mut equipment = AHashMap::<EquipmentSlot, Vec<&'static str>>::default();
 
         let config = world.get_resource_mut::<HumentityPathsConfig>()
             .expect("No global Humentity config loaded");
@@ -505,7 +505,7 @@ impl FromWorld for HumanAssetRegistry {
                         .and_then(|s| s.to_str())
                         .expect("Failed to parse file name");
                     info!("Importing body part : {name}");
-                    let name = Name::new(NAME_INTERNER.intern(name).leak());
+                    let name = NAME_INTERNER.intern(name).leak();
                     let albedo_maps = get_textures(&folder, HumanAssetTextureType::Albedo);
                     let normal_maps = get_textures(&folder, HumanAssetTextureType::Normal);
                     let ao_maps = get_textures(&folder, HumanAssetTextureType::AmbientOcclusion);
@@ -535,7 +535,7 @@ impl FromWorld for HumanAssetRegistry {
                         .and_then(|s| s.to_str())
                         .expect("Failed to parse file name");
                     info!("Importing equipment : {name}");
-                    let name = Name::new(NAME_INTERNER.intern(name).leak());
+                    let name = NAME_INTERNER.intern(name).leak();
                     let albedo_maps = get_textures(&folder, HumanAssetTextureType::Albedo);
                     let normal_maps = get_textures(&folder, HumanAssetTextureType::Normal);
                     let ao_maps = get_textures(&folder, HumanAssetTextureType::AmbientOcclusion);
@@ -562,11 +562,11 @@ impl FromWorld for HumanAssetRegistry {
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .expect("Failed to parse file name");
-                    let name = Name::new(NAME_INTERNER.intern(name).leak());
+                    let name = NAME_INTERNER.intern(name).leak();
                     info!("Importing proxy mesh : {name}");
                     let mut paths = HumanMeshAssetFilePaths::default();
                     paths.mh_file = path.to_path_buf();
-                    let part = HumanPart::ProxyMesh(name.clone());
+                    let part = HumanPart::ProxyMesh(name);
                     let asset = HumanAsset {
                         part: part.clone(), data: None, paths
                     };
@@ -596,7 +596,7 @@ impl FromWorld for HumanAssetRegistry {
 /*-------------+
  |  Functions  |
  +-------------*/
-fn get_textures(path: &PathBuf, texture_type: HumanAssetTextureType) -> AHashMap<Name, PathBuf> {
+fn get_textures(path: &PathBuf, texture_type: HumanAssetTextureType) -> AHashMap<&'static str, PathBuf> {
     let folder = match texture_type {
         HumanAssetTextureType::Albedo => path.join("albedo"),
         HumanAssetTextureType::Normal => path.join("Normal"),
@@ -614,7 +614,7 @@ fn get_textures(path: &PathBuf, texture_type: HumanAssetTextureType) -> AHashMap
         if path.is_file() {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 let stem = NAME_INTERNER.intern(stem).leak();
-                textures.insert(Name::new(stem), path);
+                textures.insert(stem, path);
             }
         }
     }
@@ -631,7 +631,7 @@ fn parse_human_asset(mh_path: &PathBuf, part: &HumanPart, asset_server: &AssetSe
     let mut z_scale = ScaleData::default();
     let mut obj_file = PathBuf::default();
     let mut section = FileSection::Header;
-    //let mut name = Name::new("");
+    //let mut name = "";
 
     let err_msg = format!("Couldn't open target file {}", mh_path.to_string_lossy());
     let file = File::open(&mh_path).expect(&err_msg);
@@ -733,10 +733,10 @@ fn parse_human_asset(mh_path: &PathBuf, part: &HumanPart, asset_server: &AssetSe
     }
 
     // Ignore.  Use file_stem instead
-    //let name = Name::new(name);
+    //let name = name;
     let tags = tags
         .iter()
-        .map(|n| Name::new(NAME_INTERNER.intern(n).leak()))
+        .map(|n| NAME_INTERNER.intern(n).leak())
         .collect::<Vec<_>>();
     let mut bodypart_slots = vec![];
     let mut equipment_slots = vec![];

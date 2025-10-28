@@ -31,19 +31,19 @@ fn add_humans(
 ) {
     // Previously defined shapes will now appear as morph targets on the prefab's mesh
     // The HumanConfig type controls prefab access and applies our morph targets.
-    let prefab_name = Name::new("ExampleHumanPrefab");
-    let bodybuilder = Name::new("bodybuilder");
+    let prefab_name = "ExampleHumanPrefab";
+    let bodybuilder = "bodybuilder";
     let mut morphs = MorphTargets::default();
-    morphs.insert(bodybuilder.clone(), 1.);
+    morphs.insert(bodybuilder, 1.);
 
     // Base mesh will be lod0
-    let lod1 = Name::new("male_generic");
-    let lod2 = Name::new("male1591");
-    let lod3 = Name::new("proxy741");
+    let lod1 = "male_generic";
+    let lod2 = "male1591";
+    let lod3 = "proxy741";
 
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 1.)),
-        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name, morphs.clone()),
         LevelOfDetail, // Just a marker component for this example
         InheritedVisibility::default(),
         children![(
@@ -54,21 +54,21 @@ fn add_humans(
                 use_aabb: false,
             }
         ), (
-            HumanPart::ProxyMesh(lod1.clone()),
+            HumanPart::ProxyMesh(lod1),
             VisibilityRange {
                 start_margin: 2.0..2.0,
                 end_margin: 4.0..4.0,
                 use_aabb: false,
             }
         ), (
-            HumanPart::ProxyMesh(lod2.clone()),
+            HumanPart::ProxyMesh(lod2),
             VisibilityRange {
                 start_margin: 4.0..4.,
                 end_margin: 6.0..6.,
                 use_aabb: false,
             }
         ), (
-            HumanPart::ProxyMesh(lod3.clone()),
+            HumanPart::ProxyMesh(lod3),
             VisibilityRange {
                 start_margin: 6.0..6.0,
                 end_margin: 8.0..10.0,
@@ -81,7 +81,7 @@ fn add_humans(
     // The base mesh (highest poly-count ~19k tris)
     commands.spawn((
         Transform::from_translation(Vec3::new(-1.5, 0., 0.)),
-        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name, morphs.clone()),
         InheritedVisibility::default(),
         children![(
             HumanPart::BaseMesh
@@ -91,7 +91,7 @@ fn add_humans(
     // male_generic (high poly-count 13k tris)
     commands.spawn((
         Transform::from_translation(Vec3::new(-0.5, 0., 0.)),
-        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name, morphs.clone()),
         InheritedVisibility::default(),
         children![(
             HumanPart::ProxyMesh(lod1)
@@ -101,7 +101,7 @@ fn add_humans(
     //  male1591 (low poly-count)
     commands.spawn((
         Transform::from_translation(Vec3::new(0.5, 0., 0.)),
-        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name, morphs.clone()),
         InheritedVisibility::default(),
         children![(
             HumanPart::ProxyMesh(lod2)
@@ -111,7 +111,7 @@ fn add_humans(
     // proxy741 (very low poly-count)
     commands.spawn((
         Transform::from_translation(Vec3::new(1.5, 0., 0.)),
-        HumanShapeConfig::new(prefab_name.clone(), morphs.clone()),
+        HumanShapeConfig::new(prefab_name, morphs.clone()),
         InheritedVisibility::default(),
         children![(
             HumanPart::ProxyMesh(lod3)
@@ -178,17 +178,17 @@ fn setup_env(
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
-    morph_targets.insert(Name::new("asian"), 1.);
-    morph_targets.insert(Name::new("weight"), 1.);
-    morph_targets.insert(Name::new("muscle"), 1.);
+    morph_targets.insert("asian", 1.);
+    morph_targets.insert("weight", 1.);
+    morph_targets.insert("muscle", 1.);
     let bodybuilder_shape = HumanShapeArchetype::new(
-        Name::new("bodybuilder"),
+        "bodybuilder",
         morphs.compute_target_weights(&morph_targets),
     );
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
-        Name::new("ExampleHumanPrefab"),
+        "ExampleHumanPrefab",
         HumanArchetypePrefab::new(
             vec![bodybuilder_shape],
             HumanAnimationArchetype::default(), // No animation in this example

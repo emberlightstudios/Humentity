@@ -14,7 +14,7 @@ use crate::{assets::HumanAssetData, basemesh::BODY_SCALE, mesh_ops::{get_uv_coor
  |  Components  |
  +--------------*/
 #[derive(Component, Deref, DerefMut, Clone, Default)]
-pub struct MorphTargets(AHashMap<Name, f32>);
+pub struct MorphTargets(AHashMap<&'static str, f32>);
 
 /*-------------+
  |  Resources  |
@@ -23,7 +23,7 @@ pub struct MorphTargets(AHashMap<Name, f32>);
 pub struct HumanMorphs {
     macro_morphs: MacroData,
     composite_morphs: CompositeMorphs,
-    targets: AHashMap<Name, AHashMap<u16, Vec3>>,
+    targets: AHashMap<&'static str, AHashMap<u16, Vec3>>,
 }
 
 impl FromWorld for HumanMorphs {
@@ -34,7 +34,7 @@ impl FromWorld for HumanMorphs {
             .expect("No global Humentity config loaded");
         core_path = config.core_assets_path.clone();
         let target_paths = config.target_paths.clone();
-        let mut targets = AHashMap::<Name, AHashMap<u16, Vec3>>::default();
+        let mut targets = AHashMap::<&'static str, AHashMap<u16, Vec3>>::default();
         for target_path in target_paths.iter() {
             for entry in WalkDir::new(core_path.join(target_path)).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
@@ -54,7 +54,7 @@ impl FromWorld for HumanMorphs {
                                               .collect();
                         offsets.insert(vert, Vec3::from_slice(&coords[..]) * BODY_SCALE);
                     }
-                    targets.insert(Name::new(NAME_INTERNER.intern(stem).leak()), offsets.clone());
+                    targets.insert(NAME_INTERNER.intern(stem).leak(), offsets.clone());
                 }
             };
         };
@@ -81,49 +81,49 @@ impl FromWorld for HumanMorphs {
 
 impl HumanMorphs {
     /// Gets all available morph names
-    pub fn get_morph_names(&self) -> AHashMap<Name, Vec<Name>> {
-        let mut sliders = AHashMap::<Name, Vec<Name>>::default();
-        let mut macro_sliders = vec![Name::new("caucasian"), Name::new("asian"), Name::new("african")];
+    pub fn get_morph_names(&self) -> AHashMap<&'static str, Vec<&'static str>> {
+        let mut sliders = AHashMap::<&'static str, Vec<&'static str>>::default();
+        let mut macro_sliders = vec!["caucasian", "asian", "african"];
         macro_sliders.extend(self.macro_morphs.macrotargets
             .keys()
-            .map(|n| n.clone())
-            .collect::<Vec<Name>>()
+            .map(|n| NAME_INTERNER.intern(n).leak())
+            .collect::<Vec<&'static str>>()
         );
-        sliders.insert(Name::new("macro"), macro_sliders);
+        sliders.insert("macro", macro_sliders);
 
         for (category, morphs) in self.composite_morphs.0.iter() {
             if morphs.morphs.is_empty() { continue }
             sliders.insert(
-                category.clone(),
+                NAME_INTERNER.intern(category).leak(),
                 morphs.morphs
                     .iter()
-                    .map(|m| m.name.clone())
-                    .collect::<Vec<Name>>()
+                    .map(|m| NAME_INTERNER.intern(&m.name).leak())
+                    .collect::<Vec<&'static str>>()
             );
         }
 
-        sliders.insert(Name::new("asymmetry"), self.get_asymetry_target_names());
+        sliders.insert("asymmetry", self.get_asymetry_target_names());
 
         sliders
     }
 
     /// Get asymmetry targets, not composite.  Everything else should be macro or composite
-    pub fn get_asymetry_target_names(&self) -> Vec<Name> {
+    pub fn get_asymetry_target_names(&self) -> Vec<&'static str> {
         self.targets
             .iter()
-            .filter(|(name, _)| name.as_str().starts_with("asym"))
+            .filter(|(name, _)| name.starts_with("asym"))
             .map(|(name, _)| name.clone())
             .collect::<Vec<_>>()
     }
 
     /// Given a single unified slider map, resolve all macro and composite morphs to final target weights.
     pub fn compute_target_weights(&self, morph_targets: &MorphTargets) -> MorphTargets {
-        let mut result = AHashMap::default();
+        let mut result = MorphTargets::default();
 
         // --- 1️⃣ Separate race sliders ---
         let race_sliders: AHashMap<_, _> = morph_targets
             .iter()
-            .filter(|(k, _)| ["african", "asian", "caucasian"].contains(&k.as_str()))
+            .filter(|(&k, _)| ["african", "asian", "caucasian"].contains(&k))
             .map(|(k, v)| (k.clone(), *v))
             .collect();
 
@@ -136,25 +136,25 @@ impl HumanMorphs {
         } else {
             // Default to Caucasian=1 if not specified
             let mut m = AHashMap::default();
-            m.insert(Name::from("caucasian"), 1.0);
+            m.insert("caucasian", 1.0);
             m
         };
 
         // --- 2️⃣ Split out macros ---
         let mut macro_inputs = AHashMap::default();
 
-        for (k, v) in morph_targets.iter() {
-            if self.macro_morphs.macrotargets.contains_key(k) {
+        for (&k, v) in morph_targets.iter() {
+            if self.macro_morphs.macrotargets.contains_key(&String::from(k)) {
                 macro_inputs.insert(k.clone(), *v);
             }
         }
 
         // Handle defaults for macros
-        let name = Name::new("gender");
+        let name = "gender";
         if !macro_inputs.contains_key(&name) {
             macro_inputs.insert(name, 1.0);  // Male
         }
-        let name = Name::new("age");
+        let name = "age";
         if !macro_inputs.contains_key(&name) {
             macro_inputs.insert(name, 0.5);    // Young
         }
@@ -177,44 +177,44 @@ impl HumanMorphs {
 
         let gender_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["gender"].contains(&n.as_str()))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect::<AHashMap<Name, f32>>();
+            .filter(|(&ref n, &_)| macro_combos["gender"].contains(&n))
+            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
+            .collect::<AHashMap<&'static str, f32>>();
         let age_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["age"].contains(&n.as_str()))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect::<AHashMap<Name, f32>>();
+            .filter(|(&ref n, &_)| macro_combos["age"].contains(&n))
+            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
+            .collect::<AHashMap<&'static str, f32>>();
         let muscle_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["muscle"].contains(&n.as_str()))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect::<AHashMap<Name, f32>>();
+            .filter(|(&ref n, &_)| macro_combos["muscle"].contains(&n))
+            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
+            .collect::<AHashMap<&'static str, f32>>();
         let weight_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["weight"].contains(&n.as_str()))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect::<AHashMap<Name, f32>>();
+            .filter(|(&ref n, &_)| macro_combos["weight"].contains(&n))
+            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
+            .collect::<AHashMap<&'static str, f32>>();
         let proportions_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["proportions"].contains(&n.as_str()))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect::<AHashMap<Name, f32>>();
+            .filter(|(&ref n, &_)| macro_combos["proportions"].contains(&n))
+            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
+            .collect::<AHashMap<&'static str, f32>>();
         let height_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["height"].contains(&n.as_str()))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect::<AHashMap<Name, f32>>();
+            .filter(|(&ref n, &_)| macro_combos["height"].contains(&n))
+            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
+            .collect::<AHashMap<&'static str, f32>>();
         let cupsize_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["cupsize"].contains(&n.as_str()))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect::<AHashMap<Name, f32>>();
+            .filter(|(&ref n, &_)| macro_combos["cupsize"].contains(&n))
+            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
+            .collect::<AHashMap<&'static str, f32>>();
         let firmness_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["firmness"].contains(&n.as_str()))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect::<AHashMap<Name, f32>>();
+            .filter(|(&ref n, &_)| macro_combos["firmness"].contains(&n))
+            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
+            .collect::<AHashMap<&'static str, f32>>();
 
         // race-gender-age targets
         for (race, race_value) in race_weights.iter() {
@@ -222,7 +222,7 @@ impl HumanMorphs {
                 for (age, age_value) in age_values.iter() {
                     let name = NAME_INTERNER.intern(&format!("{race}-{gender}-{age}")).leak();
                     let value = race_value * gender_value * age_value;
-                    result.insert(Name::new(name), value);
+                    result.insert(name, value);
                 }
             }
         }
@@ -234,7 +234,7 @@ impl HumanMorphs {
                     for (weight, weight_value) in weight_values.iter() {
                         let name = NAME_INTERNER.intern(&format!("universal-{gender}-{age}-{muscle}-{weight}")).leak();
                         let value = gender_value * age_value * muscle_value * weight_value;
-                        result.insert(Name::new(name), value);
+                        result.insert(name, value);
                     }
                 }
             }
@@ -248,7 +248,7 @@ impl HumanMorphs {
                         for (height, height_value) in height_values.iter() {
                             let name = NAME_INTERNER.intern(&format!("{gender}-{age}-{muscle}-{weight}-{height}")).leak();
                             let value = gender_value * age_value * muscle_value * weight_value * height_value;
-                            result.insert(Name::new(name), value);
+                            result.insert(name, value);
                         }
                     }
                 }
@@ -263,7 +263,7 @@ impl HumanMorphs {
                         for (proportions, proportions_value) in proportions_values.iter() {
                             let name = NAME_INTERNER.intern(&format!("{gender}-{age}-{muscle}-{weight}-{proportions}")).leak();
                             let value = gender_value * age_value * muscle_value * weight_value * proportions_value;
-                            result.insert(Name::new(name), value);
+                            result.insert(name, value);
                         }
                     }
                 }
@@ -279,7 +279,7 @@ impl HumanMorphs {
                             for (firmness, firmness_value) in firmness_values.iter() {
                                 let name = NAME_INTERNER.intern(&format!("{gender}-{age}-{muscle}-{weight}-{cupsize}-{firmness}")).leak();
                                 let value = gender_value * age_value * muscle_value * weight_value * cupsize_value * firmness_value;
-                                result.insert(Name::new(name), value);
+                                result.insert(name, value);
                             }
                         }
                     }
@@ -290,9 +290,9 @@ impl HumanMorphs {
         // -----------------------------------
         // 2. Resolve composite morph sliders
         // -----------------------------------
-        for (slider_name, value) in morph_targets.iter() {
+        for (&slider_name, value) in morph_targets.iter() {
             // Find the composite morph definition that matches this slider
-            if let Some(morph_list) = self.composite_morphs.0.get(slider_name) {
+            if let Some(morph_list) = self.composite_morphs.0.get(&String::from(slider_name)) {
                 for morph in morph_list.morphs.iter() {
                     // Some morphs just directly reference targets
                     if let Some(targets) = &morph.targets {
@@ -300,23 +300,23 @@ impl HumanMorphs {
                         if let Some(opps) = &morph.opposites {
                             if morph.has_left_and_right {
                                 if *value > 0.0 {
-                                    *result.entry(opps.positive_right.clone()).or_insert(0.0) += value.abs();
-                                    *result.entry(opps.positive_left.clone()).or_insert(0.0) += value.abs();
+                                    *result.entry(NAME_INTERNER.intern(&opps.positive_right).leak()).or_insert(0.0) += value.abs();
+                                    *result.entry(NAME_INTERNER.intern(&opps.positive_left).leak()).or_insert(0.0) += value.abs();
                                 } else {
-                                    *result.entry(opps.negative_right.clone()).or_insert(0.0) += value.abs();
-                                    *result.entry(opps.negative_left.clone()).or_insert(0.0) += value.abs();
+                                    *result.entry(NAME_INTERNER.intern(&opps.negative_right).leak()).or_insert(0.0) += value.abs();
+                                    *result.entry(NAME_INTERNER.intern(&opps.negative_left).leak()).or_insert(0.0) += value.abs();
                                 }
                             } else {
                                 if *value > 0.0 {
-                                    *result.entry(opps.positive_unsided.clone()).or_insert(0.0) += value.abs();
+                                    *result.entry(NAME_INTERNER.intern(&opps.positive_unsided).leak()).or_insert(0.0) += value.abs();
                                 } else {
-                                    *result.entry(opps.negative_unsided.clone()).or_insert(0.0) += value.abs();
+                                    *result.entry(NAME_INTERNER.intern(&opps.negative_unsided).leak()).or_insert(0.0) += value.abs();
                                 }
                             }
                         } else {
                             // No opposites: directly apply
                             for target in targets {
-                                *result.entry(target.clone()).or_insert(0.0) += *value;
+                                *result.entry(NAME_INTERNER.intern(&target).leak()).or_insert(0.0) += *value;
                             }
                         }
                     }
@@ -329,7 +329,7 @@ impl HumanMorphs {
         // --------------------------------------
         for (slider_name, value) in morph_targets
             .iter()
-            .filter(|(name, _)| name.as_str().starts_with("asym"))
+            .filter(|(&name, _)| name.starts_with("asym"))
         {
             *result.entry(slider_name.clone()).or_insert(0.0) += *value;
         }
@@ -344,17 +344,17 @@ impl HumanMorphs {
             *val = val.clamp(-1.0, 1.0);
         }
 
-        MorphTargets(result)
+        result
     }
 
     /// Helper for step 3
     fn compute_macro_weights(
         macros: &MacroData,
-        slider_values: &AHashMap<Name, f32>,
-    ) -> AHashMap<Name, f32> {
+        slider_values: &AHashMap<&'static str, f32>,
+    ) -> AHashMap<&'static str, f32> {
         let mut result = AHashMap::default();
 
-        for (macro_name, value) in slider_values {
+        for (&macro_name, value) in slider_values {
             if let Some(bounds) = macros.macrotargets.get(macro_name) {
                 for part in &bounds.parts {
                     if *value > part.lowest && *value <= part.highest {
@@ -370,14 +370,14 @@ impl HumanMorphs {
                         match (&part.low[..], &part.high[..]) {
                             ("", "") => {}
                             (low, "") if !low.is_empty() => {
-                                *result.entry(Name::from(low.to_string())).or_insert(0.0) += 1.0 - t;
+                                *result.entry(low.to_string()).or_insert(0.0) += 1.0 - t;
                             }
                             ("", high) if !high.is_empty() => {
-                                *result.entry(Name::from(high.to_string())).or_insert(0.0) += t;
+                                *result.entry(high.to_string()).or_insert(0.0) += t;
                             }
                             (low, high) => {
-                                *result.entry(Name::from(low.to_string())).or_insert(0.0) += 1.0 - t;
-                                *result.entry(Name::from(high.to_string())).or_insert(0.0) += t;
+                                *result.entry(low.to_string()).or_insert(0.0) += 1.0 - t;
+                                *result.entry(high.to_string()).or_insert(0.0) += t;
                             }
                         }
 
@@ -390,7 +390,8 @@ impl HumanMorphs {
         result
             .into_iter()
             .filter(|(_, v)| *v != 0.)
-            .collect::<AHashMap::<Name, f32>>()
+            .map(|(k, v)| (NAME_INTERNER.intern(&k).leak(), v))
+            .collect::<AHashMap::<&'static str, f32>>()
     }
 }
 
@@ -419,7 +420,7 @@ pub(crate) fn adjust_helpers_to_morphs(
  +--------------*/
 #[derive(Deserialize, Debug)]
 struct MacroData {
-    macrotargets: AHashMap<Name, MacroBounds>,
+    macrotargets: AHashMap<String, MacroBounds>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -431,12 +432,12 @@ struct MacroBounds {
 struct MacroBound {
     lowest: f32,
     highest: f32,
-    low: Name,
-    high: Name,
+    low: String,
+    high: String,
 }
 
 #[derive(Deserialize, Debug)]
-struct CompositeMorphs(AHashMap<Name, CategoryMorphs>);
+struct CompositeMorphs(AHashMap<String, CategoryMorphs>);
 
 #[derive(Deserialize, Debug)]
 struct CategoryMorphs{
@@ -448,19 +449,19 @@ struct CategoryMorphs{
 #[derive(Deserialize, Debug, Clone)]
 struct CompositeMorph {
     has_left_and_right: bool,
-    name: Name,
+    name: String,
     opposites: Option<Opposites>,
-    targets: Option<Vec<Name>>,
+    targets: Option<Vec<String>>,
 }
 
 #[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 struct Opposites {
-    negative_left: Name,
-    negative_right: Name,
-    negative_unsided: Name,
-    positive_left: Name,
-    positive_right: Name,
-    positive_unsided: Name,
+    negative_left: String,
+    negative_right: String,
+    negative_unsided: String,
+    positive_left: String,
+    positive_right: String,
+    positive_unsided: String,
 }

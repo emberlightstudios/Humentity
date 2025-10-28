@@ -4,8 +4,7 @@
 //! different sized humans, e.g. the baby mesh.  Currently all
 //! translation tracks are ignored. Will revisit this in the future
 //! to see if there's another way to apply some scaling to translation
-//! tracks at runtime. Don't want to resort to duplicating clips for each 
-//! different skeleton.
+//! tracks at runtime. Don't want to resort to duplicating clips.
 
 mod shared;
 use shared::{cam_controls, add_material};
@@ -82,15 +81,15 @@ fn setup_env(
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
-    morph_targets.insert(Name::new("age"), 0.);
+    morph_targets.insert("age", 0.);
     let baby = HumanShapeArchetype::new(
-        Name::new("baby"),
+        "baby",
         morphs.compute_target_weights(&morph_targets),
     );
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
-        Name::new("ExampleHumanPrefab"),
+        "ExampleHumanPrefab",
         HumanArchetypePrefab::new(
             vec![baby],
             HumanAnimationArchetype::new(
@@ -127,10 +126,10 @@ fn start_animation_clip_on_imported_glb(
 
 fn add_human(mut commands: Commands) {
     let mut morphs = MorphTargets::default();
-    morphs.insert(Name::new("baby"), 1.);
+    morphs.insert("baby", 1.);
     commands.spawn((
         Transform::from_translation(Vec3::new(1., 0., 1.)),
-        HumanShapeConfig::new(Name::new("ExampleHumanPrefab"), morphs),
+        HumanShapeConfig::new("ExampleHumanPrefab", morphs),
         children![(
             HumanPart::BaseMesh,
         )]
@@ -147,7 +146,7 @@ fn setup_graph_on_new_human(
 ) {
     let Ok(human) = humans.single() else { return };
     info!("{:#?}", animations.keys());
-    let clip = &animations[&Name::new("Idle-loop")];
+    let clip = &animations["Idle-loop"];
     let (graph, index) = AnimationGraph::from_clip(clip.clone());
     let graph_handle = graphs.add(graph.clone());
     for child in children.iter_descendants(human) {

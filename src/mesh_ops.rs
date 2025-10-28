@@ -20,7 +20,7 @@ pub(crate) enum MeshProcessingState {
     Ready(Handle<Mesh>),           // Rigged, one per prefab
 }
 
-pub(crate) type PrefabLoadState = AHashMap<Name, MeshProcessingState>;
+pub(crate) type PrefabLoadState = AHashMap<&'static str, MeshProcessingState>;
 
 pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     let path = filename.as_ref();
