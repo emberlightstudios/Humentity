@@ -15,7 +15,10 @@ use::std::{
 use ahash::{AHashMap, AHashSet};
 use walkdir::WalkDir;
 use crate::{
-    mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState, PrefabLoadState}, morphs::{adjust_helpers_to_morphs, asset_mesh_from_helpers}, prelude::*, rigs::{set_asset_rig_arrays, RigData}
+    mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState, PrefabLoadState},
+    morphs::adjust_helpers_to_morphs,
+    prelude::*,
+    rigs::{set_asset_rig_arrays, RigData},
 };
 
 /*---------+
@@ -219,7 +222,7 @@ impl HumanAssetData {
                 let mut handles = vec![];
                 for shape in prefab.shapes.iter() {
                     let helpers = adjust_helpers_to_morphs(&shape.morphs, morph_targets, basemesh);
-                    let handle = asset_mesh_from_helpers(&helpers, &shape.morphs, morph_targets, meshes, self);
+                    let handle = self.asset_mesh_from_helpers(&helpers, meshes);
                     handles.push(handle);
                 }
                 self.prefab_load_state.insert(prefab_name.clone(), MeshProcessingState::Shaped(handles));
@@ -290,6 +293,44 @@ impl HumanAssetData {
             (helpers[self.scale_data[1].max as usize].y - helpers[self.scale_data[1].min as usize].y) / self.scale_data[1].scale,
             (helpers[self.scale_data[2].max as usize].z - helpers[self.scale_data[2].min as usize].z) / self.scale_data[2].scale,
         )
+    }
+
+    /// Adjust an asset mesh to match morphed helpers
+    pub(crate) fn asset_mesh_from_helpers(
+        &self,
+        helpers: &Vec<Vec3>,
+        meshes: &mut Assets<Mesh>,
+    ) -> Handle<Mesh> {
+        // Note that helpers should already be morphed before input so we don't have to apply weights
+        let mesh = meshes.get(&self.base_mesh_handle).unwrap().clone();
+        let mut vertices = get_vertex_positions(&mesh);
+        for (vert, mh_asset_vertex) in self.mhid_lookup.iter().enumerate() {
+            let helper_map = &self.helper_map[*mh_asset_vertex as usize];
+            if let Some(mh_helper_vertex) = helper_map.single_vertex {
+                vertices[vert] = helpers[mh_helper_vertex as usize];
+            } else { // Triangulation
+                let triangle = helper_map.triangle.as_ref().unwrap();
+                let mut position = Vec3::ZERO;
+                for i in 0..3 {
+                    let mh_vert = triangle.helper_verts[i];
+                    let wt = triangle.helper_weights[i];
+                    if let Some(mh_helper_position) = helpers.get(mh_vert as usize) {
+                        position += mh_helper_position * wt;
+                    }
+                }
+                let offset = self.get_offset_scale(helpers) * triangle.helper_offset;
+                vertices[vert] = position + offset;
+            }
+        }
+        let mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
+            .with_inserted_indices(mesh.indices().unwrap().clone())
+            .with_computed_area_weighted_normals()
+            .with_generated_tangents()
+            .unwrap();
+
+        meshes.add(mesh)
     }
 }
 

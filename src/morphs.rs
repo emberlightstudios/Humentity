@@ -413,50 +413,6 @@ pub(crate) fn adjust_helpers_to_morphs(
     helpers
 }
 
-pub(crate) fn asset_mesh_from_helpers(
-    helpers: &Vec<Vec3>,
-    morph_values: &AHashMap<Name, f32>,
-    morph_targets: &HumanMorphs,
-    meshes: &mut Assets<Mesh>,
-    asset_data: &HumanAssetData,
-) -> Handle<Mesh> {
-    let mesh = meshes.get(&asset_data.base_mesh_handle).unwrap().clone();
-    let mut vertices = get_vertex_positions(&mesh);
-    for (target_name, &value) in morph_values.iter() {
-        let target = morph_targets.targets.get(target_name)
-            .expect(&format!("Failed to find morph {}", target_name));
-
-        for (vert, mh_asset_vertex) in asset_data.mhid_lookup.iter().enumerate() {
-            let helper_map = &asset_data.helper_map[*mh_asset_vertex as usize];
-            if let Some(mh_helper_vertex) = helper_map.single_vertex {
-                if let Some(offset) = target.get(&mh_helper_vertex) {
-                    vertices[vert] = helpers[mh_helper_vertex as usize] + offset * value;
-                } else {
-                    vertices[vert] = helpers[mh_helper_vertex as usize];
-                }
-            } else { // Triangulation
-                let triangle = helper_map.triangle.as_ref().unwrap();
-                let mut position = Vec3::ZERO;
-                for i in 0..3 {
-                    let mh_vert = triangle.helper_verts[i];
-                    let wt = triangle.helper_weights[i];
-                    position += *helpers.get(mh_vert as usize).unwrap() * wt;
-                }
-                let offset = asset_data.get_offset_scale(helpers) * triangle.helper_offset;
-                vertices[vert] = position + offset * value;
-            }
-        }
-    }
-    let mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
-        .with_inserted_indices(mesh.indices().unwrap().clone())
-        .with_computed_area_weighted_normals()
-        .with_generated_tangents()
-        .unwrap();
-
-    meshes.add(mesh)
-}
 
 /*--------------+
  |  JSON Types  |
