@@ -75,6 +75,8 @@ pub(crate) fn fit_skeleton_to_shape(
         let mut skinned_mesh: Option<&SkinnedMesh> = None;
         let mut rig_entity = Entity::PLACEHOLDER;
         let mut bone_rotations = AHashMap::default();
+        let mut bone_entities = AHashMap::default();
+        
         for child in children.iter_descendants(root) {
             if let Ok((entity, skm)) = rigs.get(child) {
                 skinned_mesh = Some(skm);
@@ -82,6 +84,7 @@ pub(crate) fn fit_skeleton_to_shape(
                 for child in children.iter_descendants(child) {
                     if let Ok(transform) = global_transforms.get(child) {
                         let name = names.get(child).unwrap();
+                        bone_entities.insert(name.as_str(), child);
                         bone_rotations.insert(
                             NAME_INTERNER.intern(name.as_str()).leak(),
                             Transform::from_matrix(model_transform.to_matrix().inverse() * transform.to_matrix()).rotation
@@ -96,7 +99,7 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // Re-fit skeleton
         let helpers = prefab.get_helpers(&config.prefab_morph_targets, &*basemesh, &*morph_targets);
-        let global_bone_transforms = get_model_space_skeleton_transforms(
+        let mut global_bone_transforms = get_model_space_skeleton_transforms(
             &prefab.rig.bone_order, &helpers, prefab.rig.rig_type, &bone_rotations, &*vg, &*rig_data);
         let mut local_bone_transforms = get_local_skeleton_transforms(
             &prefab.rig.bone_order, prefab.rig.rig_type, &*rig_data, &global_bone_transforms);
@@ -106,8 +109,45 @@ pub(crate) fn fit_skeleton_to_shape(
             *transform = local_bone_transforms.remove(name).unwrap();
         }
 
+        // The skeleton was adjusted so that the bones' rotations align head to tail.
+        // The skeleton now fits the mesh's shape but this can induce animation artifacts due to 
+        // differences in proportions/bind poses. In order to prevent this let's adjust the skeleton so 
+        // that the bones have the same positions, but rotations are adjusted to align with the reference
+        // skeleton from the animation glb files.
+        let bone_config = &rig_data.configs[&prefab.rig.rig_type];
+        for &bone in &prefab.rig.bone_order {
+            if let Some(bone_data) = bone_config.get(bone) {
+                let parent_transform = match global_bone_transforms.get(bone_data.parent) {
+                    Some(xform) => *xform,
+                    None => Transform::IDENTITY,
+                };
+                let old_global = global_bone_transforms[bone];
+            
+                // Use reference rotation, preserve global position
+                let reference_rot = prefab.rig.bone_rotations[bone];
+                let new_global = Transform {
+                    translation: old_global.translation,
+                    rotation: reference_rot,
+                    scale: old_global.scale,
+                };
+            
+                // Recompute local transform relative to new parent
+                let parent_matrix = parent_transform.to_matrix();
+                let child_matrix = new_global.to_matrix();
+                let new_local = Transform::from_matrix(parent_matrix.inverse() * child_matrix);
+
+                // Update maps so children see new rotations
+                local_bone_transforms.insert(bone, new_local);
+                global_bone_transforms.insert(bone, new_global);
+
+                let joint = bone_entities[bone];
+                let mut local_transform = local_transforms.get_mut(joint).unwrap();
+                *local_transform = new_local;
+            }
+        }
+
         let mut inv_bindposes = vec![];
-        for bone in prefab.rig.bone_order.iter() {
+        for &bone in prefab.rig.bone_order.iter() {
             inv_bindposes.push(global_bone_transforms[bone].to_matrix().inverse());
         }
 
@@ -142,7 +182,7 @@ pub(crate) fn setup_human_parts(
         let prefab = &prefabs[&config.prefab];
         let morph_weights = prefab.shapes
             .iter()
-            .map(|s| config.prefab_morph_targets[&s.name])
+            .map(|s| *config.prefab_morph_targets.get(&s.name).unwrap_or(&0.))
             .collect::<Vec<_>>();
         let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
         

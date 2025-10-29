@@ -34,8 +34,8 @@ pub struct BoneTransform {
 #[derive(Deserialize, Debug)]
 pub(crate) struct BoneJson {
     //inherit_scale: String,
-    pub(crate) parent: String,
     //roll: f32,
+    pub(crate) parent: String,
     head: BoneTransform,
     tail: BoneTransform,
 }
@@ -58,7 +58,23 @@ struct MixamoConfig {
 #[derive(Resource)]
 pub(crate) struct RigData {
     pub(crate) weights: AHashMap<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>,
-    pub(crate) configs: AHashMap<RigType, AHashMap<&'static str, BoneJson>>,
+    pub(crate) configs: AHashMap<RigType, AHashMap<&'static str, BoneData>>,
+}
+
+pub(crate) struct BoneData {
+    pub(crate) parent: &'static str,
+    head: BoneTransform,
+    tail: BoneTransform,
+}
+
+impl From<BoneJson> for BoneData {
+    fn from(value: BoneJson) -> Self {
+        Self {
+            head: value.head,
+            tail: value.tail,
+            parent: NAME_INTERNER.intern(&value.parent).leak(),
+        }
+    }
 }
 
 impl FromWorld for RigData {
@@ -71,7 +87,7 @@ impl FromWorld for RigData {
         type_strings.insert(RigType::GameEngine, "game_engine");
 
         let mut rig_weights = AHashMap::<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>::default();
-        let mut rig_configs = AHashMap::<RigType, AHashMap<&'static str, BoneJson>>::default();
+        let mut rig_configs = AHashMap::<RigType, AHashMap<&'static str, BoneData>>::default();
 
         for (rig_type, name) in type_strings.iter() {
             let err_msg = "FAILED TO OPEN WEIGHTS FILE : ".to_string() + name;
@@ -90,14 +106,14 @@ impl FromWorld for RigData {
             let config_file = File::open(path.join("rigs/rig.".to_string() + type_strings.get(rig_type).unwrap() + ".json")).expect(&err_msg);
             let config_reader = BufReader::new(config_file);
             let err_msg = "FAILED TO READ CONFIG JSON : ".to_string() + name;
-            if *rig_type == RigType::Mixamo {
+            if *rig_type == RigType::Mixamo { // Mixamo json structure is slightly different
                 let config: MixamoConfig = serde_json::from_reader(config_reader).expect(&err_msg);
                 rig_configs.insert(
                     *rig_type,
                     config.bones
                         .into_iter()
-                        .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x))
-                        .collect::<AHashMap<&'static str, BoneJson>>()
+                        .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x.into()))
+                        .collect::<AHashMap<&'static str, BoneData>>()
                 );
             } else {
                 let config: AHashMap<String, BoneJson> = serde_json::from_reader(config_reader).expect(&err_msg);
@@ -105,8 +121,8 @@ impl FromWorld for RigData {
                     *rig_type,
                     config
                         .into_iter()
-                        .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x))
-                        .collect::<AHashMap<&'static str, BoneJson>>()
+                        .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x.into()))
+                        .collect::<AHashMap<&'static str, BoneData>>()
                 );
             }
         }
@@ -363,7 +379,7 @@ pub(crate) fn get_local_skeleton_transforms(
 }
 
 pub(crate) fn get_bone_transform(
-    bone: &BoneJson,
+    bone: &BoneData,
     base_rot: Quat,
     vg: &VertexGroups,
     helpers: &Vec<Vec3>,

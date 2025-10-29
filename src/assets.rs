@@ -54,11 +54,11 @@ pub struct HumanAsset {
 
 impl HumanAsset {
     pub fn get_name(&self) -> &'static str {
-        match &self.part {
+        match self.part {
             HumanPart::BaseMesh => "basemesh",
             HumanPart::ProxyMesh(name) |
             HumanPart::Equipment(name) |
-            HumanPart::BodyPart(name) => name.clone()
+            HumanPart::BodyPart(name) => name
         }
     }
 

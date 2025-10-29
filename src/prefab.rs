@@ -25,6 +25,7 @@ pub struct HumanAnimationArchetype {
     pub rig_type: RigType,
     pub(crate) scene: Option<Handle<DynamicScene>>,
     pub(crate) bone_order: Vec<&'static str>,
+    pub(crate) bone_rotations: AHashMap<&'static str, Quat>,
 }
 
 impl HumanAnimationArchetype {
@@ -56,7 +57,7 @@ impl HumanArchetypePrefab {
         for shape in self.shapes.iter() {
             let Some(weight) = morph_values.get(&shape.name) else { continue };
             for (k, v) in shape.morphs.iter() {
-                let entry = mh_morphs.entry(k.clone()).or_insert(0.);
+                let entry = mh_morphs.entry(k).or_insert(0.);
                 *entry += *v * weight;
             }
         }
@@ -110,7 +111,7 @@ pub(crate) fn create_basemesh_prefab_shapes(
             let handle = meshes.add(mesh);
             prefab_meshes.push(handle);
         }
-        basemesh.prefab_state.insert(name.clone(), MeshProcessingState::Shaped(prefab_meshes));
+        basemesh.prefab_state.insert(name, MeshProcessingState::Shaped(prefab_meshes));
     }
 }
 
@@ -121,7 +122,7 @@ pub(crate) fn create_basemesh_prefab_morphable_meshes(
     mut images: ResMut<Assets<Image>>,
 ) {
     // Only run if shaped meshes have been generated
-    for (name, _) in prefabs.iter() {
+    for (&name, _) in prefabs.iter() {
         match &basemesh.prefab_state[name] {
             MeshProcessingState::Shaped(shape_meshes) => {
                 for shape in shape_meshes.iter() {
@@ -196,7 +197,7 @@ pub fn create_human_prefab_rig_scenes(world: &mut World) {
 
     let prefab_data = prefabs
         .iter()
-        .map(|(n, p)| (n.clone(), p.rig.rig_type))
+        .map(|(&n, p)| (n, p.rig.rig_type))
         .collect::<Vec<_>>();
     
     for (name, rig_type) in prefab_data {
@@ -214,6 +215,7 @@ pub fn create_human_prefab_rig_scenes(world: &mut World) {
         let prefab = prefabs.get_mut(&name).unwrap();
         prefab.rig.scene = Some(scene);
         prefab.rig.bone_order = bone_order.clone();
+        prefab.rig.bone_rotations = bone_rotations;
     }
 }
 
@@ -240,7 +242,7 @@ pub(crate) fn rig_basemesh_prefab_meshes(
             prefab.rig.rig_type,
             &*rig_data
         );
-        basemesh.prefab_state.insert(name.clone(), MeshProcessingState::Ready(handle));
+        basemesh.prefab_state.insert(name, MeshProcessingState::Ready(handle));
     }
 
     commands.set_state(HumentityLoadState::AnimationProcessing);
@@ -289,7 +291,7 @@ pub(crate) fn build_human_rig_scene(
                 player: rig_entity,
             },
         )).id();
-        bone_entities.insert(name.clone(), entity);
+        bone_entities.insert(name, entity);
     }
 
     // Wire up parent-child relationships

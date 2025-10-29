@@ -67,7 +67,7 @@ pub(crate) fn get_skeleton_rotations(world: &mut World, rig: RigType) -> Result<
     Ok(
         global_transforms
             .iter()
-            .map(|(n, t)| (n.clone(), t.rotation))
+            .map(|(&n, t)| (n, t.rotation))
             .collect::<AHashMap<&'static str, Quat>>()
     )
 }
@@ -226,7 +226,7 @@ fn compute_global_transform(
     let name = NAME_INTERNER.intern(name).leak();
     let local = local_transforms.get(&name).ok_or(BevyError::from("Missing local transform"))?;
     let global = Transform::from_matrix(parent_global.to_matrix() * local.to_matrix());
-    global_transforms.insert(name.clone(), global);
+    global_transforms.insert(name, global);
 
     for child in root.children() {
         compute_global_transform(&child, local_transforms, global_transforms, global)?;
