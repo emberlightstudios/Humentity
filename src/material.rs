@@ -1,12 +1,12 @@
 use ahash::AHashMap;
 use bevy::prelude::*;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
-//use bevy::shader::ShaderRef;
+use bevy::shader::ShaderRef;
 use bevy::render::render_resource::*;
 
 use crate::assets::HumanBodyTextures;
 
-//const SHADER_ASSET_PATH: &str = "humentity://shaders/human.wgsl";
+const SHADER_ASSET_PATH: &str = "humentity://shaders/human.wgsl";
 
 /*--------------+
  |   Material   |
@@ -25,9 +25,9 @@ pub struct HumanMaterialExtension {
 }
 
 impl MaterialExtension for HumanMaterialExtension {
-    //fn fragment_shader() -> ShaderRef {
-    //    SHADER_ASSET_PATH.into()
-    //}
+    fn fragment_shader() -> ShaderRef {
+        SHADER_ASSET_PATH.into()
+    }
 }
 
 
