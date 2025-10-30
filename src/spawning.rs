@@ -140,6 +140,7 @@ pub(crate) fn fit_skeleton_to_shape(
                 local_bone_transforms.insert(bone, new_local);
                 global_bone_transforms.insert(bone, new_global);
 
+                // We also need to update the joint entity transforms
                 let joint = bone_entities[bone];
                 let mut local_transform = local_transforms.get_mut(joint).unwrap();
                 *local_transform = new_local;

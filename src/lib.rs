@@ -1,12 +1,13 @@
+mod paths_config;
 mod basemesh;
-mod spawning;
 mod morphs;
 mod rigs;
-mod paths_config;
 mod assets;
-mod mesh_ops;
-mod animation;
+mod spawning;
 mod prefab;
+mod animation;
+mod mesh_ops;
+mod material;
 
 use bevy::asset::io::AssetSourceBuilder;
 use bevy::prelude::*;
@@ -28,6 +29,7 @@ pub mod prelude {
         assets::{HumanAsset, HumanAssetRegistry, HumanPart, HumanBodyTextures},
         animation::HumanAnimationClips,
         spawning::HumanShapeConfig,
+        material::{HumanMaterials, HumanMaterialExtension, HumanMaterialExtensionData},
     };
 }
 
@@ -52,7 +54,7 @@ pub struct Humentity{
 
 impl Humentity {
     pub fn new(config: paths_config::HumentityPathsConfig) -> Self {
-        Humentity { config, debug: true }
+        Humentity { config, debug: false }
     }
 }
 
@@ -76,7 +78,7 @@ impl Plugin for Humentity {
                         .run_if(resource_exists::<basemesh::HelperMeshHandle>),
                 ).run_if(in_state(HumentityLoadState::LoadingCoreAssets)),
 
-                // PHASE 2 : BUILDING ARCHETYPES
+                // PHASE 2 : BUILDING ARCHETYPE MESHES
                 (                    
                     (
                         prefab::create_human_prefab_rig_scenes,
@@ -102,6 +104,7 @@ impl Plugin for Humentity {
                     in_state(HumentityLoadState::Ready)
                     .and(resource_exists::<HumanAssetRegistry>)
                 )
+
             ));
 
         if self.debug {
@@ -122,5 +125,6 @@ impl Plugin for Humentity {
             .init_resource::<assets::HumanAssetRegistry>()
             .init_resource::<morphs::HumanMorphs>()
             .init_resource::<rigs::RigData>();
+
     }
 }

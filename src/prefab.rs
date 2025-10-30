@@ -183,7 +183,7 @@ pub(crate) fn create_basemesh_prefab_morphable_meshes(
             .with_morph_target_names(morph_names)
             .with_generated_tangents().unwrap();
 
-        basemesh.prefab_state.insert(name.clone(), MeshProcessingState::Morphed(meshes.add(mesh)));
+        basemesh.prefab_state.insert(name, MeshProcessingState::Morphed(meshes.add(mesh)));
     }
 }
 

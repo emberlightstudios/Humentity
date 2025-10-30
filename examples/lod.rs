@@ -3,7 +3,7 @@
 //! In this example we switch lods early just for clarity. 
 
 mod shared;
-use shared::cam_controls;
+use shared::{cam_controls, setup_env};
 use ahash::AHashMap;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
@@ -139,42 +139,6 @@ fn add_material(
     }
 }
 
-fn setup_env(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    asset_server: Res<AssetServer>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    morphs: Res<HumanMorphs>,
-) {
-    // circular base
-    let mesh = meshes.add(Circle::new(4.0));
-    let material = materials.add(Color::WHITE);
-
-    commands.spawn((
-        Mesh3d(mesh),
-        MeshMaterial3d(material.clone()),
-        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-    ));
-
-    // A light:
-    commands.spawn((
-        PointLight {
-            intensity: 15_000_0.0,
-            radius: 20.,
-            range: 20.,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(0.0, 1.0, 5.0),
-    ));
-
-    // A camera:
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 2.0, 4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
-    ));
-}
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     let mut morph_targets = MorphTargets::default();

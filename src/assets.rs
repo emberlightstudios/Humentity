@@ -15,10 +15,7 @@ use::std::{
 use ahash::{AHashMap, AHashSet};
 use walkdir::WalkDir;
 use crate::{
-    mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState, PrefabLoadState},
-    morphs::adjust_helpers_to_morphs,
-    prelude::*,
-    rigs::{set_asset_rig_arrays, RigData},
+    material::HumanMaterials, mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState, PrefabLoadState}, morphs::adjust_helpers_to_morphs, prelude::*, rigs::{set_asset_rig_arrays, RigData}
 };
 
 /*---------+
@@ -134,7 +131,7 @@ impl HumanAsset {
             let path = paths.get(&name)
                 .expect(&format!("No albedo map {name} found for {}", part_name));
             handles.insert(
-                name.clone(),
+                name,
                 asset_server.load(format!("humentity://{}", path.to_str().expect("Unreadable path string")))
             );
         }
@@ -206,7 +203,7 @@ impl HumanAssetData {
         images: &mut Assets<Image>,
     ) -> Option<Handle<Mesh>> {
         if !self.prefab_load_state.contains_key(prefab_name) {
-            self.prefab_load_state.insert(prefab_name.clone(), MeshProcessingState::Unprocessed);
+            self.prefab_load_state.insert(prefab_name, MeshProcessingState::Unprocessed);
         }
         if self.get_mesh_handle(meshes, paths).is_none() { return None }
 
@@ -215,7 +212,7 @@ impl HumanAssetData {
             MeshProcessingState::Morphed(handle) => {
                 let mesh = meshes.get(handle).unwrap().clone();
                 let handle = set_asset_rig_arrays(mesh, meshes, rig_data, &self.mhid_lookup, &self.helper_map, &prefab.rig);
-                self.prefab_load_state.insert(prefab_name.clone(), MeshProcessingState::Ready(handle.clone()));
+                self.prefab_load_state.insert(prefab_name, MeshProcessingState::Ready(handle.clone()));
                 return Some(handle);
             }
             MeshProcessingState::Unprocessed => {
@@ -225,7 +222,7 @@ impl HumanAssetData {
                     let handle = self.asset_mesh_from_helpers(&helpers, meshes);
                     handles.push(handle);
                 }
-                self.prefab_load_state.insert(prefab_name.clone(), MeshProcessingState::Shaped(handles));
+                self.prefab_load_state.insert(prefab_name, MeshProcessingState::Shaped(handles));
 
                 let asset_base_mesh = meshes.get(&self.base_mesh_handle).unwrap();
                 self.base_mesh_handle = meshes.add(asset_base_mesh.clone()
@@ -281,7 +278,7 @@ impl HumanAssetData {
                     .with_morph_target_names(morph_names)
                     .with_generated_tangents().unwrap();
 
-                self.prefab_load_state.insert(prefab_name.clone(), MeshProcessingState::Morphed(meshes.add(mesh)));
+                self.prefab_load_state.insert(prefab_name, MeshProcessingState::Morphed(meshes.add(mesh)));
                 None
             }
         }
@@ -455,10 +452,10 @@ enum FileSection {
 #[derive(Default, Resource)]
 #[allow(dead_code)]
 pub struct HumanBodyTextures {
-    albedo_maps: AHashMap<&'static str, PathBuf>,
-    normal_maps: AHashMap<&'static str, PathBuf>,
-    ao_maps: AHashMap<&'static str, PathBuf>,
-    sss_maps: AHashMap<&'static str, PathBuf>,
+    pub albedo_maps: AHashMap<&'static str, Handle<Image>>,
+    pub normal_maps: AHashMap<&'static str, Handle<Image>>,
+    pub ao_maps: AHashMap<&'static str, Handle<Image>>,
+    //pub sss_maps: AHashMap<&'static str, Handle<Image>>,
 }
 
 #[derive(Resource)]
@@ -512,7 +509,7 @@ impl FromWorld for HumanAssetRegistry {
                     let paths = HumanMeshAssetFilePaths {
                         albedo_maps, normal_maps, ao_maps, mh_file: path.to_path_buf()
                     };
-                    let part = HumanPart::BodyPart(name.clone());
+                    let part = HumanPart::BodyPart(name);
                     let asset = HumanAsset {
                         part: part.clone(), data: None, paths
                     };
@@ -542,7 +539,7 @@ impl FromWorld for HumanAssetRegistry {
                     let paths = HumanMeshAssetFilePaths {
                         albedo_maps, normal_maps, ao_maps, mh_file: path.to_path_buf()
                     };
-                    let part = HumanPart::Equipment(name.clone());
+                    let part = HumanPart::Equipment(name);
                     let asset = HumanAsset {
                         part: part.clone(), data: None, paths
                     };
@@ -578,12 +575,29 @@ impl FromWorld for HumanAssetRegistry {
 
         // Load body textures
         let path = config.core_assets_path.join("skin_textures");
-        let albedo_maps = get_textures(&path, HumanAssetTextureType::Albedo);
-        let normal_maps = get_textures(&path, HumanAssetTextureType::Normal);
-        let ao_maps = get_textures(&path, HumanAssetTextureType::AmbientOcclusion);
-        let sss_maps = get_textures(&path, HumanAssetTextureType::SubsurfaceScattering);
+        let asset_server = world.resource_mut::<AssetServer>();
+        let albedo_maps = get_textures(&path, HumanAssetTextureType::Albedo)
+            .into_iter()
+            .map(|(n, p)| (n, asset_server.load(p)))
+            .collect::<AHashMap<&'static str, Handle<Image>>>();
+        let normal_maps = get_textures(&path, HumanAssetTextureType::Normal)
+            .into_iter()
+            .map(|(n, p)| (n, asset_server.load(p)))
+            .collect::<AHashMap<&'static str, Handle<Image>>>();
+        let ao_maps = get_textures(&path, HumanAssetTextureType::AmbientOcclusion)
+            .into_iter()
+            .map(|(n, p)| (n, asset_server.load(p)))
+            .collect::<AHashMap<&'static str, Handle<Image>>>();
+        //let sss_maps = get_textures(&path, HumanAssetTextureType::SubsurfaceScattering)
+        //    .into_iter()
+        //    .map(|(n, p)| (n, asset_server.load(p)))
+        //    .collect::<AHashMap<&'static str, Handle<Image>>>();
 
-        world.insert_resource(HumanBodyTextures { albedo_maps, normal_maps, ao_maps, sss_maps });
+        let textures = HumanBodyTextures { albedo_maps, normal_maps, ao_maps };//, sss_maps };
+        let materials = HumanMaterials::new(&textures);
+
+        world.insert_resource(textures);
+        world.insert_resource(materials);
 
         HumanAssetRegistry {
             assets,
@@ -612,9 +626,10 @@ fn get_textures(path: &PathBuf, texture_type: HumanAssetTextureType) -> AHashMap
         let path = entry.path();
 
         if path.is_file() {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                let stem = NAME_INTERNER.intern(stem).leak();
-                textures.insert(stem, path);
+            if let Some(stem) = path.file_stem()
+            {
+                let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
+                textures.insert(stem, path.strip_prefix(PathBuf::from("./assets")).unwrap().to_path_buf());
             }
         }
     }

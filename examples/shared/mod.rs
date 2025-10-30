@@ -1,4 +1,5 @@
 use bevy::{input::mouse::MouseMotion, prelude::*};
+use humentity::prelude::*;
 
 pub fn cam_controls(
     mut cam: Query<&mut Transform, With<Camera3d>>,
@@ -36,4 +37,38 @@ pub fn add_material(
         let mat = materials.add(StandardMaterial::from_color(Color::BLACK));
         commands.entity(human).insert(MeshMaterial3d(mat));
     }
+}
+
+pub fn setup_env(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    // circular base
+    let mesh = meshes.add(Circle::new(3.0));
+    let material = materials.add(Color::WHITE);
+
+    commands.spawn((
+        Mesh3d(mesh),
+        MeshMaterial3d(material.clone()),
+        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+    ));
+
+    // A light:
+    commands.spawn((
+        PointLight {
+            intensity: 14_000_0.0,
+            radius: 19.,
+            range: 19.,
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(-1.0, 1.0, 5.0),
+    ));
+
+    // A camera:
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(-1.0, 2.0, 4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
+    ));
 }
