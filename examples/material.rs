@@ -1,8 +1,16 @@
+//! This example shows how to use the HumanMaterialExtension to create a new material for
+//! the skin of a character.  You could also just use the StandardMaterial, but the idea
+//! is that this setup should improve GPU batching.  At least that's my intuition.
+
 mod shared;
 use ahash::AHashMap;
-use bevy::{pbr::ExtendedMaterial, prelude::*};
+use bevy::{app::AnimationSystems, pbr::ExtendedMaterial, prelude::*};
 use humentity::prelude::*;
 use shared::{cam_controls, setup_env};
+    
+
+const PREFAB: &str = "ExampleHumanPrefab";
+
 
 fn main() {
     App::new()
@@ -13,44 +21,47 @@ fn main() {
         ))
         .add_systems(Startup, setup_env)
         .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
-        .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
-        .add_systems(Update,
-            (
-                setup_material,
-            )
-        )
+        .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
+        .add_systems(Update, add_skin_material)
         .add_systems(Update, cam_controls)
         .run();
 
 }
 
-fn setup_material(
+fn add_skin_material(
     mut commands: Commands,
     humans: Query<(Entity, &HumanPart), (With<Mesh3d>, Without<MeshMaterial3d<ExtendedMaterial<StandardMaterial, HumanMaterialExtension>>>)>,
-    human_materials: Res<HumanMaterials>,
+    textures: Res<HumanBodyTextures>,
     mut human_material_assets: ResMut<Assets<ExtendedMaterial<StandardMaterial, HumanMaterialExtension>>>,
 ) {
-    //info!("{:#?}", human_materials.keys());
     for (entity, part) in humans.iter() {
         let name = "middleage_asian_female";
-        // This should always be true here, but in general we only want to put this material
+        // This should always be true here, but in general we only want to put skin textures
         // on the base mesh or the proxy meshes, not any other parts/assets.
         if matches!(part, HumanPart::BaseMesh) {  
-            let material = human_materials.get(name).unwrap();
+            let albedo = &textures.albedo_maps[name];
+            let material = ExtendedMaterial {
+                base: StandardMaterial {
+                    base_color_texture: Some(albedo.clone()),
+                    ..default()
+                },
+                extension: HumanMaterialExtension {
+                    // No data defined yet.
+                }
+            };
             let material = human_material_assets.add(material.clone());
             commands.entity(entity).insert(MeshMaterial3d(material.clone()));
         }
     }
 }
 
-fn add_humans(
+fn add_human(
     mut commands: Commands,
 ) {
-    let prefab_name = "ExampleHumanPrefab";
 
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
-        HumanShapeConfig::new(prefab_name, MorphTargets::default()),
+        HumanShapeConfig::new(PREFAB, MorphTargets::default()),
         InheritedVisibility::default(),
         children![(HumanPart::BaseMesh)],
     ));
@@ -65,7 +76,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
-        "ExampleHumanPrefab",
+        PREFAB,
         HumanArchetypePrefab::new(
             vec![base_shape],
             HumanAnimationArchetype::default(), // No animation in this example
