@@ -101,13 +101,7 @@ pub(crate) fn fit_skeleton_to_shape(
         let helpers = prefab.get_helpers(&config.prefab_morph_targets, &*basemesh, &*morph_targets);
         let mut global_bone_transforms = get_model_space_skeleton_transforms(
             &prefab.rig.bone_order, &helpers, prefab.rig.rig_type, &bone_rotations, &*vg, &*rig_data);
-        let mut local_bone_transforms = get_local_skeleton_transforms(
-            &prefab.rig.bone_order, prefab.rig.rig_type, &*rig_data, &global_bone_transforms);
-        for child in children.iter_descendants(rig_entity) {
-            let name = names.get(child).unwrap().as_str();
-            let mut transform = local_transforms.get_mut(child).unwrap();
-            *transform = local_bone_transforms.remove(name).unwrap();
-        }
+        let mut local_bone_transforms = AHashMap::default();
 
         // The skeleton was adjusted so that the bones' rotations align head to tail.
         // The skeleton now fits the mesh's shape but this can induce animation artifacts due to 
