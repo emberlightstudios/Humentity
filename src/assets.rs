@@ -15,7 +15,7 @@ use::std::{
 use ahash::{AHashMap, AHashSet};
 use walkdir::WalkDir;
 use crate::{
-    material::HumanMaterials, mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState, PrefabLoadState}, morphs::adjust_helpers_to_morphs, prelude::*, rigs::{set_asset_rig_arrays, RigData}
+    mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState, PrefabLoadState}, morphs::adjust_helpers_to_morphs, prelude::*, rigs::{set_asset_rig_arrays, RigData}
 };
 
 /*---------+
@@ -594,10 +594,7 @@ impl FromWorld for HumanAssetRegistry {
         //    .collect::<AHashMap<&'static str, Handle<Image>>>();
 
         let textures = HumanBodyTextures { albedo_maps, normal_maps, ao_maps };//, sss_maps };
-        let materials = HumanMaterials::new(&textures);
-
         world.insert_resource(textures);
-        world.insert_resource(materials);
 
         HumanAssetRegistry {
             assets,

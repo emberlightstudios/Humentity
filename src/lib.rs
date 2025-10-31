@@ -8,6 +8,7 @@ mod prefab;
 mod animation;
 mod mesh_ops;
 mod material;
+mod physics;
 
 use bevy::asset::io::AssetSourceBuilder;
 use bevy::prelude::*;
@@ -29,7 +30,7 @@ pub mod prelude {
         assets::{HumanAsset, HumanAssetRegistry, HumanPart, HumanBodyTextures},
         animation::HumanAnimationClips,
         spawning::HumanShapeConfig,
-        material::{HumanMaterials, HumanMaterialExtension, HumanMaterialExtensionData},
+        material::{HumanMaterialExtension, HumanMaterialExtensionData},
     };
 }
 
