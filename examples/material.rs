@@ -4,7 +4,7 @@
 
 mod shared;
 use ahash::AHashMap;
-use bevy::{app::AnimationSystems, pbr::ExtendedMaterial, prelude::*};
+use bevy::{pbr::ExtendedMaterial, prelude::*};
 use humentity::prelude::*;
 use shared::{cam_controls, setup_env};
     
