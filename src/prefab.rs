@@ -56,7 +56,7 @@ impl HumanArchetypePrefab {
         let mut mh_morphs = MorphTargets::default();
         for shape in self.shapes.iter() {
             let Some(weight) = morph_values.get(&shape.name) else { continue };
-            for (k, v) in shape.morphs.iter() {
+            for (&k, v) in shape.morphs.iter() {
                 let entry = mh_morphs.entry(k).or_insert(0.);
                 *entry += *v * weight;
             }
