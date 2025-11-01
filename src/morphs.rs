@@ -1,4 +1,4 @@
-use bevy::{asset::RenderAssetUsages, ecs::intern::Internable, prelude::*};
+use bevy::{ecs::intern::Internable, prelude::*};
 use std::{
     fs::File,
     io::{ BufReader, BufRead },
@@ -8,7 +8,7 @@ use ahash::{AHashMap};
 use serde::Deserialize;
 use serde_json;
 use walkdir::WalkDir;
-use crate::{assets::HumanAssetData, basemesh::BODY_SCALE, mesh_ops::{get_uv_coords, get_vertex_positions, get_vertex_tangents}, prelude::*};
+use crate::{basemesh::BODY_SCALE, mesh_ops::{get_uv_coords, get_vertex_positions, get_vertex_tangents}, prelude::*};
 
 /*--------------+
  |  Components  |
@@ -111,8 +111,8 @@ impl HumanMorphs {
     pub fn get_asymetry_target_names(&self) -> Vec<&'static str> {
         self.targets
             .iter()
-            .filter(|(name, _)| name.starts_with("asym"))
-            .map(|(name, _)| name.clone())
+            .filter(|(&name, _)| name.starts_with("asym"))
+            .map(|(&name, _)| name)
             .collect::<Vec<_>>()
     }
 
@@ -124,14 +124,14 @@ impl HumanMorphs {
         let race_sliders: AHashMap<_, _> = morph_targets
             .iter()
             .filter(|(&k, _)| ["african", "asian", "caucasian"].contains(&k))
-            .map(|(k, v)| (k.clone(), *v))
+            .map(|(&k, v)| (k, *v))
             .collect();
 
         let total_race: f32 = race_sliders.values().sum();
         let race_weights: AHashMap<_, _> = if total_race > 0.0 {
             race_sliders
                 .iter()
-                .map(|(k, v)| (k.clone(), v / total_race))
+                .map(|(&k, v)| (k, v / total_race))
                 .collect()
         } else {
             // Default to Caucasian=1 if not specified
@@ -145,7 +145,7 @@ impl HumanMorphs {
 
         for (&k, v) in morph_targets.iter() {
             if self.macro_morphs.macrotargets.contains_key(&String::from(k)) {
-                macro_inputs.insert(k.clone(), *v);
+                macro_inputs.insert(k, *v);
             }
         }
 
@@ -331,7 +331,7 @@ impl HumanMorphs {
             .iter()
             .filter(|(&name, _)| name.starts_with("asym"))
         {
-            *result.entry(slider_name.clone()).or_insert(0.0) += *value;
+            *result.entry(slider_name).or_insert(0.0) += *value;
         }
 
         // ---------------------------------------

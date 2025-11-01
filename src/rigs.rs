@@ -61,6 +61,14 @@ pub(crate) struct RigData {
     pub(crate) configs: AHashMap<RigType, AHashMap<&'static str, BoneData>>,
 }
 
+impl RigData {
+    pub(crate) fn get_parent_data(&self, child: &'static str, rig_type: RigType) -> &BoneData {
+        let config = &self.configs[&rig_type];
+        let child = &config[child];
+        &config[child.parent]
+    }
+}
+
 pub(crate) struct BoneData {
     pub(crate) parent: &'static str,
     head: BoneTransform,
@@ -164,7 +172,7 @@ pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static st
             depth += 1;
             parent = &mh_config.get(NAME_INTERNER.intern(&parent).leak()).unwrap().parent;
         }
-        depths.insert(name.clone(), depth);
+        depths.insert(name, depth);
     }
 
     let mut sorted_bones: Vec<(&'static str, usize)> = depths.into_iter().collect();
@@ -346,7 +354,7 @@ pub(crate) fn get_model_space_skeleton_transforms(
     for &name in bone_order.iter() {
         let bone = &mh_config[name];
         let base_rot = bone_rotations[name];
-        global_transforms.insert(name.clone(), get_bone_transform(bone, base_rot, vg, helpers));
+        global_transforms.insert(name, get_bone_transform(bone, base_rot, vg, helpers));
     }
     global_transforms
 }
@@ -373,7 +381,7 @@ pub(crate) fn get_local_skeleton_transforms(
             mat = parent_local.inverse() * mat;
         }
 
-        local_transforms.insert(name.clone(), Transform::from_matrix(mat));
+        local_transforms.insert(name, Transform::from_matrix(mat));
     }
     local_transforms
 }
