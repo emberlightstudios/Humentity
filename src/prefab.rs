@@ -68,12 +68,20 @@ impl HumanArchetypePrefab {
 /*-----------+
  | Resources |
  +-----------*/
-#[derive(Resource, Default, Deref, DerefMut)]
+#[derive(Resource, Deref, DerefMut)]
 pub struct HumanArchetypePrefabs(AHashMap<&'static str, HumanArchetypePrefab>);
 
 impl HumanArchetypePrefabs {
     pub fn new(prefabs: impl IntoIterator<Item = (&'static str, HumanArchetypePrefab)>) -> Self {
         Self(prefabs.into_iter().collect::<AHashMap<&'static str, HumanArchetypePrefab>>())
+    }
+}
+
+impl Default for HumanArchetypePrefabs {
+    fn default() -> Self {
+        let mut prefabs = AHashMap::default();
+        prefabs.insert("", HumanArchetypePrefab::default());
+        Self(prefabs)
     }
 }
 
@@ -170,18 +178,22 @@ pub(crate) fn create_basemesh_prefab_morphable_meshes(
             morphs.push(morph.into_iter());
         }
 
-        let image = MorphTargetImage::new(
-            morphs.into_iter(), base_positions.len(), RenderAssetUsages::default()
-        ).expect("failed to create morph target image");
-
-        let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
             .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, get_vertex_positions(&basemesh_mesh))
             .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&basemesh_mesh))
             .with_inserted_indices(basemesh_mesh.indices().unwrap().clone())
             .with_computed_area_weighted_normals()
-            .with_morph_targets(images.add(image.0))
-            .with_morph_target_names(morph_names)
             .with_generated_tangents().unwrap();
+
+        if !morphs.is_empty() {
+            let image = MorphTargetImage::new(
+                morphs.into_iter(), base_positions.len(), RenderAssetUsages::default()
+            ).expect("failed to create morph target image");
+
+            mesh = mesh
+                .with_morph_targets(images.add(image.0))
+                .with_morph_target_names(morph_names)
+        }
 
         basemesh.prefab_state.insert(name, MeshProcessingState::Morphed(meshes.add(mesh)));
     }

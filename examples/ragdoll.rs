@@ -3,9 +3,6 @@ use bevy::prelude::*;
 use humentity::prelude::*;
 use avian3d::prelude::*;
 use shared::{setup_env, cam_controls, add_material};
-use ahash::AHashMap;
-
-const PREFAB: &str = "prefab";
 
 fn main() {
     App::new()
@@ -43,7 +40,7 @@ fn add_human(
 ) {
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0.2, 0.)),
-        HumanShapeConfig::new(PREFAB, MorphTargets::default()),
+        HumanShapeConfig::default(),
         InheritedVisibility::default(),
         HumanRagdoll::new(false),
         children![(
@@ -52,21 +49,6 @@ fn add_human(
     ));
 }
 
-fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
-    let morph_targets = MorphTargets::default();
-    let base_shape = HumanShapeArchetype::new(
-        "default",
-        morphs.compute_target_weights(&morph_targets),
-    );
-
-    let mut prefabs = AHashMap::default();
-    prefabs.insert(
-        PREFAB,
-        HumanArchetypePrefab::new(
-            vec![base_shape],
-            HumanAnimationArchetype::default(), // No animation in this example
-        )
-    );
-
-    commands.insert_resource(HumanArchetypePrefabs::new(prefabs));
+fn setup_prefabs(mut commands: Commands) {
+    commands.insert_resource(HumanArchetypePrefabs::default());
 }

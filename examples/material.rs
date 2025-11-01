@@ -9,9 +9,6 @@ use humentity::prelude::*;
 use shared::{cam_controls, setup_env};
     
 
-const PREFAB: &str = "ExampleHumanPrefab";
-
-
 fn main() {
     App::new()
         .add_plugins((
@@ -62,27 +59,12 @@ fn add_human(
 
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
-        HumanShapeConfig::new(PREFAB, MorphTargets::default()),
+        HumanShapeConfig::default(),
         InheritedVisibility::default(),
         children![(HumanPart::BaseMesh)],
     ));
 }
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
-    let morph_targets = MorphTargets::default();
-    let base_shape = HumanShapeArchetype::new(
-        "default",
-        morphs.compute_target_weights(&morph_targets),
-    );
-
-    let mut prefabs = AHashMap::default();
-    prefabs.insert(
-        PREFAB,
-        HumanArchetypePrefab::new(
-            vec![base_shape],
-            HumanAnimationArchetype::default(), // No animation in this example
-        )
-    );
-
-    commands.insert_resource(HumanArchetypePrefabs::new(prefabs));
+    commands.insert_resource(HumanArchetypePrefabs::default());
 }

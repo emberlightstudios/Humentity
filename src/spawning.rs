@@ -49,6 +49,9 @@ pub(crate) fn spawn_rig_scene(
                 ))
                 .id();
             commands.entity(human).insert(FitSkeleton).add_child(cached_scene);
+        } else {
+            error!("No such prefab named {}", config.prefab);
+            commands.entity(human).despawn();
         }
     })
 }
@@ -176,7 +179,8 @@ pub(crate) fn setup_human_parts(
     mut commands: Commands,
 ) {
     for (entity, part, child_of) in parts.iter() {
-        let Ok((config, skinned_mesh)) = configs.get(child_of.parent()) else { continue };
+        let Ok((config, skinned_mesh)) = configs.get(child_of.parent()) else 
+            { continue };
 
         // Get some releveant data
         let prefab = &prefabs[&config.prefab];
@@ -189,27 +193,37 @@ pub(crate) fn setup_human_parts(
         // Spawn meshes
         match part {
             HumanPart::BaseMesh => {
-                let MeshProcessingState::Ready(handle) = &basemesh.prefab_state[&config.prefab] else { continue };
+                let MeshProcessingState::Ready(handle) = &basemesh.prefab_state[&config.prefab] else
+                    {
+                        error!("No such prefab named {}", config.prefab);
+                        continue
+                    };
                 commands.entity(entity).insert((
                     Mesh3d(handle.clone()),
                     skinned_mesh.clone(),
-                    morph_weights,
                 ));
+                let mesh = meshes.get(handle).unwrap();
+                if mesh.has_morph_targets() {
+                    commands.entity(entity).insert(morph_weights);
+                }
             }
             HumanPart::BodyPart(name) | HumanPart::Equipment(name) | HumanPart::ProxyMesh(name) => {
                 let Some(asset) = registry.get_mut(part) else {
                     error!("No such asset: {} - Cannot load", name);
                     continue
                 };
-                if let Some(mesh_handle) = asset.get_rigged_mesh_handle(
+                if let Some(handle) = asset.get_rigged_mesh_handle(
                     &mut *asset_server, &config.prefab, prefab, &*rig_data,
                     &*basemesh, &*morph_targets, &*paths, &mut *meshes, &mut *images
                 ) {
                     commands.entity(entity).insert((
-                        Mesh3d(mesh_handle.clone()),
+                        Mesh3d(handle.clone()),
                         skinned_mesh.clone(),
-                        morph_weights,
                     ));
+                    let mesh = meshes.get(&handle).unwrap();
+                    if mesh.has_morph_targets() {
+                        commands.entity(entity).insert(morph_weights);
+                    }
                 }
             }
         }
