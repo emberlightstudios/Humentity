@@ -1,6 +1,6 @@
+use bevy::{prelude::*, ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}};
+use crate::{prelude::*, assets::HumanAssetRegistry, basemesh::VertexGroups, mesh_ops::MeshProcessingState, rigs::{get_model_space_skeleton_transforms, RigData}};
 use ahash::AHashMap;
-use bevy::{ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
-use crate::{assets::HumanAssetRegistry, basemesh::VertexGroups, mesh_ops::{MeshProcessingState}, prelude::*, rigs::{get_local_skeleton_transforms, get_model_space_skeleton_transforms, RigData}};
 
 
 /*--------------+
@@ -58,7 +58,7 @@ pub(crate) fn fit_skeleton_to_shape(
     prefabs: Res<HumanArchetypePrefabs>,
     rigs: Query<(Entity, &SkinnedMesh), Without<Mesh3d>>,
     children: Query<&Children>,
-    configs: Query<(Entity, &HumanShapeConfig, &Transform), With<FitSkeleton>>,
+    mut configs: Query<(Entity, &HumanShapeConfig, &Transform, Option<&mut HumanRagdoll>), With<FitSkeleton>>,
     names: Query<&Name>,
     global_transforms: Query<&GlobalTransform>,
     mut local_transforms: Query<&mut Transform, Without<HumanShapeConfig>>,
@@ -69,7 +69,7 @@ pub(crate) fn fit_skeleton_to_shape(
     rig_data: Res<RigData>,
 ) {
 
-    for (root, config, model_transform) in configs.iter() {
+    for (root, config, model_transform, ragdoll) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
 
         let mut skinned_mesh: Option<&SkinnedMesh> = None;
@@ -84,9 +84,10 @@ pub(crate) fn fit_skeleton_to_shape(
                 for child in children.iter_descendants(child) {
                     if let Ok(transform) = global_transforms.get(child) {
                         let name = names.get(child).unwrap();
-                        bone_entities.insert(name.as_str(), child);
+                        let name = NAME_INTERNER.intern(name.as_str()).leak();
+                        bone_entities.insert(name, child);
                         bone_rotations.insert(
-                            NAME_INTERNER.intern(name.as_str()).leak(),
+                            name,
                             Transform::from_matrix(model_transform.to_matrix().inverse() * transform.to_matrix()).rotation
                         );
                     }
@@ -97,7 +98,7 @@ pub(crate) fn fit_skeleton_to_shape(
         if skinned_mesh.is_none() { return }
         let skinned_mesh = skinned_mesh.unwrap();
 
-        // Re-fit skeleton
+        // Re-fit skeleton to mesh shape
         let helpers = prefab.get_helpers(&config.prefab_morph_targets, &*basemesh, &*morph_targets);
         let mut global_bone_transforms = get_model_space_skeleton_transforms(
             &prefab.rig.bone_order, &helpers, prefab.rig.rig_type, &bone_rotations, &*vg, &*rig_data);
@@ -125,16 +126,15 @@ pub(crate) fn fit_skeleton_to_shape(
                     scale: old_global.scale,
                 };
             
-                // Recompute local transform relative to new parent
+                // Recompute local transform 
                 let parent_matrix = parent_transform.to_matrix();
                 let child_matrix = new_global.to_matrix();
                 let new_local = Transform::from_matrix(parent_matrix.inverse() * child_matrix);
 
-                // Update maps so children see new rotations
                 local_bone_transforms.insert(bone, new_local);
                 global_bone_transforms.insert(bone, new_global);
 
-                // We also need to update the joint entity transforms
+                // Update the joint entity transforms
                 let joint = bone_entities[bone];
                 let mut local_transform = local_transforms.get_mut(joint).unwrap();
                 *local_transform = new_local;
@@ -153,6 +153,11 @@ pub(crate) fn fit_skeleton_to_shape(
         }).remove::<FitSkeleton>();
         // Remove skinned mesh from rig_entity
         commands.entity(rig_entity).remove::<SkinnedMesh>();
+
+        if let Some(mut ragdoll) = ragdoll {
+            ragdoll.spawn_ragdoll(&mut commands, &helpers, prefab.rig.rig_type,
+                &bone_entities, &global_transforms, &*rig_data, rig_entity);
+        }
     }
 }
 

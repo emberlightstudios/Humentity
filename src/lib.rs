@@ -31,7 +31,9 @@ pub mod prelude {
         animation::HumanAnimationClips,
         spawning::HumanShapeConfig,
         material::{HumanMaterialExtension, HumanMaterialExtensionData},
+        physics::HumanRagdoll,
     };
+        
 }
 
 #[derive(States, Debug, Hash, Eq, PartialEq, Copy, Clone)]
@@ -101,11 +103,11 @@ impl Plugin for Humentity {
                     spawning::spawn_rig_scene,
                     spawning::fit_skeleton_to_shape,
                     spawning::setup_human_parts,
+                    physics::control_ragdoll,
                 ).chain().run_if(
                     in_state(HumentityLoadState::Ready)
                     .and(resource_exists::<HumanAssetRegistry>)
                 )
-
             ));
 
         if self.debug {
