@@ -13,8 +13,8 @@ use ahash::{AHashMap, AHashSet};
 #[derive(Default, Eq, PartialEq, Clone)]
 pub(crate) enum MeshProcessingState {
     #[default]
-    Unprocessed,
-    //ObjLoaded(Handle<Mesh>),       // Loaded obj
+    Unprocessed,                   // Loaded obj
+    Rescaled,                      // Rescaled
     Shaped(Vec<Handle<Mesh>>),     // Reshaped, one per shape, per prefab
     Morphed(Handle<Mesh>),         // Mesh morphs instead of shapes, one per prefab
     Ready(Handle<Mesh>),           // Rigged, one per prefab
@@ -111,11 +111,14 @@ pub(crate) fn generate_vertex_map(
 pub(crate) fn generate_mhid_lookup(
     map: &AHashMap<u16, Vec<u16>>,
 ) -> Vec<u16> {
-    let verts = map
-        .iter()
-        .map(|(_, v)| v.len())
-        .sum::<usize>();
-    let mut lkup: Vec<u16> = vec![0; verts];
+    let max_vert = map
+        .values()
+        .flat_map(|v| v.iter())
+        .max()
+        .copied()
+        .unwrap_or(0);
+
+    let mut lkup: Vec<u16> = vec![0; max_vert as usize + 1];
     for (&mhv, verts) in map.iter() {
         for &vert in verts.iter() {
             lkup[vert as usize] = mhv;

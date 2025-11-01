@@ -1,4 +1,4 @@
-use bevy::{prelude::*, ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}};
+use bevy::{app::Inherited, ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
 use crate::{prelude::*, assets::HumanAssetRegistry, basemesh::VertexGroups, mesh_ops::MeshProcessingState, rigs::{get_model_space_skeleton_transforms, RigData}};
 use ahash::AHashMap;
 
@@ -196,8 +196,11 @@ pub(crate) fn setup_human_parts(
                     morph_weights,
                 ));
             }
-            HumanPart::BodyPart(_) | HumanPart::Equipment(_) | HumanPart::ProxyMesh(_) => {
-                let Some(asset) = registry.get_mut(part) else { continue };
+            HumanPart::BodyPart(name) | HumanPart::Equipment(name) | HumanPart::ProxyMesh(name) => {
+                let Some(asset) = registry.get_mut(part) else {
+                    error!("No such asset: {} - Cannot load", name);
+                    continue
+                };
                 if let Some(mesh_handle) = asset.get_rigged_mesh_handle(
                     &mut *asset_server, &config.prefab, prefab, &*rig_data,
                     &*basemesh, &*morph_targets, &*paths, &mut *meshes, &mut *images

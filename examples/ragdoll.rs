@@ -6,7 +6,6 @@ use shared::{setup_env, cam_controls, add_material};
 use ahash::AHashMap;
 
 const PREFAB: &str = "prefab";
-const TIME_SCALE: f32 = 0.01;
 
 fn main() {
     App::new()

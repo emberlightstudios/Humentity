@@ -45,8 +45,8 @@ pub enum HumanAssetTextureType {
 /// Does not represent the base mesh which is special
 pub struct HumanAsset {
     part: HumanPart,
-    paths: HumanMeshAssetFilePaths,
-    pub(crate) data: Option<HumanAssetData>,
+    pub paths: HumanMeshAssetFilePaths,
+    pub data: Option<HumanAssetData>,
 }
 
 impl HumanAsset {
@@ -79,7 +79,7 @@ impl HumanAsset {
             self.load_asset_if_unloaded(asset_server);
         }
         let data = self.data.as_mut().unwrap();
-        data.get_mesh_handle(meshes, paths)
+        Some(data.base_mesh_handle.clone())
     }
 
     /// Return the mesh handle of the asset which has been augmented with arrays for skinning with the given rig
@@ -149,11 +149,11 @@ impl HumanAsset {
 
 /// File paths for assets to be loaded for assets
 #[derive(Default)]
-struct HumanMeshAssetFilePaths {
+pub struct HumanMeshAssetFilePaths {
     mh_file: PathBuf,
-    albedo_maps: AHashMap<&'static str, PathBuf>,
-    normal_maps: AHashMap<&'static str, PathBuf>,
-    ao_maps: AHashMap<&'static str, PathBuf>,
+    pub albedo_maps: AHashMap<&'static str, PathBuf>,
+    pub normal_maps: AHashMap<&'static str, PathBuf>,
+    pub ao_maps: AHashMap<&'static str, PathBuf>,
 }
 
 /// The cached data for the asset, includes handles to relevant assets and
@@ -178,9 +178,9 @@ pub struct HumanAssetData {
 }
 
 impl HumanAssetData {
-    pub(crate) fn get_mesh_handle(
+    pub(crate) fn process_base_mesh(
         &mut self, meshes: &mut Assets<Mesh>, paths: &HumentityPathsConfig
-    ) -> Option<Handle<Mesh>> {
+    ) -> Option<()> {
         // Get the makehuman vertex index lookup 
         let Some(mesh) = meshes.get(&self.base_mesh_handle) else { return None };
         let path = paths.core_assets_path.join(&self.obj_file);
@@ -188,12 +188,12 @@ impl HumanAssetData {
         let verts = get_vertex_positions(mesh);
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
         self.mhid_lookup = generate_mhid_lookup(&vertex_map);
-        Some(self.base_mesh_handle.clone())
+        Some(())
     }
 
     pub(crate) fn get_rigged_mesh_handle(
         &mut self,
-        prefab_name: &&'static str,
+        prefab_name: &'static str,
         prefab: &HumanArchetypePrefab,
         basemesh: &BaseMesh,
         morph_targets: &HumanMorphs,
@@ -205,7 +205,7 @@ impl HumanAssetData {
         if !self.prefab_load_state.contains_key(prefab_name) {
             self.prefab_load_state.insert(prefab_name, MeshProcessingState::Unprocessed);
         }
-        if self.get_mesh_handle(meshes, paths).is_none() { return None }
+        if meshes.get(&self.base_mesh_handle).is_none() { return None }
 
         match &self.prefab_load_state[prefab_name] {
             MeshProcessingState::Ready(handle) => return Some(handle.clone()),
@@ -216,6 +216,13 @@ impl HumanAssetData {
                 return Some(handle);
             }
             MeshProcessingState::Unprocessed => {
+                if self.process_base_mesh(meshes, paths).is_none() { return None }
+                let handle = self.asset_mesh_from_helpers(&basemesh.vertices, meshes);
+                self.base_mesh_handle = handle;
+                self.prefab_load_state.insert(prefab_name, MeshProcessingState::Rescaled);
+                None
+            }
+            MeshProcessingState::Rescaled => {
                 let mut handles = vec![];
                 for shape in prefab.shapes.iter() {
                     let helpers = adjust_helpers_to_morphs(&shape.morphs, morph_targets, basemesh);
@@ -452,10 +459,10 @@ enum FileSection {
 #[derive(Default, Resource)]
 #[allow(dead_code)]
 pub struct HumanBodyTextures {
-    pub albedo_maps: AHashMap<&'static str, Handle<Image>>,
-    pub normal_maps: AHashMap<&'static str, Handle<Image>>,
-    pub ao_maps: AHashMap<&'static str, Handle<Image>>,
-    //pub sss_maps: AHashMap<&'static str, Handle<Image>>,
+    pub albedo_maps: AHashMap<&'static str, PathBuf>,
+    pub normal_maps: AHashMap<&'static str, PathBuf>,
+    pub ao_maps: AHashMap<&'static str, PathBuf>,
+    //pub sss_maps: AHashMap<&'static str, PathBuf>,
 }
 
 #[derive(Resource)]
@@ -567,7 +574,6 @@ impl FromWorld for HumanAssetRegistry {
                     let asset = HumanAsset {
                         part: part.clone(), data: None, paths
                     };
-                    // insert into name hashmap
                     assets.insert(part, asset);
                 }
             }
@@ -575,23 +581,10 @@ impl FromWorld for HumanAssetRegistry {
 
         // Load body textures
         let path = config.core_assets_path.join("skin_textures");
-        let asset_server = world.resource_mut::<AssetServer>();
-        let albedo_maps = get_textures(&path, HumanAssetTextureType::Albedo)
-            .into_iter()
-            .map(|(n, p)| (n, asset_server.load(p)))
-            .collect::<AHashMap<&'static str, Handle<Image>>>();
-        let normal_maps = get_textures(&path, HumanAssetTextureType::Normal)
-            .into_iter()
-            .map(|(n, p)| (n, asset_server.load(p)))
-            .collect::<AHashMap<&'static str, Handle<Image>>>();
-        let ao_maps = get_textures(&path, HumanAssetTextureType::AmbientOcclusion)
-            .into_iter()
-            .map(|(n, p)| (n, asset_server.load(p)))
-            .collect::<AHashMap<&'static str, Handle<Image>>>();
-        //let sss_maps = get_textures(&path, HumanAssetTextureType::SubsurfaceScattering)
-        //    .into_iter()
-        //    .map(|(n, p)| (n, asset_server.load(p)))
-        //    .collect::<AHashMap<&'static str, Handle<Image>>>();
+        let albedo_maps = get_textures(&path, HumanAssetTextureType::Albedo);
+        let normal_maps = get_textures(&path, HumanAssetTextureType::Normal);
+        let ao_maps = get_textures(&path, HumanAssetTextureType::AmbientOcclusion);
+        //let sss_maps = get_textures(&path, HumanAssetTextureType::SubsurfaceScattering);
 
         let textures = HumanBodyTextures { albedo_maps, normal_maps, ao_maps };//, sss_maps };
         world.insert_resource(textures);

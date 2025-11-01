@@ -3,6 +3,7 @@ use bevy::pbr::MaterialExtension;
 use bevy::shader::ShaderRef;
 use bevy::render::render_resource::*;
 
+
 const SHADER_ASSET_PATH: &str = "humentity://shaders/human.wgsl";
 
 /*--------------+
@@ -26,4 +27,3 @@ impl MaterialExtension for HumanMaterialExtension {
         SHADER_ASSET_PATH.into()
     }
 }
-

@@ -32,6 +32,7 @@ fn add_skin_material(
     mut commands: Commands,
     humans: Query<(Entity, &HumanPart), (With<Mesh3d>, Without<MeshMaterial3d<ExtendedMaterial<StandardMaterial, HumanMaterialExtension>>>)>,
     textures: Res<HumanBodyTextures>,
+    asset_server: Res<AssetServer>,
     mut human_material_assets: ResMut<Assets<ExtendedMaterial<StandardMaterial, HumanMaterialExtension>>>,
 ) {
     for (entity, part) in humans.iter() {
@@ -42,7 +43,7 @@ fn add_skin_material(
             let albedo = &textures.albedo_maps[name];
             let material = ExtendedMaterial {
                 base: StandardMaterial {
-                    base_color_texture: Some(albedo.clone()),
+                    base_color_texture: Some(asset_server.load(albedo.clone())),
                     ..default()
                 },
                 extension: HumanMaterialExtension {

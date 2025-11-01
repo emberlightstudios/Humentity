@@ -57,13 +57,13 @@ pub fn setup_env(
     // A light:
     commands.spawn((
         PointLight {
-            intensity: 14_000_0.0,
+            intensity: 8_000_0.0,
             radius: 19.,
             range: 19.,
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(-1.0, 1.0, 5.0),
+        Transform::from_xyz(-1.0, 3.0, 5.0),
     ));
 
     // A camera:
