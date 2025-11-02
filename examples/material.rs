@@ -14,7 +14,7 @@ fn main() {
         .add_plugins((
             Humentity::new(HumentityPathsConfig::new("./")), // Must come before DefaultPlugins
             DefaultPlugins,
-            MaterialPlugin::<ExtendedMaterial<StandardMaterial, HumanMaterialExtension>>::default(),
+            MaterialPlugin::<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>::default(),
         ))
         .add_systems(Startup, setup_env)
         .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
@@ -27,23 +27,23 @@ fn main() {
 
 fn add_skin_material(
     mut commands: Commands,
-    humans: Query<(Entity, &HumanPart), (With<Mesh3d>, Without<MeshMaterial3d<ExtendedMaterial<StandardMaterial, HumanMaterialExtension>>>)>,
-    textures: Res<HumanBodyTextures>,
+    humans: Query<(Entity, &CharacterPart), (With<Mesh3d>, Without<MeshMaterial3d<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>>)>,
+    textures: Res<CharacterBodyTextures>,
     asset_server: Res<AssetServer>,
-    mut human_material_assets: ResMut<Assets<ExtendedMaterial<StandardMaterial, HumanMaterialExtension>>>,
+    mut human_material_assets: ResMut<Assets<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>>,
 ) {
     for (entity, part) in humans.iter() {
         let name = "middleage_asian_female";
         // This should always be true here, but in general we only want to put skin textures
         // on the base mesh or the proxy meshes, not any other parts/assets.
-        if matches!(part, HumanPart::BaseMesh) {  
+        if matches!(part, CharacterPart::BaseMesh) {  
             let albedo = &textures.albedo_maps[name];
             let material = ExtendedMaterial {
                 base: StandardMaterial {
                     base_color_texture: Some(asset_server.load(albedo.clone())),
                     ..default()
                 },
-                extension: HumanMaterialExtension {
+                extension: CharacterMaterialExtension {
                     // No data defined yet.
                 }
             };
@@ -59,12 +59,12 @@ fn add_human(
 
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
-        HumanShapeConfig::default(),
+        CharacterShapeConfig::default(),
         InheritedVisibility::default(),
-        children![(HumanPart::BaseMesh)],
+        children![(CharacterPart::BaseMesh)],
     ));
 }
 
-fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
-    commands.insert_resource(HumanArchetypePrefabs::default());
+fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
+    commands.insert_resource(CharacterArchetypePrefabs::default());
 }

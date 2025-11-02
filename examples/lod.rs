@@ -43,32 +43,32 @@ fn add_humans(
 
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 1.)),
-        HumanShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(prefab_name, morphs.clone()),
         LevelOfDetail, // Just a marker component for this example
         InheritedVisibility::default(),
         children![(
-            HumanPart::BaseMesh,
+            CharacterPart::BaseMesh,
             VisibilityRange {
                 start_margin: 0.0..0.0,
                 end_margin: 2.0..2.,
                 use_aabb: false,
             }
         ), (
-            HumanPart::ProxyMesh(lod1),
+            CharacterPart::ProxyMesh(lod1),
             VisibilityRange {
                 start_margin: 2.0..2.0,
                 end_margin: 4.0..4.0,
                 use_aabb: false,
             }
         ), (
-            HumanPart::ProxyMesh(lod2),
+            CharacterPart::ProxyMesh(lod2),
             VisibilityRange {
                 start_margin: 4.0..4.,
                 end_margin: 6.0..6.,
                 use_aabb: false,
             }
         ), (
-            HumanPart::ProxyMesh(lod3),
+            CharacterPart::ProxyMesh(lod3),
             VisibilityRange {
                 start_margin: 6.0..6.0,
                 end_margin: 8.0..10.0,
@@ -81,40 +81,40 @@ fn add_humans(
     // The base mesh (highest poly-count ~19k tris)
     commands.spawn((
         Transform::from_translation(Vec3::new(-1.5, 0., 0.)),
-        HumanShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(prefab_name, morphs.clone()),
         InheritedVisibility::default(),
         children![(
-            HumanPart::BaseMesh
+            CharacterPart::BaseMesh
         )]
     ));
 
     // male_generic (high poly-count 13k tris)
     commands.spawn((
         Transform::from_translation(Vec3::new(-0.5, 0., 0.)),
-        HumanShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(prefab_name, morphs.clone()),
         InheritedVisibility::default(),
         children![(
-            HumanPart::ProxyMesh(lod1)
+            CharacterPart::ProxyMesh(lod1)
         )]
     ));
 
     //  male1591 (low poly-count)
     commands.spawn((
         Transform::from_translation(Vec3::new(0.5, 0., 0.)),
-        HumanShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(prefab_name, morphs.clone()),
         InheritedVisibility::default(),
         children![(
-            HumanPart::ProxyMesh(lod2)
+            CharacterPart::ProxyMesh(lod2)
         )]
     ));
 
     // proxy741 (very low poly-count)
     commands.spawn((
         Transform::from_translation(Vec3::new(1.5, 0., 0.)),
-        HumanShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(prefab_name, morphs.clone()),
         InheritedVisibility::default(),
         children![(
-            HumanPart::ProxyMesh(lod3)
+            CharacterPart::ProxyMesh(lod3)
         )]
     ));
 
@@ -140,12 +140,12 @@ fn add_material(
 }
 
 
-fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
+fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("asian", 1.);
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
-    let bodybuilder_shape = HumanShapeArchetype::new(
+    let bodybuilder_shape = CharacterShapeArchetype::new(
         "bodybuilder",
         morphs.compute_target_weights(&morph_targets),
     );
@@ -153,11 +153,11 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     let mut prefabs = AHashMap::default();
     prefabs.insert(
         "ExampleHumanPrefab",
-        HumanArchetypePrefab::new(
+        CharacterArchetypePrefab::new(
             vec![bodybuilder_shape],
-            HumanAnimationArchetype::default(), // No animation in this example
+            CharacterAnimationArchetype::default(), // No animation in this example
         )
     );
 
-    commands.insert_resource(HumanArchetypePrefabs::new(prefabs));
+    commands.insert_resource(CharacterArchetypePrefabs::new(prefabs));
 }

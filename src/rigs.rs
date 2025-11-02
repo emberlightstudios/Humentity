@@ -250,7 +250,7 @@ pub(crate) fn set_asset_rig_arrays(
     rig_data: &RigData,
     mhid_lookup: &Vec<u16>,
     helper_map: &Vec<HelperMap>,
-    rig: &HumanAnimationArchetype,
+    rig: &CharacterAnimationArchetype,
 ) -> Handle<Mesh> {
     let weights_res = rig_data.weights.get(&rig.rig_type).expect("No weights for rig?");
 

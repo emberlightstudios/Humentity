@@ -3,7 +3,7 @@ mod basemesh;
 mod morphs;
 mod rigs;
 mod assets;
-mod spawning;
+mod spawn;
 mod prefab;
 mod animation;
 mod mesh_ops;
@@ -23,15 +23,15 @@ pub mod prelude {
         NAME_INTERNER,
         Humentity, HumentityLoadState,
         rigs::RigType,
-        morphs::{HumanMorphs, MorphTargets},
+        morphs::{MakeHumanMorphs, MorphTargets},
         basemesh::BaseMesh,
         paths_config::HumentityPathsConfig,
-        prefab::{HumanArchetypePrefab, HumanArchetypePrefabs, HumanShapeArchetype, HumanAnimationArchetype},
-        assets::{HumanAsset, HumanAssetRegistry, HumanPart, HumanBodyTextures},
-        animation::HumanAnimationClips,
-        spawning::HumanShapeConfig,
-        material::{HumanMaterialExtension, HumanMaterialExtensionData},
-        physics::HumanRagdoll,
+        prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs, CharacterShapeArchetype, CharacterAnimationArchetype},
+        assets::{CharacterAsset, CharacterAssetRegistry, CharacterPart, CharacterBodyTextures},
+        animation::CharacterAnimationClips as CharacterAnimationClips,
+        spawn::CharacterShapeConfig,
+        material::{CharacterMaterialExtension, CharacterMaterialExtensionData},
+        physics::CharacterRagdoll,
     };
         
 }
@@ -89,7 +89,7 @@ impl Plugin for Humentity {
                         prefab::create_basemesh_prefab_morphable_meshes,
                         prefab::rig_basemesh_prefab_meshes,
                     ).chain().run_if(
-                        resource_exists::<HumanArchetypePrefabs>
+                        resource_exists::<CharacterArchetypePrefabs>
                         .and(in_state(HumentityLoadState::BuildingPrefabs))
                     ),
                 ),
@@ -100,13 +100,13 @@ impl Plugin for Humentity {
 
                 // PHASE 4 : READY TO BUILD HUMANS
                 (
-                    spawning::spawn_rig_scene,
-                    spawning::fit_skeleton_to_shape,
-                    spawning::setup_human_parts,
+                    spawn::spawn_rig_scene,
+                    spawn::fit_skeleton_to_shape,
+                    spawn::setup_human_parts,
                     physics::control_ragdoll,
                 ).chain().run_if(
                     in_state(HumentityLoadState::Ready)
-                    .and(resource_exists::<HumanAssetRegistry>)
+                    .and(resource_exists::<CharacterAssetRegistry>)
                 )
             ));
 
@@ -125,8 +125,8 @@ impl Plugin for Humentity {
         // Most of the core assets are loaded in the FromWorld impl for these resources
         app
             .init_resource::<basemesh::BaseMesh>()
-            .init_resource::<assets::HumanAssetRegistry>()
-            .init_resource::<morphs::HumanMorphs>()
+            .init_resource::<assets::CharacterAssetRegistry>()
+            .init_resource::<morphs::MakeHumanMorphs>()
             .init_resource::<rigs::RigData>();
 
     }

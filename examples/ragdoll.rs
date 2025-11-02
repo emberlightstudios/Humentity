@@ -19,7 +19,7 @@ fn main() {
         .run();
 }
 
-fn toggle(input: Res<ButtonInput<KeyCode>>, mut ragdolls: Query<&mut HumanRagdoll>) {
+fn toggle(input: Res<ButtonInput<KeyCode>>, mut ragdolls: Query<&mut CharacterRagdoll>) {
     if input.just_pressed(KeyCode::Space) {
         if let Ok(mut ragdoll) = ragdolls.single_mut() {
             ragdoll.active = !ragdoll.active;
@@ -40,15 +40,15 @@ fn add_human(
 ) {
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0.2, 0.)),
-        HumanShapeConfig::default(),
+        CharacterShapeConfig::default(),
         InheritedVisibility::default(),
-        HumanRagdoll::new(false),
+        CharacterRagdoll::new(false),
         children![(
-            HumanPart::BaseMesh
+            CharacterPart::BaseMesh
         )],
     ));
 }
 
 fn setup_prefabs(mut commands: Commands) {
-    commands.insert_resource(HumanArchetypePrefabs::default());
+    commands.insert_resource(CharacterArchetypePrefabs::default());
 }

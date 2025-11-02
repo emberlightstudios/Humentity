@@ -2,16 +2,16 @@ use bevy::{animation::{AnimationTarget, AnimationTargetId}, asset::RenderAssetUs
 use crate::{animation::get_skeleton_rotations, basemesh::VertexGroups, mesh_ops::{get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, MeshProcessingState}, morphs::{self, adjust_helpers_to_morphs}, prelude::*, rigs::{get_bone_order, set_basemesh_rig_arrays, RigData}};
 use ahash::{AHashMap};
 
-/// In order to dynamically reshape humans at runtime, we can define a HumanArchetype which is a mesh 
+/// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh 
 /// cached from a given set of MorphTargets.  Archetypes are added as new distinct shapekeys to the base 
 /// mesh, and the rest of the makehuman shapekeys are removed.  Use this for distinct faces or body types.
 /// You can also blend between them, since they are just shapekeys.
-pub struct HumanShapeArchetype {
+pub struct CharacterShapeArchetype {
     pub name: &'static str,
     pub morphs: MorphTargets,
 }
 
-impl HumanShapeArchetype {
+impl CharacterShapeArchetype {
     pub fn new(name: &'static str, morphs: MorphTargets) -> Self {
         Self { name, morphs }
     }
@@ -19,7 +19,7 @@ impl HumanShapeArchetype {
 
 /// Encapsulates all the animation properties and cached data associated with an archetype/prefab.
 #[derive(Default)]
-pub struct HumanAnimationArchetype {
+pub struct CharacterAnimationArchetype {
     pub animations: AHashMap<&'static str, Handle<AnimationClip>>,
     pub animation_glbs: Vec<&'static str>,
     pub rig_type: RigType,
@@ -28,7 +28,7 @@ pub struct HumanAnimationArchetype {
     pub(crate) bone_rotations: AHashMap<&'static str, Quat>,
 }
 
-impl HumanAnimationArchetype {
+impl CharacterAnimationArchetype {
     pub fn new(rig_type: RigType, animation_glbs: impl IntoIterator<Item = &'static str>) -> Self {
         let mut instance = Self::default();
         instance.rig_type = rig_type;
@@ -42,17 +42,17 @@ impl HumanAnimationArchetype {
 /// A collection of base shapes and animation properties.  The shapes will be baked into a
 /// new Mesh as morph targets.
 #[derive(Default)]
-pub struct HumanArchetypePrefab {
-    pub shapes: Vec<HumanShapeArchetype>,
-    pub rig: HumanAnimationArchetype,
+pub struct CharacterArchetypePrefab {
+    pub shapes: Vec<CharacterShapeArchetype>,
+    pub rig: CharacterAnimationArchetype,
 }
 
-impl HumanArchetypePrefab {
-    pub fn new(shapes: impl IntoIterator<Item = HumanShapeArchetype>, rig: HumanAnimationArchetype) -> Self {
+impl CharacterArchetypePrefab {
+    pub fn new(shapes: impl IntoIterator<Item = CharacterShapeArchetype>, rig: CharacterAnimationArchetype) -> Self {
         Self { shapes: shapes.into_iter().collect(), rig }
     }
 
-    pub(crate) fn get_helpers(&self, morph_values: &MorphTargets, basemesh: &BaseMesh, morph_targets: &HumanMorphs) -> Vec<Vec3> {
+    pub(crate) fn get_helpers(&self, morph_values: &MorphTargets, basemesh: &BaseMesh, morph_targets: &MakeHumanMorphs) -> Vec<Vec3> {
         let mut mh_morphs = MorphTargets::default();
         for shape in self.shapes.iter() {
             let Some(weight) = morph_values.get(&shape.name) else { continue };
@@ -69,18 +69,18 @@ impl HumanArchetypePrefab {
  | Resources |
  +-----------*/
 #[derive(Resource, Deref, DerefMut)]
-pub struct HumanArchetypePrefabs(AHashMap<&'static str, HumanArchetypePrefab>);
+pub struct CharacterArchetypePrefabs(AHashMap<&'static str, CharacterArchetypePrefab>);
 
-impl HumanArchetypePrefabs {
-    pub fn new(prefabs: impl IntoIterator<Item = (&'static str, HumanArchetypePrefab)>) -> Self {
-        Self(prefabs.into_iter().collect::<AHashMap<&'static str, HumanArchetypePrefab>>())
+impl CharacterArchetypePrefabs {
+    pub fn new(prefabs: impl IntoIterator<Item = (&'static str, CharacterArchetypePrefab)>) -> Self {
+        Self(prefabs.into_iter().collect::<AHashMap<&'static str, CharacterArchetypePrefab>>())
     }
 }
 
-impl Default for HumanArchetypePrefabs {
+impl Default for CharacterArchetypePrefabs {
     fn default() -> Self {
         let mut prefabs = AHashMap::default();
-        prefabs.insert("", HumanArchetypePrefab::default());
+        prefabs.insert("", CharacterArchetypePrefab::default());
         Self(prefabs)
     }
 }
@@ -89,10 +89,10 @@ impl Default for HumanArchetypePrefabs {
  | Systems |
  +---------*/
 pub(crate) fn create_basemesh_prefab_shapes(
-    prefabs: ResMut<HumanArchetypePrefabs>,
+    prefabs: ResMut<CharacterArchetypePrefabs>,
     mut basemesh: ResMut<BaseMesh>,
     mut meshes: ResMut<Assets<Mesh>>,
-    morphs: Res<HumanMorphs>,
+    morphs: Res<MakeHumanMorphs>,
 ) {
     // Only run if prefabs not added to basemesh
     if !basemesh.prefab_state.is_empty() { return }
@@ -124,7 +124,7 @@ pub(crate) fn create_basemesh_prefab_shapes(
 }
 
 pub(crate) fn create_basemesh_prefab_morphable_meshes(
-    prefabs: ResMut<HumanArchetypePrefabs>,
+    prefabs: ResMut<CharacterArchetypePrefabs>,
     mut basemesh: ResMut<BaseMesh>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
@@ -201,7 +201,7 @@ pub(crate) fn create_basemesh_prefab_morphable_meshes(
 
 pub fn create_human_prefab_rig_scenes(world: &mut World) {
     // Only run if prefab rig scenes are None
-    let prefabs = world.get_resource::<HumanArchetypePrefabs>()
+    let prefabs = world.get_resource::<CharacterArchetypePrefabs>()
         .expect("No human prefabs resource found");
     for (_, prefab) in prefabs.iter() {
         if prefab.rig.scene.is_some() { return }
@@ -223,7 +223,7 @@ pub fn create_human_prefab_rig_scenes(world: &mut World) {
             &helpers, rig_type, &bone_rotations, &bone_order, world
         );
         
-        let mut prefabs = world.resource_mut::<HumanArchetypePrefabs>();
+        let mut prefabs = world.resource_mut::<CharacterArchetypePrefabs>();
         let prefab = prefabs.get_mut(&name).unwrap();
         prefab.rig.scene = Some(scene);
         prefab.rig.bone_order = bone_order.clone();
@@ -233,7 +233,7 @@ pub fn create_human_prefab_rig_scenes(world: &mut World) {
 
 pub(crate) fn rig_basemesh_prefab_meshes(
     mut basemesh: ResMut<BaseMesh>,
-    prefabs: Res<HumanArchetypePrefabs>,
+    prefabs: Res<CharacterArchetypePrefabs>,
     rig_data: Res<RigData>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,

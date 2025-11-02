@@ -80,7 +80,7 @@ fn setup_env(
     ));
 }
 
-fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
+fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     // When feeding in morphs you can ignore the categories here.
     // They are only for helping you organize a UI
     //info!("Available morphs: {:#?}", morphs.get_morph_names());
@@ -93,7 +93,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     morph_targets.insert("age", 0.);
 
     // We'll give our prefab 2 shapes, a baby archetype and a bodybuilder archetype
-    let baby_shape = HumanShapeArchetype::new(
+    let baby_shape = CharacterShapeArchetype::new(
         "baby",
         // This fn call is necessary to deconstruct compound "morph" values
         // down to the level of individual makehuman morph targets.
@@ -106,7 +106,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     // These are desinged in makehuman such that you don't have to normalize their sum.
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
-    let bodybuilder_shape = HumanShapeArchetype::new(
+    let bodybuilder_shape = CharacterShapeArchetype::new(
         "bodybuilder",
         morphs.compute_target_weights(&morph_targets),
     );
@@ -121,13 +121,13 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     // Prefabs have a name also
     prefabs.insert(
         "ExampleHumanPrefab",
-        HumanArchetypePrefab::new(
+        CharacterArchetypePrefab::new(
             vec![baby_shape, bodybuilder_shape],
-            HumanAnimationArchetype::default(), // No animation in this example
+            CharacterAnimationArchetype::default(), // No animation in this example
         )
     );
 
-    commands.insert_resource(HumanArchetypePrefabs::new(prefabs));
+    commands.insert_resource(CharacterArchetypePrefabs::new(prefabs));
 }
 
 fn add_humans(
@@ -146,11 +146,11 @@ fn add_humans(
     commands.spawn((
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
-        HumanShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(prefab_name, morphs.clone()),
         children![(
             // This is broken for some reason.  I can't figure it out.  The mesh renders
             // at the wrong location, or not at all.  Makes no sense.
-            HumanPart::BaseMesh 
+            CharacterPart::BaseMesh 
         )]
     ));
 
@@ -160,9 +160,9 @@ fn add_humans(
     commands.spawn((
         Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
-        HumanShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(prefab_name, morphs.clone()),
         children![(
-            HumanPart::BaseMesh
+            CharacterPart::BaseMesh
         )]
     ));
 
@@ -172,9 +172,9 @@ fn add_humans(
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         InheritedVisibility::default(),
-        HumanShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(prefab_name, morphs.clone()),
         children![(
-            HumanPart::BaseMesh
+            CharacterPart::BaseMesh
         )]
     ));
 
@@ -185,9 +185,9 @@ fn add_humans(
     commands.spawn((
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
-        HumanShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(prefab_name, morphs.clone()),
         children![(
-            HumanPart::BaseMesh
+            CharacterPart::BaseMesh
         )]
     ));
 
@@ -199,9 +199,9 @@ fn add_humans(
     commands.spawn((
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
-        HumanShapeConfig::new(prefab_name, morphs),
+        CharacterShapeConfig::new(prefab_name, morphs),
         children![(
-            HumanPart::BaseMesh
+            CharacterPart::BaseMesh
         )]
     ));
 }

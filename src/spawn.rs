@@ -1,5 +1,5 @@
 use bevy::{app::Inherited, ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
-use crate::{prelude::*, assets::HumanAssetRegistry, basemesh::VertexGroups, mesh_ops::MeshProcessingState, rigs::{get_model_space_skeleton_transforms, RigData}};
+use crate::{prelude::*, assets::CharacterAssetRegistry, basemesh::VertexGroups, mesh_ops::MeshProcessingState, rigs::{get_model_space_skeleton_transforms, RigData}};
 use ahash::AHashMap;
 
 
@@ -7,12 +7,12 @@ use ahash::AHashMap;
  |  Components  |
  +--------------*/
 #[derive(Component, Clone, Default)]
-pub struct HumanShapeConfig {
+pub struct CharacterShapeConfig {
     pub prefab_morph_targets: MorphTargets,
     pub prefab: &'static str,
 }
 
-impl HumanShapeConfig {
+impl CharacterShapeConfig {
     pub fn new(prefab: &'static str, morphs: MorphTargets) -> Self {
         Self { prefab, prefab_morph_targets: morphs}
     }
@@ -34,8 +34,8 @@ pub struct FitSkeleton;
  |  Systems  |
  +-----------*/
 pub(crate) fn spawn_rig_scene(
-    new_humans: Query<(Entity, &HumanShapeConfig), Added<HumanShapeConfig>>,
-    prefabs: Res<HumanArchetypePrefabs>,
+    new_humans: Query<(Entity, &CharacterShapeConfig), Added<CharacterShapeConfig>>,
+    prefabs: Res<CharacterArchetypePrefabs>,
     mut commands: Commands,
 ) {
     new_humans.iter().for_each(|(human, config)| {
@@ -58,16 +58,16 @@ pub(crate) fn spawn_rig_scene(
 
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
-    prefabs: Res<HumanArchetypePrefabs>,
+    prefabs: Res<CharacterArchetypePrefabs>,
     rigs: Query<(Entity, &SkinnedMesh), Without<Mesh3d>>,
     children: Query<&Children>,
-    mut configs: Query<(Entity, &HumanShapeConfig, &Transform, Option<&mut HumanRagdoll>), With<FitSkeleton>>,
+    mut configs: Query<(Entity, &CharacterShapeConfig, &Transform, Option<&mut CharacterRagdoll>), With<FitSkeleton>>,
     names: Query<&Name>,
     global_transforms: Query<&GlobalTransform>,
-    mut local_transforms: Query<&mut Transform, Without<HumanShapeConfig>>,
+    mut local_transforms: Query<&mut Transform, Without<CharacterShapeConfig>>,
     mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     basemesh: Res<BaseMesh>,
-    morph_targets: Res<HumanMorphs>,
+    morph_targets: Res<MakeHumanMorphs>,
     vg: Res<VertexGroups>,
     rig_data: Res<RigData>,
 ) {
@@ -165,13 +165,13 @@ pub(crate) fn fit_skeleton_to_shape(
 }
 
 pub(crate) fn setup_human_parts(
-    parts: Query<(Entity, &HumanPart, &ChildOf), Without<Mesh3d>>,
-    configs: Query<(&HumanShapeConfig, &SkinnedMesh)>,
-    mut registry: ResMut<HumanAssetRegistry>,
-    prefabs: Res<HumanArchetypePrefabs>,
+    parts: Query<(Entity, &CharacterPart, &ChildOf), Without<Mesh3d>>,
+    configs: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
+    mut registry: ResMut<CharacterAssetRegistry>,
+    prefabs: Res<CharacterArchetypePrefabs>,
     rig_data: Res<RigData>,
     basemesh: Res<BaseMesh>,
-    morph_targets: Res<HumanMorphs>,
+    morph_targets: Res<MakeHumanMorphs>,
     paths: Res<HumentityPathsConfig>,
     mut asset_server: ResMut<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -192,7 +192,7 @@ pub(crate) fn setup_human_parts(
         
         // Spawn meshes
         match part {
-            HumanPart::BaseMesh => {
+            CharacterPart::BaseMesh => {
                 let MeshProcessingState::Ready(handle) = &basemesh.prefab_state[&config.prefab] else
                     {
                         error!("No such prefab named {}", config.prefab);
@@ -207,7 +207,7 @@ pub(crate) fn setup_human_parts(
                     commands.entity(entity).insert(morph_weights);
                 }
             }
-            HumanPart::BodyPart(name) | HumanPart::Equipment(name) | HumanPart::ProxyMesh(name) => {
+            CharacterPart::BodyPart(name) | CharacterPart::Equipment(name) | CharacterPart::ProxyMesh(name) => {
                 let Some(asset) = registry.get_mut(part) else {
                     error!("No such asset: {} - Cannot load", name);
                     continue

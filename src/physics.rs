@@ -24,7 +24,7 @@ const FOOT_VERTICES:      [usize; 6] = [6251, 6705, 4972, 5845, 6214, 6298];
 
 pub(crate) fn control_ragdoll(
     mut commands: Commands,
-    ragdolls: Query<(Entity, &HumanRagdoll), (With<HumanRagdoll>, Changed<HumanRagdoll>)>,
+    ragdolls: Query<(Entity, &CharacterRagdoll), (With<CharacterRagdoll>, Changed<CharacterRagdoll>)>,
     joints_containers: Query<Entity, With<PhysicsJointsContainer>>,
     children: Query<&Children>,
 ) {
@@ -50,7 +50,7 @@ pub(crate) fn control_ragdoll(
 
 #[derive(Component, Default)]
 #[require(PhysicsJointsContainer)]
-pub struct HumanRagdoll {
+pub struct CharacterRagdoll {
     pub active: bool,
     rigidbodies: AHashMap<RagdollBone, Entity>,
 }
@@ -77,7 +77,7 @@ enum RagdollBone {
     RightFoot,
 }
 
-impl HumanRagdoll {
+impl CharacterRagdoll {
     pub fn new(active: bool) -> Self {
         Self { active, ..default() }
     }

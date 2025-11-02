@@ -6,10 +6,10 @@ use gltf::Skin;
 use crate::{prelude::*, rigs::RigType};
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct HumanAnimationClips(AHashMap::<&'static str, Handle<AnimationClip>>);
+pub struct CharacterAnimationClips(AHashMap::<&'static str, Handle<AnimationClip>>);
 
 pub(crate) fn rebuild_animations(
-    prefabs: Res<HumanArchetypePrefabs>,
+    prefabs: Res<CharacterArchetypePrefabs>,
     mut clips_assets: ResMut<Assets<AnimationClip>>,
     mut commands: Commands,
 ) {
@@ -28,7 +28,7 @@ pub(crate) fn rebuild_animations(
         }
         clip_handles.extend(handles);
     }
-    commands.insert_resource(HumanAnimationClips(clip_handles));
+    commands.insert_resource(CharacterAnimationClips(clip_handles));
     commands.set_state(HumentityLoadState::Ready);
 }
 

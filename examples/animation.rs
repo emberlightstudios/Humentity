@@ -79,10 +79,10 @@ fn setup_env(
     ));
 }
 
-fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
+fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
-    let baby = HumanShapeArchetype::new(
+    let baby = CharacterShapeArchetype::new(
         "baby",
         morphs.compute_target_weights(&morph_targets),
     );
@@ -90,16 +90,16 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<HumanMorphs>) {
     let mut prefabs = AHashMap::default();
     prefabs.insert(
         "ExampleHumanPrefab",
-        HumanArchetypePrefab::new(
+        CharacterArchetypePrefab::new(
             vec![baby],
-            HumanAnimationArchetype::new(
+            CharacterAnimationArchetype::new(
                 RigType::Default,
                 ["assets/animation/idle.glb"]
             ), 
         )
     );
 
-    commands.insert_resource(HumanArchetypePrefabs::new(prefabs));
+    commands.insert_resource(CharacterArchetypePrefabs::new(prefabs));
 }
 
 fn start_animation_clip_on_imported_glb(
@@ -129,18 +129,18 @@ fn add_human(mut commands: Commands) {
     morphs.insert("baby", 1.);
     commands.spawn((
         Transform::from_translation(Vec3::new(1., 0., 1.)),
-        HumanShapeConfig::new("ExampleHumanPrefab", morphs),
+        CharacterShapeConfig::new("ExampleHumanPrefab", morphs),
         children![(
-            HumanPart::BaseMesh,
+            CharacterPart::BaseMesh,
         )]
     ));
 }
 
 fn setup_graph_on_new_human(
     player: Query<Entity, With<AnimationPlayer>>,
-    humans: Query<Entity, (With<HumanShapeConfig>, Added<SkinnedMesh>)>,
+    humans: Query<Entity, (With<CharacterShapeConfig>, Added<SkinnedMesh>)>,
     children: Query<&Children>,
-    animations: Res<HumanAnimationClips>,
+    animations: Res<CharacterAnimationClips>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut commands: Commands,
 ) {

@@ -20,13 +20,13 @@ pub struct MorphTargets(AHashMap<&'static str, f32>);
  |  Resources  |
  +-------------*/
 #[derive(Resource)]
-pub struct HumanMorphs {
+pub struct MakeHumanMorphs {
     macro_morphs: MacroData,
     composite_morphs: CompositeMorphs,
     targets: AHashMap<&'static str, AHashMap<u16, Vec3>>,
 }
 
-impl FromWorld for HumanMorphs {
+impl FromWorld for MakeHumanMorphs {
     fn from_world(world: &mut World) -> Self {
         // Create Morph Target Entities from all the .target files
         let core_path: PathBuf;
@@ -75,11 +75,11 @@ impl FromWorld for HumanMorphs {
                 }
             }
         }
-        HumanMorphs { targets, composite_morphs, macro_morphs: macro_sliders }
+        MakeHumanMorphs { targets, composite_morphs, macro_morphs: macro_sliders }
     }
 }
 
-impl HumanMorphs {
+impl MakeHumanMorphs {
     /// Gets all available morph names
     pub fn get_morph_names(&self) -> AHashMap<&'static str, Vec<&'static str>> {
         let mut sliders = AHashMap::<&'static str, Vec<&'static str>>::default();
@@ -400,7 +400,7 @@ impl HumanMorphs {
  +-------------*/
 pub(crate) fn adjust_helpers_to_morphs(
     morph_values: &MorphTargets,
-    morph_targets: &HumanMorphs,
+    morph_targets: &MakeHumanMorphs,
     basemesh: &crate::basemesh::BaseMesh,
 ) -> Vec<Vec3> {
     let mut helpers = basemesh.vertices.clone();
