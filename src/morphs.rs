@@ -23,7 +23,7 @@ pub struct MorphTargets(AHashMap<&'static str, f32>);
 pub struct MakeHumanMorphs {
     macro_morphs: MacroData,
     composite_morphs: CompositeMorphs,
-    targets: AHashMap<&'static str, AHashMap<u16, Vec3>>,
+    pub targets: AHashMap<&'static str, AHashMap<u16, Vec3>>,
 }
 
 impl FromWorld for MakeHumanMorphs {

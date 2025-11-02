@@ -85,11 +85,11 @@ impl CharacterAsset {
     /// Return the mesh handle of the asset which has been augmented with arrays for skinning with the given rig
     pub(crate) fn get_rigged_mesh_handle(
         &mut self, asset_server: &mut AssetServer, 
-        prefab_name: &&'static str,
+        prefab_name: &'static str,
         prefab: &CharacterArchetypePrefab,
         rig_data: &RigData,
         basemesh: &BaseMesh,
-        morph_targets: &MakeHumanMorphs,
+        mh_morphs: &MakeHumanMorphs,
         paths: &HumentityPathsConfig,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
@@ -99,7 +99,7 @@ impl CharacterAsset {
             return None
         }
         let data = self.data.as_mut().unwrap();
-        data.get_rigged_mesh_handle(prefab_name, prefab, basemesh, morph_targets, rig_data, paths, meshes, images)
+        data.get_rigged_mesh_handle(prefab_name, prefab, basemesh, mh_morphs, rig_data, paths, meshes, images)
     }
 
     /// Get a texture by name, loading into Assets if necessary
@@ -161,10 +161,10 @@ pub struct CharacterMeshAssetFilePaths {
 #[derive(Default)]
 #[allow(dead_code)]
 pub struct CharacterAssetData {
+    pub prefab_load_state: PrefabLoadState,
     pub bodypart_slots: Vec<BodyPartSlot>,
     pub equipment_slots: Vec<EquipmentSlot>,
     pub(crate) base_mesh_handle: Handle<Mesh>,
-    pub(crate) prefab_load_state: PrefabLoadState,
     pub(crate) albedo_map_handles: AHashMap<&'static str, Handle<Image>>,
     pub(crate) normal_map_handles: AHashMap<&'static str, Handle<Image>>,
     pub(crate) ao_map_handles: AHashMap<&'static str, Handle<Image>>,
@@ -196,7 +196,7 @@ impl CharacterAssetData {
         prefab_name: &'static str,
         prefab: &CharacterArchetypePrefab,
         basemesh: &BaseMesh,
-        morph_targets: &MakeHumanMorphs,
+        mh_morphs: &MakeHumanMorphs,
         rig_data: &RigData,
         paths: &HumentityPathsConfig,
         meshes: &mut Assets<Mesh>,
@@ -225,7 +225,7 @@ impl CharacterAssetData {
             MeshProcessingState::Rescaled => {
                 let mut handles = vec![];
                 for shape in prefab.shapes.iter() {
-                    let helpers = adjust_helpers_to_morphs(&shape.morphs, morph_targets, basemesh);
+                    let helpers = adjust_helpers_to_morphs(&shape.morphs, mh_morphs, basemesh);
                     let handle = self.asset_mesh_from_helpers(&helpers, meshes);
                     handles.push(handle);
                 }

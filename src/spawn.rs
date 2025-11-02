@@ -170,8 +170,8 @@ pub(crate) fn setup_human_parts(
     mut registry: ResMut<CharacterAssetRegistry>,
     prefabs: Res<CharacterArchetypePrefabs>,
     rig_data: Res<RigData>,
-    basemesh: Res<BaseMesh>,
-    morph_targets: Res<MakeHumanMorphs>,
+    mut basemesh: ResMut<BaseMesh>,
+    mh_morphs: Res<MakeHumanMorphs>,
     paths: Res<HumentityPathsConfig>,
     mut asset_server: ResMut<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -183,6 +183,7 @@ pub(crate) fn setup_human_parts(
             { continue };
 
         // Get some releveant data
+        let prefab_name = config.prefab;
         let prefab = &prefabs[&config.prefab];
         let morph_weights = prefab.shapes
             .iter()
@@ -193,28 +194,27 @@ pub(crate) fn setup_human_parts(
         // Spawn meshes
         match part {
             CharacterPart::BaseMesh => {
-                let MeshProcessingState::Ready(handle) = &basemesh.prefab_state[&config.prefab] else
-                    {
-                        error!("No such prefab named {}", config.prefab);
-                        continue
-                    };
-                commands.entity(entity).insert((
-                    Mesh3d(handle.clone()),
-                    skinned_mesh.clone(),
-                ));
-                let mesh = meshes.get(handle).unwrap();
-                if mesh.has_morph_targets() {
-                    commands.entity(entity).insert(morph_weights);
+                if let Some(handle) = basemesh.get_rigged_mesh_handle(
+                    prefab_name, &*prefab, &mut *meshes, &mut *images, &*rig_data, &*mh_morphs)
+                {
+                    commands.entity(entity).insert((
+                        Mesh3d(handle.clone()),
+                        skinned_mesh.clone(),
+                    ));
+                    let mesh = meshes.get(&handle).unwrap();
+                    if mesh.has_morph_targets() {
+                        commands.entity(entity).insert(morph_weights);
+                    }
                 }
             }
             CharacterPart::BodyPart(name) | CharacterPart::Equipment(name) | CharacterPart::ProxyMesh(name) => {
                 let Some(asset) = registry.get_mut(part) else {
                     error!("No such asset: {} - Cannot load", name);
-                    continue
+                    continue;
                 };
                 if let Some(handle) = asset.get_rigged_mesh_handle(
-                    &mut *asset_server, &config.prefab, prefab, &*rig_data,
-                    &*basemesh, &*morph_targets, &*paths, &mut *meshes, &mut *images
+                    &mut *asset_server, prefab_name, prefab, &*rig_data,
+                    &*basemesh, &*mh_morphs, &*paths, &mut *meshes, &mut *images
                 ) {
                     commands.entity(entity).insert((
                         Mesh3d(handle.clone()),

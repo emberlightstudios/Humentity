@@ -68,17 +68,15 @@ impl CharacterArchetypePrefab {
 /*-----------+
  | Resources |
  +-----------*/
-#[derive(Resource, Deref, DerefMut)]
+#[derive(Resource, Deref, DerefMut, Default)]
 pub struct CharacterArchetypePrefabs(AHashMap<&'static str, CharacterArchetypePrefab>);
 
 impl CharacterArchetypePrefabs {
     pub fn new(prefabs: impl IntoIterator<Item = (&'static str, CharacterArchetypePrefab)>) -> Self {
         Self(prefabs.into_iter().collect::<AHashMap<&'static str, CharacterArchetypePrefab>>())
     }
-}
 
-impl Default for CharacterArchetypePrefabs {
-    fn default() -> Self {
+    pub fn basemesh() -> Self {
         let mut prefabs = AHashMap::default();
         prefabs.insert("", CharacterArchetypePrefab::default());
         Self(prefabs)
@@ -88,117 +86,6 @@ impl Default for CharacterArchetypePrefabs {
 /*---------+
  | Systems |
  +---------*/
-pub(crate) fn create_basemesh_prefab_shapes(
-    prefabs: ResMut<CharacterArchetypePrefabs>,
-    mut basemesh: ResMut<BaseMesh>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    morphs: Res<MakeHumanMorphs>,
-) {
-    // Only run if prefabs not added to basemesh
-    if !basemesh.prefab_state.is_empty() { return }
-
-    for (name, prefab) in prefabs.iter() {
-        let mut prefab_meshes = vec![];
-        for shape in prefab.shapes.iter() {
-            let helpers = morphs::adjust_helpers_to_morphs(&shape.morphs, &*morphs, &*basemesh);
-            let mesh = meshes.get(&basemesh.mesh_handle).unwrap().clone();
-            let mut positions = get_vertex_positions(&mesh);
-            for vtx in 0..positions.len() {
-                let mhid = basemesh.mhid_lookup[vtx];
-                positions[vtx] = helpers[mhid as usize];
-            }
-
-            let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
-                .with_inserted_indices(mesh.indices().unwrap().clone())
-                .with_computed_area_weighted_normals()
-                .with_generated_tangents()
-                .unwrap();
-
-            let handle = meshes.add(mesh);
-            prefab_meshes.push(handle);
-        }
-        basemesh.prefab_state.insert(name, MeshProcessingState::Shaped(prefab_meshes));
-    }
-}
-
-pub(crate) fn create_basemesh_prefab_morphable_meshes(
-    prefabs: ResMut<CharacterArchetypePrefabs>,
-    mut basemesh: ResMut<BaseMesh>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut images: ResMut<Assets<Image>>,
-) {
-    // Only run if shaped meshes have been generated
-    for (&name, _) in prefabs.iter() {
-        match &basemesh.prefab_state[name] {
-            MeshProcessingState::Shaped(shape_meshes) => {
-                for shape in shape_meshes.iter() {
-                    if meshes.get(shape).is_none() { return }
-                }
-            }
-            _ => return
-        }
-    }
-    let basemesh_mesh = meshes.get(&basemesh.mesh_handle).unwrap().clone();
-
-    for (&name, prefab) in prefabs.iter() {
-        let MeshProcessingState::Shaped(shaped_meshes) = &basemesh.prefab_state[name] 
-            else { unimplemented!("This should not happen") };
-        let mut morphs = vec![];
-        let mut morph_names = vec![];
-
-        let base_positions = get_vertex_positions(&basemesh_mesh);
-        let base_normals = get_vertex_normals(&basemesh_mesh);
-        let base_tangents = get_vertex_tangents(&basemesh_mesh)
-            .expect("Base mesh should always have tangents at this point.");
-
-        for (is, shape) in prefab.shapes.iter().enumerate() {
-            let mut morph = Vec::<MorphAttributes>::new();
-            let shape_mesh = meshes.get(&shaped_meshes[is]).unwrap();
-            let shape_positions = get_vertex_positions(&shape_mesh);
-            let shape_normals = get_vertex_normals(&shape_mesh);
-            let shape_tangents = get_vertex_tangents(&shape_mesh)
-                .expect("Base mesh should always have tangents at this point.");
-
-            for vtx in 0..base_positions.len() {
-                if (shape_positions[vtx] - base_positions[vtx]).length_squared() > 1e-6 || 
-                   (  shape_normals[vtx] - base_normals[vtx]  ).length_squared() > 1e-6 || 
-                   ( shape_tangents[vtx] - base_tangents[vtx] ).length_squared() > 1e-6 {
-
-                    morph.push(MorphAttributes::from([
-                        shape_positions[vtx] - base_positions[vtx],
-                        shape_normals[vtx] - base_normals[vtx],
-                        shape_tangents[vtx] - base_tangents[vtx],
-                    ]));
-                }
-            }
-
-            morph_names.push(String::from(shape.name));
-            morphs.push(morph.into_iter());
-        }
-
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, get_vertex_positions(&basemesh_mesh))
-            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&basemesh_mesh))
-            .with_inserted_indices(basemesh_mesh.indices().unwrap().clone())
-            .with_computed_area_weighted_normals()
-            .with_generated_tangents().unwrap();
-
-        if !morphs.is_empty() {
-            let image = MorphTargetImage::new(
-                morphs.into_iter(), base_positions.len(), RenderAssetUsages::default()
-            ).expect("failed to create morph target image");
-
-            mesh = mesh
-                .with_morph_targets(images.add(image.0))
-                .with_morph_target_names(morph_names)
-        }
-
-        basemesh.prefab_state.insert(name, MeshProcessingState::Morphed(meshes.add(mesh)));
-    }
-}
-
 pub fn create_human_prefab_rig_scenes(world: &mut World) {
     // Only run if prefab rig scenes are None
     let prefabs = world.get_resource::<CharacterArchetypePrefabs>()
@@ -229,36 +116,10 @@ pub fn create_human_prefab_rig_scenes(world: &mut World) {
         prefab.rig.bone_order = bone_order.clone();
         prefab.rig.bone_rotations = bone_rotations;
     }
+    let mut state = world.resource_mut::<NextState<HumentityLoadState>>();
+    state.set(HumentityLoadState::AnimationProcessing);
 }
 
-pub(crate) fn rig_basemesh_prefab_meshes(
-    mut basemesh: ResMut<BaseMesh>,
-    prefabs: Res<CharacterArchetypePrefabs>,
-    rig_data: Res<RigData>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut commands: Commands,
-) {
-    // Only run if basemesh has had morph targets added
-    for (_, state) in basemesh.prefab_state.iter() {
-        let MeshProcessingState::Morphed(_) = state else { return };
-    }
-
-    for (name, prefab) in prefabs.iter() {
-        let MeshProcessingState::Morphed(mesh_handle) = &basemesh.prefab_state[name]
-            else { unimplemented!("This should not happen") };
-        let handle = set_basemesh_rig_arrays(
-            meshes.get(mesh_handle).unwrap().clone(),
-            &*basemesh,
-            &mut *meshes,
-            &prefab.rig.bone_order,
-            prefab.rig.rig_type,
-            &*rig_data
-        );
-        basemesh.prefab_state.insert(name, MeshProcessingState::Ready(handle));
-    }
-
-    commands.set_state(HumentityLoadState::AnimationProcessing);
-}
 
 /// Spawns bone entities and sets up the hierarchy
 pub(crate) fn build_human_rig_scene(

@@ -1,4 +1,4 @@
-use bevy::{prelude::*, asset::{RenderAssetUsages}, mesh::{Indices, Mesh}};
+use bevy::{asset::RenderAssetUsages, mesh::{Indices, Mesh, PrimitiveTopology, morph::{MorphAttributes, MorphTargetImage}}, prelude::*};
 use std::{
     io::BufReader,
     fs::File,
@@ -7,7 +7,7 @@ use ahash::AHashMap;
 use serde::Deserialize;
 use serde_json;
 
-use crate::mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_positions, parse_obj_vertices, MeshProcessingState, PrefabLoadState};
+use crate::mesh_ops::{MeshProcessingState, PrefabLoadState, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices};
 use crate::prelude::*;
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
@@ -64,6 +64,159 @@ impl FromWorld for BaseMesh {
             prefab_state: PrefabLoadState::default(),
         }
 
+    }
+}
+
+impl BaseMesh {
+    pub(crate) fn get_rigged_mesh_handle(
+        &mut self,
+        prefab_name: &'static str,
+        prefab: &CharacterArchetypePrefab,
+        meshes: &mut Assets<Mesh>,
+        images: &mut Assets<Image>,
+        rig_data: &crate::rigs::RigData,
+        morphs: &MakeHumanMorphs,
+    ) -> Option<Handle<Mesh>> {
+        self.prefab_state.entry(prefab_name).or_default();
+         
+        match &self.prefab_state[prefab_name] {
+            MeshProcessingState::Unprocessed => {
+                self.create_prefab_shapes(prefab, prefab_name, meshes, morphs);
+                None
+            },
+            MeshProcessingState::Shaped(_handles) => {
+                self.create_prefab_morphable_mesh(prefab, prefab_name, meshes, images);
+                None
+            }
+            MeshProcessingState::Morphed(_) => {
+                self.rig_prefab_meshes(prefab, prefab_name, rig_data, meshes);
+                None
+            }
+            MeshProcessingState::Ready(handle) => {
+                return Some(handle.clone())
+            }
+            _ => unimplemented!("Should not be here")
+        }
+    }
+
+    pub(crate) fn create_prefab_shapes(
+        &mut self,
+        prefab: &CharacterArchetypePrefab,
+        prefab_name: &'static str,
+        meshes: &mut Assets<Mesh>,
+        morphs: &MakeHumanMorphs,
+    ) {
+        if self.prefab_state[prefab_name] != MeshProcessingState::Unprocessed { return }
+        let mut prefab_meshes = vec![];
+        for shape in prefab.shapes.iter() {
+            let helpers = crate::morphs::adjust_helpers_to_morphs(&shape.morphs, &*morphs, self);
+            let mesh = meshes.get(&self.mesh_handle).unwrap().clone();
+            let mut positions = get_vertex_positions(&mesh);
+            for vtx in 0..positions.len() {
+                let mhid = self.mhid_lookup[vtx];
+                positions[vtx] = helpers[mhid as usize];
+            }
+
+            let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
+                .with_inserted_indices(mesh.indices().unwrap().clone())
+                .with_computed_area_weighted_normals()
+                .with_generated_tangents()
+                .unwrap();
+
+            let handle = meshes.add(mesh);
+            prefab_meshes.push(handle);
+        }
+        self.prefab_state.insert(prefab_name, MeshProcessingState::Shaped(prefab_meshes));
+        
+    }
+
+    pub(crate) fn create_prefab_morphable_mesh(
+        &mut self,
+        prefab: &CharacterArchetypePrefab,
+        prefab_name: &'static str,
+        meshes: &mut Assets<Mesh>,
+        images: &mut Assets<Image>,
+    ) {
+        let mesh = meshes.get(&self.mesh_handle).unwrap().clone();
+
+        if !matches!(self.prefab_state[prefab_name], MeshProcessingState::Shaped(_)) { return }
+        let MeshProcessingState::Shaped(shaped_meshes) = &self.prefab_state[prefab_name] 
+            else { unimplemented!("This should not happen") };
+        let mut morphs = vec![];
+        let mut morph_names = vec![];
+
+        let base_positions = crate::mesh_ops::get_vertex_positions(&mesh);
+        let base_normals = crate::mesh_ops::get_vertex_normals(&mesh);
+        let base_tangents = crate::mesh_ops::get_vertex_tangents(&mesh)
+            .expect("Base mesh should always have tangents at this point.");
+
+        for (is, shape) in prefab.shapes.iter().enumerate() {
+            let mut morph = Vec::<MorphAttributes>::new();
+            let shape_mesh = meshes.get(&shaped_meshes[is]).unwrap();
+            let shape_positions = get_vertex_positions(&shape_mesh);
+            let shape_normals = get_vertex_normals(&shape_mesh);
+            let shape_tangents = get_vertex_tangents(&shape_mesh)
+                .expect("Base mesh should always have tangents at this point.");
+
+            for vtx in 0..base_positions.len() {
+                if (shape_positions[vtx] - base_positions[vtx]).length_squared() > 1e-6 || 
+                   (  shape_normals[vtx] - base_normals[vtx]  ).length_squared() > 1e-6 || 
+                   ( shape_tangents[vtx] - base_tangents[vtx] ).length_squared() > 1e-6 {
+
+                    morph.push(MorphAttributes::from([
+                        shape_positions[vtx] - base_positions[vtx],
+                        shape_normals[vtx] - base_normals[vtx],
+                        shape_tangents[vtx] - base_tangents[vtx],
+                    ]));
+                }
+            }
+
+            morph_names.push(String::from(shape.name));
+            morphs.push(morph.into_iter());
+        }
+
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, get_vertex_positions(&mesh))
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
+            .with_inserted_indices(mesh.indices().unwrap().clone())
+            .with_computed_area_weighted_normals()
+            .with_generated_tangents().unwrap();
+
+        if !morphs.is_empty() {
+            let image = MorphTargetImage::new(
+                morphs.into_iter(), base_positions.len(), RenderAssetUsages::default()
+            ).expect("failed to create morph target image");
+
+            mesh = mesh
+                .with_morph_targets(images.add(image.0))
+                .with_morph_target_names(morph_names)
+        }
+
+        self.prefab_state.insert(prefab_name, MeshProcessingState::Morphed(meshes.add(mesh)));
+        
+    }
+
+    pub(crate) fn rig_prefab_meshes(
+        &mut self,
+        prefab: &CharacterArchetypePrefab,
+        prefab_name: &'static str,
+        rig_data: &crate::rigs::RigData,
+        meshes: &mut Assets<Mesh>,
+    ) {
+        if !matches!(self.prefab_state[prefab_name], MeshProcessingState::Morphed(_)) { return }
+        let MeshProcessingState::Morphed(mesh_handle) = &self.prefab_state[prefab_name]
+            else { unimplemented!("This should not happen") };
+        let handle = crate::rigs::set_basemesh_rig_arrays(
+            meshes.get(mesh_handle).unwrap().clone(),
+            &self,
+            meshes,
+            &prefab.rig.bone_order,
+            prefab.rig.rig_type,
+            rig_data
+        );
+        self.prefab_state.insert(prefab_name, MeshProcessingState::Ready(handle));
     }
 }
         

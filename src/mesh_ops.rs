@@ -7,9 +7,10 @@ use std::{
     path::Path,
     io::{ BufReader, BufRead },
 };
-
 use ahash::{AHashMap, AHashSet};
+use crate::assets::CharacterPart;
 
+/// For tracking loading and processing of character assets
 #[derive(Default, Eq, PartialEq, Clone)]
 pub(crate) enum MeshProcessingState {
     #[default]
@@ -20,7 +21,15 @@ pub(crate) enum MeshProcessingState {
     Ready(Handle<Mesh>),           // Rigged, one per prefab
 }
 
-pub(crate) type PrefabLoadState = AHashMap<&'static str, MeshProcessingState>;
+/// A message to be sent when a mesh is ready
+#[derive(Message)]
+pub struct CharacterAssetMeshReady {
+    pub part: CharacterPart,
+    pub prefab: &'static str,
+}
+
+/// A container for tracking load states for different prefabs
+pub type PrefabLoadState = AHashMap<&'static str, MeshProcessingState>;
 
 pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     let path = filename.as_ref();

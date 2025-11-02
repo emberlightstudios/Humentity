@@ -32,6 +32,7 @@ pub mod prelude {
         spawn::CharacterShapeConfig,
         material::{CharacterMaterialExtension, CharacterMaterialExtensionData},
         physics::CharacterRagdoll,
+        mesh_ops::CharacterAssetMeshReady,
     };
         
 }
@@ -74,6 +75,7 @@ impl Plugin for Humentity {
                     .expect("Failed to get path str"),
                 None
             ))
+            .add_message::<CharacterAssetMeshReady>()
             .add_systems(Update, (
                 // PHASE 1 : LOADING CORE ASSETS
                 (
@@ -81,13 +83,10 @@ impl Plugin for Humentity {
                         .run_if(resource_exists::<basemesh::HelperMeshHandle>),
                 ).run_if(in_state(HumentityLoadState::LoadingCoreAssets)),
 
-                // PHASE 2 : BUILDING ARCHETYPE MESHES
+                // PHASE 2 : BUILDING ARCHETYPE PREFABS
                 (                    
                     (
                         prefab::create_human_prefab_rig_scenes,
-                        prefab::create_basemesh_prefab_shapes,
-                        prefab::create_basemesh_prefab_morphable_meshes,
-                        prefab::rig_basemesh_prefab_meshes,
                     ).chain().run_if(
                         resource_exists::<CharacterArchetypePrefabs>
                         .and(in_state(HumentityLoadState::BuildingPrefabs))
