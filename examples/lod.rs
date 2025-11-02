@@ -8,6 +8,8 @@ use ahash::AHashMap;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
 
+const PREFAB: &str = "ExamplePrefab";
+
 fn main() {
     info!("Use WASDQE to move the camera around");
     App::new()
@@ -31,7 +33,6 @@ fn add_humans(
 ) {
     // Previously defined shapes will now appear as morph targets on the prefab's mesh
     // The HumanConfig type controls prefab access and applies our morph targets.
-    let prefab_name = "ExampleHumanPrefab";
     let bodybuilder = "bodybuilder";
     let mut morphs = MorphTargets::default();
     morphs.insert(bodybuilder, 1.);
@@ -43,7 +44,7 @@ fn add_humans(
 
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 1.)),
-        CharacterShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(PREFAB, morphs.clone()),
         LevelOfDetail, // Just a marker component for this example
         InheritedVisibility::default(),
         children![(
@@ -81,7 +82,7 @@ fn add_humans(
     // The base mesh (highest poly-count ~19k tris)
     commands.spawn((
         Transform::from_translation(Vec3::new(-1.5, 0., 0.)),
-        CharacterShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
         children![(
             CharacterPart::BaseMesh
@@ -91,7 +92,7 @@ fn add_humans(
     // male_generic (high poly-count 13k tris)
     commands.spawn((
         Transform::from_translation(Vec3::new(-0.5, 0., 0.)),
-        CharacterShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
         children![(
             CharacterPart::ProxyMesh(lod1)
@@ -101,7 +102,7 @@ fn add_humans(
     //  male1591 (low poly-count)
     commands.spawn((
         Transform::from_translation(Vec3::new(0.5, 0., 0.)),
-        CharacterShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
         children![(
             CharacterPart::ProxyMesh(lod2)
@@ -111,7 +112,7 @@ fn add_humans(
     // proxy741 (very low poly-count)
     commands.spawn((
         Transform::from_translation(Vec3::new(1.5, 0., 0.)),
-        CharacterShapeConfig::new(prefab_name, morphs.clone()),
+        CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
         children![(
             CharacterPart::ProxyMesh(lod3)
@@ -152,7 +153,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
-        "ExampleHumanPrefab",
+        PREFAB,
         CharacterArchetypePrefab::new(
             vec![bodybuilder_shape],
             CharacterAnimationArchetype::default(), // No animation in this example

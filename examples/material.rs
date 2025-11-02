@@ -65,6 +65,7 @@ fn add_human(
     ));
 }
 
-fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
-    commands.insert_resource(CharacterArchetypePrefabs::default());
+fn setup_prefabs(mut commands: Commands) {
+    // No morph shapes
+    commands.insert_resource(CharacterArchetypePrefabs::basemesh());
 }

@@ -50,5 +50,7 @@ fn add_human(
 }
 
 fn setup_prefabs(mut commands: Commands) {
-    commands.insert_resource(CharacterArchetypePrefabs::default());
+    // No shape morphs, just the basemesh
+    // Just for the examples.
+    commands.insert_resource(CharacterArchetypePrefabs::basemesh());
 }

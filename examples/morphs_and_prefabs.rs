@@ -21,8 +21,7 @@
 mod shared;
 
 use bevy::prelude::*;
-use shared::{cam_controls, add_material};
-use ahash::AHashMap;
+use shared::{cam_controls, add_material, setup_env};
 use humentity::prelude::*;
 
 fn main() {
@@ -44,40 +43,6 @@ fn main() {
         )
         .add_systems(Update, (cam_controls, add_material))
         .run();
-}
-
-fn setup_env(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    // circular base
-    let mesh = meshes.add(Circle::new(4.0));
-    let material = materials.add(Color::WHITE);
-
-    commands.spawn((
-        Mesh3d(mesh),
-        MeshMaterial3d(material.clone()),
-        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-    ));
-
-    // A light:
-    commands.spawn((
-        PointLight {
-            intensity: 15_000_0.0,
-            radius: 20.,
-            range: 20.,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(0.0, 1.0, 3.0),
-    ));
-
-    // A camera:
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 3.0, 4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
-    ));
 }
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
@@ -115,7 +80,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     // become morph targets you can generate essentially infinite face shapes from the vector
     // space spanned by these basis morphs.  
 
-    let mut prefabs = AHashMap::default();
+    let mut prefabs = CharacterArchetypePrefabs::default();
 
     // You can have more than one prefab, but for this example just one.
     // Prefabs have a name also
@@ -127,7 +92,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
         )
     );
 
-    commands.insert_resource(CharacterArchetypePrefabs::new(prefabs));
+    commands.insert_resource(prefabs);
 }
 
 fn add_humans(
@@ -148,8 +113,6 @@ fn add_humans(
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs.clone()),
         children![(
-            // This is broken for some reason.  I can't figure it out.  The mesh renders
-            // at the wrong location, or not at all.  Makes no sense.
             CharacterPart::BaseMesh 
         )]
     ));
