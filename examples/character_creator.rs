@@ -146,6 +146,14 @@ fn on_slider_value_changed(
     slider_metadata: Query<&SliderMetadata>,
     mh_morphs: Res<MakeHumanMorphs>,
 ) {
+    // The process for readying the body and asset meshes is not the fastest.  It has to go through
+    // several stages to get to the end result.
+    //
+    // This is just a simple example.  In a real game you might load several assets, eyes, eyebrows, etc.
+    // Each will need to be re-processesed.  In addition you might play an idle animation in the 
+    // character creation menu.  After reshaping the mesh the skeleton will need to be re-fitted to the 
+    // shape of the new mesh.
+
     let metadata = slider_metadata.get(trigger.event().source).unwrap();
     sliders.insert_value(metadata.0, metadata.1, trigger.event().value);
 
