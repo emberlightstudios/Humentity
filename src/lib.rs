@@ -16,6 +16,8 @@ use bevy_obj::ObjPlugin;
 use bevy::ecs::intern::Interner;
 use prelude::*;
 
+use crate::prefab::ArchetypeShapeUpdate;
+
 pub static NAME_INTERNER: Interner<str> = Interner::new();
 
 pub mod prelude {
@@ -26,13 +28,16 @@ pub mod prelude {
         morphs::{MakeHumanMorphs, MorphTargets},
         basemesh::BaseMesh,
         paths_config::HumentityPathsConfig,
-        prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs, CharacterShapeArchetype, CharacterAnimationArchetype},
+        prefab::{
+            CharacterArchetypePrefab, CharacterArchetypePrefabs, CharacterShapeArchetype,
+            CharacterAnimationArchetype, ModifyPrefabShape
+        },
         assets::{CharacterAsset, CharacterAssetRegistry, CharacterPart, CharacterBodyTextures},
         animation::CharacterAnimationClips as CharacterAnimationClips,
         spawn::CharacterShapeConfig,
         material::{CharacterMaterialExtension, CharacterMaterialExtensionData},
         physics::CharacterRagdoll,
-        mesh_ops::CharacterAssetMeshReady,
+        mesh_ops::{CharacterAssetMeshReady, MeshProcessingState},
     };
         
 }
@@ -76,6 +81,7 @@ impl Plugin for Humentity {
                 None
             ))
             .add_message::<CharacterAssetMeshReady>()
+            .add_observer(prefab::on_prefab_shape_modified)
             .add_systems(Update, (
                 // PHASE 1 : LOADING CORE ASSETS
                 (
@@ -103,6 +109,7 @@ impl Plugin for Humentity {
                     spawn::fit_skeleton_to_shape,
                     spawn::setup_human_parts,
                     physics::control_ragdoll,
+                    prefab::update_asset_shapes.run_if(resource_exists::<ArchetypeShapeUpdate>)
                 ).chain().run_if(
                     in_state(HumentityLoadState::Ready)
                     .and(resource_exists::<CharacterAssetRegistry>)
