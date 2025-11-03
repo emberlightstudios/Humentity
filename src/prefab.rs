@@ -163,7 +163,6 @@ pub(crate) fn on_prefab_shape_modified(
     mut prefabs: ResMut<CharacterArchetypePrefabs>,
     mut assets: ResMut<CharacterAssetRegistry>,
     mut basemesh: ResMut<BaseMesh>,
-    mh_morphs: Res<MakeHumanMorphs>,
     shape_updates: Option<ResMut<ArchetypeShapeUpdate>>,
     mut commands: Commands,
 ) {
