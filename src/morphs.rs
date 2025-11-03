@@ -93,6 +93,23 @@ impl FromWorld for MakeHumanMorphs {
 }
 
 impl MakeHumanMorphs {
+    pub fn get_min_values(&self) -> AHashMap<&'static str, f32> {
+        let names = self.get_morph_names();
+        let mut result = AHashMap::default();
+        for (&category, morph_names) in names.iter() {
+            for &morph in morph_names.iter() {
+                if category == "macro" {
+                    result.insert(morph, 0.);
+                } else if category == "head" && morph.split('-').count() == 2 {
+                    result.insert(morph, 0.);
+                } else {
+                    result.insert(morph, -1.);
+                }
+            }
+        }
+        result
+    }
+
     /// Gets all available morph names
     pub fn get_morph_names(&self) -> AHashMap<&'static str, Vec<&'static str>> {
         let mut sliders = AHashMap::<&'static str, Vec<&'static str>>::default();
@@ -327,8 +344,8 @@ impl MakeHumanMorphs {
         // 3. Resolve direct target morph sliders
         // --------------------------------------
         for (slider_name, value) in morph_targets.iter() {
-            if slider_name.starts_with("asym") {
-                *result.entry(slider_name).or_insert(0.0) += *value;
+            if self.targets.contains_key(slider_name) {
+                *result.entry(slider_name).or_insert(0.0) = *value;
             }
         }
 
