@@ -72,8 +72,9 @@ impl CharacterAsset {
     }
 
     /// Return the mesh handle of the asset's core mesh.  This is not the obj mesh, which must be resized first.
+    #[allow(dead_code)] // not used anywhere yet
     pub(crate) fn get_mesh_handle(
-        &mut self, asset_server: &mut AssetServer, meshes: &mut Assets<Mesh>, paths: &HumentityPathsConfig
+        &mut self, asset_server: &mut AssetServer, 
     ) -> Option<Handle<Mesh>> {
         if self.data.is_none() {
             self.load_asset_if_unloaded(asset_server);
@@ -338,6 +339,7 @@ impl CharacterAssetData {
     }
 }
 
+#[allow(dead_code)]  // Need more work on slots
 pub enum PartSlots {
     BodyPartSlots(Vec<BodyPartSlot>),
     EquipmentSlots(Vec<EquipmentSlot>),

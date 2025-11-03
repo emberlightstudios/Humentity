@@ -1,5 +1,5 @@
 use bevy::{
-    animation::AnimationTarget, color::palettes::css::RED, ecs::intern::Internable, math::VectorSpace, mesh::VertexAttributeValues, prelude::*
+    animation::AnimationTarget, color::palettes::css::RED, ecs::intern::Internable, mesh::VertexAttributeValues, prelude::*
 };
 use serde::Deserialize;
 use serde_json;
@@ -59,14 +59,6 @@ struct MixamoConfig {
 pub(crate) struct RigData {
     pub(crate) weights: AHashMap<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>,
     pub(crate) configs: AHashMap<RigType, AHashMap<&'static str, BoneData>>,
-}
-
-impl RigData {
-    pub(crate) fn get_parent_data(&self, child: &'static str, rig_type: RigType) -> &BoneData {
-        let config = &self.configs[&rig_type];
-        let child = &config[child];
-        &config[child.parent]
-    }
 }
 
 pub(crate) struct BoneData {

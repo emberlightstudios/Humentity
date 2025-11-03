@@ -1,6 +1,6 @@
 use ahash::AHashMap;
 use bevy::prelude::*;
-use avian3d::{dynamics::joints::EntityConstraint, prelude::*};
+use avian3d::prelude::*;
 
 use crate::rigs::{BoneData, RigData, RigType};
 

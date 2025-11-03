@@ -1,5 +1,5 @@
+#![allow(dead_code)]
 use bevy::{input::mouse::MouseMotion, prelude::*};
-use humentity::prelude::*;
 
 pub fn cam_controls(
     mut cam: Query<&mut Transform, With<Camera3d>>,
