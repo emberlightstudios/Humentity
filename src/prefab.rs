@@ -65,8 +65,21 @@ impl CharacterArchetypePrefab {
     }
 }
 
+/*--------+
+ | Events |
+ +--------*/
+ /// Use this to modify prefab shapes
+ /// The systems below will update mesh handles
+ #[derive(Event, Clone)]
+ pub struct ModifyPrefabShape {
+    pub morphs: MorphTargets,
+    pub prefab_name: &'static str,
+    pub shape_name: &'static str,
+    pub parts: Vec<CharacterPart>,
+ }
+
 /*-----------+
- | Resources |
+ | Resources +|
  +-----------*/
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct CharacterArchetypePrefabs(AHashMap<&'static str, CharacterArchetypePrefab>);
@@ -83,10 +96,135 @@ impl CharacterArchetypePrefabs {
     }
 }
 
+/// Tracks modified shapes with pending mesh updates
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct ArchetypeShapeUpdate(Vec::<ModifyPrefabShape>);
+
 /*---------+
  | Systems |
  +---------*/
-pub fn create_human_prefab_rig_scenes(world: &mut World) {
+/// Monitor pending shape changes in asset meshes
+pub(crate) fn update_asset_shapes(
+    mut shape_updates: ResMut<ArchetypeShapeUpdate>,
+    mut assets: ResMut<CharacterAssetRegistry>,
+    mut basemesh: ResMut<BaseMesh>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+    mut asset_server: ResMut<AssetServer>,
+    mh_morphs: Res<MakeHumanMorphs>,
+    rig_data: Res<RigData>,
+    prefabs: Res<CharacterArchetypePrefabs>,
+    paths: Res<HumentityPathsConfig>,
+    mut commands: Commands,
+) {
+    let mut done = vec![];
+
+    for (i, shape_mod) in shape_updates.iter().enumerate() {
+        let prefab_name = shape_mod.prefab_name;
+        let prefab = &prefabs[prefab_name];
+        let mut finished = true;
+
+        for part in shape_mod.parts.iter() {
+            match part {
+                CharacterPart::BaseMesh => {
+                    if basemesh.get_rigged_mesh_handle(prefab_name, prefab, &mut *meshes,
+                            &mut *images, &*rig_data, &*mh_morphs).is_none()
+                    {
+                        finished = false;
+                    } else {}
+                },
+                CharacterPart::BodyPart(_) |
+                CharacterPart::Equipment(_) |
+                CharacterPart::ProxyMesh(_) => {
+                    let asset = assets.assets.get_mut(part).unwrap();
+                    if asset.get_rigged_mesh_handle(&mut *asset_server, prefab_name, &prefab, &*rig_data,
+                            &*basemesh, &*mh_morphs, &*paths, &mut *meshes, &mut *images).is_none()
+                    {
+                        finished = false;
+                    }
+                }
+            }
+        }
+
+        if finished { done.push(i) }
+    }
+
+    for i in done.iter().rev() {
+        shape_updates.remove(*i);
+    }
+    if shape_updates.is_empty() {
+        commands.remove_resource::<ArchetypeShapeUpdate>();
+    }
+}
+
+/// Handle events to modify prefab shapes
+pub(crate) fn on_prefab_shape_modified(
+    trigger: On<ModifyPrefabShape>,
+    mut prefabs: ResMut<CharacterArchetypePrefabs>,
+    mut assets: ResMut<CharacterAssetRegistry>,
+    mut basemesh: ResMut<BaseMesh>,
+    mh_morphs: Res<MakeHumanMorphs>,
+    shape_updates: Option<ResMut<ArchetypeShapeUpdate>>,
+    mut commands: Commands,
+) {
+    let ModifyPrefabShape{ morphs, prefab_name, shape_name, parts } = trigger.event();
+    let prefab_name = *prefab_name;
+    let shape_name = *shape_name;
+
+    let Some(prefab) = prefabs.get_mut(prefab_name) 
+        else {
+            error!("No such prefab to modify: {}", prefab_name);
+            return;
+        };
+    let Some(shape_index) = prefab.shapes.iter().position(|s| s.name == shape_name)
+        else {
+            error!("No such shape to modify {} on prefab {}", shape_name, prefab_name);
+            return;
+        };
+
+    let shape = prefab.shapes.get_mut(shape_index).unwrap();
+    shape.morphs = mh_morphs.compute_target_weights(morphs);
+
+    if let Some(mut shape_updates) = shape_updates {
+        if let Some(index) = shape_updates
+            .iter()
+            .position(|v| v.prefab_name == prefab_name && v.shape_name == shape_name)
+        {
+            shape_updates[index] = trigger.event().clone();
+        } else {
+            shape_updates.push(trigger.event().clone());
+        }
+    } else {
+        let mut shape_updates = ArchetypeShapeUpdate::default();
+        shape_updates.push(trigger.event().clone());
+        commands.insert_resource(shape_updates);
+    }
+
+    for part in parts {
+        match part {
+            CharacterPart::BaseMesh => {
+                basemesh.prefab_state.insert(prefab_name, MeshProcessingState::Unprocessed);
+            },
+            CharacterPart::BodyPart(name) |
+            CharacterPart::Equipment(name) |
+            CharacterPart::ProxyMesh(name) => {
+                let Some(asset) = assets.assets.get_mut(part)
+                    else {
+                        error!("No registered asset called {}", name);
+                        return;
+                    };
+                if let Some(ref mut data) = &mut asset.data {
+                    data.prefab_load_state.insert(name, MeshProcessingState::Unprocessed);
+                }
+                // If the asset isn't loaded then it shouldn't have been passed in the message.
+                // I'm not going to force loading now.
+            }
+        }
+    }
+
+}
+
+pub(crate) fn create_human_prefab_rig_scenes(world: &mut World) {
     // Only run if prefab rig scenes are None
     let prefabs = world.get_resource::<CharacterArchetypePrefabs>()
         .expect("No human prefabs resource found");
