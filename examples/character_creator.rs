@@ -290,10 +290,12 @@ fn category_selected(
     sliders: Query<&ChildOf, With<Slider>>,
     slider_values: Res<SliderValues>,
     mut commands: Commands,
+    mh_morphs: Res<MakeHumanMorphs>,
     root: Query<Entity, With<RootNode>>,
 ) {
     let btn = trigger.entity;
     let category = **categories.get(btn).unwrap();
+    let min_values = mh_morphs.get_min_values();
 
     // Remove any existing sliders
     for childof in sliders.iter() {
@@ -316,6 +318,7 @@ fn category_selected(
                     SliderMetadata(category, name),
                     slider(
                         SliderProps {
+                            min: min_values[name],
                             max: 1.0,
                             value: *morph,
                             ..default()
