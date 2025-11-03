@@ -161,9 +161,9 @@ pub struct CharacterMeshAssetFilePaths {
 #[derive(Default)]
 #[allow(dead_code)]
 pub struct CharacterAssetData {
-    pub prefab_load_state: PrefabLoadState,
     pub bodypart_slots: Vec<BodyPartSlot>,
     pub equipment_slots: Vec<EquipmentSlot>,
+    pub prefab_load_state: PrefabLoadState,
     pub(crate) base_mesh_handle: Handle<Mesh>,
     pub(crate) albedo_map_handles: AHashMap<&'static str, Handle<Image>>,
     pub(crate) normal_map_handles: AHashMap<&'static str, Handle<Image>>,

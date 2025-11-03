@@ -12,7 +12,7 @@ use crate::assets::CharacterPart;
 
 /// For tracking loading and processing of character assets
 #[derive(Default, Eq, PartialEq, Clone)]
-pub(crate) enum MeshProcessingState {
+pub enum MeshProcessingState {
     #[default]
     Unprocessed,                   // Loaded obj
     Rescaled,                      // Rescaled

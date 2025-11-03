@@ -71,7 +71,6 @@ pub(crate) fn fit_skeleton_to_shape(
     vg: Res<VertexGroups>,
     rig_data: Res<RigData>,
 ) {
-
     for (root, config, model_transform, ragdoll) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
 

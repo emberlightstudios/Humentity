@@ -21,10 +21,10 @@ pub(crate) struct VertexGroups(pub(crate) AHashMap<String, Vec<[usize; 2]>>);
 
 #[derive(Resource)]
 pub struct BaseMesh{
+    /// The prefab mesh loading state
+    pub prefab_state: PrefabLoadState,
     /// A handle to the raw base mesh
     pub(crate) mesh_handle: Handle<Mesh>,
-    /// The prefab mesh loading state
-    pub(crate) prefab_state: PrefabLoadState,
     /// The (makehuman/obj) positions in the base mesh
     pub(crate) vertices: Vec<Vec3>,
     /// A map from bevy indices to obj indices
@@ -75,13 +75,13 @@ impl BaseMesh {
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
         rig_data: &crate::rigs::RigData,
-        morphs: &MakeHumanMorphs,
+        mh_morphs: &MakeHumanMorphs,
     ) -> Option<Handle<Mesh>> {
         self.prefab_state.entry(prefab_name).or_default();
          
         match &self.prefab_state[prefab_name] {
             MeshProcessingState::Unprocessed => {
-                self.create_prefab_shapes(prefab, prefab_name, meshes, morphs);
+                self.create_prefab_shapes(prefab, prefab_name, meshes, mh_morphs);
                 None
             },
             MeshProcessingState::Shaped(_handles) => {
