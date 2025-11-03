@@ -153,7 +153,7 @@ impl MakeHumanMorphs {
 
         // Handle defaults for macros
         if !macro_inputs.contains_key("gender") {
-            macro_inputs.insert("age", 1.0);  // Male
+            macro_inputs.insert("gender", 1.0);  // Male
         }
         if !macro_inputs.contains_key("age") {
             macro_inputs.insert("age", 0.5);    // Young
@@ -214,8 +214,6 @@ impl MakeHumanMorphs {
             .filter(|(&ref n, &_)| macro_combos["firmness"].contains(&n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
-
-        
 
         // race-gender-age targets
         for (&race, race_value) in race_weights.iter() {

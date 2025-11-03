@@ -82,6 +82,9 @@ fn setup_env(
 fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
+    let morph_targets = morphs.compute_target_weights(&morph_targets);
+    info!("{:#?}", morph_targets);
+
     let baby = CharacterShapeArchetype::new(
         "baby",
         morphs.compute_target_weights(&morph_targets),

@@ -201,6 +201,8 @@ pub(crate) fn setup_human_parts(
                         skinned_mesh.clone(),
                     ));
                     let mesh = meshes.get(&handle).unwrap();
+                        info!("{:#?}", morph_weights);
+                        info!("{:#?}", mesh.morph_target_names());
                     if mesh.has_morph_targets() {
                         commands.entity(entity).insert(morph_weights);
                     }
