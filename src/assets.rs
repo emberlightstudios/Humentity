@@ -347,12 +347,9 @@ pub enum PartSlots {
 
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub enum BodyPartSlot {
-    LeftEye,
-    RightEye,
-    LeftEyebrow,
-    RightEyebrow,
-    LeftEyelash,
-    RightEyelash,
+    Eyes,
+    Eyebrows,
+    Eyelashs,
     Tongue,
     Teeth,
     Hair,
@@ -363,12 +360,9 @@ pub enum BodyPartSlot {
 impl BodyPartSlot {
     fn match_name(name: impl AsRef<str>) -> BodyPartSlot {
         match name.as_ref() {
-            "LeftEye" => BodyPartSlot::LeftEye,
-            "RightEye" => BodyPartSlot::RightEye,
-            "LeftEyebrow" => BodyPartSlot::LeftEyebrow,
-            "RightEyebrow" => BodyPartSlot::RightEyebrow,
-            "LeftEyelash" => BodyPartSlot::LeftEyelash,
-            "RightEyelash" => BodyPartSlot::RightEyelash,
+            "Eyes" => BodyPartSlot::Eyes,
+            "Eyebrows" => BodyPartSlot::Eyebrows,
+            "Eyelashs" => BodyPartSlot::Eyelashs,
             "Tongue" => BodyPartSlot::Tongue,
             "Teeth" => BodyPartSlot::Teeth,
             "Hair" => BodyPartSlot::Hair,
