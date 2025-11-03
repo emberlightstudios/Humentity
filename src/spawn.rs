@@ -101,6 +101,8 @@ pub(crate) fn fit_skeleton_to_shape(
         let skinned_mesh = skinned_mesh.unwrap();
 
         // Re-fit skeleton to mesh shape
+        //info!("{:#?}", prefab.shapes[0].morphs);
+        //info!("{:#?}", config.prefab_morph_targets);
         let helpers = prefab.get_helpers(&config.prefab_morph_targets, &*basemesh, &*morph_targets);
         let mut global_bone_transforms = get_model_space_skeleton_transforms(
             &prefab.rig.bone_order, &helpers, prefab.rig.rig_type, &bone_rotations, &*vg, &*rig_data);
@@ -201,8 +203,6 @@ pub(crate) fn setup_human_parts(
                         skinned_mesh.clone(),
                     ));
                     let mesh = meshes.get(&handle).unwrap();
-                        info!("{:#?}", morph_weights);
-                        info!("{:#?}", mesh.morph_target_names());
                     if mesh.has_morph_targets() {
                         commands.entity(entity).insert(morph_weights);
                     }
