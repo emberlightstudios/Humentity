@@ -314,6 +314,11 @@ impl MakeHumanMorphs {
                             *result.entry(NAME_INTERNER.intern(&opps.negative_unsided).leak()).or_insert(0.0) += value.abs();
                         }
                     }
+                } else if let Some(targets) = &morph.targets {
+                    // No opposites: directly apply
+                    for target in targets {
+                        *result.entry(NAME_INTERNER.intern(&target).leak()).or_insert(0.0) += *value;
+                    }
                 }
             }
         }
@@ -321,9 +326,8 @@ impl MakeHumanMorphs {
         // --------------------------------------
         // 3. Resolve direct target morph sliders
         // --------------------------------------
-        for (slider_name, value) in morph_targets.iter()
-        {
-            if self.targets.contains_key(slider_name) {
+        for (slider_name, value) in morph_targets.iter() {
+            if slider_name.starts_with("asym") {
                 *result.entry(slider_name).or_insert(0.0) += *value;
             }
         }

@@ -144,6 +144,7 @@ fn on_slider_value_changed(
     mut commands: Commands,
     mut sliders: ResMut<SliderValues>,
     slider_metadata: Query<&SliderMetadata>,
+    mh_morphs: Res<MakeHumanMorphs>,
 ) {
     let metadata = slider_metadata.get(trigger.event().source).unwrap();
     sliders.insert_value(metadata.0, metadata.1, trigger.event().value);
@@ -158,6 +159,9 @@ fn on_slider_value_changed(
             }
         }
     }
+
+    // ALWAYS convert macro/composite sliders to makehuman morph targets
+    morphs = mh_morphs.compute_target_weights(&morphs);
 
     commands.trigger(ModifyPrefabShape {
         prefab_name: PREFAB,

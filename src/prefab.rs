@@ -183,7 +183,7 @@ pub(crate) fn on_prefab_shape_modified(
         };
 
     let shape = prefab.shapes.get_mut(shape_index).unwrap();
-    shape.morphs = mh_morphs.compute_target_weights(morphs);
+    shape.morphs = morphs.clone();
 
     if let Some(mut shape_updates) = shape_updates {
         if let Some(index) = shape_updates
