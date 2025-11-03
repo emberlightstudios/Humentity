@@ -82,8 +82,7 @@ fn add_materials(
                     MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(albedo),
                         //base_color: Color::LinearRgba(LinearRgba::RED),
-                        alpha_mode: AlphaMode::Premultiplied,
-                        cull_mode: None,
+                        alpha_mode: AlphaMode::Blend,
                         clearcoat_perceptual_roughness: 0.1,
                         clearcoat: 0.2,
                         perceptual_roughness: 0.3,
