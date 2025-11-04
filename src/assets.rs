@@ -615,10 +615,10 @@ fn get_textures(path: &PathBuf, texture_type: CharacterAssetTextureType) -> AHas
             if let Some(stem) = path.file_stem()
             {
                 let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
-                info!("{stem}");
-                info!("{path:#?}");
-                let path = path.to_str().unwrap();
-                textures.insert(stem, PathBuf::from(path.split("assets/").last().unwrap()));
+                let mut path = path.to_str().unwrap().split("assets").last().unwrap();
+                if path.starts_with("/") { path = path.strip_prefix("/").unwrap() }
+                if path.starts_with("\\") { path = path.strip_prefix("\\").unwrap() }
+                textures.insert(stem, PathBuf::from(path));
             }
         }
     }
@@ -654,7 +654,10 @@ fn parse_human_asset(mh_path: &PathBuf, part: &CharacterPart, asset_server: &Ass
                 let filename = line_vec.last().unwrap();
                 obj_file = mh_path.clone();
                 obj_file.set_file_name(filename);
-                obj_file = obj_file.strip_prefix(PathBuf::from("./assets")).unwrap().to_path_buf();
+                let mut obj = obj_file.to_str().unwrap().split("assets").last().unwrap();
+                if obj.starts_with("/") { obj = obj.strip_prefix("/").unwrap() }
+                if obj.starts_with("\\") { obj = obj.strip_prefix("\\").unwrap() }
+                obj_file = PathBuf::from(obj);
             } else if *line_vec.first().unwrap() == "x_scale" {
                 x_scale.min = line_vec[1].parse().unwrap();
                 x_scale.max = line_vec[2].parse().unwrap();

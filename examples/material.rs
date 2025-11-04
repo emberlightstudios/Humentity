@@ -56,7 +56,6 @@ fn add_skin_material(
 fn add_human(
     mut commands: Commands,
 ) {
-
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         CharacterShapeConfig::default(),
