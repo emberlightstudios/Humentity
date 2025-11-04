@@ -11,6 +11,7 @@ pub struct CharacterAnimationClips(AHashMap::<&'static str, Handle<AnimationClip
 pub(crate) fn rebuild_animations(
     prefabs: Res<CharacterArchetypePrefabs>,
     mut clips_assets: ResMut<Assets<AnimationClip>>,
+    paths: Res<HumentityPathsConfig>,
     mut commands: Commands,
 ) {
     let glbs = prefabs
@@ -20,7 +21,9 @@ pub(crate) fn rebuild_animations(
 
     let mut clip_handles = AHashMap::<&'static str, Handle<AnimationClip>>::new();
     for glb in glbs.iter() {
-        let clips = get_animation_clips(glb.to_string())
+        let path = paths.core_assets_path.join(glb.to_string());
+        info!("{path:#?}");
+        let clips = get_animation_clips(path)
             .expect("Failed to retarget animation clips");
         let mut handles: AHashMap<&'static str, Handle<AnimationClip>> = AHashMap::default();
         for (name, clip) in clips.into_iter() {
