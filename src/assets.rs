@@ -615,7 +615,10 @@ fn get_textures(path: &PathBuf, texture_type: CharacterAssetTextureType) -> AHas
             if let Some(stem) = path.file_stem()
             {
                 let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
-                textures.insert(stem, path.strip_prefix(PathBuf::from("./assets")).unwrap().to_path_buf());
+                info!("{stem}");
+                info!("{path:#?}");
+                let path = path.to_str().unwrap();
+                textures.insert(stem, PathBuf::from(path.split("assets/").last().unwrap()));
             }
         }
     }
