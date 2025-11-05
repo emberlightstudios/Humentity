@@ -21,7 +21,8 @@ pub enum RigType {
 /*--------------+
  |  Components  |
  +--------------*/
-#[derive(Component, Deref)]
+#[derive(Component, Deref, Reflect)]
+#[reflect(Component)]
 pub struct ParentBone(pub(crate) Entity);
 
 /*---------+

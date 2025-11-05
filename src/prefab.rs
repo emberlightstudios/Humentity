@@ -275,6 +275,7 @@ pub(crate) fn build_human_rig_scene(
     let registry = world.resource::<AppTypeRegistry>();
     let mut scene_world = World::new();
     scene_world.insert_resource(registry.clone());
+    
     let rig_entity = scene_world.spawn((
         AnimationPlayer::default(),
         Name::new("Human.rig"),
