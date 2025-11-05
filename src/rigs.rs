@@ -23,7 +23,7 @@ pub enum RigType {
  +--------------*/
 #[derive(Component, Deref, Reflect)]
 #[reflect(Component)]
-pub struct ParentBone(pub(crate) Entity);
+pub struct ParentBone(#[entities] pub(crate) Entity);
 
 /*---------+
  |  JSON   |
