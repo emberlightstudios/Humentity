@@ -8,9 +8,8 @@ use ahash::AHashMap;
 
 use crate::{assets::HelperMap, basemesh::VertexGroups, mesh_ops::get_vertex_positions, prelude::*};
 
-/*---------+
- |  Types  |
- +---------*/
+
+
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Default)]
 pub enum RigType {
     #[default]
@@ -19,6 +18,11 @@ pub enum RigType {
     GameEngine,
 }
 
+/*--------------+
+ |  Components  |
+ +--------------*/
+#[derive(Component, Deref)]
+pub struct ParentBone(pub(crate) Entity);
 
 /*---------+
  |  JSON   |

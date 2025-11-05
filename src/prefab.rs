@@ -301,6 +301,13 @@ pub(crate) fn build_human_rig_scene(
                 player: rig_entity,
             },
         )).id();
+
+        let parent = mh_config[name].parent;
+        if parent != "" {
+            let parent = bone_entities[parent];
+            scene_world.entity_mut(entity).insert(ParentBone(parent));
+        }
+
         bone_entities.insert(name, entity);
     }
 

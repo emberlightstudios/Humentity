@@ -24,7 +24,7 @@ pub mod prelude {
     pub use crate::{
         NAME_INTERNER,
         Humentity, HumentityLoadState,
-        rigs::RigType,
+        rigs::{RigType, ParentBone},
         morphs::{MakeHumanMorphs, MorphTargets},
         basemesh::BaseMesh,
         paths_config::HumentityPathsConfig,
