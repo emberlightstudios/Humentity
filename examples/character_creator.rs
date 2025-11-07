@@ -1,6 +1,4 @@
-//! Let's try getting all targets onto one mesh.
-//! Might be useful for in game character creators.
-//! I doubt performance will be great for many characters.
+//! Realtime mesh modification example
 
 mod shared;
 
