@@ -10,7 +10,7 @@ rand = "0.8.5"
 ahash = { workspace = true }
 bevy = { workspace = true }
 smallvec = { workspace = true }
-bevy_obj = { path = "../bevy_obj" }
+bevy_obj = { git = "https://github.com/AmionSky/bevy_obj/", branch="change-init" }
 bytemuck = "1.24.0"
 gltf = "1.4.1"
 rand = "0.8.5"
