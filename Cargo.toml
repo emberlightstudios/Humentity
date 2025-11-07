@@ -10,7 +10,7 @@ rand = "0.8.5"
 #ahash = { workspace = true }
 #bevy = { workspace = true }
 #smallvec = { workspace = true }
-bevy = { version = ">=0.17.2", features = ["dynamic_linking"] }
+bevy = { version = ">=0.17.2", features = ["dynamic_linking", "experimental_bevy_feathers"] }
 smallvec = { version = ">=1.15.1" }
 ahash = { version = ">=0.8.12", features = ["serde"] }
 bevy_obj = { git = "https://github.com/AmionSky/bevy_obj/", branch="change-init" }
