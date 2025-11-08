@@ -57,17 +57,20 @@ pub struct HumentityPathsConfig {
     pub target_paths: AHashSet<PathBuf>,
 }
 
-impl Default for HumentityPathsConfig {
-    /// This will give you a paths config that will work only when you are running from inside
-    /// the humentity crate.   From outside you will need to configure these paths yourself.
-    fn default() -> Self {
+impl HumentityPathsConfig {
+    /// This will give you a paths config that will load all the included assets
+    pub fn from_crate_path(path: impl AsRef<Path>) -> Self {
         let mut proxymesh_paths = AHashSet::default();
         let mut body_part_paths = AHashSet::default();
         let mut equipment_paths = AHashSet::default();
         let mut skin_texture_paths = AHashSet::default();
         let mut target_paths = AHashSet::default();
-        let humentity_source = HumentityAssetSourceId::new("humentity", "./assets");
+        
+        // The path you give to Source Ids must relative to your working directory.
+        let root = path.as_ref().to_path_buf().join("./assets");
+        let humentity_source = HumentityAssetSourceId::new("humentity", root);
 
+        // These paths are relative to the source folder, provided above.
         proxymesh_paths.insert(HumentityAssetPath::from_custom_asset_source("./proxymeshes", &humentity_source));
         body_part_paths.insert(HumentityAssetPath::from_custom_asset_source("./body_parts", &humentity_source));
         equipment_paths.insert(HumentityAssetPath::from_custom_asset_source("./clothes", &humentity_source));
@@ -80,17 +83,6 @@ impl Default for HumentityPathsConfig {
             equipment_paths,
             skin_texture_paths,
             target_paths
-        }
-    }
-}
-
-impl HumentityPathsConfig {
-    /// Pass the path to the humentity crate root to load the included assets
-    pub fn from_crate_path(path: impl AsRef<Path>) -> Self {
-        let path = path.as_ref().to_path_buf().join("./assets");
-        HumentityPathsConfig {
-            core_assets_path: path,
-            ..Default::default()
         }
     }
 }
