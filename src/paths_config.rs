@@ -1,4 +1,4 @@
-use bevy::prelude::Resource;
+use bevy::prelude::*;
 use std::path::{Path, PathBuf};
 use ahash::AHashSet;
 
@@ -68,16 +68,16 @@ impl HumentityPathsConfig {
         
         // The path you give to Source Ids must relative to your working directory.
         let root = path.as_ref().to_path_buf().join("./assets");
-        let humentity_source = HumentityAssetSourceId::new("humentity", root);
+        let humentity_source = HumentityAssetSourceId::new("humentity", root.clone());
 
         // These paths are relative to the source folder, provided above.
         proxymesh_paths.insert(HumentityAssetPath::from_custom_asset_source("./proxymeshes", &humentity_source));
         body_part_paths.insert(HumentityAssetPath::from_custom_asset_source("./body_parts", &humentity_source));
         equipment_paths.insert(HumentityAssetPath::from_custom_asset_source("./clothes", &humentity_source));
         skin_texture_paths.insert(HumentityAssetPath::from_custom_asset_source("./skin_textures", &humentity_source));
-        target_paths.insert(PathBuf::from("./assets/targets"));
+        target_paths.insert(root.join("targets"));
         Self {
-            core_assets_path: PathBuf::from("./assets"),
+            core_assets_path: root,
             proxymesh_paths,
             body_part_paths,
             equipment_paths,
