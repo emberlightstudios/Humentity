@@ -1,5 +1,5 @@
 use bevy::{animation::{AnimationTarget, AnimationTargetId}, ecs::intern::Internable, mesh::{skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
-use crate::{animation::get_skeleton_rotations, basemesh::VertexGroups, mesh_ops::{MeshProcessingState}, morphs::adjust_helpers_to_morphs, prelude::*, rigs::{get_bone_order, RigData}};
+use crate::{animation::get_skeleton_transforms, basemesh::VertexGroups, mesh_ops::{MeshProcessingState}, morphs::adjust_helpers_to_morphs, prelude::*, rigs::{get_bone_order, RigData}};
 use ahash::{AHashMap};
 
 /// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh 
@@ -25,7 +25,10 @@ pub struct CharacterAnimationArchetype {
     pub rig_type: RigType,
     pub(crate) scene: Option<Handle<DynamicScene>>,
     pub(crate) bone_order: Vec<&'static str>,
+    /// Model Space
     pub(crate) bone_rotations: AHashMap<&'static str, Quat>,
+    /// Bone Local Space
+    pub(crate) bone_translations: AHashMap<&'static str, Vec3>,
 }
 
 impl CharacterAnimationArchetype {
@@ -237,7 +240,7 @@ pub(crate) fn create_human_prefab_rig_scenes(world: &mut World) {
         .collect::<Vec<_>>();
     
     for (name, rig_type) in prefab_data {
-        let bone_rotations = get_skeleton_rotations(world, rig_type)
+        let (bone_rotations, bone_translations) = get_skeleton_transforms(world, rig_type)
             .expect("Failed to get skeleton rotations from glb file");
 
         let bone_order = get_bone_order(world, rig_type);
@@ -252,6 +255,7 @@ pub(crate) fn create_human_prefab_rig_scenes(world: &mut World) {
         prefab.rig.scene = Some(scene);
         prefab.rig.bone_order = bone_order.clone();
         prefab.rig.bone_rotations = bone_rotations;
+        prefab.rig.bone_translations = bone_translations;
     }
     let mut state = world.resource_mut::<NextState<HumentityLoadState>>();
     state.set(HumentityLoadState::AnimationProcessing);

@@ -10,6 +10,7 @@ mod mesh_ops;
 mod material;
 mod physics;
 
+use bevy::app::AnimationSystems;
 use bevy::asset::io::AssetSourceBuilder;
 use bevy::prelude::*;
 use bevy_obj::ObjPlugin;
@@ -34,12 +35,22 @@ pub mod prelude {
         },
         assets::{CharacterAsset, CharacterAssetRegistry, CharacterPart, CharacterBodyTextures},
         animation::CharacterAnimationClips as CharacterAnimationClips,
-        spawn::CharacterShapeConfig,
+        spawn::{CharacterShapeConfig, FitSkeleton},
         material::{CharacterMaterialExtension, CharacterMaterialExtensionData},
         physics::CharacterRagdoll,
         mesh_ops::{CharacterAssetMeshReady, MeshProcessingState},
     };
         
+}
+
+#[derive(Resource, Default, Clone)]
+pub struct HumentityGlobalConfig {
+    /// Draw red lines showing the skeleton
+    pub debug_draw_bones: bool,
+    /// Use animation postprocessing to rescale position tracks to mesh size
+    /// This has some performance overhead. If disabled then translation tracks will
+    /// be removed from all retargeted animations.
+    pub translation_animation_tracks: bool,
 }
 
 #[derive(States, Debug, Hash, Eq, PartialEq, Copy, Clone)]
@@ -50,20 +61,24 @@ pub enum HumentityLoadState {
     Ready,
 }
 
+/// The SystemSet for animation post-processing. If you need to add your own
+/// animatin post-processing you can set it after this.
+#[derive(SystemSet, Debug, Hash, Copy, Clone, Eq, PartialEq)]
+pub struct HumentityAnimationSystems;
+
 /*----------+
  |  Plugin  |
  +----------*/
  /// The plugin struct
 pub struct Humentity{
     /// The paths used by the plugin
-    pub config: paths_config::HumentityPathsConfig,
-    /// Enable this to draw bone gizmos
-    pub debug: bool,
+    pub paths: paths_config::HumentityPathsConfig,
+    pub config: HumentityGlobalConfig,
 }
 
 impl Humentity {
-    pub fn new(config: paths_config::HumentityPathsConfig) -> Self {
-        Humentity { config, debug: false }
+    pub fn new(paths: paths_config::HumentityPathsConfig) -> Self {
+        Humentity { paths, config: HumentityGlobalConfig::default() }
     }
 }
 
@@ -74,9 +89,10 @@ impl Plugin for Humentity {
         }
 
         app
+            .insert_resource(self.paths.clone())
             .insert_resource(self.config.clone())
             .register_asset_source("humentity", AssetSourceBuilder::platform_default(
-                self.config.core_assets_path.to_str()
+                self.paths.core_assets_path.to_str()
                     .expect("Failed to get path str"),
                 None
             ))
@@ -116,8 +132,17 @@ impl Plugin for Humentity {
                 )
             ));
 
-        if self.debug {
+        if self.config.debug_draw_bones {
             app.add_systems(Update, rigs::bone_debug_draw);
+        }
+        if self.config.translation_animation_tracks {
+            app.add_systems(
+                PostUpdate,
+                animation::rescale_bone_translations
+                    .after(AnimationSystems)
+                    .run_if(in_state(HumentityLoadState::Ready))
+                    .in_set(HumentityAnimationSystems)
+            );
         }
     }
 

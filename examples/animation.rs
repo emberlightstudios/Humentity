@@ -1,21 +1,28 @@
 //! This is a simple example showing the animation features.
 //! The base makehuman mesh with helpers has an idle loop animation
 //! Humentity rewrites the animation to try to make it compatible with
-//! different sized humans, e.g. the baby mesh.  Currently all
-//! translation tracks are ignored. Will revisit this in the future
-//! to see if there's another way to apply some scaling to translation
-//! tracks at runtime. Don't want to resort to duplicating clips.
+//! different sized humans, e.g. the baby mesh.  
 
 mod shared;
 use shared::{cam_controls, add_material};
 use ahash::AHashMap;
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*, scene::SceneInstanceReady};
-use humentity::prelude::*;
+use humentity::{HumentityGlobalConfig, prelude::*};
 
 fn main() {
     App::new()
         .add_plugins((
-            Humentity::new(HumentityPathsConfig::from_crate_path("./")),
+            Humentity {
+                paths: HumentityPathsConfig::from_crate_path("./"),
+                // This will enable translation track rescaling in animation clips. 
+                // This is an animation post-processing system so there is some cost.
+                config: HumentityGlobalConfig {
+                    debug_draw_bones: true,
+                    // You can disable this and animation retargeting will still work, but
+                    // it will remove all translation tracks
+                    translation_animation_tracks: true
+                },
+            },
             DefaultPlugins,
         ))
         .add_systems(Startup, setup_env)

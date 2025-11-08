@@ -1,34 +1,32 @@
 use bevy::{ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
-use crate::{prelude::*, assets::CharacterAssetRegistry, basemesh::VertexGroups, rigs::{get_model_space_skeleton_transforms, RigData}};
+use crate::{HumentityGlobalConfig, assets::CharacterAssetRegistry, basemesh::VertexGroups, prelude::*, rigs::{RigData, get_model_space_skeleton_transforms}};
 use ahash::AHashMap;
 
 
 /*--------------+
  |  Components  |
  +--------------*/
+/// Defines the shape of a character.  Place it at the root, with individual parts as children.
 #[derive(Component, Clone, Default)]
 pub struct CharacterShapeConfig {
     pub prefab_morph_targets: MorphTargets,
     pub prefab: &'static str,
+    pub(crate) bone_translations: AHashMap<&'static str, Vec3>,
+    pub(crate) bone_delta_rotations: AHashMap<&'static str, Quat>,
 }
 
 impl CharacterShapeConfig {
     pub fn new(prefab: &'static str, morphs: MorphTargets) -> Self {
-        Self { prefab, prefab_morph_targets: morphs}
+        Self { prefab, prefab_morph_targets: morphs,
+            bone_translations: AHashMap::default(),
+            bone_delta_rotations: AHashMap::default() }
     }
 }
 
+/// This component will trigger the re-fitting of the skeleton to the character's morphs.
+/// Add it after changing morphs.
 #[derive(Component)]
 pub struct FitSkeleton;
-
-//#[derive(Component, Clone, Default)]
-//pub struct HumanAssetConfig {
-//    pub equipment: Vec<&'static str>,
-//    pub body_parts: Vec<&'static str>,
-//    pub eye_color: Color,
-//    pub eyebrow_color: Color,
-//    pub hair_color: Color,
-//}
 
 /*-----------+
  |  Systems  |
@@ -62,7 +60,7 @@ pub(crate) fn fit_skeleton_to_shape(
     prefabs: Res<CharacterArchetypePrefabs>,
     rigs: Query<(Entity, &SkinnedMesh), Without<Mesh3d>>,
     children: Query<&Children>,
-    mut configs: Query<(Entity, &CharacterShapeConfig, &Transform, Option<&mut CharacterRagdoll>), With<FitSkeleton>>,
+    mut configs: Query<(Entity, &mut CharacterShapeConfig, &Transform, Option<&mut CharacterRagdoll>), With<FitSkeleton>>,
     names: Query<&Name>,
     global_transforms: Query<&GlobalTransform>,
     mut local_transforms: Query<&mut Transform, Without<CharacterShapeConfig>>,
@@ -71,8 +69,9 @@ pub(crate) fn fit_skeleton_to_shape(
     morph_targets: Res<MakeHumanMorphs>,
     vg: Res<VertexGroups>,
     rig_data: Res<RigData>,
+    global_config: Res<HumentityGlobalConfig>,
 ) {
-    for (root, config, model_transform, ragdoll) in configs.iter_mut() {
+    for (root, mut config, model_transform, ragdoll) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
 
         let mut skinned_mesh: Option<&SkinnedMesh> = None;
@@ -110,8 +109,8 @@ pub(crate) fn fit_skeleton_to_shape(
         // The skeleton was adjusted so that the bones' rotations align head to tail.
         // The skeleton now fits the mesh's shape but this can induce animation artifacts due to 
         // differences in proportions/bind poses. In order to prevent this let's adjust the skeleton so 
-        // that the bones have the same positions, but rotations are adjusted to align with the reference
-        // skeleton from the animation glb files.
+        // that the bones have the same positions, but rotations are adjusted to align exactly with
+        // the reference skeleton from the animation glb files.
         let bone_config = &rig_data.configs[&prefab.rig.rig_type];
         for &bone in &prefab.rig.bone_order {
             if let Some(bone_data) = bone_config.get(bone) {
@@ -141,22 +140,51 @@ pub(crate) fn fit_skeleton_to_shape(
                 let joint = bone_entities[bone];
                 let mut local_transform = local_transforms.get_mut(joint).unwrap();
                 *local_transform = new_local;
+
             }
         }
 
+        if global_config.translation_animation_tracks {
+            // Cache the bone translations for animation post-processing
+            config.bone_translations = local_bone_transforms
+                .iter()
+                .map(|(&n, t)| (n, t.translation))
+                .collect();
+
+            // We re-aligned the bone rotations to match the reference skeleton exaclty, but this
+            // came at the cost of adding in some translation offsets.  When retargeting translation
+            // tracks we need to correct for this.  Here we cache a small rotation which we can
+            // apply to re-align translation directions later.
+            let mut bone_rotation_deltas: AHashMap<&'static str, Quat> = AHashMap::default();
+            for &name in global_bone_transforms.keys() {
+                let bone_data = bone_config.get(name).unwrap();
+                if bone_data.parent == "" { continue };
+                let ref_bone = global_transforms.get(bone_entities[name]).unwrap();
+                let ref_parent = global_transforms.get(bone_entities[bone_data.parent]).unwrap();
+                let ref_dir: Vec3 = (ref_bone.translation() - ref_parent.translation()).normalize();
+                let shape_dir = (global_bone_transforms[name].translation - global_bone_transforms[bone_data.parent].translation).normalize();
+                let delta = Quat::from_rotation_arc(ref_dir, shape_dir);
+                let parent_rot = global_bone_transforms[bone_data.parent].rotation;
+                bone_rotation_deltas.insert(name, parent_rot.inverse() * delta * parent_rot);
+            }
+            config.bone_delta_rotations = bone_rotation_deltas;
+        }
+
+        // Create new skinned_mesh, put it on root
+        // Root doesn't have a mesh3d but it makes it easier to clone for added components.
         let mut inv_bindposes = vec![];
         for &bone in prefab.rig.bone_order.iter() {
             inv_bindposes.push(global_bone_transforms[bone].to_matrix().inverse());
         }
-
-        // Create new skinned_mesh, put it on root
         commands.entity(root).insert(SkinnedMesh {
             joints: skinned_mesh.joints.clone(),
             inverse_bindposes: inv_bindpose_assets.add(inv_bindposes),
         }).remove::<FitSkeleton>();
+
         // Remove skinned mesh from rig_entity
         commands.entity(rig_entity).remove::<SkinnedMesh>();
 
+        // Set up ragdoll if added
         if let Some(mut ragdoll) = ragdoll {
             ragdoll.spawn_ragdoll(&mut commands, &helpers, prefab.rig.rig_type,
                 &bone_entities, &global_transforms, &*rig_data, rig_entity);
@@ -229,182 +257,3 @@ pub(crate) fn setup_human_parts(
         }
     }
 }
-
-
-//pub(crate) fn on_human_assets_changed(
-//    mut new_humans: Query<(Entity, &HumanMeshConfig, Option<&HumanAssetConfig>), Added<HumanMeshConfig>>,
-//    mut commands: Commands,
-//    mut meshes: ResMut<Assets<Mesh>>,
-//    mut materials: ResMut<Assets<StandardMaterial>>,
-//    mut clips: ResMut<Assets<AnimationClip>>,
-//    mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
-//    global_config: Res<HumentityGlobalConfig>,
-//    registry: Res<HumanAssetRegistry>,
-//    base_mesh: Res<crate::basemesh::BaseMesh>,
-//    targets: Res<MorphTargets>,
-//    asset_server: Res<AssetServer>,
-//    rigs: Res<rigs::RigData>,
-//    vg: Res<VertexGroups>,
-//    asset_textures: Res<HumanAssetTextures>,
-//) {
-//    if new_humans.count() == 0 { return }
-//    let transparent_slots = &global_config.transparent_slots;
-//
-//    new_humans.iter_mut().for_each(|(human, config, mut anim_config)| {
-//        // Body Material
-//        let albedo = asset_server.load("humentity://skin_textures/albedo/".to_string() + &config.skin_albedo);
-//        let material = materials.add(StandardMaterial {
-//            base_color_texture: Some(albedo),
-//            perceptual_roughness: 1.,
-//            ..default()
-//        });
-//
-//        // Get morphed helper mesh
-//        let helpers = morphs::adjust_helpers_to_morphs(
-//            &config.morph_targets, &targets, &base_mesh
-//        );
-//        let mut delete_verts = AHashSet::<u16>::default();
-//
-//        // Setup animation related data
-//        let mut skinned_mesh: SkinnedMesh = SkinnedMesh::default();
-//        let mut sorted_bones: Vec<String> = vec![];
-//        let mut inv_bindposes: Vec<Mat4> = vec![];
-//        let mut local_bone_transforms: AHashMap<String, Transform> = AHashMap::default();
-//        if let Some(anim_config) = anim_config.as_mut() {
-//            (skinned_mesh, sorted_bones, inv_bindposes, local_bone_transforms) = rigs::build_rig(
-//                &human, anim_config.rig, &rigs, &mut inv_bindpose_assets, &mut commands, &vg, &helpers
-//            );
-//        }
-//
-//        // Body Parts
-//        for bp in config.body_parts.iter() {
-//
-//            // Set up mesh
-//            let asset = registry.body_parts.get(bp)
-//                .expect(&format!("FAILED TO FIND BODY PART {}", bp));
-//            //delete_verts.extend(&asset.delete_verts);
-//            let mesh = morphs::bake_asset_morphs(
-//                &config.morph_targets, &targets, &mut meshes, &helpers, &asset,
-//            );
-//            let mesh_handle: Handle<Mesh> = if let Some(anim_config) = anim_config.as_mut() {
-//                rigs::set_asset_rig_arrays(
-//                    anim_config.rig, mesh, &rigs, &asset.mhid_lookup, &mut meshes, &asset.helper_maps, &sorted_bones,
-//                )
-//            } else {
-//                meshes.add(mesh)
-//            };
-//
-//            // Set up material
-//            let mut material = StandardMaterial::default();
-//            if let Some(albedos) = asset_textures.albedo_maps.get(&asset.name) {
-//                if albedos.len() > 0 { material.base_color_texture = Some(albedos[0].clone()); }
-//            }
-//            if let Some(normal) = asset_textures.normal_map.get(&asset.name) {
-//                material.normal_map_texture = Some(normal.clone());
-//            }
-//            if let Some(ao) = asset_textures.ao_map.get(&asset.name) {
-//                material.occlusion_texture = Some(ao.clone());
-//            }
-//            for slot in asset.slots.iter() {
-//                if transparent_slots.contains(slot) {
-//                    material.alpha_mode = AlphaMode::Blend;
-//                    material.reflectance = 0.25;
-//                    if slot.contains("Eyebrow") { material.base_color = config.eyebrow_color; }
-//                    else if slot.contains("Eye") && !slot.contains("Eyelash") { material.base_color = config.eye_color; }
-//                    else if slot.contains("Hair") { material.base_color = config.hair_color; }
-//                }
-//            }
-//            let material = materials.add(material);
-//
-//            // Spawn entity
-//            let bp = commands.spawn((
-//                Mesh3d(mesh_handle),
-//                MeshMaterial3d(material),
-//                Transform::IDENTITY,
-//            )).id();
-//            if let Some(_) = anim_config {
-//                commands.entity(bp).insert(skinned_mesh.clone());
-//            }
-//            commands.entity(human).add_child(bp);
-//        }
-//
-//        // Equipment
-//        for eq in config.equipment.iter() {
-//            // Set up mesh
-//            let asset = registry.equipment.get(eq)
-//                .expect(&format!("FAILED TO FIND EQUIPMENT {}", eq));
-//            delete_verts.extend(&asset.delete_verts);
-//            let mesh = morphs::bake_asset_morphs(
-//                &config.morph_targets, &targets, &mut meshes, &helpers, &asset,
-//            );
-//            let mesh_handle: Handle<Mesh> = if let Some(anim_config) = anim_config.as_mut() {
-//                rigs::set_asset_rig_arrays(
-//                    anim_config.rig, mesh, &rigs, &asset.mhid_lookup, &mut meshes, &asset.helper_maps, &sorted_bones,
-//                )
-//            } else {
-//                meshes.add(mesh)
-//            };
-//
-//            // Set up material
-//            let mut material = StandardMaterial::default();
-//            if let Some(albedos) = asset_textures.albedo_maps.get(&asset.name) {
-//                if albedos.len() > 0 { material.base_color_texture = Some(albedos[0].clone()); }
-//            }
-//            if let Some(normal) = asset_textures.normal_map.get(&asset.name) {
-//                material.normal_map_texture = Some(normal.clone());
-//            }
-//            if let Some(ao) = asset_textures.ao_map.get(&asset.name) {
-//                material.occlusion_texture = Some(ao.clone());
-//            }
-//
-//            // Spawn entity
-//            let asset = commands.spawn((
-//                skinned_mesh.clone(),
-//                Mesh3d(mesh_handle),
-//                MeshMaterial3d(materials.add(material)),
-//                Transform::IDENTITY,
-//            )).id();
-//            if let Some(_) = anim_config {
-//                commands.entity(asset).insert(skinned_mesh.clone());
-//            }
-//            commands.entity(human).add_child(asset);
-//        }
-//
-//        // Body Mesh
-//        let mesh = assets::delete_mesh_verts(&mut meshes, &base_mesh, delete_verts);
-//        let mesh = morphs::bake_body_morphs(&mesh, &base_mesh.mhid_lookup, &helpers);
-//        let mesh_handle: Handle<Mesh> = if let Some(anim_config) = anim_config.as_mut() {
-//            rigs::set_basemesh_rig_arrays(anim_config.rig, mesh, &rigs, &base_mesh.mhid_lookup, &mut meshes, &sorted_bones)
-//        } else {
-//            meshes.add(mesh)
-//        };
-//        
-//        // Spawn avatar entity
-//        let avatar = commands.spawn((
-//            Name::new("Avatar"),
-//            Mesh3d(mesh_handle),
-//            MeshMaterial3d(material),
-//            Transform::IDENTITY,
-//        )).id();
-//        if let Some(_) = anim_config {
-//            commands.entity(avatar).insert(skinned_mesh.clone());
-//        }
-//        commands.entity(human).add_child(avatar);
-//
-//        if let Some(anim_config) = anim_config.as_mut() {
-//            let glbs = anim_config.animation_glbs.clone();
-//            for path in glbs.iter() {
-//                let clips = get_animation_clips(path, &local_bone_transforms)
-//                    .expect("Failed to build animation clips")
-//                    .iter()
-//                    .map(|(k, v)| (k.clone(), clips.add(v.clone())))
-//                    .collect::<AHashMap<String, Handle<AnimationClip>>>();
-//                anim_config.clip_handles.extend(clips);
-//
-//            }
-//        }
-//    })
-//
-//}
-//
-//

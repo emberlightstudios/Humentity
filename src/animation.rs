@@ -3,15 +3,42 @@ use bevy::{animation::{animated_field, AnimationTargetId}, ecs::intern::Internab
 use ahash::{AHashMap, AHashSet};
 use gltf::Skin;
 
-use crate::{prelude::*, rigs::RigType};
+use crate::{HumentityGlobalConfig, prelude::*, rigs::RigType};
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct CharacterAnimationClips(AHashMap::<&'static str, Handle<AnimationClip>>);
+
+/// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
+/// in realtime using data cached on the human config.
+pub(crate) fn rescale_bone_translations(
+    prefabs: Res<CharacterArchetypePrefabs>,
+    humans: Query<(Entity, &CharacterShapeConfig), Without<FitSkeleton>>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    mut transforms: Query<&mut Transform>,
+) {
+    for (entity, human) in humans {
+        let ref_translations = &prefabs[human.prefab].rig.bone_translations;
+        let shape_translations = &human.bone_translations;
+        for child in children.iter_descendants(entity) {
+            let Ok(name) = names.get(child) else { continue };
+            let name = name.as_str();
+            let Some(ref_trans) = ref_translations.get(name) else { continue };
+            let ref_trans = ref_trans.length();
+            if ref_trans < 1e-3 { continue }
+            let Some(shape_trans) = shape_translations.get(name) else { continue };
+            let Ok(mut transform) = transforms.get_mut(child) else { continue };
+            let rot = if let Some(rot) = human.bone_delta_rotations.get(name) { rot } else { &Quat::IDENTITY };
+            transform.translation = rot * transform.translation * shape_trans.length() / ref_trans;
+        }
+    }
+}
 
 pub(crate) fn rebuild_animations(
     prefabs: Res<CharacterArchetypePrefabs>,
     mut clips_assets: ResMut<Assets<AnimationClip>>,
     mut commands: Commands,
+    config: Res<HumentityGlobalConfig>,
 ) {
     let glbs = prefabs
         .iter()
@@ -21,7 +48,7 @@ pub(crate) fn rebuild_animations(
     let mut clip_handles = AHashMap::<&'static str, Handle<AnimationClip>>::new();
     for &glb in glbs {
         let path = PathBuf::from(glb);
-        let clips = get_animation_clips(path)
+        let clips = get_animation_clips(path, config.translation_animation_tracks)
             .expect("Failed to retarget animation clips");
         let mut handles: AHashMap<&'static str, Handle<AnimationClip>> = AHashMap::default();
         for (name, clip) in clips.into_iter() {
@@ -33,7 +60,10 @@ pub(crate) fn rebuild_animations(
     commands.set_state(HumentityLoadState::Ready);
 }
 
-pub(crate) fn get_skeleton_rotations(world: &mut World, rig: RigType) -> Result<AHashMap<&'static str, Quat>, BevyError> {
+/// Returns a tuple of HashMaps, one for (model space) rotations, the other for (bone space) translations
+pub(crate) fn get_skeleton_transforms(
+    world: &mut World, rig: RigType
+) -> Result<(AHashMap<&'static str, Quat>, AHashMap<&'static str, Vec3>), BevyError> {
     let config = world.get_resource::<HumentityPathsConfig>()
         .expect("Humentity not loaded");
     let mut path = config.core_assets_path.clone();
@@ -68,15 +98,22 @@ pub(crate) fn get_skeleton_rotations(world: &mut World, rig: RigType) -> Result<
     compute_global_transform(root, &transforms, &mut global_transforms, Transform::IDENTITY)?;
 
     Ok(
-        global_transforms
-            .iter()
-            .map(|(&n, t)| (n, t.rotation))
-            .collect::<AHashMap<&'static str, Quat>>()
+        (
+            global_transforms
+                .iter()
+                .map(|(&n, t)| (n, t.rotation))
+                .collect::<AHashMap<&'static str, Quat>>(),
+            transforms
+                .iter()
+                .map(|(&n, t)| (n, t.translation))
+                .collect::<AHashMap<&'static str, Vec3>>()
+        )
     )
 }
 
 pub(crate) fn get_animation_clips(
     path: impl AsRef<Path>,
+    translation_tracks: bool,
 ) -> Result<AHashMap<&'static str, AnimationClip>, BevyError> {
     let (document, buffers, _) = gltf::import(path)?;
     if document.skins().len() > 1 { return Err(BevyError::from("More than one skin present in file")) };
@@ -155,32 +192,19 @@ pub(crate) fn get_animation_clips(
             // Add new curve to new clip
             match target_property {
                 gltf::animation::Property::Translation => {
-                    continue;
-                    //let new_pos = bone_transforms[&target_name];
-                    //let old_pos = global_transforms[&target_name];
-                    //let mut values: Vec<Vec3> = floats
-                    //    .chunks(floats_per_element)
-                    //    .map(|chunk| Vec3::from_array([chunk[0], chunk[1], chunk[2]]))
-                    //    .collect();
-                    //for v in values.iter_mut() {
-                    //    if old_pos.translation.x > 0.1 {
-                    //        v.x *= new_pos.x / old_pos.translation.x;
-                    //    }
-                    //    if old_pos.translation.y > 0.1 {
-                    //        v.y *= new_pos.y / old_pos.translation.y;
-                    //    }
-                    //    if old_pos.translation.z > 0.1 {
-                    //        v.z *= new_pos.z / old_pos.translation.z;
-                    //    }
-                    //}
-                    //clip.add_curve_to_target(
-                    //    target_id,
-                    //    AnimatableCurve::new(
-                    //        animated_field!(Transform::translation),
-                    //        AnimatableKeyframeCurve::new(times.into_iter().zip(values.into_iter()))
-                    //            .expect("Failed to construct curve")
-                    //    )
-                    //);
+                    if !translation_tracks { continue };
+                    let values: Vec<Vec3> = floats
+                        .chunks(floats_per_element)
+                        .map(|chunk| Vec3::from_array([chunk[0], chunk[1], chunk[2]]))
+                        .collect();
+                    clip.add_curve_to_target(
+                        target_id,
+                        AnimatableCurve::new(
+                            animated_field!(Transform::translation),
+                            AnimatableKeyframeCurve::new(times.into_iter().zip(values.into_iter()))
+                                .expect("Failed to construct curve")
+                        )
+                    );
                 }
                 gltf::animation::Property::Scale => {
                     let values: Vec<Vec3> = floats
