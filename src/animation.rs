@@ -39,7 +39,9 @@ pub(crate) fn get_skeleton_rotations(world: &mut World, rig: RigType) -> Result<
     let mut path = config.core_assets_path.clone();
     match rig {
         RigType::Default => path = path.join("skeletons/default.glb"),
-        _ => unimplemented!("Add skeleton glb file for this skeleton")
+        RigType::Mixamo => path = path.join("skeletons/mixamo.glb"),
+        RigType::GameEngine => path = path.join("skeletons/game_engine.glb"),
+        //_ => unimplemented!("Add skeleton glb file for this skeleton")
     }
     let (document, ..) = gltf::import(path)?;
     if document.skins().len() > 1 { return Err(BevyError::from("More than one skin present in file")) };
