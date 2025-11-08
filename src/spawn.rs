@@ -17,9 +17,12 @@ pub struct CharacterShapeConfig {
 
 impl CharacterShapeConfig {
     pub fn new(prefab: &'static str, morphs: MorphTargets) -> Self {
-        Self { prefab, prefab_morph_targets: morphs,
+        Self {
+            prefab,
+            prefab_morph_targets: morphs,
             bone_translations: AHashMap::default(),
-            bone_delta_rotations: AHashMap::default() }
+            bone_delta_rotations: AHashMap::default(),
+        }
     }
 }
 

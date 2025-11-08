@@ -1,5 +1,5 @@
-use bevy::{animation::{AnimationTarget, AnimationTargetId}, ecs::intern::Internable, mesh::{skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
-use crate::{animation::get_skeleton_transforms, basemesh::VertexGroups, mesh_ops::{MeshProcessingState}, morphs::adjust_helpers_to_morphs, prelude::*, rigs::{get_bone_order, RigData}};
+use bevy::prelude::*;
+use crate::{animation::get_skeleton_transforms,mesh_ops::{MeshProcessingState}, morphs::adjust_helpers_to_morphs, prelude::*, rigs::{get_bone_order, RigData}};
 use ahash::{AHashMap};
 
 /// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh 
@@ -246,7 +246,7 @@ pub(crate) fn create_human_prefab_rig_scenes(world: &mut World) {
         let bone_order = get_bone_order(world, rig_type);
         let base_mesh = world.get_resource::<BaseMesh>().unwrap();
         let helpers = &base_mesh.vertices.clone();
-        let scene = build_human_rig_scene(
+        let scene = crate::rigs::build_human_rig_scene(
             &helpers, rig_type, &bone_rotations, &bone_order, world
         );
         
@@ -259,119 +259,4 @@ pub(crate) fn create_human_prefab_rig_scenes(world: &mut World) {
     }
     let mut state = world.resource_mut::<NextState<HumentityLoadState>>();
     state.set(HumentityLoadState::AnimationProcessing);
-}
-
-
-/// Spawns bone entities and sets up the hierarchy
-pub(crate) fn build_human_rig_scene(
-    helpers: &Vec<Vec3>,
-    rig: RigType,
-    bone_rotations: &AHashMap<&'static str, Quat>,
-    bone_order: &Vec<&'static str>,
-    world: &mut World
-) -> Handle<DynamicScene> {
-    let mh_config = &world.resource::<RigData>().configs[&rig];
-
-    // Set up some convenient data structures for tracking joints/bones and entities
-    let mut bone_entities = AHashMap::<&'static str, Entity>::default();
-
-    // Start scene world with rig entity
-    let registry = world.resource::<AppTypeRegistry>();
-    let mut scene_world = World::new();
-    scene_world.insert_resource(registry.clone());
-    
-    let rig_entity = scene_world.spawn((
-        AnimationPlayer::default(),
-        Name::new("Human.rig"),
-        Transform::IDENTITY,
-    )).id();
-
-    // Spawn all bone entities
-    for &name in bone_order.iter() {
-        let mut path = Vec::<Name>::new();
-        path.push(Name::from(name));
-        let mut bone = &mh_config[&name];
-
-        while !bone.parent.is_empty() {
-            let parent = NAME_INTERNER.intern(&bone.parent).leak();
-            path.push(Name::new(parent));
-            bone = &mh_config[&parent];
-        }
-        path.push(Name::new("Human.rig"));
-
-        let entity = scene_world.spawn((
-            Name::new(name),
-            AnimationTarget {
-                id: AnimationTargetId::from_names(path.iter().rev()),
-                player: rig_entity,
-            },
-        )).id();
-
-        let parent = mh_config[name].parent;
-        if parent != "" {
-            let parent = bone_entities[parent];
-            scene_world.entity_mut(entity).insert(ParentBone(parent));
-        }
-
-        bone_entities.insert(name, entity);
-    }
-
-    // Wire up parent-child relationships
-    for &name in bone_order.iter() {
-        let &child = bone_entities.get(&name).unwrap();
-        if let Some(parent_name) = mh_config.get(&name).map(|b| b.parent.to_string()) {
-            if !parent_name.is_empty() {
-                if let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak()) {
-                    scene_world.entity_mut(child).insert(ChildOf(parent));
-                }
-            }
-        }
-    }
-
-    // Attach root(s) to rig entity
-    for &name in bone_order.iter() {
-        if let Some(bone) = mh_config.get(&name) {
-            if bone.parent.is_empty() {
-                scene_world.entity_mut(bone_entities[&name]).insert(ChildOf(rig_entity));
-            }
-        }
-    }
-
-    let vg = world.resource::<VertexGroups>();
-    let rig_data = world.resource::<RigData>();
-    let global_transforms = crate::rigs::get_model_space_skeleton_transforms(
-        bone_order, helpers, rig, bone_rotations, &vg, &rig_data);
-    let local_transforms = crate::rigs::get_local_skeleton_transforms(
-        bone_order, rig, &rig_data, &global_transforms);
-
-    // compute inverse bindposes
-    let mut inverse_bindposes = Vec::with_capacity(bone_order.len());
-    for &name in bone_order.iter() {
-        let entity = bone_entities[&name];
-        let local = local_transforms[&name];
-        let global = global_transforms[&name];
-
-        scene_world.entity_mut(entity).insert(local);
-
-        // Inverse bindpose is always from global transform
-        inverse_bindposes.push(global.to_matrix().inverse());
-    }
-
-    // Setup SkinnedMesh component and AnimationPlayer
-    let mut inverse_bindpose_assets = world.resource_mut::<Assets<SkinnedMeshInverseBindposes>>();
-    let inverse_bindposes = inverse_bindpose_assets.add(inverse_bindposes);
-    // only need to return bindposes.  entities will have to be mapped manually after spawning scene
-    let joint_entities = bone_order
-        .iter()
-        .map(|n| bone_entities[n])
-        .collect::<Vec<_>>();
-
-    let skinned_mesh = SkinnedMesh {
-        inverse_bindposes,
-        joints: joint_entities,
-    };
-    scene_world.entity_mut(rig_entity).insert(skinned_mesh);
-
-    let mut ds = world.resource_mut::<Assets<DynamicScene>>();
-    ds.add(DynamicScene::from_world(&scene_world))
 }
