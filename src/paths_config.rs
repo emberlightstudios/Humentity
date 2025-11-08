@@ -85,7 +85,7 @@ impl Default for HumentityPathsConfig {
 }
 
 impl HumentityPathsConfig {
-    /// Pass the path to the humentity crate root
+    /// Pass the path to the humentity crate root to load the included assets
     pub fn from_crate_path(path: impl AsRef<Path>) -> Self {
         let path = path.as_ref().to_path_buf().join("./assets");
         HumentityPathsConfig {
