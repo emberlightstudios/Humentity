@@ -29,7 +29,7 @@ fn main() {
     app
         .add_plugins((
             // Point to the humentity crate location
-            Humentity::new(HumentityPathsConfig::new("./")),
+            Humentity::new(HumentityPathsConfig::from_crate_path("./")),
             DefaultPlugins,
             FeathersPlugins,
         ))

@@ -15,7 +15,7 @@ use::std::{
 use ahash::{AHashMap, AHashSet};
 use walkdir::WalkDir;
 use crate::{
-    mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState, PrefabLoadState}, morphs::adjust_helpers_to_morphs, prelude::*, rigs::{set_asset_rig_arrays, RigData}
+    mesh_ops::{MeshProcessingState, PrefabLoadState, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices}, morphs::adjust_helpers_to_morphs, paths_config::HumentityAssetSourceId, prelude::*, rigs::{RigData, set_asset_rig_arrays}
 };
 
 /*---------+
@@ -67,7 +67,7 @@ impl CharacterAsset {
     /// Checks if asset data is loaded.  If not, parses makehuman file and then loads the mesh.  Returns true if mesh was just loaded
     pub fn load_asset_if_unloaded(&mut self, asset_server: &mut AssetServer) -> bool {
         if self.is_loaded() { return false; }
-        self.data = Some(parse_human_asset(&self.paths.mh_file, &self.part, asset_server));
+        self.data = Some(parse_human_asset(&self.paths.mh_file, &self.paths.source_id, &self.part, asset_server));
         true
     }
 
@@ -152,6 +152,7 @@ impl CharacterAsset {
 #[derive(Default)]
 pub struct CharacterMeshAssetFilePaths {
     mh_file: PathBuf,
+    source_id: Option<HumentityAssetSourceId>,
     pub albedo_maps: AHashMap<&'static str, PathBuf>,
     pub normal_maps: AHashMap<&'static str, PathBuf>,
     pub ao_maps: AHashMap<&'static str, PathBuf>,
@@ -487,13 +488,16 @@ impl FromWorld for CharacterAssetRegistry {
 
         let config = world.get_resource_mut::<HumentityPathsConfig>()
             .expect("No global Humentity config loaded");
-        let root_path = config.core_assets_path.clone();
-        let body_part_paths = config.body_part_paths.clone();
-        let equipment_paths = config.equipment_paths.clone();
-        let proxymesh_paths = config.proxymesh_paths.clone();
 
-        for dir in body_part_paths {
-            for entry in WalkDir::new(root_path.join(dir)).into_iter().filter_map(Result::ok) {
+        for dir in &config.body_part_paths {
+            let prefix: PathBuf;
+            if let Some(source) = &dir.source_id {
+                prefix = source.root_path.clone();
+            } else {
+                prefix = PathBuf::from("./assets");
+            }
+
+            for entry in WalkDir::new(prefix.join(&dir.path)).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
                 if !path.is_file() { continue; }
                 let Some(extension) = path.extension().and_then(|e| e.to_str()) else { continue };
@@ -506,11 +510,12 @@ impl FromWorld for CharacterAssetRegistry {
                         .expect("Failed to parse file name");
                     info!("Importing body part : {name}");
                     let name = NAME_INTERNER.intern(name).leak();
-                    let albedo_maps = get_textures(&folder, CharacterAssetTextureType::Albedo);
-                    let normal_maps = get_textures(&folder, CharacterAssetTextureType::Normal);
-                    let ao_maps = get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion);
+                    let albedo_maps = get_textures(&folder, &prefix, CharacterAssetTextureType::Albedo);
+                    let normal_maps = get_textures(&folder, &prefix, CharacterAssetTextureType::Normal);
+                    let ao_maps = get_textures(&folder, &prefix, CharacterAssetTextureType::AmbientOcclusion);
+                    let mh_file = path.strip_prefix(&prefix).expect("Failed to strip prefix from path").to_path_buf();
                     let paths = CharacterMeshAssetFilePaths {
-                        albedo_maps, normal_maps, ao_maps, mh_file: path.to_path_buf()
+                        albedo_maps, normal_maps, ao_maps, mh_file, source_id: dir.source_id.clone(), 
                     };
                     let part = CharacterPart::BodyPart(name);
                     let asset = CharacterAsset {
@@ -522,8 +527,15 @@ impl FromWorld for CharacterAssetRegistry {
             }
         }
 
-        for dir in equipment_paths {
-            for entry in WalkDir::new(root_path.join(dir)).into_iter().filter_map(Result::ok) {
+        for dir in &config.equipment_paths {
+            let prefix: PathBuf;
+            if let Some(source) = &dir.source_id {
+                prefix = source.root_path.clone();
+            } else {
+                prefix = PathBuf::from("./assets");
+            }
+
+            for entry in WalkDir::new(prefix.join(&dir.path)).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
                 if !path.is_file() { continue; }
                 let Some(extension) = path.extension().and_then(|e| e.to_str()) else { continue };
@@ -536,11 +548,12 @@ impl FromWorld for CharacterAssetRegistry {
                         .expect("Failed to parse file name");
                     info!("Importing equipment : {name}");
                     let name = NAME_INTERNER.intern(name).leak();
-                    let albedo_maps = get_textures(&folder, CharacterAssetTextureType::Albedo);
-                    let normal_maps = get_textures(&folder, CharacterAssetTextureType::Normal);
-                    let ao_maps = get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion);
+                    let albedo_maps = get_textures(&folder, &prefix, CharacterAssetTextureType::Albedo);
+                    let normal_maps = get_textures(&folder, &prefix, CharacterAssetTextureType::Normal);
+                    let ao_maps = get_textures(&folder, &prefix, CharacterAssetTextureType::AmbientOcclusion);
+                    let mh_file = path.strip_prefix(&prefix).expect("Failed to strip prefix from path").to_path_buf();
                     let paths = CharacterMeshAssetFilePaths {
-                        albedo_maps, normal_maps, ao_maps, mh_file: path.to_path_buf()
+                        albedo_maps, normal_maps, ao_maps, mh_file, source_id: dir.source_id.clone(),
                     };
                     let part = CharacterPart::Equipment(name);
                     let asset = CharacterAsset {
@@ -552,8 +565,14 @@ impl FromWorld for CharacterAssetRegistry {
             }
         }
 
-        for dir in proxymesh_paths {
-            for entry in WalkDir::new(root_path.join(dir)).into_iter().filter_map(Result::ok) {
+        for dir in &config.proxymesh_paths {
+            let prefix: PathBuf;
+            if let Some(source) = &dir.source_id {
+                prefix = source.root_path.clone();
+            } else {
+                prefix = PathBuf::from("./assets");
+            }
+            for entry in WalkDir::new(prefix.join(&dir.path)).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
                 if !path.is_file() { continue; }
                 let Some(extension) = path.extension().and_then(|e| e.to_str()) else { continue };
@@ -564,23 +583,34 @@ impl FromWorld for CharacterAssetRegistry {
                         .expect("Failed to parse file name");
                     let name = NAME_INTERNER.intern(name).leak();
                     info!("Importing proxy mesh : {name}");
-                    let mut paths = CharacterMeshAssetFilePaths::default();
-                    paths.mh_file = path.to_path_buf();
-                    let part = CharacterPart::ProxyMesh(name);
-                    let asset = CharacterAsset {
-                        part: part.clone(), data: None, paths
+                    let mh_file = path.strip_prefix(&prefix).expect("Failed to strip prefix from path").to_path_buf();
+                    let paths = CharacterMeshAssetFilePaths {
+                        mh_file, source_id: dir.source_id.clone(), ..default()
                     };
+                    let part = CharacterPart::ProxyMesh(name);
+                    let asset = CharacterAsset { part: part.clone(), data: None, paths };
                     assets.insert(part, asset);
                 }
             }
         }
 
         // Load body textures
-        let path = config.core_assets_path.join("skin_textures");
-        let albedo_maps = get_textures(&path, CharacterAssetTextureType::Albedo);
-        let normal_maps = get_textures(&path, CharacterAssetTextureType::Normal);
-        let ao_maps = get_textures(&path, CharacterAssetTextureType::AmbientOcclusion);
-        //let sss_maps = get_textures(&path, CharacterAssetTextureType::SubsurfaceScattering);
+        let mut albedo_maps = AHashMap::default();
+        let mut normal_maps = AHashMap::default();
+        let mut ao_maps = AHashMap::default();
+
+        for dir in &config.skin_texture_paths {
+            let prefix: PathBuf;
+            if let Some(source) = &dir.source_id {
+                prefix = source.root_path.clone();
+            } else {
+                prefix = PathBuf::from("./assets");
+            }
+            let path = prefix.join(&dir.path);
+            albedo_maps.extend(get_textures(&path, &prefix,  CharacterAssetTextureType::Albedo));
+            normal_maps.extend(get_textures(&path, &prefix, CharacterAssetTextureType::Normal));
+            ao_maps.extend(get_textures(&path, &prefix, CharacterAssetTextureType::AmbientOcclusion));
+        }
 
         let textures = CharacterBodyTextures { albedo_maps, normal_maps, ao_maps };//, sss_maps };
         world.insert_resource(textures);
@@ -596,7 +626,7 @@ impl FromWorld for CharacterAssetRegistry {
 /*-------------+
  |  Functions  |
  +-------------*/
-fn get_textures(path: &PathBuf, texture_type: CharacterAssetTextureType) -> AHashMap<&'static str, PathBuf> {
+fn get_textures(path: &PathBuf, prefix: &PathBuf, texture_type: CharacterAssetTextureType) -> AHashMap<&'static str, PathBuf> {
     let folder = match texture_type {
         CharacterAssetTextureType::Albedo => path.join("albedo"),
         CharacterAssetTextureType::Normal => path.join("Normal"),
@@ -615,9 +645,7 @@ fn get_textures(path: &PathBuf, texture_type: CharacterAssetTextureType) -> AHas
             if let Some(stem) = path.file_stem()
             {
                 let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
-                let mut path = path.to_str().unwrap().split("assets").last().unwrap();
-                if path.starts_with("/") { path = path.strip_prefix("/").unwrap() }
-                if path.starts_with("\\") { path = path.strip_prefix("\\").unwrap() }
+                let path = path.strip_prefix(prefix).expect("Failed to strip prefix");
                 textures.insert(stem, PathBuf::from(path));
             }
         }
@@ -625,7 +653,9 @@ fn get_textures(path: &PathBuf, texture_type: CharacterAssetTextureType) -> AHas
     textures
 }
 
-fn parse_human_asset(mh_path: &PathBuf, part: &CharacterPart, asset_server: &AssetServer) -> CharacterAssetData {
+fn parse_human_asset(
+    mh_path: &PathBuf, source_id: &Option<HumentityAssetSourceId>, part: &CharacterPart, asset_server: &AssetServer
+) -> CharacterAssetData {
     let mut tags = Vec::<String>::new();
     let mut z_depth = 0 as i8;
     let mut delete_verts = AHashSet::<u16>::default();
@@ -638,7 +668,9 @@ fn parse_human_asset(mh_path: &PathBuf, part: &CharacterPart, asset_server: &Ass
     //let mut name = "";
 
     let err_msg = format!("Couldn't open target file {}", mh_path.to_string_lossy());
-    let file = File::open(&mh_path).expect(&err_msg);
+    let prefix = if let Some(source) = source_id { source.root_path.clone() }
+        else { PathBuf::from("./assets") };
+    let file = File::open(prefix.join(&mh_path)).expect(&err_msg);
     for line_result in BufReader::new(file).lines() {
 
         let Ok(line) = line_result else { break };
@@ -654,10 +686,6 @@ fn parse_human_asset(mh_path: &PathBuf, part: &CharacterPart, asset_server: &Ass
                 let filename = line_vec.last().unwrap();
                 obj_file = mh_path.clone();
                 obj_file.set_file_name(filename);
-                let mut obj = obj_file.to_str().unwrap().split("assets").last().unwrap();
-                if obj.starts_with("/") { obj = obj.strip_prefix("/").unwrap() }
-                if obj.starts_with("\\") { obj = obj.strip_prefix("\\").unwrap() }
-                obj_file = PathBuf::from(obj);
             } else if *line_vec.first().unwrap() == "x_scale" {
                 x_scale.min = line_vec[1].parse().unwrap();
                 x_scale.max = line_vec[2].parse().unwrap();
@@ -767,8 +795,12 @@ fn parse_human_asset(mh_path: &PathBuf, part: &CharacterPart, asset_server: &Ass
         }
         _ => { }
     }
-    let base_mesh_path = format!("humentity://{}", obj_file.clone().to_str().unwrap());
-    let base_mesh_handle = asset_server.load(base_mesh_path);
+    let mut namespace = String::from("");
+    if let Some(source) = source_id {
+        namespace = format!("{}://", source.id);
+    }
+    let raw_mesh_path = format!("{}{}", namespace, obj_file.clone().to_str().unwrap());
+    let raw_mesh_handle = asset_server.load(raw_mesh_path);
 
     CharacterAssetData {
         obj_file,
@@ -776,7 +808,7 @@ fn parse_human_asset(mh_path: &PathBuf, part: &CharacterPart, asset_server: &Ass
         z_depth,
         delete_verts,
         scale_data: [x_scale, y_scale, z_scale],
-        base_mesh_handle,
+        base_mesh_handle: raw_mesh_handle,
         bodypart_slots,
         equipment_slots,
         helper_map,

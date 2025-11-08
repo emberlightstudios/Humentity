@@ -37,7 +37,7 @@ impl FromWorld for MakeHumanMorphs {
         let target_paths = config.target_paths.clone();
         let mut targets = AHashMap::<&'static str, AHashMap<u16, Vec3>>::default();
         for target_path in target_paths.iter() {
-            for entry in WalkDir::new(core_path.join(target_path)).into_iter().filter_map(Result::ok) {
+            for entry in WalkDir::new(target_path).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
                 let mut offsets = AHashMap::<u16, Vec3>::default();
                 if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("target") {

@@ -12,7 +12,7 @@ use shared::{cam_controls, setup_env};
 fn main() {
     App::new()
         .add_plugins((
-            Humentity::new(HumentityPathsConfig::new("./")), // Must come before DefaultPlugins
+            Humentity::new(HumentityPathsConfig::from_crate_path("./")), // Must come before DefaultPlugins
             DefaultPlugins,
             MaterialPlugin::<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>::default(),
         ))

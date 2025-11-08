@@ -46,6 +46,7 @@ pub(crate) fn spawn_rig_scene(
             let cached_scene = commands
                 .spawn((
                     DynamicSceneRoot::from(cached_scene),
+                    Name::new("RigScene"),
                 ))
                 .id();
             commands.entity(human).insert(FitSkeleton).add_child(cached_scene);
@@ -101,8 +102,6 @@ pub(crate) fn fit_skeleton_to_shape(
         let skinned_mesh = skinned_mesh.unwrap();
 
         // Re-fit skeleton to mesh shape
-        //info!("{:#?}", prefab.shapes[0].morphs);
-        //info!("{:#?}", config.prefab_morph_targets);
         let helpers = prefab.get_helpers(&config.prefab_morph_targets, &*basemesh, &*morph_targets);
         let mut global_bone_transforms = get_model_space_skeleton_transforms(
             &prefab.rig.bone_order, &helpers, prefab.rig.rig_type, &bone_rotations, &*vg, &*rig_data);

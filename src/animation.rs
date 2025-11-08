@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use bevy::{animation::{animated_field, AnimationTargetId}, ecs::intern::Internable, prelude::*};
 use ahash::{AHashMap, AHashSet};
 use gltf::Skin;
@@ -11,7 +11,6 @@ pub struct CharacterAnimationClips(AHashMap::<&'static str, Handle<AnimationClip
 pub(crate) fn rebuild_animations(
     prefabs: Res<CharacterArchetypePrefabs>,
     mut clips_assets: ResMut<Assets<AnimationClip>>,
-    paths: Res<HumentityPathsConfig>,
     mut commands: Commands,
 ) {
     let glbs = prefabs
@@ -20,8 +19,8 @@ pub(crate) fn rebuild_animations(
         .collect::<Vec<_>>();
 
     let mut clip_handles = AHashMap::<&'static str, Handle<AnimationClip>>::new();
-    for glb in glbs.iter() {
-        let path = paths.core_assets_path.join(glb.to_string());
+    for &glb in glbs {
+        let path = PathBuf::from(glb);
         let clips = get_animation_clips(path)
             .expect("Failed to retarget animation clips");
         let mut handles: AHashMap<&'static str, Handle<AnimationClip>> = AHashMap::default();

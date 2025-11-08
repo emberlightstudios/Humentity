@@ -14,7 +14,7 @@ fn main() {
     info!("Use WASDQE to move the camera around");
     App::new()
         .add_plugins((
-            Humentity::new(HumentityPathsConfig::new("./")),
+            Humentity::new(HumentityPathsConfig::from_crate_path("./")),
             DefaultPlugins,
         ))
         .add_systems(Startup, setup_env)
