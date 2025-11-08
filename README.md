@@ -1,4 +1,4 @@
-# Humentity (MakeHuman integration with Bevy)
+# Humentity (MakeHuman inside Bevy)
 
 ![Alt text](https://i.imghippo.com/files/eVWiu1727317384.png)
 
