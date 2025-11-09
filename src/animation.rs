@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
-use bevy::{animation::{AnimationTargetId, animated_field}, ecs::intern::Internable, math::VectorSpace, prelude::*, transform};
+use std::{path::{Path, PathBuf}, f32::consts::PI};
+use bevy::{animation::{AnimationTargetId, animated_field}, ecs::intern::Internable, prelude::*};
 use ahash::{AHashMap, AHashSet};
 use gltf::Skin;
 
@@ -44,9 +44,13 @@ pub(crate) fn root_motion(
                 = root_transforms.get_mut(related.root_bone) else { continue };
 
         let root = root_bone_transform.translation;
-        let offset = root - previous.translation;
+        let mut offset = root - previous.translation;
         let offset_sq = offset.length_squared();
         previous.translation = root;
+
+        if !root_motion.y_translate {
+            offset.y = 0.;
+        }
 
         // This will skip root motion this frame.  Could cause some stutter.
         // Ideally we would add some small offset.  Might have to cache last frames offset.
@@ -67,8 +71,8 @@ pub(crate) fn root_motion(
             // I think it depends on the roll on the root bone. This looks good for default rig.
             let (yaw, pitch, roll) = root_bone_transform.rotation.to_euler(EulerRot::YZX);
             let mut delta_yaw = yaw - previous.yaw;
-            while delta_yaw > std::f32::consts::PI { delta_yaw -= 2.0 * std::f32::consts::PI; }
-            while delta_yaw < -std::f32::consts::PI { delta_yaw += 2.0 * std::f32::consts::PI; }
+            while delta_yaw > PI { delta_yaw -= 2.0 * PI; }
+            while delta_yaw < -PI { delta_yaw += 2.0 * PI; }
             previous.yaw = yaw;
 
             if delta_yaw * delta_yaw > 0.7 { continue; }
