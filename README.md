@@ -5,7 +5,8 @@
 ## Current features
 - Shape-able humans
 - Auto-rigging
-- Animation sharing among shaped humans
+- Animation retargeting
+- Root motion support
 - LOD
 - Customizable equipment and body parts
 - Customizable morph targets
