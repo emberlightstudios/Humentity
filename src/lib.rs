@@ -25,7 +25,7 @@ pub mod prelude {
     pub use crate::{
         NAME_INTERNER,
         Humentity, HumentityLoadState,
-        rigs::{RigType, ParentBone},
+        rigs::{RigType, ParentBone, RootMotion},
         morphs::{MakeHumanMorphs, MorphTargets},
         basemesh::BaseMesh,
         paths_config::HumentityPathsConfig,
@@ -125,7 +125,7 @@ impl Plugin for Humentity {
                     spawn::fit_skeleton_to_shape,
                     spawn::setup_human_parts,
                     physics::control_ragdoll,
-                    prefab::update_asset_shapes.run_if(resource_exists::<ArchetypeShapeUpdate>)
+                    prefab::update_asset_shapes.run_if(resource_exists::<ArchetypeShapeUpdate>),
                 ).chain().run_if(
                     in_state(HumentityLoadState::Ready)
                     .and(resource_exists::<CharacterAssetRegistry>)
@@ -138,8 +138,12 @@ impl Plugin for Humentity {
         if self.config.translation_animation_tracks {
             app.add_systems(
                 PostUpdate,
-                animation::rescale_bone_translations
-                    .after(AnimationSystems)
+                (
+                    animation::root_motion
+                        .after(AnimationSystems),
+                    animation::rescale_bone_translations
+                        .after(AnimationSystems),
+                )
                     .run_if(in_state(HumentityLoadState::Ready))
                     .in_set(HumentityAnimationSystems)
             );

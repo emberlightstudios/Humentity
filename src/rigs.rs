@@ -9,7 +9,6 @@ use ahash::AHashMap;
 use crate::{assets::HelperMap, basemesh::VertexGroups, mesh_ops::get_vertex_positions, prelude::*};
 
 
-
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Default)]
 pub enum RigType {
     #[default]
@@ -24,6 +23,25 @@ pub enum RigType {
 #[derive(Component, Deref, Reflect)]
 #[reflect(Component)]
 pub struct ParentBone(#[entities] pub(crate) Entity);
+
+/// Adds root motion to XZ-components on translation.  I would add Y but the default rig has a
+/// root bone at the hips.  If animation translation tracks are not enabled this will have no effect.
+#[derive(Component, Default)]
+pub struct RootMotion {
+    /// I wouldn't use this unless your root bone is at the ground
+    pub y_translate: bool,
+    pub yaw: bool,
+}
+
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub(crate) struct RootBone;
+
+#[derive(Component, Default)]
+pub(crate) struct RootBonePrevious {
+    pub(crate) translation: Vec3,
+    pub(crate) yaw: f32,
+}
 
 /*---------+
  |  JSON   |
@@ -364,7 +382,7 @@ pub(crate) fn build_human_rig_scene(
     )).id();
 
     // Spawn all bone entities
-    for &name in bone_order.iter() {
+    for (i, &name) in bone_order.iter().enumerate() {
         let mut path = Vec::<Name>::new();
         path.push(Name::from(name));
         let mut bone = &mh_config[&name];
@@ -383,6 +401,10 @@ pub(crate) fn build_human_rig_scene(
                 player: rig_entity,
             },
         )).id();
+
+        if i == 0 {
+            scene_world.entity_mut(entity).insert(RootBone);
+        }
 
         let parent = mh_config[name].parent;
         if parent != "" {

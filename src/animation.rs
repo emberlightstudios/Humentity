@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
-use bevy::{animation::{animated_field, AnimationTargetId}, ecs::intern::Internable, prelude::*};
+use bevy::{animation::{AnimationTargetId, animated_field}, ecs::intern::Internable, math::VectorSpace, prelude::*, transform};
 use ahash::{AHashMap, AHashSet};
 use gltf::Skin;
 
-use crate::{HumentityGlobalConfig, prelude::*, rigs::RigType};
+use crate::{HumentityGlobalConfig, prelude::*, rigs::{RigType, RootBone, RootBonePrevious}, spawn::RelatedEntities};
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct CharacterAnimationClips(AHashMap::<&'static str, Handle<AnimationClip>>);
@@ -20,6 +20,7 @@ pub(crate) fn rescale_bone_translations(
     for (entity, human) in humans {
         let ref_translations = &prefabs[human.prefab].rig.bone_translations;
         let shape_translations = &human.bone_translations;
+
         for child in children.iter_descendants(entity) {
             let Ok(name) = names.get(child) else { continue };
             let name = name.as_str();
@@ -33,6 +34,50 @@ pub(crate) fn rescale_bone_translations(
         }
     }
 }
+
+pub(crate) fn root_motion(
+    mut humans: Query<(&RelatedEntities, &RootMotion, &mut Transform), With<CharacterShapeConfig>>,
+    mut root_transforms: Query<(&mut Transform, &mut RootBonePrevious), (With<RootBone>, Without<CharacterShapeConfig>)>,
+) {
+    for (related, root_motion, mut human_transform) in humans.iter_mut() {
+        let Ok((mut root_bone_transform, mut previous))
+                = root_transforms.get_mut(related.root_bone) else { continue };
+
+        let root = root_bone_transform.translation;
+        let offset = root - previous.translation;
+        let offset_sq = offset.length_squared();
+        previous.translation = root;
+
+        // This will skip root motion this frame.  Could cause some stutter.
+        // Ideally we would add some small offset.  Might have to cache last frames offset.
+        if offset_sq > 0.1 {
+            continue;
+        }
+
+        human_transform.translation += offset;
+        if root_motion.y_translate {
+            root_bone_transform.translation = Vec3::ZERO;
+        } else {
+            root_bone_transform.translation.x = 0.;
+            root_bone_transform.translation.z = 0.;
+        }
+
+        if root_motion.yaw {
+            // The Euler convention may be different for different rigs.
+            // I think it depends on the roll on the root bone. This looks good for default rig.
+            let (yaw, pitch, roll) = root_bone_transform.rotation.to_euler(EulerRot::YZX);
+            let mut delta_yaw = yaw - previous.yaw;
+            while delta_yaw > std::f32::consts::PI { delta_yaw -= 2.0 * std::f32::consts::PI; }
+            while delta_yaw < -std::f32::consts::PI { delta_yaw += 2.0 * std::f32::consts::PI; }
+            previous.yaw = yaw;
+
+            if delta_yaw * delta_yaw > 0.7 { continue; }
+            human_transform.rotate_y(delta_yaw);
+            root_bone_transform.rotation = Quat::from_euler(EulerRot::YZX, 0.0, pitch, roll);
+        }
+    }
+}
+
 
 pub(crate) fn rebuild_animations(
     prefabs: Res<CharacterArchetypePrefabs>,

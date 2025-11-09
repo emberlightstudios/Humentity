@@ -1,5 +1,5 @@
 use bevy::{ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
-use crate::{HumentityGlobalConfig, assets::CharacterAssetRegistry, basemesh::VertexGroups, prelude::*, rigs::{RigData, get_model_space_skeleton_transforms}};
+use crate::{HumentityGlobalConfig, assets::CharacterAssetRegistry, basemesh::VertexGroups, prelude::*, rigs::{RigData, RootBonePrevious, get_model_space_skeleton_transforms}};
 use ahash::AHashMap;
 
 
@@ -30,6 +30,14 @@ impl CharacterShapeConfig {
 /// Add it after changing morphs.
 #[derive(Component)]
 pub struct FitSkeleton;
+
+/// For storing refs to commonly needed entities so that you don't have to iter_descendants to find them.
+#[derive(Component)]
+pub struct RelatedEntities {
+    #[allow(dead_code)]
+    pub rig: Entity,        // AnimationPlayer
+    pub root_bone: Entity,
+}
 
 /*-----------+
  |  Systems  |
@@ -63,7 +71,7 @@ pub(crate) fn fit_skeleton_to_shape(
     prefabs: Res<CharacterArchetypePrefabs>,
     rigs: Query<(Entity, &SkinnedMesh), Without<Mesh3d>>,
     children: Query<&Children>,
-    mut configs: Query<(Entity, &mut CharacterShapeConfig, &Transform, Option<&mut CharacterRagdoll>), With<FitSkeleton>>,
+    mut configs: Query<(Entity, &mut CharacterShapeConfig, &Transform, Option<&mut CharacterRagdoll>, Option<&RootMotion>), With<FitSkeleton>>,
     names: Query<&Name>,
     global_transforms: Query<&GlobalTransform>,
     mut local_transforms: Query<&mut Transform, Without<CharacterShapeConfig>>,
@@ -74,7 +82,7 @@ pub(crate) fn fit_skeleton_to_shape(
     rig_data: Res<RigData>,
     global_config: Res<HumentityGlobalConfig>,
 ) {
-    for (root, mut config, model_transform, ragdoll) in configs.iter_mut() {
+    for (root, mut config, model_transform, ragdoll, root_motion) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
 
         let mut skinned_mesh: Option<&SkinnedMesh> = None;
@@ -179,13 +187,32 @@ pub(crate) fn fit_skeleton_to_shape(
         for &bone in prefab.rig.bone_order.iter() {
             inv_bindposes.push(global_bone_transforms[bone].to_matrix().inverse());
         }
-        commands.entity(root).insert(SkinnedMesh {
-            joints: skinned_mesh.joints.clone(),
-            inverse_bindposes: inv_bindpose_assets.add(inv_bindposes),
-        }).remove::<FitSkeleton>();
+
+        let root_bone = bone_entities[prefab.rig.bone_order[0]];
+        commands.entity(root).insert(
+            (
+                SkinnedMesh {
+                    joints: skinned_mesh.joints.clone(),
+                    inverse_bindposes: inv_bindpose_assets.add(inv_bindposes),
+                },
+                RelatedEntities { rig: rig_entity, root_bone },
+            )
+        ).remove::<FitSkeleton>();
 
         // Remove skinned mesh from rig_entity
         commands.entity(rig_entity).remove::<SkinnedMesh>();
+
+        // Set up root bone transform tracking
+        if let Some(root_motion) = root_motion {
+            let root_name = prefab.rig.bone_order[0];
+            let transform = local_bone_transforms[root_name];
+            let mut translation = transform.translation;
+            if !root_motion.y_translate {
+                translation.y = 0.;
+            }
+            let rotation = transform.rotation.to_euler(EulerRot::YXZ).0;
+            commands.entity(root_bone).insert(RootBonePrevious{translation, yaw: rotation});
+        }
 
         // Set up ragdoll if added
         if let Some(mut ragdoll) = ragdoll {
