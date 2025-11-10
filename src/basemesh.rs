@@ -1,4 +1,5 @@
 use bevy::{asset::RenderAssetUsages, mesh::{Indices, Mesh, PrimitiveTopology, morph::{MorphAttributes, MorphTargetImage}}, prelude::*};
+use smallvec::SmallVec;
 use std::{
     io::BufReader,
     fs::File,
@@ -72,7 +73,7 @@ impl BaseMesh {
     pub(crate) fn get_rigged_mesh_handle(
         &mut self,
         prefab_name: &'static str,
-        prefab: &CharacterArchetypePrefab,
+        prefab: &mut CharacterArchetypePrefab,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
         rig_data: &crate::rigs::RigData,
@@ -102,13 +103,14 @@ impl BaseMesh {
 
     pub(crate) fn create_prefab_shapes(
         &mut self,
-        prefab: &CharacterArchetypePrefab,
+        prefab: &mut CharacterArchetypePrefab,
         prefab_name: &'static str,
         meshes: &mut Assets<Mesh>,
         morphs: &MakeHumanMorphs,
     ) {
         if self.prefab_state[prefab_name] != MeshProcessingState::Unprocessed { return }
         let mut prefab_meshes = vec![];
+        let mut heights = SmallVec::<[f32; 8]>::new();
         for shape in prefab.shapes.iter() {
             let helpers = crate::morphs::adjust_helpers_to_morphs(&shape.morphs, &*morphs, self);
             let mesh = meshes.get(&self.mesh_handle).unwrap().clone();
@@ -117,6 +119,15 @@ impl BaseMesh {
                 let mhid = self.mhid_lookup[vtx];
                 positions[vtx] = helpers[mhid as usize];
             }
+
+            heights.push(f32::max(
+                shape.height,
+                positions
+                    .iter()
+                    .map(|v| v.y)
+                    .reduce(f32::max)
+                    .unwrap()
+            ));
 
             let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
@@ -131,6 +142,10 @@ impl BaseMesh {
         }
         self.prefab_state.insert(prefab_name, MeshProcessingState::Shaped(prefab_meshes));
         
+        for i_shape in 0..heights.len() {
+            let shape = prefab.shapes.get_mut(i_shape).unwrap();
+            shape.height = heights[i_shape];
+        }
     }
 
     pub(crate) fn create_prefab_morphable_mesh(

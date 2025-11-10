@@ -9,11 +9,16 @@ use ahash::{AHashMap};
 pub struct CharacterShapeArchetype {
     pub name: &'static str,
     pub morphs: MorphTargets,
+    pub(crate) height: f32,
 }
 
 impl CharacterShapeArchetype {
     pub fn new(name: &'static str, morphs: MorphTargets) -> Self {
-        Self { name, morphs }
+        Self { name, morphs, height: 0. }
+    }
+
+    pub fn get_height(&self) -> f32 {
+        self.height
     }
 }
 
@@ -116,7 +121,7 @@ pub(crate) fn update_asset_shapes(
     mut asset_server: ResMut<AssetServer>,
     mh_morphs: Res<MakeHumanMorphs>,
     rig_data: Res<RigData>,
-    prefabs: Res<CharacterArchetypePrefabs>,
+    mut prefabs: ResMut<CharacterArchetypePrefabs>,
     paths: Res<HumentityPathsConfig>,
     mut commands: Commands,
 ) {
@@ -124,7 +129,7 @@ pub(crate) fn update_asset_shapes(
 
     for (i, shape_mod) in shape_updates.iter().enumerate() {
         let prefab_name = shape_mod.prefab_name;
-        let prefab = &prefabs[prefab_name];
+        let prefab = prefabs.get_mut(prefab_name).unwrap();
         let mut finished = true;
 
         for part in shape_mod.parts.iter() {
@@ -140,7 +145,7 @@ pub(crate) fn update_asset_shapes(
                 CharacterPart::Equipment(_) |
                 CharacterPart::ProxyMesh(_) => {
                     let asset = assets.assets.get_mut(part).unwrap();
-                    if asset.get_rigged_mesh_handle(&mut *asset_server, prefab_name, &prefab, &*rig_data,
+                    if asset.get_rigged_mesh_handle(&mut *asset_server, prefab_name, prefab, &*rig_data,
                             &*basemesh, &*mh_morphs, &*paths, &mut *meshes, &mut *images).is_none()
                     {
                         finished = false;

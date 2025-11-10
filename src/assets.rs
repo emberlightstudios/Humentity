@@ -87,7 +87,7 @@ impl CharacterAsset {
     pub(crate) fn get_rigged_mesh_handle(
         &mut self, asset_server: &mut AssetServer, 
         prefab_name: &'static str,
-        prefab: &CharacterArchetypePrefab,
+        prefab: &mut CharacterArchetypePrefab,
         rig_data: &RigData,
         basemesh: &BaseMesh,
         mh_morphs: &MakeHumanMorphs,
@@ -196,7 +196,7 @@ impl CharacterAssetData {
     pub(crate) fn get_rigged_mesh_handle(
         &mut self,
         prefab_name: &'static str,
-        prefab: &CharacterArchetypePrefab,
+        prefab: &mut CharacterArchetypePrefab,
         basemesh: &BaseMesh,
         mh_morphs: &MakeHumanMorphs,
         rig_data: &RigData,
@@ -226,10 +226,18 @@ impl CharacterAssetData {
             }
             MeshProcessingState::Rescaled => {
                 let mut handles = vec![];
-                for shape in prefab.shapes.iter() {
+                for shape in prefab.shapes.iter_mut() {
                     let helpers = adjust_helpers_to_morphs(&shape.morphs, mh_morphs, basemesh);
                     let handle = self.asset_mesh_from_helpers(&helpers, meshes);
                     handles.push(handle);
+                    shape.height = f32::max(
+                        shape.height,
+                        helpers
+                            .iter()
+                            .map(|v| v.y)
+                            .reduce(f32::max)
+                            .unwrap()
+                    );
                 }
                 self.prefab_load_state.insert(prefab_name, MeshProcessingState::Shaped(handles));
 
