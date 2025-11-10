@@ -67,7 +67,7 @@ impl CharacterAsset {
     /// Checks if asset data is loaded.  If not, parses makehuman file and then loads the mesh.  Returns true if mesh was just loaded
     pub fn load_asset_if_unloaded(&mut self, asset_server: &mut AssetServer) -> bool {
         if self.is_loaded() { return false; }
-        self.data = Some(parse_human_asset(&self.paths.mh_file, &self.paths.source_id, &self.part, asset_server));
+        self.data = Some(parse_human_asset(&self.paths.mh_file, &self.paths.source_id, asset_server));
         true
     }
 
@@ -163,8 +163,6 @@ pub struct CharacterMeshAssetFilePaths {
 #[derive(Default)]
 #[allow(dead_code)]
 pub struct CharacterAssetData {
-    pub bodypart_slots: Vec<BodyPartSlot>,
-    pub equipment_slots: Vec<EquipmentSlot>,
     pub prefab_load_state: PrefabLoadState,
     pub(crate) base_mesh_handle: Handle<Mesh>,
     pub(crate) albedo_map_handles: AHashMap<&'static str, Handle<Image>>,
@@ -345,84 +343,6 @@ impl CharacterAssetData {
             .unwrap();
 
         meshes.add(mesh)
-    }
-}
-
-#[allow(dead_code)]  // Need more work on slots
-pub enum PartSlots {
-    BodyPartSlots(Vec<BodyPartSlot>),
-    EquipmentSlots(Vec<EquipmentSlot>),
-}
-
-#[derive(PartialEq, Eq, Hash, Clone)]
-pub enum BodyPartSlot {
-    Eyes,
-    Eyebrows,
-    Eyelashs,
-    Tongue,
-    Teeth,
-    Hair,
-    FacialHair,
-    Custom(&'static str),
-}
-
-impl BodyPartSlot {
-    fn match_name(name: impl AsRef<str>) -> BodyPartSlot {
-        match name.as_ref() {
-            "Eyes" => BodyPartSlot::Eyes,
-            "Eyebrows" => BodyPartSlot::Eyebrows,
-            "Eyelashs" => BodyPartSlot::Eyelashs,
-            "Tongue" => BodyPartSlot::Tongue,
-            "Teeth" => BodyPartSlot::Teeth,
-            "Hair" => BodyPartSlot::Hair,
-            "FacialHair" => BodyPartSlot::FacialHair,
-            _ => {
-                BodyPartSlot::Custom(NAME_INTERNER.intern(name.as_ref()).leak())
-            }
-        }
-    }
-}
-
-#[derive(PartialEq, Eq, Hash, Clone)]
-pub enum EquipmentSlot {
-    Head,
-    Eyes,
-    Ears,
-    Mouth,
-    Nose,
-    Torso,
-    Hips,
-    RightArm,
-    LeftArm,
-    LeftHand,
-    RightHand,
-    LeftLeg,
-    RightLeg,
-    LeftFoot,
-    RightFoot,
-    Custom(&'static str),
-}
-
-impl EquipmentSlot {
-    fn match_name(name: impl AsRef<str>) -> EquipmentSlot {
-        match name.as_ref() {
-            "Head" => EquipmentSlot::Head,
-            "Eyes" => EquipmentSlot::Eyes,
-            "Ears" => EquipmentSlot::Ears,
-            "Mouth" => EquipmentSlot::Mouth,
-            "Nose" => EquipmentSlot::Nose,
-            "Torso" => EquipmentSlot::Torso,
-            "Hips" => EquipmentSlot::Hips,
-            "LeftArm" => EquipmentSlot::LeftArm,
-            "RightArm" => EquipmentSlot::RightArm,
-            "LeftHand" => EquipmentSlot::LeftHand,
-            "RightHand" => EquipmentSlot::RightHand,
-            "LeftFoot" => EquipmentSlot::LeftFoot,
-            "RightFoot" => EquipmentSlot::RightFoot,
-            "LeftLeg" => EquipmentSlot::LeftLeg,
-            "RightLeg" => EquipmentSlot::RightLeg,
-            _ => EquipmentSlot::Custom(NAME_INTERNER.intern(name.as_ref()).leak())
-        }
     }
 }
 
@@ -662,7 +582,7 @@ fn get_textures(path: &PathBuf, prefix: &PathBuf, texture_type: CharacterAssetTe
 }
 
 fn parse_human_asset(
-    mh_path: &PathBuf, source_id: &Option<HumentityAssetSourceId>, part: &CharacterPart, asset_server: &AssetServer
+    mh_path: &PathBuf, source_id: &Option<HumentityAssetSourceId>, asset_server: &AssetServer
 ) -> CharacterAssetData {
     let mut tags = Vec::<String>::new();
     let mut z_depth = 0 as i8;
@@ -781,28 +701,7 @@ fn parse_human_asset(
         .iter()
         .map(|n| NAME_INTERNER.intern(n).leak())
         .collect::<Vec<_>>();
-    let mut bodypart_slots = vec![];
-    let mut equipment_slots = vec![];
 
-    match &part {
-        CharacterPart::BodyPart(_) => {
-            for tag in tags.iter() {
-                let slot = BodyPartSlot::match_name(tag);
-                if !matches!(slot, BodyPartSlot::Custom(_)) {
-                    bodypart_slots.push(slot);
-                }
-            }
-        }
-        CharacterPart::Equipment(_) => {
-            for tag in tags.iter() {
-                let slot = EquipmentSlot::match_name(tag);
-                if !matches!(slot, EquipmentSlot::Custom(_)) {
-                    equipment_slots.push(slot);
-                }
-            }
-        }
-        _ => { }
-    }
     let mut namespace = String::from("");
     if let Some(source) = source_id {
         namespace = format!("{}://", source.id);
@@ -817,8 +716,6 @@ fn parse_human_asset(
         delete_verts,
         scale_data: [x_scale, y_scale, z_scale],
         base_mesh_handle: raw_mesh_handle,
-        bodypart_slots,
-        equipment_slots,
         helper_map,
         ..default()
     }
