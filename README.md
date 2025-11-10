@@ -6,12 +6,12 @@
 - Shape-able humans
 - Auto-rigging
 - Animation retargeting
-- Root motion support
 - LOD
 - Customizable equipment and body parts
 - Customizable morph targets
 
 ## Future Plans
+- Optimizing root motion
 - Better shaders
 - Compute shaders for faster realtime mesh shaping
 - Working ragdolls when physics support matures
