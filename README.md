@@ -5,12 +5,13 @@
 ## Current features
 - Shape-able humans
 - Auto-rigging
-- Animation sharing among shaped humans
+- Animation retargeting
 - LOD
 - Customizable equipment and body parts
 - Customizable morph targets
 
 ## Future Plans
+- Optimizing root motion
 - Better shaders
 - Compute shaders for faster realtime mesh shaping
 - Working ragdolls when physics support matures
