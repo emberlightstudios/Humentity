@@ -11,7 +11,6 @@
 - Customizable morph targets
 
 ## Future Plans
-- Optimizing root motion
 - Better shaders
 - Compute shaders for faster realtime mesh shaping
 - Working ragdolls when physics support matures
