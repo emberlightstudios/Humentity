@@ -139,11 +139,11 @@ impl Plugin for Humentity {
             app.add_systems(
                 PostUpdate,
                 (
-                    animation::root_motion
-                        .after(AnimationSystems),
-                    animation::rescale_bone_translations
-                        .after(AnimationSystems),
+                    animation::rescale_bone_translations,
+                    animation::root_motion,
                 )
+                    .chain()
+                    .after(AnimationSystems)
                     .run_if(in_state(HumentityLoadState::Ready))
                     .in_set(HumentityAnimationSystems)
             );

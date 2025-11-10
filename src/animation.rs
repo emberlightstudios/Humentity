@@ -38,27 +38,49 @@ pub(crate) fn rescale_bone_translations(
 pub(crate) fn root_motion(
     mut humans: Query<(&RelatedEntities, &RootMotion, &mut Transform), With<CharacterShapeConfig>>,
     mut root_transforms: Query<(&mut Transform, &mut RootBonePrevious), (With<RootBone>, Without<CharacterShapeConfig>)>,
+    players: Query<&AnimationPlayer>,
+    time: Res<Time>,
 ) {
     for (related, root_motion, mut human_transform) in humans.iter_mut() {
         let Ok((mut root_bone_transform, mut previous))
                 = root_transforms.get_mut(related.root_bone) else { continue };
 
+        // Blending between clips causes issues due to different root motion behavior.
+        // I think I would have to track changes at the level of individual clips. 
+        // For now, let's only apply root motion if our animation state isn't changing.
+        let mut weights = vec![];
+        let Ok(player) = players.get(related.rig) else { continue };
+        for (_i, a) in player.playing_animations() {
+            weights.push(a.weight());
+        }
+        let mut skip = true;
+        if previous.prev_weights.len() == weights.len() {
+            skip = weights
+                .iter()
+                .enumerate()
+                .any(|(i, v)| (*v - previous.prev_weights[i]).abs() > 5e-4);
+        }
+
+        previous.prev_weights = weights;
+
+        // Check for exceptionally large offsets this frame, expected from reset of root position
+        // when the clip loops back to the beginning
         let root = root_bone_transform.translation;
         let mut offset = root - previous.translation;
-        let offset_sq = offset.length_squared();
-        previous.translation = root;
-
         if !root_motion.y_translate {
             offset.y = 0.;
         }
+        let offset_sq = offset.length_squared();
+        previous.translation = root;
 
         // This will skip root motion this frame.  Could cause some stutter.
         // Ideally we would add some small offset.  Might have to cache last frames offset.
-        if offset_sq > 0.1 {
-            continue;
+        let t2 = time.delta_secs() * time.delta_secs();
+        if !skip && offset_sq < 10. * t2 {
+            human_transform.translation += offset;
         }
 
-        human_transform.translation += offset;
+        // Reset root bone position
         if root_motion.y_translate {
             root_bone_transform.translation = Vec3::ZERO;
         } else {
@@ -66,6 +88,7 @@ pub(crate) fn root_motion(
             root_bone_transform.translation.z = 0.;
         }
 
+        // Do the same for yaw rotation
         if root_motion.yaw {
             // The Euler convention may be different for different rigs.
             // I think it depends on the roll on the root bone. This looks good for default rig.
@@ -75,8 +98,9 @@ pub(crate) fn root_motion(
             while delta_yaw < -PI { delta_yaw += 2.0 * PI; }
             previous.yaw = yaw;
 
-            if delta_yaw * delta_yaw > 0.7 { continue; }
-            human_transform.rotate_y(delta_yaw);
+            if !skip && delta_yaw * delta_yaw < 1000. * t2 {
+                human_transform.rotate_y(delta_yaw);
+            }
             root_bone_transform.rotation = Quat::from_euler(EulerRot::YZX, 0.0, pitch, roll);
         }
     }

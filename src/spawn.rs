@@ -210,8 +210,7 @@ pub(crate) fn fit_skeleton_to_shape(
             if !root_motion.y_translate {
                 translation.y = 0.;
             }
-            let rotation = transform.rotation.to_euler(EulerRot::YXZ).0;
-            commands.entity(root_bone).insert(RootBonePrevious{translation, yaw: rotation});
+            commands.entity(root_bone).insert(RootBonePrevious::default());
         }
 
         // Set up ragdoll if added
@@ -226,7 +225,7 @@ pub(crate) fn setup_human_parts(
     parts: Query<(Entity, &CharacterPart, &ChildOf), Without<Mesh3d>>,
     configs: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
     mut registry: ResMut<CharacterAssetRegistry>,
-    prefabs: Res<CharacterArchetypePrefabs>,
+    mut prefabs: ResMut<CharacterArchetypePrefabs>,
     rig_data: Res<RigData>,
     mut basemesh: ResMut<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
@@ -242,7 +241,7 @@ pub(crate) fn setup_human_parts(
 
         // Get some releveant data
         let prefab_name = config.prefab;
-        let prefab = &prefabs[&config.prefab];
+        let prefab = prefabs.get_mut(&config.prefab).unwrap();
         let morph_weights = prefab.shapes
             .iter()
             .map(|s| *config.prefab_morph_targets.get(&s.name).unwrap_or(&0.))
@@ -253,7 +252,7 @@ pub(crate) fn setup_human_parts(
         match part {
             CharacterPart::BaseMesh => {
                 if let Some(handle) = basemesh.get_rigged_mesh_handle(
-                    prefab_name, &*prefab, &mut *meshes, &mut *images, &*rig_data, &*mh_morphs)
+                    prefab_name, prefab, &mut *meshes, &mut *images, &*rig_data, &*mh_morphs)
                 {
                     commands.entity(entity).insert((
                         Mesh3d(handle.clone()),

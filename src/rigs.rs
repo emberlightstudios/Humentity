@@ -41,6 +41,7 @@ pub(crate) struct RootBone;
 pub(crate) struct RootBonePrevious {
     pub(crate) translation: Vec3,
     pub(crate) yaw: f32,
+    pub(crate) prev_weights: Vec<f32>,
 }
 
 /*---------+
