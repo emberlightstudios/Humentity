@@ -23,7 +23,7 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 
 pub mod prelude {
     pub use crate::{
-        NAME_INTERNER,
+        NAME_INTERNER, TranslationTracks,
         Humentity, HumentityLoadState,
         rigs::{RigType, ParentBone, RootMotion},
         morphs::{MakeHumanMorphs, MorphTargets},
@@ -43,6 +43,14 @@ pub mod prelude {
         
 }
 
+#[derive(Copy, Clone, Default, Debug)]
+pub enum TranslationTracks {
+    #[default]
+    Root,
+    Full,
+    None,
+}
+
 #[derive(Resource, Default, Clone)]
 pub struct HumentityGlobalConfig {
     /// Draw red lines showing the skeleton
@@ -50,7 +58,7 @@ pub struct HumentityGlobalConfig {
     /// Use animation postprocessing to rescale position tracks to mesh size
     /// This has some performance overhead. If disabled then translation tracks will
     /// be removed from all retargeted animations.
-    pub translation_animation_tracks: bool,
+    pub translation_tracks: TranslationTracks,
 }
 
 #[derive(States, Debug, Hash, Eq, PartialEq, Copy, Clone)]
@@ -136,17 +144,31 @@ impl Plugin for Humentity {
         if self.config.debug_draw_bones {
             app.add_systems(Update, rigs::bone_debug_draw);
         }
-        if self.config.translation_animation_tracks {
+
+        if matches!(self.config.translation_tracks, TranslationTracks::Root) {
             app.add_systems(
                 PostUpdate,
-                (
-                    animation::rescale_bone_translations,
-                    animation::root_motion,
-                )
-                    .chain()
+                animation::rescale_root_bone_translation
                     .after(AnimationSystems)
                     .run_if(in_state(HumentityLoadState::Ready))
                     .in_set(HumentityAnimationSystems)
+            );
+        } else if matches!(self.config.translation_tracks, TranslationTracks::Full) {
+            app.add_systems(
+                PostUpdate,
+                animation::rescale_bone_translations
+                    .after(AnimationSystems)
+                    .run_if(in_state(HumentityLoadState::Ready))
+                    .in_set(HumentityAnimationSystems)
+            );
+        }
+        
+        if !matches!(self.config.translation_tracks, TranslationTracks::None) {
+            app.add_systems(
+                PostUpdate,
+                animation::root_motion
+                    .after(HumentityAnimationSystems)
+                    .run_if(in_state(HumentityLoadState::Ready))
             );
         }
     }

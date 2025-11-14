@@ -17,6 +17,14 @@ pub enum RigType {
     GameEngine,
 }
 
+#[derive(Clone, Default, Debug)]
+pub(crate) enum BoneTranslationData{
+    #[default]
+    None,
+    Root(Vec3),
+    Full(AHashMap<&'static str, Vec3>),
+}
+
 /*--------------+
  |  Components  |
  +--------------*/

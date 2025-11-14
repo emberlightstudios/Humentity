@@ -1,7 +1,6 @@
 use bevy::{ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
-use crate::{HumentityGlobalConfig, assets::CharacterAssetRegistry, basemesh::VertexGroups, prelude::*, rigs::{RigData, RootBonePrevious, get_model_space_skeleton_transforms}};
+use crate::{HumentityGlobalConfig, TranslationTracks, assets::CharacterAssetRegistry, basemesh::VertexGroups, prelude::*, rigs::{BoneTranslationData, RigData, RootBonePrevious, get_model_space_skeleton_transforms}};
 use ahash::AHashMap;
-
 
 /*--------------+
  |  Components  |
@@ -11,7 +10,7 @@ use ahash::AHashMap;
 pub struct CharacterShapeConfig {
     pub prefab_morph_targets: MorphTargets,
     pub prefab: &'static str,
-    pub(crate) bone_translations: AHashMap<&'static str, Vec3>,
+    pub(crate) bone_translations: BoneTranslationData,
     pub(crate) bone_delta_rotations: AHashMap<&'static str, Quat>,
 }
 
@@ -20,8 +19,8 @@ impl CharacterShapeConfig {
         Self {
             prefab,
             prefab_morph_targets: morphs,
-            bone_translations: AHashMap::default(),
-            bone_delta_rotations: AHashMap::default(),
+            bone_translations: BoneTranslationData::None,
+            bone_delta_rotations: AHashMap::<&'static str, Quat>::default(),
         }
     }
 }
@@ -161,30 +160,43 @@ pub(crate) fn fit_skeleton_to_shape(
             }
         }
 
-        if global_config.translation_animation_tracks {
+        if !matches!(global_config.translation_tracks, TranslationTracks::None) {
             // Cache the bone translations for animation post-processing
-            config.bone_translations = local_bone_transforms
-                .iter()
-                .map(|(&n, t)| (n, t.translation))
-                .collect();
+            match global_config.translation_tracks {
+                TranslationTracks::Root => {
+                    let root_bone = prefab.rig.bone_order[0];
+                    let root_trans = local_bone_transforms[root_bone];
+                    config.bone_translations = BoneTranslationData::Root(root_trans.translation);
+                }
+                TranslationTracks::Full => {
+                    let bone_translations = local_bone_transforms
+                        .iter()
+                        .map(|(&n, t)| (n, t.translation))
+                        .collect::<AHashMap<&'static str, Vec3>>();
+                    config.bone_translations = BoneTranslationData::Full(bone_translations);
+                }
+                _ => {}
+            }
 
             // We re-aligned the bone rotations to match the reference skeleton exaclty, but this
             // came at the cost of adding in some translation offsets.  When retargeting translation
             // tracks we need to correct for this.  Here we cache a small rotation which we can
             // apply to re-align translation directions later.
-            let mut bone_rotation_deltas: AHashMap<&'static str, Quat> = AHashMap::default();
-            for &name in global_bone_transforms.keys() {
-                let bone_data = bone_config.get(name).unwrap();
-                if bone_data.parent == "" { continue };
-                let ref_bone = global_transforms.get(bone_entities[name]).unwrap();
-                let ref_parent = global_transforms.get(bone_entities[bone_data.parent]).unwrap();
-                let ref_dir: Vec3 = (ref_bone.translation() - ref_parent.translation()).normalize();
-                let shape_dir = (global_bone_transforms[name].translation - global_bone_transforms[bone_data.parent].translation).normalize();
-                let delta = Quat::from_rotation_arc(ref_dir, shape_dir);
-                let parent_rot = global_bone_transforms[bone_data.parent].rotation;
-                bone_rotation_deltas.insert(name, parent_rot.inverse() * delta * parent_rot);
+            if matches!(global_config.translation_tracks, TranslationTracks::Full) {
+                let mut bone_rotation_deltas: AHashMap<&'static str, Quat> = AHashMap::default();
+                for &name in prefab.rig.bone_order.iter() {
+                    let bone_data = bone_config.get(name).unwrap();
+                    if bone_data.parent == "" { continue };
+                    let ref_bone = global_transforms.get(bone_entities[name]).unwrap();
+                    let ref_parent = global_transforms.get(bone_entities[bone_data.parent]).unwrap();
+                    let ref_dir: Vec3 = (ref_bone.translation() - ref_parent.translation()).normalize();
+                    let shape_dir = (global_bone_transforms[name].translation - global_bone_transforms[bone_data.parent].translation).normalize();
+                    let delta = Quat::from_rotation_arc(ref_dir, shape_dir);
+                    let parent_rot = global_bone_transforms[bone_data.parent].rotation;
+                    bone_rotation_deltas.insert(name, parent_rot.inverse() * delta * parent_rot);
+                }
+                config.bone_delta_rotations = bone_rotation_deltas;
             }
-            config.bone_delta_rotations = bone_rotation_deltas;
         }
 
         // Create new skinned_mesh, put it on root
@@ -243,8 +255,8 @@ pub(crate) fn setup_human_parts(
     mut writer: MessageWriter<CharacterPartMeshSpawned>,
 ) {
     for (entity, part, child_of) in parts.iter() {
-        let Ok((human, config, skinned_mesh)) = configs.get(child_of.parent()) else 
-            { continue };
+        let Ok((human, config, skinned_mesh)) =
+                configs.get(child_of.parent()) else { continue };
 
         // Get some releveant data
         let prefab_name = config.prefab;

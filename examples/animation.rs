@@ -18,9 +18,7 @@ fn main() {
                 // This is an animation post-processing system so there is some cost.
                 config: HumentityGlobalConfig {
                     debug_draw_bones: true,
-                    // You can disable this and animation retargeting will still work, but
-                    // it will remove all translation tracks
-                    translation_animation_tracks: true
+                    translation_tracks: TranslationTracks::Root,
                 },
             },
             DefaultPlugins,
@@ -153,6 +151,8 @@ fn setup_graph_on_new_human(
     mut commands: Commands,
 ) {
     let Ok(human) = humans.single() else { return };
+    // included clip is authored on the default rig
+    let animations = &animations[&RigType::Default];
     info!("{:#?}", animations.keys());
     let clip = &animations["Idle-loop"];
     let (graph, index) = AnimationGraph::from_clip(clip.clone());
