@@ -39,6 +39,12 @@ pub struct RelatedEntities {
     pub root_bone: Entity,
 }
 
+/*------------+
+ |  Messages  |
+ +------------*/
+ #[derive(Message, Deref)]
+ pub struct CharacterPartMeshSpawned(Entity);
+
 /*-----------+
  |  Systems  |
  +-----------*/
@@ -223,7 +229,7 @@ pub(crate) fn fit_skeleton_to_shape(
 
 pub(crate) fn setup_human_parts(
     parts: Query<(Entity, &CharacterPart, &ChildOf), Without<Mesh3d>>,
-    configs: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
+    configs: Query<(Entity, &CharacterShapeConfig, &SkinnedMesh)>,
     mut registry: ResMut<CharacterAssetRegistry>,
     mut prefabs: ResMut<CharacterArchetypePrefabs>,
     rig_data: Res<RigData>,
@@ -234,9 +240,10 @@ pub(crate) fn setup_human_parts(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut commands: Commands,
+    mut writer: MessageWriter<CharacterPartMeshSpawned>,
 ) {
     for (entity, part, child_of) in parts.iter() {
-        let Ok((config, skinned_mesh)) = configs.get(child_of.parent()) else 
+        let Ok((human, config, skinned_mesh)) = configs.get(child_of.parent()) else 
             { continue };
 
         // Get some releveant data
@@ -262,6 +269,7 @@ pub(crate) fn setup_human_parts(
                     if mesh.has_morph_targets() {
                         commands.entity(entity).insert(morph_weights);
                     }
+                    writer.write(CharacterPartMeshSpawned(human));
                 }
             }
             CharacterPart::BodyPart(name) | CharacterPart::Equipment(name) | CharacterPart::ProxyMesh(name) => {
@@ -281,6 +289,7 @@ pub(crate) fn setup_human_parts(
                     if mesh.has_morph_targets() {
                         commands.entity(entity).insert(morph_weights);
                     }
+                    writer.write(CharacterPartMeshSpawned(human));
                 }
             }
         }

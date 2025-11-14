@@ -35,7 +35,7 @@ pub mod prelude {
         },
         assets::{CharacterAsset, CharacterAssetRegistry, CharacterPart, CharacterBodyTextures},
         animation::CharacterAnimationClips as CharacterAnimationClips,
-        spawn::{CharacterShapeConfig, FitSkeleton},
+        spawn::{CharacterShapeConfig, FitSkeleton, RelatedEntities, CharacterPartMeshSpawned},
         material::{CharacterMaterialExtension, CharacterMaterialExtensionData},
         physics::CharacterRagdoll,
         mesh_ops::{CharacterAssetMeshReady, MeshProcessingState},
@@ -91,6 +91,7 @@ impl Plugin for Humentity {
         app
             .insert_resource(self.paths.clone())
             .insert_resource(self.config.clone())
+            .add_message::<CharacterPartMeshSpawned>()
             .register_asset_source("humentity", AssetSourceBuilder::platform_default(
                 self.paths.core_assets_path.to_str()
                     .expect("Failed to get path str"),

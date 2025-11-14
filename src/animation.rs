@@ -58,7 +58,7 @@ pub(crate) fn root_motion(
             skip = weights
                 .iter()
                 .enumerate()
-                .any(|(i, v)| (*v - previous.prev_weights[i]).abs() > 5e-4);
+                .any(|(i, v)| (*v - previous.prev_weights[i]).abs() > 1e-3);
         }
 
         previous.prev_weights = weights;
