@@ -36,6 +36,8 @@ pub(crate) fn rescale_bone_translations(
     }
 }
 
+/// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
+/// in realtime using data cached on the human config.  This one affects only the root bone.
 pub(crate) fn rescale_root_bone_translation(
     prefabs: Res<CharacterArchetypePrefabs>,
     humans: Query<(&RelatedEntities, &CharacterShapeConfig), Without<FitSkeleton>>,
