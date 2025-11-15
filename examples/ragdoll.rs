@@ -7,7 +7,13 @@ use shared::{setup_env, cam_controls, add_material};
 fn main() {
     App::new()
         .add_plugins((
-            Humentity::new(HumentityPathsConfig::from_crate_path("./")),
+            Humentity {
+                paths: HumentityPathsConfig::from_crate_path("./"),
+                config: HumentityGlobalConfig {
+                    translation_tracks: TranslationTracks::None,
+                    ..default()
+                }
+            },
             DefaultPlugins,
             PhysicsPlugins::default(),
             PhysicsDebugPlugin,

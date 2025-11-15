@@ -29,7 +29,13 @@ fn main() {
     app
         .add_plugins((
             // Point to the humentity crate location
-            Humentity::new(HumentityPathsConfig::from_crate_path("./")),
+            Humentity {
+                paths: HumentityPathsConfig::from_crate_path("./"),
+                config: HumentityGlobalConfig {
+                    translation_tracks: TranslationTracks::None,
+                    ..default()
+                }
+            },
             DefaultPlugins,
         ))
         .add_systems(Startup, setup_env)

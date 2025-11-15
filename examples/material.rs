@@ -3,7 +3,6 @@
 //! is that this setup should improve GPU batching.  At least that's my intuition.
 
 mod shared;
-use ahash::AHashMap;
 use bevy::{pbr::ExtendedMaterial, prelude::*};
 use humentity::prelude::*;
 use shared::{cam_controls, setup_env};
@@ -12,7 +11,13 @@ use shared::{cam_controls, setup_env};
 fn main() {
     App::new()
         .add_plugins((
-            Humentity::new(HumentityPathsConfig::from_crate_path("./")), // Must come before DefaultPlugins
+            Humentity {
+                paths: HumentityPathsConfig::from_crate_path("./"),
+                config: HumentityGlobalConfig {
+                    translation_tracks: TranslationTracks::None,
+                    ..default()
+                }
+            },
             DefaultPlugins,
             MaterialPlugin::<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>::default(),
         ))

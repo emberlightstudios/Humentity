@@ -1,7 +1,7 @@
 mod shared;
 
-use bevy::{mesh::morph, prelude::*, render::render_resource::Face};
-use humentity::prelude::*;
+use bevy::prelude::*;
+use humentity::{HumentityGlobalConfig, prelude::*};
 use shared::{setup_env, cam_controls, add_material};
 
 use ahash::AHashMap;
@@ -23,7 +23,13 @@ const HAIR_TEXTURE: &str = "ponytail01";
 fn main() {
     App::new()
         .add_plugins((
-            Humentity::new(HumentityPathsConfig::from_crate_path("./")),
+            Humentity {
+                paths: HumentityPathsConfig::from_crate_path("./"),
+                config: HumentityGlobalConfig {
+                    translation_tracks: TranslationTracks::None,
+                    ..default()
+                }
+            },
             DefaultPlugins,
         ))
         .add_systems(Startup, setup_env)
