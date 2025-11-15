@@ -24,7 +24,7 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 pub mod prelude {
     pub use crate::{
         NAME_INTERNER, TranslationTracks,
-        Humentity, HumentityLoadState,
+        Humentity, HumentityLoadState, HumentityGlobalConfig,
         rigs::{RigType, ParentBone, RootMotion},
         morphs::{MakeHumanMorphs, MorphTargets},
         basemesh::BaseMesh,
