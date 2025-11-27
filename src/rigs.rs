@@ -30,7 +30,7 @@ pub(crate) enum BoneTranslationData{
  +--------------*/
 #[derive(Component, Deref, Reflect)]
 #[reflect(Component)]
-pub struct ParentBone(#[entities] pub(crate) Entity);
+pub struct ParentBone(#[entities] pub Entity);
 
 /// Adds root motion to XZ-components on translation.  I would add Y but the default rig has a
 /// root bone at the hips.  If animation translation tracks are not enabled this will have no effect.
