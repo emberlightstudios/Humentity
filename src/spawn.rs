@@ -34,8 +34,15 @@ pub struct FitSkeleton;
 #[derive(Component)]
 pub struct RelatedEntities {
     #[allow(dead_code)]
-    pub rig: Entity,        // AnimationPlayer
+    pub rig: Entity,        // Skeleton Root/AnimationPlayer
     pub root_bone: Entity,
+    pub head: Entity,
+    pub right_hand: Entity,
+    pub left_hand: Entity,
+    pub right_foot: Entity,
+    pub left_foot: Entity,
+    pub right_shoulder: Entity,
+    pub left_shoulder: Entity,
 }
 
 /*------------+
@@ -207,13 +214,41 @@ pub(crate) fn fit_skeleton_to_shape(
         }
 
         let root_bone = bone_entities[prefab.rig.bone_order[0]];
+        let mut head = Entity::PLACEHOLDER;
+        let mut right_hand = Entity::PLACEHOLDER;
+        let mut left_hand = Entity::PLACEHOLDER;
+        let mut right_foot = Entity::PLACEHOLDER;
+        let mut left_foot = Entity::PLACEHOLDER;
+        let mut right_shoulder = Entity::PLACEHOLDER;
+        let mut left_shoulder = Entity::PLACEHOLDER;
+        for &bone in prefab.rig.bone_order.iter() {
+            if ["head"].contains(&bone) {
+                head = bone_entities[bone];
+            } else if ["wrist.L"].contains(&bone) {
+                left_hand = bone_entities[bone];
+            } else if ["wrist.R"].contains(&bone) {
+                right_hand = bone_entities[bone];
+            } else if ["foot.L"].contains(&bone) {
+                left_foot = bone_entities[bone];
+            } else if ["foot.R"].contains(&bone) {
+                right_foot = bone_entities[bone];
+            } else if ["shoulder01.L"].contains(&bone) {
+                left_shoulder = bone_entities[bone];
+            } else if ["shoulder01.R"].contains(&bone) {
+                right_shoulder = bone_entities[bone];
+            }
+        }
         commands.entity(root).insert(
             (
                 SkinnedMesh {
                     joints: skinned_mesh.joints.clone(),
                     inverse_bindposes: inv_bindpose_assets.add(inv_bindposes),
                 },
-                RelatedEntities { rig: rig_entity, root_bone },
+                RelatedEntities {
+                    rig: rig_entity,
+                    root_bone, head, left_foot, left_hand, right_foot, right_hand,
+                    right_shoulder, left_shoulder
+                },
             )
         ).remove::<FitSkeleton>();
 
