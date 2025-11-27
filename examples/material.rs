@@ -43,9 +43,10 @@ fn add_skin_material(
         // on the base mesh or the proxy meshes, not any other parts/assets.
         if matches!(part, CharacterPart::BaseMesh) {  
             let albedo = &textures.albedo_maps[name];
+            let handle: Option<Handle<Image>> = albedo.load_asset(&*asset_server);
             let material = ExtendedMaterial {
                 base: StandardMaterial {
-                    base_color_texture: Some(asset_server.load(albedo.clone())),
+                    base_color_texture: handle,
                     ..default()
                 },
                 extension: CharacterMaterialExtension {

@@ -9,7 +9,7 @@ use ahash::AHashSet;
 /// None for the default.  Textures and .obj files need this.  Targets do not.
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub struct HumentityAssetPath {
-    /// The path to the folder, relative to your working directory
+    /// The path to the folder (relative to the source asset directory e.g. ./assets)
     pub(crate) path: PathBuf,
     /// The name of the custom asset source (if not the default ./assets folder)
     pub(crate) source_id: Option<HumentityAssetSourceId>,
@@ -38,6 +38,16 @@ impl HumentityAssetPath {
 
     pub fn from_default_asset_source(path: impl AsRef<Path>) -> Self {
         Self { path: path.as_ref().to_path_buf(), source_id: None }
+    }
+
+    pub fn load_asset<T: Asset>(&self, asset_server: &AssetServer) -> Option<Handle<T>> {
+        let prefix = if let Some(ref source_id) = self.source_id {
+            &format!("{}://", source_id.id)
+        } else { "" };
+        let path = self.path.to_str();
+        if path.is_none() { return None; }
+        let path = format!("{prefix}{}", path.unwrap());
+        Some(asset_server.load(path))
     }
 }
 

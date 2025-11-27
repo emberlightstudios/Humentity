@@ -50,17 +50,17 @@ fn add_materials(
     for (entity, part) in parts {
         match part {
             CharacterPart::BaseMesh | CharacterPart::ProxyMesh(_) => {
-                let skin = asset_server.load(skins.albedo_maps[SKIN].clone());
+                let skin = skins.albedo_maps[SKIN].load_asset(&*asset_server);
                 commands.entity(entity).insert(
                     MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color_texture: Some(skin.clone()),
+                        base_color_texture: skin,
                         ..default()
                     }))
                 );
             },
             CharacterPart::BodyPart(EYES) => {
                 let asset = &human_assets.assets[part];
-                let albedo: Handle<Image> = asset_server.load(asset.paths.albedo_maps[&EYE_TEXTURE].clone());
+                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYE_TEXTURE].load_asset(&*asset_server).unwrap();
                 commands.entity(entity).insert(
                     MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(albedo),
@@ -71,7 +71,7 @@ fn add_materials(
             }
             CharacterPart::BodyPart(EYEBROW) => {
                 let asset = &human_assets.assets[part];
-                let albedo: Handle<Image> = asset_server.load(asset.paths.albedo_maps[&EYEBROW_TEXTURE].clone());
+                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYEBROW_TEXTURE].load_asset(&*asset_server).unwrap();
                 commands.entity(entity).insert(
                     MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(albedo),
@@ -83,7 +83,7 @@ fn add_materials(
             }
             CharacterPart::BodyPart(HAIR) => {
                 let asset = &human_assets.assets[part];
-                let albedo: Handle<Image> = asset_server.load(asset.paths.albedo_maps[&HAIR_TEXTURE].clone());
+                let albedo: Handle<Image> = asset.paths.albedo_maps[&HAIR_TEXTURE].load_asset(&*asset_server).unwrap();
                 commands.entity(entity).insert(
                     MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(albedo),
@@ -100,7 +100,7 @@ fn add_materials(
             }
             CharacterPart::BodyPart(EYELASH) => {
                 let asset = &human_assets.assets[part];
-                let albedo: Handle<Image> = asset_server.load(asset.paths.albedo_maps[&EYELASH_TEXTURE].clone());
+                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYELASH_TEXTURE].load_asset(&*asset_server).unwrap();
                 commands.entity(entity).insert(
                     MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(albedo),
