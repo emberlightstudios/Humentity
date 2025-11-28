@@ -204,69 +204,80 @@ pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static st
     sorted_bones.into_iter().map(|(name, _)| name).collect::<Vec<&'static str>>()
 }
 
+/// Assigns joint indices and weights to a mesh based on MakeHuman base mesh data.
+/// Ensures each vertex has at most 4 bones influencing it (top-4 by weight),
+/// normalized, mimicking Blender skinning behavior.
 pub(crate) fn set_basemesh_rig_arrays(
     mut mesh: Mesh,
     basemesh: &BaseMesh,
     meshes: &mut Assets<Mesh>,
-    bone_order: &Vec<&'static str>,
+    bone_order: &[&'static str],
     rig_type: RigType,
     rig_data: &RigData,
 ) -> Handle<Mesh> {
-    // Build bone index and weight arrays
-    let weights_res = rig_data.weights.get(&rig_type).expect("No weights for rig?");
+    // Get the weight data for this rig type
+    let weights_res = rig_data.weights.get(&rig_type)
+        .expect("No weights found for this rig type");
+
     let vertices = get_vertex_positions(&mesh);
-    let mut indices = vec![[0; 4]; vertices.len()];
-    let mut weights = vec![[0.0; 4]; vertices.len()];
+    let num_vertices = vertices.len();
 
-    for (bone_index, bone_name) in bone_order.iter().enumerate() {
-        let Some(bone_weights) = weights_res.get(bone_name) else { continue };
+    // Initialize joint index and weight arrays
+    let mut indices = vec![[0u16; 4]; num_vertices];
+    let mut weights = vec![[0.0f32; 4]; num_vertices];
 
-        // loop over vertex, bone weight pairs from config
-        for (vert, mhv) in basemesh.mhid_lookup.iter().enumerate() {
+    // Loop over all vertices
+    for (vert_idx, mhv) in basemesh.mhid_lookup.iter().enumerate() {
+        let mut bone_weights_per_vertex: Vec<(u16, f32)> = Vec::new();
 
-            let Some(&wt) = bone_weights.get(mhv) else { continue };
+        // Collect all bones that influence this vertex
+        for (bone_index, bone_name) in bone_order.iter().enumerate() {
+            if let Some(bone_map) = weights_res.get(*bone_name) {
+                if let Some(&w) = bone_map.get(mhv) {
+                    if w > 0.0 {
+                        bone_weights_per_vertex.push((bone_index as u16, w));
+                    }
+                }
+            }
+        }
 
-            // Get the vertex(u16) -> weights(f32) map for this bone
-            // get the array at the vertex index to get the [u16;4] array we need to insert into
-            let mut indices_vec = indices[vert];
+        if bone_weights_per_vertex.is_empty() {
+            // Assign a default weight if no bone influences this vertex
+            indices[vert_idx][0] = 0;
+            weights[vert_idx][0] = 1.0;
+            continue;
+        }
 
-            // find smallest weight which is also < wt
-            let Some(vec_index) = indices_vec.iter()
-                .enumerate()
-                .filter_map(|(index, &value)| if (value as f32) < wt { Some(index) } else { None })
-                .min() else { continue };
+        // Sort descending by weight and take top 4 bones
+        bone_weights_per_vertex.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        let top4 = &bone_weights_per_vertex[..bone_weights_per_vertex.len().min(4)];
 
-            // Set the bone index in this vector
-            indices_vec[vec_index] = bone_index as u16;
+        // Fill joint index and weight arrays
+        for (i, (bone_idx, w)) in top4.iter().enumerate() {
+            indices[vert_idx][i] = *bone_idx;
+            weights[vert_idx][i] = *w;
+        }
 
-            // insert into indices array 
-            indices[vert as usize] = indices_vec;
-
-            // use the same vertex vec index to set the weights also
-            let mut weights_vec = weights[vert as usize];
-            weights_vec[vec_index] = *bone_weights.get(mhv).expect("Failed to get vertex bone weight");
-            weights[vert as usize] = weights_vec;
+        // Normalize weights
+        let sum: f32 = weights[vert_idx].iter().sum();
+        if sum > 0.0 {
+            for w in weights[vert_idx].iter_mut() {
+                *w /= sum;
+            }
+        } else {
+            // Fallback if sum somehow zero
+            weights[vert_idx][0] = 1.0;
         }
     }
 
-    // Make sure weights sum to 1 for each vertex
-    for i in 0..weights.iter().len() {
-        let wvec = weights[i];
-        let norm = wvec[0] + wvec[1] + wvec[2] + wvec[3];
-        if norm == 0.0 { panic!("div by 0 ");}
-        weights[i] = [
-            wvec[0] / norm,
-            wvec[1] / norm,
-            wvec[2] / norm,
-            wvec[3] / norm,
-        ];
-    }
-
+    // Insert attributes into the mesh
     mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
     mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
 
+    // Add mesh to Assets and return handle
     meshes.add(mesh)
 }
+
 
 pub(crate) fn set_asset_rig_arrays(
     mut mesh: Mesh,
