@@ -128,8 +128,6 @@ pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
         .collect::<Vec<[f32; 3]>>();
 
     
-    info!("{}", normals.len());
-
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
 }
 
