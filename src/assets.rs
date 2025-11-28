@@ -66,7 +66,7 @@ impl CharacterAsset {
     /// Checks if asset data is loaded.  If not, parses makehuman file and then loads the mesh.  Returns true if mesh was just loaded
     pub fn load_asset_if_unloaded(&mut self, asset_server: &mut AssetServer) -> bool {
         if self.is_loaded() { return false; }
-        self.data = Some(parse_human_asset(&self.paths.mh_file, &self.paths.source_id, asset_server));
+        self.data = Some(parse_character_asset(&self.paths.mh_file, asset_server));
         true
     }
 
@@ -150,10 +150,8 @@ impl CharacterAsset {
 }
 
 /// File paths for assets to be loaded for assets
-#[derive(Default)]
 pub struct CharacterMeshAssetFilePaths {
-    mh_file: PathBuf,
-    source_id: Option<HumentityAssetSourceId>,
+    mh_file: HumentityAssetPath,
     pub albedo_maps: AHashMap<&'static str, HumentityAssetPath>,
     pub normal_maps: AHashMap<&'static str, HumentityAssetPath>,
     pub ao_maps: AHashMap<&'static str, HumentityAssetPath>,
@@ -172,7 +170,7 @@ pub struct CharacterAssetData {
     pub(crate) helper_map: Vec<HelperMap>,
     pub(crate) mhid_lookup: Vec<u16>,
     pub(crate) delete_verts: AHashSet<u16>,
-    obj_file: PathBuf,
+    obj_file: HumentityAssetPath,
     tags: Vec<&'static str>,
     z_depth: i8,                    // Currently unused
     scale_data: [ScaleData; 3],
@@ -184,7 +182,7 @@ impl CharacterAssetData {
     ) -> Option<()> {
         // Get the makehuman vertex index lookup 
         let Some(mesh) = meshes.get(&self.base_mesh_handle) else { return None };
-        let path = paths.core_assets_path.join(&self.obj_file);
+        let path = paths.core_assets_path.join(&self.obj_file.path);
         let mh_verts = parse_obj_vertices(path);
         let verts = get_vertex_positions(mesh);
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
@@ -415,6 +413,10 @@ impl FromWorld for CharacterAssetRegistry {
         let config = world.get_resource_mut::<HumentityPathsConfig>()
             .expect("No global Humentity config loaded");
 
+
+        /*------------+
+         | Body Parts |
+         +------------*/
         for dir in &config.body_part_paths {
             let prefix: PathBuf;
             if let Some(source) = &dir.source_id {
@@ -440,8 +442,9 @@ impl FromWorld for CharacterAssetRegistry {
                     let normal_maps = get_textures(&folder, CharacterAssetTextureType::Normal, &dir.source_id);
                     let ao_maps = get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
                     let mh_file = path.strip_prefix(&prefix).expect("Failed to strip prefix from path").to_path_buf();
+                    let mh_file = HumentityAssetPath { path: mh_file, source_id: dir.source_id.clone() };
                     let paths = CharacterMeshAssetFilePaths {
-                        albedo_maps, normal_maps, ao_maps, mh_file, source_id: dir.source_id.clone(), 
+                        albedo_maps, normal_maps, ao_maps, mh_file,
                     };
                     let part = CharacterPart::BodyPart(name);
                     let asset = CharacterAsset {
@@ -453,6 +456,9 @@ impl FromWorld for CharacterAssetRegistry {
             }
         }
 
+        /*-----------+
+         | Equipment |
+         +-----------*/
         for dir in &config.equipment_paths {
             let prefix: PathBuf;
             if let Some(source) = &dir.source_id {
@@ -478,8 +484,9 @@ impl FromWorld for CharacterAssetRegistry {
                     let normal_maps = get_textures(&folder, CharacterAssetTextureType::Normal, &dir.source_id);
                     let ao_maps = get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
                     let mh_file = path.strip_prefix(&prefix).expect("Failed to strip prefix from path").to_path_buf();
+                    let mh_file = HumentityAssetPath { path: mh_file, source_id: dir.source_id.clone() };
                     let paths = CharacterMeshAssetFilePaths {
-                        albedo_maps, normal_maps, ao_maps, mh_file, source_id: dir.source_id.clone(),
+                        albedo_maps, normal_maps, ao_maps, mh_file,
                     };
                     let part = CharacterPart::Equipment(name);
                     let asset = CharacterAsset {
@@ -491,6 +498,9 @@ impl FromWorld for CharacterAssetRegistry {
             }
         }
 
+        /*--------------+
+         | Proxy Meshes |
+         +--------------*/
         for dir in &config.proxymesh_paths {
             let prefix: PathBuf;
             if let Some(source) = &dir.source_id {
@@ -510,8 +520,12 @@ impl FromWorld for CharacterAssetRegistry {
                     let name = NAME_INTERNER.intern(name).leak();
                     info!("Importing proxy mesh : {name}");
                     let mh_file = path.strip_prefix(&prefix).expect("Failed to strip prefix from path").to_path_buf();
+                    let mh_file = HumentityAssetPath { path: mh_file, source_id: dir.source_id.clone() };
                     let paths = CharacterMeshAssetFilePaths {
-                        mh_file, source_id: dir.source_id.clone(), ..default()
+                        mh_file, 
+                        albedo_maps: AHashMap::default(),
+                        normal_maps: AHashMap::default(),
+                        ao_maps: AHashMap::default()
                     };
                     let part = CharacterPart::ProxyMesh(name);
                     let asset = CharacterAsset { part: part.clone(), data: None, paths };
@@ -520,7 +534,9 @@ impl FromWorld for CharacterAssetRegistry {
             }
         }
 
-        // Load body textures
+        /*---------------+
+         | Skin Textures |
+         +---------------*/
         let mut albedo_maps = AHashMap::default();
         let mut normal_maps = AHashMap::default();
         let mut ao_maps = AHashMap::default();
@@ -583,8 +599,8 @@ fn get_textures(
     textures
 }
 
-fn parse_human_asset(
-    mh_path: &PathBuf, source_id: &Option<HumentityAssetSourceId>, asset_server: &AssetServer
+fn parse_character_asset(
+    mh_path: &HumentityAssetPath, asset_server: &AssetServer
 ) -> CharacterAssetData {
     let mut tags = Vec::<String>::new();
     let mut z_depth = 0 as i8;
@@ -597,12 +613,19 @@ fn parse_human_asset(
     let mut section = FileSection::Header;
     //let mut name = "";
 
-    let err_msg = format!("Couldn't open target file {}", mh_path.to_string_lossy());
-    let prefix = if let Some(source) = source_id { source.root_path.clone() }
-        else { PathBuf::from("./assets") };
-    let file = File::open(prefix.join(&mh_path)).expect(&err_msg);
-    for line_result in BufReader::new(file).lines() {
+    let source_id = &mh_path.source_id;
+    let prefix = if let Some(ref source) = source_id
+    {
+        &source.root_path
+    } else {
+        &PathBuf::from("./assets")
+    };
 
+    let mh_path_buf = prefix.join(&mh_path.path);
+    let err_msg = format!("Couldn't open target file {}", mh_path_buf.to_string_lossy());
+    let file = File::open(&mh_path_buf).expect(&err_msg);
+
+    for line_result in BufReader::new(file).lines() {
         let Ok(line) = line_result else { break };
         if line.starts_with("#") { continue; }
         if line.trim().is_empty() { continue; }
@@ -613,8 +636,8 @@ fn parse_human_asset(
 
         if section == FileSection::Header {
             if *line_vec.first().unwrap() == "obj_file" {
-                let filename = line_vec.last().unwrap();
-                obj_file = mh_path.clone();
+                let &filename = line_vec.last().unwrap();
+                obj_file = mh_path.path.clone();
                 obj_file.set_file_name(filename);
             } else if *line_vec.first().unwrap() == "x_scale" {
                 x_scale.min = line_vec[1].parse().unwrap();
@@ -704,12 +727,8 @@ fn parse_human_asset(
         .map(|n| NAME_INTERNER.intern(n).leak())
         .collect::<Vec<_>>();
 
-    let mut namespace = String::from("");
-    if let Some(source) = source_id {
-        namespace = format!("{}://", source.id);
-    }
-    let raw_mesh_path = format!("{}{}", namespace, obj_file.clone().to_str().unwrap());
-    let raw_mesh_handle = asset_server.load(raw_mesh_path);
+    let obj_file = HumentityAssetPath { path: obj_file, source_id: source_id.clone() };
+    let raw_mesh_handle: Handle<Mesh> = obj_file.load_asset(&*asset_server).unwrap();
 
     CharacterAssetData {
         obj_file,
@@ -723,6 +742,9 @@ fn parse_human_asset(
     }
 }
 
+/// MHCLO assets can define a list of delete verts which can be occluded (by clothes for example)
+/// If you wanted to bake out everything to a new mesh this would be a good optimization, but it
+/// breaks instancing which should be a far superior approach
 #[allow(dead_code)]
 pub(crate) fn delete_mesh_verts(
     meshes: &mut ResMut<Assets<Mesh>>,

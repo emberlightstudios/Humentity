@@ -15,6 +15,12 @@ pub struct HumentityAssetPath {
     pub(crate) source_id: Option<HumentityAssetSourceId>,
 }
 
+impl Default for HumentityAssetPath {
+    fn default() -> Self {
+        Self { path: PathBuf::from("."), source_id: None }
+    }
+}
+
 /// After creating a custom asset source it is not so easy to get the path to it
 /// back out from the asset server.  Just pass it in here.
 #[derive(Clone, Hash, Eq, PartialEq, Default)]
