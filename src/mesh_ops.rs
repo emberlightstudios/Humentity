@@ -93,6 +93,47 @@ pub(crate) fn get_uv_coords(mesh: &Mesh) -> Vec<Vec2> {
 //    d
 //}
 
+pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
+    // Get mutable normals from the mesh
+    let mut normals = get_vertex_normals(mesh);
+
+    // 1) Build groups by MH index
+    let mut groups: AHashMap<u16, Vec<usize>> = AHashMap::default();
+    for bevy_idx in 0..normals.len() {
+        groups.entry(mhid_lookup[bevy_idx]).or_default().push(bevy_idx);
+    }
+
+    // 2) Average normals per group
+    for group in groups.values() {
+        if group.is_empty() {
+            continue;
+        }
+
+        let mut sum = Vec3::ZERO;
+        for &i in group {
+            sum += normals[i as usize];
+        }
+        let avg = sum.normalize_or_zero();
+
+        // 3) Assign the same normal to all duplicates
+        for &i in group {
+            normals[i as usize] = avg;
+        }
+    }
+
+    // 4) Write back to the mesh
+    let normals = normals
+        .iter()
+        .map(|n| [n.x, n.y, n.z])
+        .collect::<Vec<[f32; 3]>>();
+
+    
+    info!("{}", normals.len());
+
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+}
+
+
 // Maps mh vertex ids to vec of bevy ids
 pub(crate) fn generate_vertex_map(
     mh_vertices: &[Vec3],

@@ -8,7 +8,7 @@ use ahash::AHashMap;
 use serde::Deserialize;
 use serde_json;
 
-use crate::mesh_ops::{MeshProcessingState, PrefabLoadState, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices};
+use crate::mesh_ops::{MeshProcessingState, PrefabLoadState, fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices};
 use crate::prelude::*;
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
@@ -199,6 +199,7 @@ impl BaseMesh {
             .with_inserted_indices(mesh.indices().unwrap().clone())
             .with_computed_area_weighted_normals()
             .with_generated_tangents().unwrap();
+        fix_normals(&mut mesh, &self.mhid_lookup);
 
         if !morphs.is_empty() {
             let image = MorphTargetImage::new(
@@ -309,11 +310,13 @@ fn generate_mesh_without_helpers(
     }
 
     // Create the new mesh
-    Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+    let mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::default())
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
         .with_inserted_indices(Indices::U16(new_indices))
         .with_computed_area_weighted_normals()
         .with_generated_tangents()
-        .unwrap()
+        .unwrap();
+    
+    mesh
 }
