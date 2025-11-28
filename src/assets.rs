@@ -113,14 +113,12 @@ impl CharacterAsset {
             CharacterAssetTextureType::Albedo => &mut self.data.as_mut().unwrap().albedo_map_handles,
             CharacterAssetTextureType::Normal => &mut self.data.as_mut().unwrap().normal_map_handles,
             CharacterAssetTextureType::AmbientOcclusion => &mut self.data.as_mut().unwrap().ao_map_handles,
-            _ => unimplemented!("No such texture type defined for this asset type"),
         };
         if !handles.contains_key(&name) {
             let paths = match texture_type {
                 CharacterAssetTextureType::Albedo => &mut self.paths.albedo_maps,
                 CharacterAssetTextureType::Normal => &mut self.paths.normal_maps,
                 CharacterAssetTextureType::AmbientOcclusion => &mut self.paths.ao_maps,
-                _ => unimplemented!("No such texture type defined for this asset type"),
             };
             let part_name = match &self.part {
                 CharacterPart::BodyPart(n)  |
