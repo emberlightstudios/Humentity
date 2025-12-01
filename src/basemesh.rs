@@ -40,7 +40,6 @@ impl FromWorld for BaseMesh {
     fn from_world(world: &mut World) -> Self {
         let config = world.get_resource::<HumentityPathsConfig>().expect("NO CONFIG LOADED");
         let path = config.core_assets_path.clone();
-        info!("{path:#?}");
         if !path.join("base.obj").exists() {
             panic!("base.obj not found.  Did you provide the correct path to the Humentity crate?")
         }
