@@ -186,7 +186,7 @@ pub(crate) fn get_skeleton_transforms(
         let (pos, rot, scale) = joint.transform().decomposed();
         let transform = Transform {
             translation: Vec3::from_array(pos),
-            rotation: Quat::from_array(rot),
+            rotation: Quat::from_array(rot).normalize(),
             scale: Vec3::from_array(scale),
         };
         transforms.insert(NAME_INTERNER.intern(name).leak(), transform);
@@ -325,7 +325,7 @@ pub(crate) fn get_animation_clips(
                 gltf::animation::Property::Rotation => {
                     let values: Vec<Quat> = floats
                         .chunks(floats_per_element)
-                        .map(|chunk| Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                        .map(|chunk| Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]]).normalize())
                         .collect();
                     clip.add_curve_to_target(
                         target_id,
