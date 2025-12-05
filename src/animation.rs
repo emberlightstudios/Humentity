@@ -240,7 +240,7 @@ pub(crate) fn get_animation_clips(
     compute_global_transform(root, &transforms, &mut global_transforms, Transform::IDENTITY)?;
 
     // Get bone paths
-    let joint_targets = build_joint_paths(&find_root_joints(&skin));
+    let joint_targets = build_joint_paths(root);
 
     // Output clips
     let mut new_clips = AHashMap::default();
