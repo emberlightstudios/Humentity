@@ -85,7 +85,7 @@ fn add_humans(
     ));
 
     // Just for comparison we'll spawn the proxies used here
-    // The base mesh (highest poly-count ~19k tris)
+    // The base mesh (highest poly-count ~15k tris I think)
     commands.spawn((
         Transform::from_translation(Vec3::new(-1.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
