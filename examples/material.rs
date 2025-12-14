@@ -6,7 +6,6 @@ mod shared;
 use bevy::{pbr::ExtendedMaterial, prelude::*};
 use humentity::prelude::*;
 use shared::{cam_controls, setup_env};
-    
 
 fn main() {
     App::new()
@@ -27,21 +26,28 @@ fn main() {
         .add_systems(Update, add_skin_material)
         .add_systems(Update, cam_controls)
         .run();
-
 }
 
 fn add_skin_material(
     mut commands: Commands,
-    humans: Query<(Entity, &CharacterPart), (With<Mesh3d>, Without<MeshMaterial3d<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>>)>,
+    humans: Query<
+        (Entity, &CharacterPart),
+        (
+            With<Mesh3d>,
+            Without<MeshMaterial3d<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>>,
+        ),
+    >,
     textures: Res<CharacterBodyTextures>,
     asset_server: Res<AssetServer>,
-    mut human_material_assets: ResMut<Assets<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>>,
+    mut human_material_assets: ResMut<
+        Assets<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>,
+    >,
 ) {
     for (entity, part) in humans.iter() {
         let name = "middleage_asian_female";
         // This should always be true here, but in general we only want to put skin textures
         // on the base mesh or the proxy meshes, not any other parts/assets.
-        if matches!(part, CharacterPart::BaseMesh) {  
+        if matches!(part, CharacterPart::BaseMesh) {
             let albedo = &textures.albedo_maps[name];
             let handle: Option<Handle<Image>> = albedo.load_asset(&*asset_server);
             let material = ExtendedMaterial {
@@ -51,17 +57,17 @@ fn add_skin_material(
                 },
                 extension: CharacterMaterialExtension {
                     // No data defined yet.
-                }
+                },
             };
             let material = human_material_assets.add(material.clone());
-            commands.entity(entity).insert(MeshMaterial3d(material.clone()));
+            commands
+                .entity(entity)
+                .insert(MeshMaterial3d(material.clone()));
         }
     }
 }
 
-fn add_human(
-    mut commands: Commands,
-) {
+fn add_human(mut commands: Commands) {
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         CharacterShapeConfig::default(),

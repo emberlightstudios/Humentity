@@ -27,3 +27,26 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[lints.clippy]
+all = "deny"
+wildcard_imports = "deny"
+missing_const_for_fn = "deny"
+option_if_let_else = "deny"
+or_fun_call = "deny"
+get_first = "deny"
+redundant_clone = "deny"
+manual_ok_or = "deny"
+unnecessary_wraps = "deny"
+needless_collect = "deny"
+get_unwrap = "deny"
+manual_while_let_some = "deny"
+panicking_unwrap = "deny"
+unnecessary_unwrap = "deny"
+unnecessary_literal_unwrap = "deny"
+unwrap_in_result = "deny"
+
+[lints.rust]
+nonstandard-style = "deny"
+future-incompatible = "deny"
+non_local_definitions = "deny"

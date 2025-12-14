@@ -1,10 +1,24 @@
-use bevy::{ecs::intern::Internable, mesh::{morph::MeshMorphWeights, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*};
-use crate::{HumentityGlobalConfig, TranslationTracks, assets::CharacterAssetRegistry, basemesh::VertexGroups, prelude::*, rigs::{BoneTranslationData, RigData, RootBonePrevious, get_model_space_skeleton_transforms}};
 use ahash::AHashMap;
+use bevy::{
+    ecs::intern::Internable,
+    mesh::{
+        morph::MeshMorphWeights,
+        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
+    },
+    prelude::*,
+};
+
+use crate::{
+    assets::CharacterAssetRegistry,
+    basemesh::VertexGroups,
+    prelude::*,
+    rigs::{get_model_space_skeleton_transforms, BoneTranslationData, RigData, RootBonePrevious},
+    HumentityGlobalConfig, TranslationTracks,
+};
 
 /*--------------+
- |  Components  |
- +--------------*/
+|  Components  |
++--------------*/
 /// Defines the shape of a character.  Place it at the root, with individual parts as children.
 #[derive(Component, Clone, Default, Debug)]
 pub struct CharacterShapeConfig {
@@ -34,7 +48,7 @@ pub struct FitSkeleton;
 #[derive(Component)]
 pub struct RelatedEntities {
     #[allow(dead_code)]
-    pub rig: Entity,        // Skeleton Root/AnimationPlayer
+    pub rig: Entity, // Skeleton Root/AnimationPlayer
     pub root_bone: Entity,
     pub head: Entity,
     pub right_hand: Entity,
@@ -46,14 +60,14 @@ pub struct RelatedEntities {
 }
 
 /*------------+
- |  Messages  |
- +------------*/
- #[derive(Message, Deref)]
- pub struct CharacterPartMeshSpawned(Entity);
+|  Messages  |
++------------*/
+#[derive(Message, Deref)]
+pub struct CharacterPartMeshSpawned(Entity);
 
 /*-----------+
- |  Systems  |
- +-----------*/
+|  Systems  |
++-----------*/
 pub(crate) fn spawn_rig_scene(
     new_humans: Query<(Entity, &CharacterShapeConfig), Added<CharacterShapeConfig>>,
     prefabs: Res<CharacterArchetypePrefabs>,
@@ -62,15 +76,18 @@ pub(crate) fn spawn_rig_scene(
     new_humans.iter().for_each(|(human, config)| {
         // Spawn rig scene
         if let Some(prefab) = prefabs.get(&config.prefab) {
-            let cached_scene = prefab.rig.scene.clone()
+            let cached_scene = prefab
+                .rig
+                .scene
+                .clone()
                 .expect("No rig archetype scene found");
             let cached_scene = commands
-                .spawn((
-                    DynamicSceneRoot::from(cached_scene),
-                    Name::new("RigScene"),
-                ))
+                .spawn((DynamicSceneRoot::from(cached_scene), Name::new("RigScene")))
                 .id();
-            commands.entity(human).insert(FitSkeleton).add_child(cached_scene);
+            commands
+                .entity(human)
+                .insert(FitSkeleton)
+                .add_child(cached_scene);
         } else {
             error!("No such prefab named {}", config.prefab);
             commands.entity(human).despawn();
@@ -83,7 +100,16 @@ pub(crate) fn fit_skeleton_to_shape(
     prefabs: Res<CharacterArchetypePrefabs>,
     rigs: Query<(Entity, &SkinnedMesh), Without<Mesh3d>>,
     children: Query<&Children>,
-    mut configs: Query<(Entity, &mut CharacterShapeConfig, &Transform, Option<&mut CharacterRagdoll>, Option<&RootMotion>), With<FitSkeleton>>,
+    mut configs: Query<
+        (
+            Entity,
+            &mut CharacterShapeConfig,
+            &Transform,
+            Option<&mut CharacterRagdoll>,
+            Option<&RootMotion>,
+        ),
+        With<FitSkeleton>,
+    >,
     names: Query<&Name>,
     global_transforms: Query<&GlobalTransform>,
     mut local_transforms: Query<&mut Transform, Without<CharacterShapeConfig>>,
@@ -101,7 +127,7 @@ pub(crate) fn fit_skeleton_to_shape(
         let mut rig_entity = Entity::PLACEHOLDER;
         let mut bone_rotations = AHashMap::default();
         let mut bone_entities = AHashMap::default();
-        
+
         for child in children.iter_descendants(root) {
             if let Ok((entity, skm)) = rigs.get(child) {
                 skinned_mesh = Some(skm);
@@ -113,25 +139,36 @@ pub(crate) fn fit_skeleton_to_shape(
                         bone_entities.insert(name, child);
                         bone_rotations.insert(
                             name,
-                            Transform::from_matrix(model_transform.to_matrix().inverse() * transform.to_matrix()).rotation
+                            Transform::from_matrix(
+                                model_transform.to_matrix().inverse() * transform.to_matrix(),
+                            )
+                            .rotation,
                         );
                     }
                 }
                 break;
             }
         }
-        if skinned_mesh.is_none() { return }
+        if skinned_mesh.is_none() {
+            return;
+        }
         let skinned_mesh = skinned_mesh.unwrap();
 
         // Re-fit skeleton to mesh shape
         let helpers = prefab.get_helpers(&config.prefab_morph_targets, &*basemesh, &*morph_targets);
         let mut global_bone_transforms = get_model_space_skeleton_transforms(
-            &prefab.rig.bone_order, &helpers, prefab.rig.rig_type, &bone_rotations, &*vg, &*rig_data);
+            &prefab.rig.bone_order,
+            &helpers,
+            prefab.rig.rig_type,
+            &bone_rotations,
+            &*vg,
+            &*rig_data,
+        );
         let mut local_bone_transforms = AHashMap::default();
 
         // The skeleton was adjusted so that the bones' rotations align head to tail.
-        // The skeleton now fits the mesh's shape but this can induce animation artifacts due to 
-        // differences in proportions/bind poses. In order to prevent this let's adjust the skeleton so 
+        // The skeleton now fits the mesh's shape but this can induce animation artifacts due to
+        // differences in proportions/bind poses. In order to prevent this let's adjust the skeleton so
         // that the bones have the same positions, but rotations are adjusted to align exactly with
         // the reference skeleton from the animation glb files.
         let bone_config = &rig_data.configs[&prefab.rig.rig_type];
@@ -142,7 +179,7 @@ pub(crate) fn fit_skeleton_to_shape(
                     None => Transform::IDENTITY,
                 };
                 let old_global = global_bone_transforms[bone];
-            
+
                 // Use reference rotation, preserve global position
                 let reference_rot = prefab.rig.bone_rotations[bone];
                 let new_global = Transform {
@@ -150,8 +187,8 @@ pub(crate) fn fit_skeleton_to_shape(
                     rotation: reference_rot,
                     scale: old_global.scale,
                 };
-            
-                // Recompute local transform 
+
+                // Recompute local transform
                 let parent_matrix = parent_transform.to_matrix();
                 let child_matrix = new_global.to_matrix();
                 let new_local = Transform::from_matrix(parent_matrix.inverse() * child_matrix);
@@ -163,7 +200,6 @@ pub(crate) fn fit_skeleton_to_shape(
                 let joint = bone_entities[bone];
                 let mut local_transform = local_transforms.get_mut(joint).unwrap();
                 *local_transform = new_local;
-
             }
         }
 
@@ -193,11 +229,18 @@ pub(crate) fn fit_skeleton_to_shape(
                 let mut bone_rotation_deltas: AHashMap<&'static str, Quat> = AHashMap::default();
                 for &name in prefab.rig.bone_order.iter() {
                     let bone_data = bone_config.get(name).unwrap();
-                    if bone_data.parent == "" { continue };
+                    if bone_data.parent == "" {
+                        continue;
+                    };
                     let ref_bone = global_transforms.get(bone_entities[name]).unwrap();
-                    let ref_parent = global_transforms.get(bone_entities[bone_data.parent]).unwrap();
-                    let ref_dir: Vec3 = (ref_bone.translation() - ref_parent.translation()).normalize();
-                    let shape_dir = (global_bone_transforms[name].translation - global_bone_transforms[bone_data.parent].translation).normalize();
+                    let ref_parent = global_transforms
+                        .get(bone_entities[bone_data.parent])
+                        .unwrap();
+                    let ref_dir: Vec3 =
+                        (ref_bone.translation() - ref_parent.translation()).normalize();
+                    let shape_dir = (global_bone_transforms[name].translation
+                        - global_bone_transforms[bone_data.parent].translation)
+                        .normalize();
                     let delta = Quat::from_rotation_arc(ref_dir, shape_dir);
                     let parent_rot = global_bone_transforms[bone_data.parent].rotation;
                     bone_rotation_deltas.insert(name, parent_rot.inverse() * delta * parent_rot);
@@ -238,19 +281,26 @@ pub(crate) fn fit_skeleton_to_shape(
                 right_shoulder = bone_entities[bone];
             }
         }
-        commands.entity(root).insert(
-            (
+        commands
+            .entity(root)
+            .insert((
                 SkinnedMesh {
                     joints: skinned_mesh.joints.clone(),
                     inverse_bindposes: inv_bindpose_assets.add(inv_bindposes),
                 },
                 RelatedEntities {
                     rig: rig_entity,
-                    root_bone, head, left_foot, left_hand, right_foot, right_hand,
-                    right_shoulder, left_shoulder
+                    root_bone,
+                    head,
+                    left_foot,
+                    left_hand,
+                    right_foot,
+                    right_hand,
+                    right_shoulder,
+                    left_shoulder,
                 },
-            )
-        ).remove::<FitSkeleton>();
+            ))
+            .remove::<FitSkeleton>();
 
         // Remove skinned mesh from rig_entity
         commands.entity(rig_entity).remove::<SkinnedMesh>();
@@ -263,13 +313,22 @@ pub(crate) fn fit_skeleton_to_shape(
             if !root_motion.y_translate {
                 translation.y = 0.;
             }
-            commands.entity(root_bone).insert(RootBonePrevious::default());
+            commands
+                .entity(root_bone)
+                .insert(RootBonePrevious::default());
         }
 
         // Set up ragdoll if added
         if let Some(mut ragdoll) = ragdoll {
-            ragdoll.spawn_ragdoll(&mut commands, &helpers, prefab.rig.rig_type,
-                &bone_entities, &global_transforms, &*rig_data, rig_entity);
+            ragdoll.spawn_ragdoll(
+                &mut commands,
+                &helpers,
+                prefab.rig.rig_type,
+                &bone_entities,
+                &global_transforms,
+                &*rig_data,
+                rig_entity,
+            );
         }
     }
 }
@@ -290,28 +349,34 @@ pub(crate) fn setup_human_parts(
     mut writer: MessageWriter<CharacterPartMeshSpawned>,
 ) {
     for (entity, part, child_of) in parts.iter() {
-        let Ok((human, config, skinned_mesh)) =
-                configs.get(child_of.parent()) else { continue };
+        let Ok((human, config, skinned_mesh)) = configs.get(child_of.parent()) else {
+            continue;
+        };
 
         // Get some releveant data
         let prefab_name = config.prefab;
         let prefab = prefabs.get_mut(&config.prefab).unwrap();
-        let morph_weights = prefab.shapes
+        let morph_weights = prefab
+            .shapes
             .iter()
             .map(|s| *config.prefab_morph_targets.get(&s.name).unwrap_or(&0.))
             .collect::<Vec<_>>();
         let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
-        
+
         // Spawn meshes
         match part {
             CharacterPart::BaseMesh => {
                 if let Some(handle) = basemesh.get_rigged_mesh_handle(
-                    prefab_name, prefab, &mut *meshes, &mut *images, &*rig_data, &*mh_morphs)
-                {
-                    commands.entity(entity).insert((
-                        Mesh3d(handle.clone()),
-                        skinned_mesh.clone(),
-                    ));
+                    prefab_name,
+                    prefab,
+                    &mut *meshes,
+                    &mut *images,
+                    &*rig_data,
+                    &*mh_morphs,
+                ) {
+                    commands
+                        .entity(entity)
+                        .insert((Mesh3d(handle.clone()), skinned_mesh.clone()));
                     let mesh = meshes.get(&handle).unwrap();
                     if mesh.has_morph_targets() {
                         commands.entity(entity).insert(morph_weights);
@@ -319,19 +384,27 @@ pub(crate) fn setup_human_parts(
                     writer.write(CharacterPartMeshSpawned(human));
                 }
             }
-            CharacterPart::BodyPart(name) | CharacterPart::Equipment(name) | CharacterPart::ProxyMesh(name) => {
+            CharacterPart::BodyPart(name)
+            | CharacterPart::Equipment(name)
+            | CharacterPart::ProxyMesh(name) => {
                 let Some(asset) = registry.get_mut(part) else {
                     error!("No such asset: {} - Cannot load", name);
                     continue;
                 };
                 if let Some(handle) = asset.get_rigged_mesh_handle(
-                    &mut *asset_server, prefab_name, prefab, &*rig_data,
-                    &*basemesh, &*mh_morphs, &*paths, &mut *meshes, &mut *images
+                    &mut *asset_server,
+                    prefab_name,
+                    prefab,
+                    &*rig_data,
+                    &*basemesh,
+                    &*mh_morphs,
+                    &*paths,
+                    &mut *meshes,
+                    &mut *images,
                 ) {
-                    commands.entity(entity).insert((
-                        Mesh3d(handle.clone()),
-                        skinned_mesh.clone(),
-                    ));
+                    commands
+                        .entity(entity)
+                        .insert((Mesh3d(handle.clone()), skinned_mesh.clone()));
                     let mesh = meshes.get(&handle).unwrap();
                     if mesh.has_morph_targets() {
                         commands.entity(entity).insert(morph_weights);

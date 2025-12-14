@@ -1,10 +1,9 @@
 mod shared;
 
-use bevy::prelude::*;
-use humentity::{HumentityGlobalConfig, prelude::*};
-use shared::{setup_env, cam_controls, add_material};
-
 use ahash::AHashMap;
+use bevy::prelude::*;
+use humentity::{prelude::*, HumentityGlobalConfig};
+use shared::{add_material, cam_controls, setup_env};
 
 const PREFAB: &str = "prefab";
 // See assets folder for file names
@@ -28,7 +27,7 @@ fn main() {
                 config: HumentityGlobalConfig {
                     translation_tracks: TranslationTracks::None,
                     ..default()
-                }
+                },
             },
             DefaultPlugins,
         ))
@@ -42,7 +41,10 @@ fn main() {
 fn add_materials(
     skins: Res<CharacterBodyTextures>,
     human_assets: Res<CharacterAssetRegistry>,
-    parts: Query<(Entity, &CharacterPart), (With<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>)>,
+    parts: Query<
+        (Entity, &CharacterPart),
+        (With<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>),
+    >,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -51,41 +53,48 @@ fn add_materials(
         match part {
             CharacterPart::BaseMesh | CharacterPart::ProxyMesh(_) => {
                 let skin = skins.albedo_maps[SKIN].load_asset(&*asset_server);
-                commands.entity(entity).insert(
-                    MeshMaterial3d(materials.add(StandardMaterial {
+                commands
+                    .entity(entity)
+                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: skin,
                         ..default()
-                    }))
-                );
-            },
+                    })));
+            }
             CharacterPart::BodyPart(EYES) => {
                 let asset = &human_assets.assets[part];
-                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYE_TEXTURE].load_asset(&*asset_server).unwrap();
-                commands.entity(entity).insert(
-                    MeshMaterial3d(materials.add(StandardMaterial {
+                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYE_TEXTURE]
+                    .load_asset(&*asset_server)
+                    .unwrap();
+                commands
+                    .entity(entity)
+                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(albedo),
                         alpha_mode: AlphaMode::Blend,
                         ..default()
-                    }))
-                );
+                    })));
             }
             CharacterPart::BodyPart(EYEBROW) => {
                 let asset = &human_assets.assets[part];
-                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYEBROW_TEXTURE].load_asset(&*asset_server).unwrap();
-                commands.entity(entity).insert(
-                    MeshMaterial3d(materials.add(StandardMaterial {
+                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYEBROW_TEXTURE]
+                    .load_asset(&*asset_server)
+                    .unwrap();
+                commands
+                    .entity(entity)
+                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(albedo),
                         base_color: Color::BLACK,
                         alpha_mode: AlphaMode::Blend,
                         ..default()
-                    }))
-                );
+                    })));
             }
             CharacterPart::BodyPart(HAIR) => {
                 let asset = &human_assets.assets[part];
-                let albedo: Handle<Image> = asset.paths.albedo_maps[&HAIR_TEXTURE].load_asset(&*asset_server).unwrap();
-                commands.entity(entity).insert(
-                    MeshMaterial3d(materials.add(StandardMaterial {
+                let albedo: Handle<Image> = asset.paths.albedo_maps[&HAIR_TEXTURE]
+                    .load_asset(&*asset_server)
+                    .unwrap();
+                commands
+                    .entity(entity)
+                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(albedo),
                         //base_color: Color::LinearRgba(LinearRgba::RED),
                         alpha_mode: AlphaMode::Blend,
@@ -95,35 +104,32 @@ fn add_materials(
                         reflectance: 0.1,
                         metallic: 0.,
                         ..default()
-                    }))
-                );
+                    })));
             }
             CharacterPart::BodyPart(EYELASH) => {
                 let asset = &human_assets.assets[part];
-                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYELASH_TEXTURE].load_asset(&*asset_server).unwrap();
-                commands.entity(entity).insert(
-                    MeshMaterial3d(materials.add(StandardMaterial {
+                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYELASH_TEXTURE]
+                    .load_asset(&*asset_server)
+                    .unwrap();
+                commands
+                    .entity(entity)
+                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(albedo),
                         base_color: Color::LinearRgba(LinearRgba::RED),
                         alpha_mode: AlphaMode::Blend,
                         ..default()
-                    }))
-                );
+                    })));
             }
             _ => {
                 // I didnt' make any textures for the basic clothes
                 let mat = materials.add(StandardMaterial::from_color(Color::BLACK));
-                commands.entity(entity).insert(
-                    MeshMaterial3d(mat.clone())
-                );
+                commands.entity(entity).insert(MeshMaterial3d(mat.clone()));
             }
         }
     }
 }
 
-fn add_human(
-    mut commands: Commands,
-) {
+fn add_human(mut commands: Commands) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("female", 1.);
 
@@ -131,45 +137,48 @@ fn add_human(
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morph_targets),
         Visibility::Visible,
-        children![(
-            CharacterPart::BaseMesh,
-            InheritedVisibility::default(),
-        ), (
-            CharacterPart::BodyPart(EYES),
-            InheritedVisibility::default(),
-        ), (
-            CharacterPart::BodyPart(EYEBROW),
-            InheritedVisibility::default(),
-        ), (
-            CharacterPart::BodyPart(EYELASH),
-            InheritedVisibility::default(),
-        ), (
-            CharacterPart::BodyPart(HAIR),
-            InheritedVisibility::default(),
-        ), (
-            CharacterPart::Equipment(BRA),
-            InheritedVisibility::default(),
-        ), (
-            CharacterPart::Equipment(PANTIES),
-            InheritedVisibility::default(),
-        )],
+        children![
+            (CharacterPart::BaseMesh, InheritedVisibility::default(),),
+            (
+                CharacterPart::BodyPart(EYES),
+                InheritedVisibility::default(),
+            ),
+            (
+                CharacterPart::BodyPart(EYEBROW),
+                InheritedVisibility::default(),
+            ),
+            (
+                CharacterPart::BodyPart(EYELASH),
+                InheritedVisibility::default(),
+            ),
+            (
+                CharacterPart::BodyPart(HAIR),
+                InheritedVisibility::default(),
+            ),
+            (
+                CharacterPart::Equipment(BRA),
+                InheritedVisibility::default(),
+            ),
+            (
+                CharacterPart::Equipment(PANTIES),
+                InheritedVisibility::default(),
+            )
+        ],
     ));
 }
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.);
-    let base_shape = CharacterShapeArchetype::new(
-        "female",
-        morphs.compute_target_weights(&morph_targets),
-    );
+    let base_shape =
+        CharacterShapeArchetype::new("female", morphs.compute_target_weights(&morph_targets));
     let mut prefabs = AHashMap::default();
     prefabs.insert(
         PREFAB,
         CharacterArchetypePrefab::new(
             vec![base_shape],
             CharacterAnimationArchetype::default(), // No animation in this example
-        )
+        ),
     );
 
     commands.insert_resource(CharacterArchetypePrefabs::new(prefabs));

@@ -1,13 +1,22 @@
+use std::{fs::File, io::BufReader};
+
+use ahash::AHashMap;
 use bevy::{
-    animation::{AnimationTarget, AnimationTargetId}, color::palettes::css::RED, ecs::intern::Internable, mesh::{VertexAttributeValues, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*
+    animation::{AnimationTarget, AnimationTargetId},
+    color::palettes::css::RED,
+    ecs::intern::Internable,
+    mesh::{
+        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
+        VertexAttributeValues,
+    },
+    prelude::*,
 };
 use serde::Deserialize;
 use serde_json;
-use std::{fs::File, io::BufReader};
-use ahash::AHashMap;
 
-use crate::{assets::HelperMap, basemesh::VertexGroups, mesh_ops::get_vertex_positions, prelude::*};
-
+use crate::{
+    assets::HelperMap, basemesh::VertexGroups, mesh_ops::get_vertex_positions, prelude::*,
+};
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Default)]
 pub enum RigType {
@@ -18,7 +27,7 @@ pub enum RigType {
 }
 
 #[derive(Clone, Default, Debug)]
-pub(crate) enum BoneTranslationData{
+pub(crate) enum BoneTranslationData {
     #[default]
     None,
     Root(Vec3),
@@ -26,8 +35,8 @@ pub(crate) enum BoneTranslationData{
 }
 
 /*--------------+
- |  Components  |
- +--------------*/
+|  Components  |
++--------------*/
 #[derive(Component, Deref, Reflect)]
 #[reflect(Component)]
 pub struct ParentBone(#[entities] pub Entity);
@@ -53,8 +62,8 @@ pub(crate) struct RootBonePrevious {
 }
 
 /*---------+
- |  JSON   |
- +---------*/
+|  JSON   |
++---------*/
 #[derive(Deserialize, Debug)]
 pub struct BoneTransform {
     cube_name: Option<String>,
@@ -74,18 +83,18 @@ pub(crate) struct BoneJson {
 
 #[derive(Deserialize, Debug)]
 struct WeightsFile {
-    weights: AHashMap<String, Vec<(u16, f32)>>
+    weights: AHashMap<String, Vec<(u16, f32)>>,
 }
 
 // Contains an extra layer for some reason.  Usual config is in the bones key
 #[derive(Deserialize, Debug)]
 struct MixamoConfig {
-    bones: AHashMap<String, BoneJson>
+    bones: AHashMap<String, BoneJson>,
 }
 
 /*-----------+
- | Resources |
- +-----------*/
+| Resources |
++-----------*/
 /// Raw rig data from makehuman json files
 #[derive(Resource)]
 pub(crate) struct RigData {
@@ -118,12 +127,17 @@ impl FromWorld for RigData {
         type_strings.insert(RigType::Mixamo, "mixamo");
         type_strings.insert(RigType::GameEngine, "game_engine");
 
-        let mut rig_weights = AHashMap::<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>::default();
+        let mut rig_weights =
+            AHashMap::<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>::default();
         let mut rig_configs = AHashMap::<RigType, AHashMap<&'static str, BoneData>>::default();
 
         for (rig_type, name) in type_strings.iter() {
             let err_msg = "FAILED TO OPEN WEIGHTS FILE : ".to_string() + name;
-            let weights_file = File::open(path.join("rigs/weights.".to_string() + type_strings.get(rig_type).unwrap() + ".json")).expect(&err_msg);
+            let weights_file =
+                File::open(path.join(
+                    "rigs/weights.".to_string() + type_strings.get(rig_type).unwrap() + ".json",
+                ))
+                .expect(&err_msg);
             let weights_reader = BufReader::new(weights_file);
             let err_msg = "FAILED TO READ WEIGHTS JSON : ".to_string() + name;
             let weights: WeightsFile = serde_json::from_reader(weights_reader).expect(&err_msg);
@@ -135,26 +149,32 @@ impl FromWorld for RigData {
             rig_weights.insert(*rig_type, weights_hashmap);
 
             let err_msg = "FAILED TO OPEN CONFIG FILE : ".to_string() + name;
-            let config_file = File::open(path.join("rigs/rig.".to_string() + type_strings.get(rig_type).unwrap() + ".json")).expect(&err_msg);
+            let config_file = File::open(
+                path.join("rigs/rig.".to_string() + type_strings.get(rig_type).unwrap() + ".json"),
+            )
+            .expect(&err_msg);
             let config_reader = BufReader::new(config_file);
             let err_msg = "FAILED TO READ CONFIG JSON : ".to_string() + name;
-            if *rig_type == RigType::Mixamo { // Mixamo json structure is slightly different
+            if *rig_type == RigType::Mixamo {
+                // Mixamo json structure is slightly different
                 let config: MixamoConfig = serde_json::from_reader(config_reader).expect(&err_msg);
                 rig_configs.insert(
                     *rig_type,
-                    config.bones
+                    config
+                        .bones
                         .into_iter()
                         .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x.into()))
-                        .collect::<AHashMap<&'static str, BoneData>>()
+                        .collect::<AHashMap<&'static str, BoneData>>(),
                 );
             } else {
-                let config: AHashMap<String, BoneJson> = serde_json::from_reader(config_reader).expect(&err_msg);
+                let config: AHashMap<String, BoneJson> =
+                    serde_json::from_reader(config_reader).expect(&err_msg);
                 rig_configs.insert(
                     *rig_type,
                     config
                         .into_iter()
                         .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x.into()))
-                        .collect::<AHashMap<&'static str, BoneData>>()
+                        .collect::<AHashMap<&'static str, BoneData>>(),
                 );
             }
         }
@@ -166,26 +186,27 @@ impl FromWorld for RigData {
 }
 
 /*---------+
- | Systems |
- +---------*/
- pub(crate) fn bone_debug_draw(
+| Systems |
++---------*/
+pub(crate) fn bone_debug_draw(
     query: Query<(&GlobalTransform, &ChildOf), With<AnimationTarget>>,
     transforms: Query<&GlobalTransform, With<AnimationTarget>>,
     mut gizmos: Gizmos,
- ) {
+) {
     query.iter().for_each(|(transform, child)| {
         let start = transform.translation();
         if let Ok(end) = transforms.get(child.parent()) {
             gizmos.line(start, end.translation(), RED);
         }
     })
- }
+}
 
 /*-----------+
- | Functions |
- +-----------*/
+| Functions |
++-----------*/
 pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static str> {
-    let mh_config = world.get_resource::<RigData>()
+    let mh_config = world
+        .get_resource::<RigData>()
         .expect("Humentitiy not loaded");
     let mh_config = &mh_config.configs[&rig];
     let mut depths = AHashMap::<&'static str, usize>::default();
@@ -194,14 +215,20 @@ pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static st
         let mut parent = &bone.parent;
         while !parent.is_empty() {
             depth += 1;
-            parent = &mh_config.get(NAME_INTERNER.intern(&parent).leak()).unwrap().parent;
+            parent = &mh_config
+                .get(NAME_INTERNER.intern(&parent).leak())
+                .unwrap()
+                .parent;
         }
         depths.insert(name, depth);
     }
 
     let mut sorted_bones: Vec<(&'static str, usize)> = depths.into_iter().collect();
     sorted_bones.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
-    sorted_bones.into_iter().map(|(name, _)| name).collect::<Vec<&'static str>>()
+    sorted_bones
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect::<Vec<&'static str>>()
 }
 
 /// Assigns joint indices and weights to a mesh based on MakeHuman base mesh data.
@@ -216,7 +243,9 @@ pub(crate) fn set_basemesh_rig_arrays(
     rig_data: &RigData,
 ) -> Handle<Mesh> {
     // Get the weight data for this rig type
-    let weights_res = rig_data.weights.get(&rig_type)
+    let weights_res = rig_data
+        .weights
+        .get(&rig_type)
         .expect("No weights found for this rig type");
 
     let vertices = get_vertex_positions(&mesh);
@@ -271,13 +300,18 @@ pub(crate) fn set_basemesh_rig_arrays(
     }
 
     // Insert attributes into the mesh
-    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
-    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_JOINT_INDEX,
+        VertexAttributeValues::Uint16x4(indices),
+    );
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_JOINT_WEIGHT,
+        VertexAttributeValues::Float32x4(weights),
+    );
 
     // Add mesh to Assets and return handle
     meshes.add(mesh)
 }
-
 
 pub(crate) fn set_asset_rig_arrays(
     mut mesh: Mesh,
@@ -287,7 +321,10 @@ pub(crate) fn set_asset_rig_arrays(
     helper_map: &Vec<HelperMap>,
     rig: &CharacterAnimationArchetype,
 ) -> Handle<Mesh> {
-    let weights_res = rig_data.weights.get(&rig.rig_type).expect("No weights for rig?");
+    let weights_res = rig_data
+        .weights
+        .get(&rig.rig_type)
+        .expect("No weights for rig?");
 
     // Build hashmaps to store bone info for each obj vertex id
     let mut indices: Vec<[u16; 4]> = vec![[0; 4]; mhid_lookup.len()];
@@ -304,20 +341,30 @@ pub(crate) fn set_asset_rig_arrays(
 
         // loop over bones and find any matching helper indices
         for (bone_index, bone_name) in rig.bone_order.iter().enumerate() {
-            let Some(bone_weights) = weights_res.get(bone_name) else { continue };
+            let Some(bone_weights) = weights_res.get(bone_name) else {
+                continue;
+            };
 
             if let Some(v) = helper_map.single_vertex {
                 // For single vertex mapping just apply data for that vertex
-                let Some(helper_wt) = bone_weights.get(&v) else { continue; };
-                if *helper_wt <= 0.0 { continue };
+                let Some(helper_wt) = bone_weights.get(&v) else {
+                    continue;
+                };
+                if *helper_wt <= 0.0 {
+                    continue;
+                };
                 indices_vec.push(bone_index);
                 weights_vec.push(*helper_wt);
-            } else { 
+            } else {
                 // Triangle.  Have to weight the base vertices
                 let triangle = helper_map.triangle.as_ref().unwrap();
                 for (i, mh_id) in triangle.helper_verts.iter().enumerate() {
-                    let Some(helper_wt) = bone_weights.get(&mh_id) else { continue; };
-                    if *helper_wt <= 0.0 { continue };
+                    let Some(helper_wt) = bone_weights.get(&mh_id) else {
+                        continue;
+                    };
+                    if *helper_wt <= 0.0 {
+                        continue;
+                    };
 
                     // Will aggregate below.  For now just allow duplicate entries
                     // e.g. same bone can have weights on all 3 verts of triangle
@@ -327,17 +374,17 @@ pub(crate) fn set_asset_rig_arrays(
             }
         }
 
-        // Deduplicate vertices by summing weights 
+        // Deduplicate vertices by summing weights
         let mut aggregate = AHashMap::<u16, f32>::default();
         for (&ind, &wt) in indices_vec.iter().zip(weights_vec.iter()) {
             let wtsum = aggregate.entry(ind as u16).or_insert(0.0);
             *wtsum += wt;
         }
-        let (mut vtx_indices, mut vtx_weights): (Vec<u16>, Vec<f32>) = aggregate.into_iter().unzip();
+        let (mut vtx_indices, mut vtx_weights): (Vec<u16>, Vec<f32>) =
+            aggregate.into_iter().unzip();
 
         // 4 bone limit for bevy animation. Take top 4 weights
         if vtx_indices.len() > 4 {
-
             // Sort vec indices based on the weights
             let mut ordering: Vec<usize> = (0..vtx_weights.len()).collect();
             ordering.sort_by(|&i, &j| vtx_weights[j].partial_cmp(&vtx_weights[i]).unwrap());
@@ -366,16 +413,20 @@ pub(crate) fn set_asset_rig_arrays(
         let sum: f32 = vtx_weights.iter().sum();
         for (i, &val) in vtx_weights.iter().enumerate() {
             raw_weights[i] = val / sum;
-        };
+        }
         weights[vert] = raw_weights;
     }
 
-    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(indices));
-    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_JOINT_INDEX,
+        VertexAttributeValues::Uint16x4(indices),
+    );
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_JOINT_WEIGHT,
+        VertexAttributeValues::Float32x4(weights),
+    );
     meshes.add(mesh)
 }
-
-
 
 /// Spawns bone entities and sets up the hierarchy
 pub(crate) fn build_human_rig_scene(
@@ -383,7 +434,7 @@ pub(crate) fn build_human_rig_scene(
     rig: RigType,
     bone_rotations: &AHashMap<&'static str, Quat>,
     bone_order: &Vec<&'static str>,
-    world: &mut World
+    world: &mut World,
 ) -> Handle<DynamicScene> {
     let mh_config = &world.resource::<RigData>().configs[&rig];
 
@@ -394,12 +445,14 @@ pub(crate) fn build_human_rig_scene(
     let registry = world.resource::<AppTypeRegistry>();
     let mut scene_world = World::new();
     scene_world.insert_resource(registry.clone());
-    
-    let rig_entity = scene_world.spawn((
-        AnimationPlayer::default(),
-        Name::new("Human.rig"),
-        Transform::IDENTITY,
-    )).id();
+
+    let rig_entity = scene_world
+        .spawn((
+            AnimationPlayer::default(),
+            Name::new("Human.rig"),
+            Transform::IDENTITY,
+        ))
+        .id();
 
     // Spawn all bone entities
     for (i, &name) in bone_order.iter().enumerate() {
@@ -414,13 +467,15 @@ pub(crate) fn build_human_rig_scene(
         }
         path.push(Name::new("Human.rig"));
 
-        let entity = scene_world.spawn((
-            Name::new(name),
-            AnimationTarget {
-                id: AnimationTargetId::from_names(path.iter().rev()),
-                player: rig_entity,
-            },
-        )).id();
+        let entity = scene_world
+            .spawn((
+                Name::new(name),
+                AnimationTarget {
+                    id: AnimationTargetId::from_names(path.iter().rev()),
+                    player: rig_entity,
+                },
+            ))
+            .id();
 
         if i == 0 {
             scene_world.entity_mut(entity).insert(RootBone);
@@ -440,7 +495,8 @@ pub(crate) fn build_human_rig_scene(
         let &child = bone_entities.get(&name).unwrap();
         if let Some(parent_name) = mh_config.get(&name).map(|b| b.parent.to_string()) {
             if !parent_name.is_empty() {
-                if let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak()) {
+                if let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak())
+                {
                     scene_world.entity_mut(child).insert(ChildOf(parent));
                 }
             }
@@ -451,7 +507,9 @@ pub(crate) fn build_human_rig_scene(
     for &name in bone_order.iter() {
         if let Some(bone) = mh_config.get(&name) {
             if bone.parent.is_empty() {
-                scene_world.entity_mut(bone_entities[&name]).insert(ChildOf(rig_entity));
+                scene_world
+                    .entity_mut(bone_entities[&name])
+                    .insert(ChildOf(rig_entity));
             }
         }
     }
@@ -459,9 +517,15 @@ pub(crate) fn build_human_rig_scene(
     let vg = world.resource::<VertexGroups>();
     let rig_data = world.resource::<RigData>();
     let global_transforms = get_model_space_skeleton_transforms(
-        bone_order, helpers, rig, bone_rotations, &vg, &rig_data);
-    let local_transforms = get_local_skeleton_transforms(
-        bone_order, rig, &rig_data, &global_transforms);
+        bone_order,
+        helpers,
+        rig,
+        bone_rotations,
+        &vg,
+        &rig_data,
+    );
+    let local_transforms =
+        get_local_skeleton_transforms(bone_order, rig, &rig_data, &global_transforms);
 
     // compute inverse bindposes
     let mut inverse_bindposes = Vec::with_capacity(bone_order.len());
@@ -501,7 +565,7 @@ pub(crate) fn get_model_space_skeleton_transforms(
     rig_type: RigType,
     bone_rotations: &AHashMap<&'static str, Quat>,
     vg: &VertexGroups,
-    rig_data: &RigData
+    rig_data: &RigData,
 ) -> AHashMap<&'static str, Transform> {
     let mh_config = &rig_data.configs[&rig_type];
     // Compute global transforms
@@ -515,7 +579,10 @@ pub(crate) fn get_model_space_skeleton_transforms(
 }
 
 pub(crate) fn get_local_skeleton_transforms(
-    bone_order: &Vec<&'static str>, rig_type: RigType, rig_data: &RigData, global_transforms: &AHashMap<&'static str, Transform>
+    bone_order: &Vec<&'static str>,
+    rig_type: RigType,
+    rig_data: &RigData,
+    global_transforms: &AHashMap<&'static str, Transform>,
 ) -> AHashMap<&'static str, Transform> {
     // Compute local transforms relative to parent
     let mh_config = &rig_data.configs[&rig_type];
@@ -556,11 +623,7 @@ pub(crate) fn get_bone_transform(
     Transform::from_translation(start).with_rotation(correction * base_rot)
 }
 
-fn get_bone_position(
-    bone: &BoneTransform,
-    vg: &VertexGroups,
-    helpers: &Vec<Vec3>,
-) -> Vec3 {
+fn get_bone_position(bone: &BoneTransform, vg: &VertexGroups, helpers: &Vec<Vec3>) -> Vec3 {
     let v1: u16;
     let v2: u16;
     if bone.strategy == "MEAN" {
@@ -572,11 +635,13 @@ fn get_bone_position(
         v1 = vg.0.get(joint).unwrap()[0][0] as u16;
         v2 = vg.0.get(joint).unwrap()[0][1] as u16;
         let mut pos = Vec3::ZERO;
-        for v in v1..v2+1 {
+        for v in v1..v2 + 1 {
             pos += helpers[v as usize];
         }
         pos / (v2 - v1 + 1) as f32
     } else if bone.strategy == "VERTEX" {
         helpers[bone.vertex_index.unwrap() as usize]
-    } else { unimplemented!("Unrecognized bone strategy {}", bone.strategy) }
+    } else {
+        unimplemented!("Unrecognized bone strategy {}", bone.strategy)
+    }
 }
