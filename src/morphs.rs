@@ -159,7 +159,7 @@ impl MakeHumanMorphs {
     /// Gets all available morph names
     pub fn get_morph_names(&self) -> AHashMap<&'static str, Vec<&'static str>> {
         let mut sliders = AHashMap::<&'static str, Vec<&'static str>>::default();
-        let mut macro_sliders = vec!["caucasian", "asian", "african"];
+        let mut macro_sliders = vec!["european", "asian", "african"];
         macro_sliders.extend(
             self.macro_morphs
                 .macrotargets
@@ -189,7 +189,7 @@ impl MakeHumanMorphs {
         // --- 1️⃣ Separate race sliders ---
         let race_sliders: AHashMap<_, _> = morph_targets
             .iter()
-            .filter(|(&k, _)| ["african", "asian", "caucasian"].contains(&k))
+            .filter(|(&k, _)| ["african", "asian", "european"].contains(&k))
             .map(|(&k, v)| (k, *v))
             .collect();
 
@@ -200,9 +200,9 @@ impl MakeHumanMorphs {
                 .map(|(&k, v)| (k, v / total_race))
                 .collect()
         } else {
-            // Default to Caucasian=1 if not specified
+            // Default to European=1 if not specified
             let mut m = AHashMap::default();
-            m.insert("caucasian", 1.0);
+            m.insert("european", 1.0);
             m
         };
 
@@ -231,7 +231,7 @@ impl MakeHumanMorphs {
         let macro_morphs = Self::compute_macro_weights(&self.macro_morphs, &macro_inputs);
 
         let mut macro_combos = AHashMap::<&str, &[&str]>::default();
-        macro_combos.insert("race", &["caucasian", "asian", "african"]);
+        macro_combos.insert("race", &["european", "asian", "african"]);
         macro_combos.insert("gender", &["male", "female"]);
         macro_combos.insert("age", &["baby", "child", "young", "old"]);
         macro_combos.insert("muscle", &["minmuscle", "averagemuscle", "maxmuscle"]);

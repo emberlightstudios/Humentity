@@ -63,7 +63,7 @@ fn setup_prefab(mut commands: Commands, mh_morphs: Res<MakeHumanMorphs>) {
     let mut morphs = MorphTargets::default();
     morphs.insert("age", 0.5);
     morphs.insert("gender", 1.0);
-    morphs.insert("caucasian", 1.0);
+    morphs.insert("european", 1.0);
 
     let mut prefabs = CharacterArchetypePrefabs::default();
     prefabs.insert(
@@ -92,7 +92,7 @@ impl Default for SliderValues {
         // These we explicitly defined in our prefab
         instance.insert_value("macro", "age", 0.5);
         instance.insert_value("macro", "gender", 1.);
-        instance.insert_value("macro", "caucasian", 1.);
+        instance.insert_value("macro", "european", 1.);
 
         // Macro shapes have implicit values when you don't set them explicitly.
         // These are the default values.

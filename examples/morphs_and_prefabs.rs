@@ -50,7 +50,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     //info!("Available morphs: {:#?}", morphs.get_morph_names());
 
     // Let's create a prefab that can take different shapes
-    // If race is not specified, defaults to caucasian (caucasian = 1, african = 0, asian = 0)
+    // If race is not specified, defaults to european (european = 1, african = 0, asian = 0)
     // If gender is not specified, defaults to male (gender = 1)
     // If age is not specified, defaults to (young) adult (age = 0.5)
     let mut morph_targets = MorphTargets::default();

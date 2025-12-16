@@ -7,7 +7,7 @@ use shared::{add_material, cam_controls, setup_env};
 
 const PREFAB: &str = "prefab";
 // See assets folder for file names
-const SKIN: &str = "young_caucasian_female";
+const SKIN: &str = "young_european_female";
 const EYES: &str = "high-poly-eyes";
 const EYE_TEXTURE: &str = "blue_eye";
 const EYEBROW: &str = "eyebrow001";
