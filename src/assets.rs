@@ -13,6 +13,7 @@ use bevy::{
     ecs::intern::Internable,
     mesh::morph::{MorphAttributes, MorphTargetImage},
 };
+use std::path::Path;
 use walkdir::WalkDir;
 
 use crate::{
@@ -58,7 +59,7 @@ pub struct CharacterAsset {
 }
 
 impl CharacterAsset {
-    pub fn get_name(&self) -> &'static str {
+    pub const fn get_name(&self) -> &'static str {
         match self.part {
             CharacterPart::BaseMesh => "basemesh",
             CharacterPart::ProxyMesh(name)
@@ -68,7 +69,7 @@ impl CharacterAsset {
     }
 
     /// Check if the data is defined
-    pub fn is_loaded(&self) -> bool {
+    pub const fn is_loaded(&self) -> bool {
         self.data.is_some()
     }
 
@@ -90,7 +91,7 @@ impl CharacterAsset {
         if self.data.is_none() {
             self.load_asset_if_unloaded(asset_server);
         }
-        let data = self.data.as_mut().unwrap();
+        let data = self.data.as_mut()?;
         Some(data.base_mesh_handle.clone())
     }
 
@@ -111,7 +112,7 @@ impl CharacterAsset {
             self.load_asset_if_unloaded(asset_server);
             return None;
         }
-        let data = self.data.as_mut().unwrap();
+        let data = self.data.as_mut()?;
         data.get_rigged_mesh_handle(
             prefab_name,
             prefab,
@@ -159,7 +160,7 @@ impl CharacterAsset {
             };
             let path = paths
                 .get(&name)
-                .expect(&format!("No albedo map {name} found for {}", part_name));
+                .unwrap_or_else(|| panic!("No albedo map {name} found for {}", part_name));
 
             let path = if let Some(source_id) = &path.source_id {
                 &source_id.root_path.join(&path.path)
@@ -218,9 +219,7 @@ impl CharacterAssetData {
         paths: &HumentityPathsConfig,
     ) -> Option<()> {
         // Get the makehuman vertex index lookup
-        let Some(mesh) = meshes.get(&self.base_mesh_handle) else {
-            return None;
-        };
+        let mesh = meshes.get(&self.base_mesh_handle)?;
         let path = paths.core_assets_path.join(&self.obj_file.path);
         let mh_verts = parse_obj_vertices(path);
         let verts = get_vertex_positions(mesh);
@@ -244,14 +243,12 @@ impl CharacterAssetData {
             self.prefab_load_state
                 .insert(prefab_name, MeshProcessingState::Unprocessed);
         }
-        if meshes.get(&self.base_mesh_handle).is_none() {
-            return None;
-        }
+        meshes.get(&self.base_mesh_handle)?;
 
         match &self.prefab_load_state[prefab_name] {
-            MeshProcessingState::Ready(handle) => return Some(handle.clone()),
+            MeshProcessingState::Ready(handle) => Some(handle.clone()),
             MeshProcessingState::Morphed(handle) => {
-                let mesh = meshes.get(handle).unwrap().clone();
+                let mesh = meshes.get(handle)?.clone();
                 let handle = set_asset_rig_arrays(
                     mesh,
                     meshes,
@@ -262,12 +259,10 @@ impl CharacterAssetData {
                 );
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Ready(handle.clone()));
-                return Some(handle);
+                Some(handle)
             }
             MeshProcessingState::Unprocessed => {
-                if self.process_base_mesh(meshes, paths).is_none() {
-                    return None;
-                }
+                self.process_base_mesh(meshes, paths)?;
                 let handle = self.asset_mesh_from_helpers(&basemesh.vertices, meshes);
                 self.base_mesh_handle = handle;
                 self.prefab_load_state
@@ -280,15 +275,13 @@ impl CharacterAssetData {
                     let helpers = adjust_helpers_to_morphs(&shape.morphs, mh_morphs, basemesh);
                     let handle = self.asset_mesh_from_helpers(&helpers, meshes);
                     handles.push(handle);
-                    shape.height = f32::max(
-                        shape.height,
-                        helpers.iter().map(|v| v.y).reduce(f32::max).unwrap(),
-                    );
+                    shape.height =
+                        f32::max(shape.height, helpers.iter().map(|v| v.y).reduce(f32::max)?);
                 }
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Shaped(handles));
 
-                let asset_base_mesh = meshes.get(&self.base_mesh_handle).unwrap();
+                let asset_base_mesh = meshes.get(&self.base_mesh_handle)?;
                 self.base_mesh_handle = meshes.add(
                     asset_base_mesh
                         .clone()
@@ -300,10 +293,10 @@ impl CharacterAssetData {
                 None
             }
             MeshProcessingState::Shaped(shaped_meshes) => {
-                let asset_base_mesh = meshes.get(&self.base_mesh_handle).unwrap();
-                let base_positions = get_vertex_positions(&asset_base_mesh);
-                let base_normals = get_vertex_normals(&asset_base_mesh);
-                let Ok(base_tangents) = get_vertex_tangents(&asset_base_mesh) else {
+                let asset_base_mesh = meshes.get(&self.base_mesh_handle)?;
+                let base_positions = get_vertex_positions(asset_base_mesh);
+                let base_normals = get_vertex_normals(asset_base_mesh);
+                let Ok(base_tangents) = get_vertex_tangents(asset_base_mesh) else {
                     return None;
                 };
                 let mut morph_names = vec![];
@@ -311,10 +304,10 @@ impl CharacterAssetData {
 
                 for (is, shape) in prefab.shapes.iter().enumerate() {
                     let mut morph = Vec::<MorphAttributes>::new();
-                    let shape_mesh = meshes.get(&shaped_meshes[is]).unwrap();
-                    let shape_positions = get_vertex_positions(&shape_mesh);
-                    let shape_normals = get_vertex_normals(&shape_mesh);
-                    let shape_tangents = get_vertex_tangents(&shape_mesh)
+                    let shape_mesh = meshes.get(&shaped_meshes[is])?;
+                    let shape_positions = get_vertex_positions(shape_mesh);
+                    let shape_normals = get_vertex_normals(shape_mesh);
+                    let shape_tangents = get_vertex_tangents(shape_mesh)
                         .expect("Shape meshes should always have tangents");
 
                     for vtx in 0..base_positions.len() {
@@ -347,10 +340,10 @@ impl CharacterAssetData {
                 )
                 .with_inserted_attribute(
                     Mesh::ATTRIBUTE_POSITION,
-                    get_vertex_positions(&asset_base_mesh),
+                    get_vertex_positions(asset_base_mesh),
                 )
-                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&asset_base_mesh))
-                .with_inserted_indices(asset_base_mesh.indices().unwrap().clone())
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(asset_base_mesh))
+                .with_inserted_indices(asset_base_mesh.indices()?.clone())
                 .with_computed_area_weighted_normals()
                 .with_morph_targets(images.add(image.0))
                 .with_morph_target_names(morph_names)
@@ -364,7 +357,7 @@ impl CharacterAssetData {
         }
     }
 
-    pub(crate) fn get_offset_scale(&self, helpers: &Vec<Vec3>) -> Vec3 {
+    pub(crate) fn get_offset_scale(&self, helpers: &[Vec3]) -> Vec3 {
         Vec3::new(
             (helpers[self.scale_data[0].max as usize].x
                 - helpers[self.scale_data[0].min as usize].x)
@@ -381,7 +374,7 @@ impl CharacterAssetData {
     /// Adjust an asset mesh to match morphed helpers
     pub(crate) fn asset_mesh_from_helpers(
         &self,
-        helpers: &Vec<Vec3>,
+        helpers: &[Vec3],
         meshes: &mut Assets<Mesh>,
     ) -> Handle<Mesh> {
         // Note that helpers should already be morphed before input so we don't have to apply weights
@@ -722,7 +715,7 @@ impl FromWorld for CharacterAssetRegistry {
 |  Functions  |
 +-------------*/
 fn get_textures(
-    path: &PathBuf,
+    path: &Path,
     texture_type: CharacterAssetTextureType,
     source_id: &Option<HumentityAssetSourceId>,
 ) -> AHashMap<&'static str, HumentityAssetPath> {
@@ -767,7 +760,7 @@ fn parse_character_asset(
     asset_server: &AssetServer,
 ) -> CharacterAssetData {
     let mut tags = Vec::<String>::new();
-    let mut z_depth = 0 as i8;
+    let mut z_depth = 0_i8;
     let mut delete_verts = AHashSet::<u16>::default();
     let mut helper_map = Vec::<HelperMap>::new();
     let mut x_scale = ScaleData::default();
@@ -808,7 +801,7 @@ fn parse_character_asset(
             continue;
         }
 
-        let line_vec: Vec<&str> = line.trim().split_whitespace().collect();
+        let line_vec: Vec<&str> = line.split_whitespace().collect();
 
         if section == FileSection::Header {
             if *line_vec.first().unwrap() == "obj_file" {
@@ -860,9 +853,9 @@ fn parse_character_asset(
                 );
                 helper_map.push(HelperMap {
                     triangle: Some(Triangle {
-                        helper_verts: helper_verts,
-                        helper_weights: helper_weights,
-                        helper_offset: helper_offset,
+                        helper_verts,
+                        helper_weights,
+                        helper_offset,
                     }),
                     single_vertex: None,
                 });
@@ -917,7 +910,7 @@ fn parse_character_asset(
         path: obj_file,
         source_id: source_id.clone(),
     };
-    let raw_mesh_handle: Handle<Mesh> = obj_file.load_asset(&*asset_server).unwrap();
+    let raw_mesh_handle: Handle<Mesh> = obj_file.load_asset(asset_server).unwrap();
 
     CharacterAssetData {
         obj_file,
@@ -960,9 +953,9 @@ pub(crate) fn delete_mesh_verts(
     for (vtx, &mh_vert) in base_mesh.mhid_lookup.iter().enumerate() {
         if !delete_verts.contains(&mh_vert) {
             indices_map.insert(vtx as u16, new_vertices.len() as u16);
-            new_vertices.push(vertices[vtx as usize]);
-            new_normals.push(normals[vtx as usize]);
-            new_uv.push(uv[vtx as usize]);
+            new_vertices.push(vertices[vtx]);
+            new_normals.push(normals[vtx]);
+            new_uv.push(uv[vtx]);
         }
     }
 
@@ -970,7 +963,7 @@ pub(crate) fn delete_mesh_verts(
     // Find new face indices
     for face in indices_vec.chunks(3) {
         // Check if all vertices still exist in new mesh verts
-        if !face.iter().all(|&i| indices_map.contains_key(&(i as u16))) {
+        if !face.iter().all(|&i| indices_map.contains_key(&i)) {
             continue;
         }
         // Map face to new vertex indices

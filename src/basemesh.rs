@@ -10,7 +10,6 @@ use bevy::{
     prelude::*,
 };
 use serde::Deserialize;
-use serde_json;
 use smallvec::SmallVec;
 
 use crate::{
@@ -105,7 +104,7 @@ impl BaseMesh {
                 self.rig_prefab_meshes(prefab, prefab_name, rig_data, meshes);
                 None
             }
-            MeshProcessingState::Ready(handle) => return Some(handle.clone()),
+            MeshProcessingState::Ready(handle) => Some(handle.clone()),
             _ => unimplemented!("Should not be here"),
         }
     }
@@ -154,7 +153,7 @@ impl BaseMesh {
             .insert(prefab_name, MeshProcessingState::Shaped(prefab_meshes));
 
         for i_shape in 0..heights.len() {
-            let shape = prefab.shapes.get_mut(i_shape).unwrap();
+            let shape = &mut prefab.shapes[i_shape];
             shape.height = heights[i_shape];
         }
     }
@@ -188,9 +187,9 @@ impl BaseMesh {
         for (is, shape) in prefab.shapes.iter().enumerate() {
             let mut morph = Vec::<MorphAttributes>::new();
             let shape_mesh = meshes.get(&shaped_meshes[is]).unwrap();
-            let shape_positions = get_vertex_positions(&shape_mesh);
-            let shape_normals = get_vertex_normals(&shape_mesh);
-            let shape_tangents = get_vertex_tangents(&shape_mesh)
+            let shape_positions = get_vertex_positions(shape_mesh);
+            let shape_normals = get_vertex_normals(shape_mesh);
+            let shape_tangents = get_vertex_tangents(shape_mesh)
                 .expect("Base mesh should always have tangents at this point.");
 
             for vtx in 0..base_positions.len() {
@@ -257,7 +256,7 @@ impl BaseMesh {
         };
         let handle = crate::rigs::set_basemesh_rig_arrays(
             meshes.get(mesh_handle).unwrap().clone(),
-            &self,
+            self,
             meshes,
             &prefab.rig.bone_order,
             prefab.rig.rig_type,
@@ -285,8 +284,8 @@ pub(crate) fn create_body_mesh(
 
     // Get mesh arrays
     let raw_indices = mesh.indices().expect("FAILED TO LOAD MESH INDICES");
-    let vtx_data = get_vertex_positions(&mesh);
-    let uv_data = get_uv_coords(&mesh);
+    let vtx_data = get_vertex_positions(mesh);
+    let uv_data = get_uv_coords(mesh);
     let vertex_map = generate_vertex_map(&base_mesh.vertices, &vtx_data);
     let mhid_lookup = generate_mhid_lookup(&vertex_map);
 
@@ -305,7 +304,7 @@ pub(crate) fn create_body_mesh(
 }
 
 fn generate_mesh_without_helpers(
-    mhid_lookup: &Vec<u16>,
+    mhid_lookup: &[u16],
     vtx_data: Vec<Vec3>,
     uv_data: Vec<Vec2>,
     indices_data: &Indices,
@@ -321,8 +320,8 @@ fn generate_mesh_without_helpers(
     for (vertex, &mh_id) in mhid_lookup.iter().enumerate() {
         if mh_id < BODY_VERTICES {
             new_vert_indices.insert(vertex as u16, vertices.len() as u16);
-            vertices.push(vtx_data[vertex as usize]);
-            uv.push(uv_data[vertex as usize]);
+            vertices.push(vtx_data[vertex]);
+            uv.push(uv_data[vertex]);
         }
     }
 
@@ -340,7 +339,7 @@ fn generate_mesh_without_helpers(
     }
 
     // Create the new mesh
-    let mesh = Mesh::new(
+    Mesh::new(
         bevy::mesh::PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
     )
@@ -349,7 +348,5 @@ fn generate_mesh_without_helpers(
     .with_inserted_indices(Indices::U16(new_indices))
     .with_computed_area_weighted_normals()
     .with_generated_tangents()
-    .unwrap();
-
-    mesh
+    .unwrap()
 }

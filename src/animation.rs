@@ -55,11 +55,7 @@ pub(crate) fn rescale_bone_translations(
             let Ok(mut transform) = transforms.get_mut(child) else {
                 continue;
             };
-            let rot = if let Some(rot) = rotation_deltas.get(name) {
-                rot
-            } else {
-                &Quat::IDENTITY
-            };
+            let rot = rotation_deltas.get(name).map_or(&Quat::IDENTITY, |rot| rot);
             transform.translation = rot * transform.translation * shape_trans.length() / ref_trans;
         }
     }
@@ -174,10 +170,7 @@ pub(crate) fn rebuild_animations(
     mut commands: Commands,
     config: Res<HumentityGlobalConfig>,
 ) {
-    let rig_types = prefabs
-        .iter()
-        .map(|(_, p)| p.rig.rig_type)
-        .collect::<Vec<_>>();
+    let rig_types = prefabs.values().map(|p| p.rig.rig_type).collect::<Vec<_>>();
 
     let mut rig_clips =
         AHashMap::<RigType, AHashMap<&'static str, Handle<AnimationClip>>>::default();
@@ -185,7 +178,7 @@ pub(crate) fn rebuild_animations(
         let glbs = prefabs
             .iter()
             .filter(|(_, p)| p.rig.rig_type == rig)
-            .flat_map(|(_, &ref p)| p.rig.animation_glbs.iter())
+            .flat_map(|(_, p)| p.rig.animation_glbs.iter())
             .collect::<Vec<_>>();
 
         let mut clip_handles = AHashMap::<&'static str, Handle<AnimationClip>>::new();
@@ -313,7 +306,7 @@ pub(crate) fn get_animation_clips(
         let mut clip = AnimationClip::default();
         let clip_name = animation
             .name()
-            .ok_or(BevyError::from("Animation clip has no name"))?;
+            .ok_or_else(|| BevyError::from("Animation clip has no name"))?;
 
         for channel in animation.channels() {
             // Get input values (t1, t2, ...)
@@ -321,20 +314,20 @@ pub(crate) fn get_animation_clips(
             let input_accessor = sampler.input();
             let input_view = input_accessor
                 .view()
-                .ok_or(BevyError::from("Failed to get input_view for animation"))?;
+                .ok_or_else(|| BevyError::from("Failed to get input_view for animation"))?;
             let buffer = &buffers[input_view.buffer().index()];
 
             let start = input_accessor.offset() + input_view.offset();
             let end = start + input_accessor.count() * std::mem::size_of::<f32>();
             let data = &buffer[start..end];
             let times: &[f32] = bytemuck::cast_slice(data);
-            let times = times.iter().map(|x| *x).collect::<Vec<_>>();
+            let times = times.to_vec();
 
             // Get output values (pos1, pos2, ...) or (quat1, quat2, ...)
             let output_accessor = sampler.output();
             let output_view = output_accessor
                 .view()
-                .ok_or(BevyError::from("Missing output view"))?;
+                .ok_or_else(|| BevyError::from("Missing output view"))?;
             let buffer = &buffers[output_view.buffer().index()];
 
             let target = channel.target();
@@ -367,46 +360,45 @@ pub(crate) fn get_animation_clips(
                         continue;
                     };
 
-                    let values: Vec<Vec3> = floats
+                    let values = floats
                         .chunks(floats_per_element)
-                        .map(|chunk| Vec3::from_array([chunk[0], chunk[1], chunk[2]]))
-                        .collect();
+                        .map(|chunk| Vec3::from_array([chunk[0], chunk[1], chunk[2]]));
                     clip.add_curve_to_target(
                         target_id,
                         AnimatableCurve::new(
                             animated_field!(Transform::translation),
-                            AnimatableKeyframeCurve::new(times.into_iter().zip(values.into_iter()))
-                                .expect("Failed to construct curve"),
+                            AnimatableKeyframeCurve::new(times.into_iter().zip(values)).map_err(
+                                |err| BevyError::from(format!("Failed to construct curve: {err}")),
+                            )?,
                         ),
                     );
                 }
                 gltf::animation::Property::Scale => {
-                    let values: Vec<Vec3> = floats
+                    let values = floats
                         .chunks(floats_per_element)
-                        .map(|chunk| Vec3::from_array([chunk[0], chunk[1], chunk[2]]))
-                        .collect();
+                        .map(|chunk| Vec3::from_array([chunk[0], chunk[1], chunk[2]]));
                     clip.add_curve_to_target(
                         target_id,
                         AnimatableCurve::new(
                             animated_field!(Transform::scale),
-                            AnimatableKeyframeCurve::new(times.into_iter().zip(values.into_iter()))
-                                .expect("Failed to construct curve"),
+                            AnimatableKeyframeCurve::new(times.into_iter().zip(values)).map_err(
+                                |err| BevyError::from(format!("Failed to construct curve: {err}")),
+                            )?,
                         ),
                     );
                 }
                 gltf::animation::Property::Rotation => {
-                    let values: Vec<Quat> = floats
-                        .chunks(floats_per_element)
-                        .map(|chunk| {
-                            Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]]).normalize()
-                        })
-                        .collect();
+                    let values = floats.chunks(floats_per_element).map(|chunk| {
+                        Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]]).normalize()
+                    });
                     clip.add_curve_to_target(
                         target_id,
                         AnimatableCurve::new(
                             animated_field!(Transform::rotation),
                             AnimatableKeyframeCurve::new(times.into_iter().zip(values.into_iter()))
-                                .expect("Failed to construct curve"),
+                                .map_err(|err| {
+                                    BevyError::from(format!("Failed to construct curve: {err}"))
+                                })?,
                         ),
                     );
                 }
@@ -425,11 +417,13 @@ fn compute_global_transform(
     global_transforms: &mut AHashMap<&'static str, Transform>,
     parent_global: Transform,
 ) -> Result<(), BevyError> {
-    let name = root.name().ok_or(BevyError::from("No name for bone"))?;
+    let name = root
+        .name()
+        .ok_or_else(|| BevyError::from("No name for bone"))?;
     let name = NAME_INTERNER.intern(name).leak();
     let local = local_transforms
         .get(&name)
-        .ok_or(BevyError::from("Missing local transform"))?;
+        .ok_or_else(|| BevyError::from("Missing local transform"))?;
     let global = Transform::from_matrix(parent_global.to_matrix() * local.to_matrix());
     global_transforms.insert(name, global);
 
@@ -495,7 +489,6 @@ fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
     // Roots are joints that were never seen as children
     joints
         .into_iter()
-        .filter(|j| !seen_as_child.contains(&j.index()))
-        .last()
+        .rfind(|j| !seen_as_child.contains(&j.index()))
         .expect("Unable to find root node")
 }

@@ -61,16 +61,12 @@ impl HumentityAssetPath {
     }
 
     pub fn load_asset<T: Asset>(&self, asset_server: &AssetServer) -> Option<Handle<T>> {
-        let prefix = if let Some(ref source_id) = self.source_id {
-            &format!("{}://", source_id.id)
-        } else {
-            ""
-        };
-        let path = self.path.to_str();
-        if path.is_none() {
-            return None;
-        }
-        let path = format!("{prefix}{}", path.unwrap());
+        let prefix = self
+            .source_id
+            .as_ref()
+            .map_or_else(String::new, |source_id| format!("{}://", source_id.id));
+        let path = self.path.to_str()?;
+        let path = format!("{prefix}{path}");
         Some(asset_server.load(path))
     }
 }

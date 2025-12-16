@@ -32,7 +32,7 @@ pub type PrefabLoadState = AHashMap<&'static str, MeshProcessingState>;
 
 pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     let path = filename.as_ref();
-    let file = File::open(path).expect(&format!("Couldn't open file {:?}", path));
+    let file = File::open(path).unwrap_or_else(|_| panic!("Couldn't open file {path:?}"));
     let mut vertices = Vec::<Vec3>::new();
     for line_result in BufReader::new(file).lines() {
         let Ok(line) = line_result else { break };
@@ -106,7 +106,7 @@ pub(crate) fn get_uv_coords(mesh: &Mesh) -> Vec<Vec2> {
 //    d
 //}
 
-pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
+pub fn fix_normals(mesh: &mut Mesh, mhid_lookups: &[u16]) {
     // Get mutable normals from the mesh
     let mut normals = get_vertex_normals(mesh);
 
@@ -114,7 +114,7 @@ pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
     let mut groups: AHashMap<u16, Vec<usize>> = AHashMap::default();
     for bevy_idx in 0..normals.len() {
         groups
-            .entry(mhid_lookup[bevy_idx])
+            .entry(mhid_lookups[bevy_idx])
             .or_default()
             .push(bevy_idx);
     }
@@ -127,13 +127,13 @@ pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
 
         let mut sum = Vec3::ZERO;
         for &i in group {
-            sum += normals[i as usize];
+            sum += normals[i];
         }
         let avg = sum.normalize_or_zero();
 
         // 3) Assign the same normal to all duplicates
         for &i in group {
-            normals[i as usize] = avg;
+            normals[i] = avg;
         }
     }
 

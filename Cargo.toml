@@ -30,9 +30,7 @@ opt-level = 3
 
 [lints.clippy]
 all = "deny"
-wildcard_imports = "deny"
 missing_const_for_fn = "deny"
-option_if_let_else = "deny"
 or_fun_call = "deny"
 get_first = "deny"
 redundant_clone = "deny"
@@ -45,6 +43,8 @@ panicking_unwrap = "deny"
 unnecessary_unwrap = "deny"
 unnecessary_literal_unwrap = "deny"
 unwrap_in_result = "deny"
+too_many_arguments = {level = "allow", priority = 10 }
+type_complexity = {level = "allow", priority = 10 }
 
 [lints.rust]
 nonstandard-style = "deny"

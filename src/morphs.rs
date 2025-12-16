@@ -7,7 +7,6 @@ use std::{
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json;
 use walkdir::WalkDir;
 
 use crate::{basemesh::BODY_SCALE, prelude::*};
@@ -60,11 +59,10 @@ pub struct MakeHumanMorphs {
 impl FromWorld for MakeHumanMorphs {
     fn from_world(world: &mut World) -> Self {
         // Create Morph Target Entities from all the .target files
-        let core_path: PathBuf;
         let config = world
             .get_resource::<HumentityPathsConfig>()
             .expect("No global Humentity config loaded");
-        core_path = config.core_assets_path.clone();
+        let core_path: PathBuf = config.core_assets_path.clone();
         let target_paths = config.target_paths.clone();
         let mut targets = AHashMap::<&'static str, AHashMap<u16, Vec3>>::default();
         for target_path in target_paths.iter() {
@@ -78,8 +76,8 @@ impl FromWorld for MakeHumanMorphs {
                     let Some(stem) = path.file_stem().unwrap().to_str() else {
                         continue;
                     };
-                    let file =
-                        File::open(path).expect(&format!("Couldn't open target file {}", filename));
+                    let file = File::open(path)
+                        .unwrap_or_else(|_| panic!("Couldn't open target file {}", filename));
                     for line_result in BufReader::new(file).lines() {
                         let Ok(line) = line_result else { break };
                         let mut line_elements = line.split_whitespace();
@@ -148,9 +146,7 @@ impl MakeHumanMorphs {
         let mut result = AHashMap::default();
         for (&category, morph_names) in names.iter() {
             for &morph in morph_names.iter() {
-                if category == "macro" {
-                    result.insert(morph, 0.);
-                } else if category == "head" && morph.split('-').count() == 2 {
+                if category == "macro" || category == "head" && morph.split('-').count() == 2 {
                     result.insert(morph, 0.);
                 } else {
                     result.insert(morph, -1.);
@@ -168,8 +164,7 @@ impl MakeHumanMorphs {
             self.macro_morphs
                 .macrotargets
                 .keys()
-                .map(|n| NAME_INTERNER.intern(n).leak())
-                .collect::<Vec<&'static str>>(),
+                .map(|n| NAME_INTERNER.intern(n).leak()),
         );
         sliders.insert("macro", macro_sliders);
         sliders.extend(self.composite_categories.clone());
@@ -251,42 +246,42 @@ impl MakeHumanMorphs {
 
         let gender_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["gender"].contains(&n))
+            .filter(|(n, &_)| macro_combos["gender"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let age_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["age"].contains(&n))
+            .filter(|(n, &_)| macro_combos["age"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let muscle_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["muscle"].contains(&n))
+            .filter(|(n, &_)| macro_combos["muscle"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let weight_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["weight"].contains(&n))
+            .filter(|(n, &_)| macro_combos["weight"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let proportions_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["proportions"].contains(&n))
+            .filter(|(n, &_)| macro_combos["proportions"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let height_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["height"].contains(&n))
+            .filter(|(n, &_)| macro_combos["height"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let cupsize_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["cupsize"].contains(&n))
+            .filter(|(n, &_)| macro_combos["cupsize"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let firmness_values = macro_morphs
             .iter()
-            .filter(|(&ref n, &_)| macro_combos["firmness"].contains(&n))
+            .filter(|(n, &_)| macro_combos["firmness"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
 
@@ -423,22 +418,20 @@ impl MakeHumanMorphs {
                                 .entry(NAME_INTERNER.intern(&opps.negative_left).leak())
                                 .or_insert(0.0) += value.abs();
                         }
+                    } else if *value > 0.0 {
+                        *result
+                            .entry(NAME_INTERNER.intern(&opps.positive_unsided).leak())
+                            .or_insert(0.0) += value.abs();
                     } else {
-                        if *value > 0.0 {
-                            *result
-                                .entry(NAME_INTERNER.intern(&opps.positive_unsided).leak())
-                                .or_insert(0.0) += value.abs();
-                        } else {
-                            *result
-                                .entry(NAME_INTERNER.intern(&opps.negative_unsided).leak())
-                                .or_insert(0.0) += value.abs();
-                        }
+                        *result
+                            .entry(NAME_INTERNER.intern(&opps.negative_unsided).leak())
+                            .or_insert(0.0) += value.abs();
                     }
                 } else if let Some(targets) = &morph.targets {
                     // No opposites: directly apply
                     for target in targets {
                         *result
-                            .entry(NAME_INTERNER.intern(&target).leak())
+                            .entry(NAME_INTERNER.intern(target).leak())
                             .or_insert(0.0) += *value;
                     }
                 }
@@ -532,7 +525,7 @@ pub(crate) fn adjust_helpers_to_morphs(
         let target = morph_targets
             .targets
             .get(target_name)
-            .expect(&format!("Failed to find morph {}", target_name));
+            .unwrap_or_else(|| panic!("Failed to find morph {target_name}"));
         for (&vertex, &offset) in target.iter() {
             helpers[vertex as usize] += offset * value;
         }

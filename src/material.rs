@@ -1,4 +1,6 @@
-use bevy::{pbr::MaterialExtension, prelude::*, render::render_resource::*, shader::ShaderRef};
+use bevy::{
+    pbr::MaterialExtension, prelude::*, render::render_resource::AsBindGroup, shader::ShaderRef,
+};
 
 const SHADER_ASSET_PATH: &str = "humentity://shaders/human.wgsl";
 
