@@ -6,7 +6,7 @@ use ahash::AHashMap;
  |  Components  |
  +--------------*/
 /// Defines the shape of a character.  Place it at the root, with individual parts as children.
-#[derive(Component, Clone, Default)]
+#[derive(Component, Clone, Default, Debug)]
 pub struct CharacterShapeConfig {
     pub prefab_morph_targets: MorphTargets,
     pub prefab: &'static str,

@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 use ahash::{AHashMap};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json;
 use walkdir::WalkDir;
 use crate::{basemesh::BODY_SCALE, prelude::*};
@@ -15,6 +15,36 @@ use crate::{basemesh::BODY_SCALE, prelude::*};
  +--------------*/
 #[derive(Component, Deref, DerefMut, Clone, Default, Debug)]
 pub struct MorphTargets(AHashMap<&'static str, f32>);
+
+impl Serialize for MorphTargets {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Convert keys to owned Strings for serialization
+        let map: AHashMap<String, f32> = self.0.iter()
+            .map(|(&k, &v)| (k.to_string(), v))
+            .collect();
+        map.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for MorphTargets {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let map: AHashMap<String, f32> = AHashMap::deserialize(deserializer)?;
+        let mut result = AHashMap::new();
+
+        for (k, v) in map {
+            let key: &'static str = NAME_INTERNER.intern(&k).leak();
+            result.insert(key, v);
+        }
+
+        Ok(MorphTargets(result))
+    }
+}
 
 /*-------------+
  |  Resources  |
