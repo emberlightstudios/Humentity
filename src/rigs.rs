@@ -1,5 +1,5 @@
 use bevy::{
-    animation::{AnimationTarget, AnimationTargetId}, color::palettes::css::RED, ecs::intern::Internable, mesh::{VertexAttributeValues, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*
+    animation::{AnimatedBy, AnimationTargetId}, color::palettes::css::RED, ecs::intern::Internable, mesh::{VertexAttributeValues, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}}, prelude::*
 };
 use serde::Deserialize;
 use serde_json;
@@ -169,8 +169,8 @@ impl FromWorld for RigData {
  | Systems |
  +---------*/
  pub(crate) fn bone_debug_draw(
-    query: Query<(&GlobalTransform, &ChildOf), With<AnimationTarget>>,
-    transforms: Query<&GlobalTransform, With<AnimationTarget>>,
+    query: Query<(&GlobalTransform, &ChildOf), With<AnimationTargetId>>,
+    transforms: Query<&GlobalTransform, With<AnimationTargetId>>,
     mut gizmos: Gizmos,
  ) {
     query.iter().for_each(|(transform, child)| {
@@ -416,10 +416,8 @@ pub(crate) fn build_human_rig_scene(
 
         let entity = scene_world.spawn((
             Name::new(name),
-            AnimationTarget {
-                id: AnimationTargetId::from_names(path.iter().rev()),
-                player: rig_entity,
-            },
+            AnimationTargetId::from_names(path.iter().rev()),
+            AnimatedBy(rig_entity),
         )).id();
 
         if i == 0 {
