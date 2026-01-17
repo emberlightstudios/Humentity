@@ -1,54 +1,47 @@
 //! Makehuman allows character customization through the use of morph targets,
-//! also knows as blendshapes or shapekeys.  One possible architecture for this 
+//! also knows as blendshapes or shapekeys.  One possible architecture for this
 //! crate could be to accept a set of morph values and bake the resulting
 //! mesh down to a new fixed mesh.  One problem with this approach is that it
-//! breaks instancing/batching between different humans, and therefore 
+//! breaks instancing/batching between different humans, and therefore
 //! performance degrades, as well memory usage explodes since each individual
-//! mesh, skinnedmesh, etc. must occcupy it's own space in the AssetServer/GPU buffers. 
+//! mesh, skinnedmesh, etc. must occcupy it's own space in the AssetServer/GPU buffers.
 //! To overcome these problems Humentity uses a "prefab" system.
 //!
 //! Makehuman has something like 1000 distinct morph targets.  This
 //! is too many to be used at runtime.  While possible, it is likely to lead
 //! to performance degradation in the shader.  The Humentity prefab system
-//! allows you to bake an entire set of makehuman morph weights down to a 
+//! allows you to bake an entire set of makehuman morph weights down to a
 //! single morph target in bevy. In order to make variable humans we can define
 //! a few basic human archetypes, and perhaps a set of distinct faces that we can
 //! use to blend between at runtime.  This allows us to dramatically reduce the
 //! number of morph targets while still allowing at least some runtime mesh
 //! customization, and keeping instancing/batching intact, since each prefab
-//! is still the same mesh handle (assuming they all use the same material also). 
+//! is still the same mesh handle (assuming they all use the same material also).
 
 mod shared;
 
 use bevy::prelude::*;
-use shared::{cam_controls, add_material, setup_env};
 use humentity::prelude::*;
+use shared::{add_material, cam_controls, setup_env};
 
 fn main() {
     let mut app = App::new();
-    app
-        .add_plugins((
-            // Point to the humentity crate location
-            Humentity {
-                paths: HumentityPathsConfig::from_crate_path("./"),
-                config: HumentityGlobalConfig {
-                    translation_tracks: TranslationTracks::None,
-                    ..default()
-                }
+    app.add_plugins((
+        // Point to the humentity crate location
+        Humentity {
+            paths: HumentityPathsConfig::from_crate_path("./"),
+            config: HumentityGlobalConfig {
+                translation_tracks: TranslationTracks::None,
+                ..default()
             },
-            DefaultPlugins,
-        ))
-        .add_systems(Startup, setup_env)
-        .add_systems(
-            OnExit(HumentityLoadState::LoadingCoreAssets), 
-            setup_prefabs
-        )
-        .add_systems(
-            OnEnter(HumentityLoadState::Ready),
-            add_humans
-        )
-        .add_systems(Update, (cam_controls, add_material))
-        .run();
+        },
+        DefaultPlugins,
+    ))
+    .add_systems(Startup, setup_env)
+    .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
+    .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
+    .add_systems(Update, (cam_controls, add_material))
+    .run();
 }
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
@@ -77,14 +70,12 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     // These are desinged in makehuman such that you don't have to normalize their sum.
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
-    let bodybuilder_shape = CharacterShapeArchetype::new(
-        "bodybuilder",
-        morphs.compute_target_weights(&morph_targets),
-    );
+    let bodybuilder_shape =
+        CharacterShapeArchetype::new("bodybuilder", morphs.compute_target_weights(&morph_targets));
 
     // You could use this, e.g. to define distinct face presets on a body also. Since they
     // become morph targets you can generate essentially infinite face shapes from the vector
-    // space spanned by these basis morphs.  
+    // space spanned by these basis morphs.
 
     let mut prefabs = CharacterArchetypePrefabs::default();
 
@@ -95,15 +86,13 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
         CharacterArchetypePrefab::new(
             vec![baby_shape, bodybuilder_shape],
             CharacterAnimationArchetype::default(), // No animation in this example
-        )
+        ),
     );
 
     commands.insert_resource(prefabs);
 }
 
-fn add_humans(
-    mut commands: Commands,
-) {
+fn add_humans(mut commands: Commands) {
     // Previously defined shapes will now appear as morph targets on the prefab's mesh
     // The HumanShapeConfig type controls prefab access and applies our morph targets.
     let prefab_name = "ExampleHumanPrefab";
@@ -118,9 +107,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(
-            CharacterPart::BaseMesh 
-        )]
+        children![(CharacterPart::BaseMesh)],
     ));
 
     // A baby
@@ -130,9 +117,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(
-            CharacterPart::BaseMesh
-        )]
+        children![(CharacterPart::BaseMesh)],
     ));
 
     // A bodybuilder
@@ -142,9 +127,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(
-            CharacterPart::BaseMesh
-        )]
+        children![(CharacterPart::BaseMesh)],
     ));
 
     // Half baby/half bodybuilder, ha!
@@ -155,12 +138,10 @@ fn add_humans(
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(
-            CharacterPart::BaseMesh
-        )]
+        children![(CharacterPart::BaseMesh)],
     ));
 
-    // You have to be careful with normalization of mixed shapekeys sometimes 
+    // You have to be careful with normalization of mixed shapekeys sometimes
     // or you might end up with artifacts!
     // Here is a baby/bodybuilder mix, without normalizing
     morphs.insert(baby, 1.);
@@ -169,8 +150,6 @@ fn add_humans(
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs),
-        children![(
-            CharacterPart::BaseMesh
-        )]
+        children![(CharacterPart::BaseMesh)],
     ));
 }

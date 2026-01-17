@@ -1,12 +1,12 @@
 //! Makehuman comes with several lower poly proxy meshes.  These
 //! can be used for lods with the VisibilityRanges component
-//! In this example we switch lods early just for clarity. 
+//! In this example we switch lods early just for clarity.
 
 mod shared;
-use shared::{cam_controls, setup_env};
 use ahash::AHashMap;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
+use shared::{cam_controls, setup_env};
 
 const PREFAB: &str = "ExamplePrefab";
 
@@ -19,7 +19,7 @@ fn main() {
                 config: HumentityGlobalConfig {
                     translation_tracks: TranslationTracks::None,
                     ..default()
-                }
+                },
             },
             DefaultPlugins,
         ))
@@ -30,13 +30,11 @@ fn main() {
         .run();
 }
 
-// this is just a marker component to control which mesh has lods. 
+// this is just a marker component to control which mesh has lods.
 #[derive(Component)]
 struct LevelOfDetail;
 
-fn add_humans(
-    mut commands: Commands,
-) {
+fn add_humans(mut commands: Commands) {
     // Previously defined shapes will now appear as morph targets on the prefab's mesh
     // The HumanConfig type controls prefab access and applies our morph targets.
     let bodybuilder = "bodybuilder";
@@ -53,35 +51,40 @@ fn add_humans(
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         LevelOfDetail, // Just a marker component for this example
         InheritedVisibility::default(),
-        children![(
-            CharacterPart::BaseMesh,
-            VisibilityRange {
-                start_margin: 0.0..0.0,
-                end_margin: 2.0..2.,
-                use_aabb: false,
-            }
-        ), (
-            CharacterPart::ProxyMesh(lod1),
-            VisibilityRange {
-                start_margin: 2.0..2.0,
-                end_margin: 4.0..4.0,
-                use_aabb: false,
-            }
-        ), (
-            CharacterPart::ProxyMesh(lod2),
-            VisibilityRange {
-                start_margin: 4.0..4.,
-                end_margin: 6.0..6.,
-                use_aabb: false,
-            }
-        ), (
-            CharacterPart::ProxyMesh(lod3),
-            VisibilityRange {
-                start_margin: 6.0..6.0,
-                end_margin: 8.0..10.0,
-                use_aabb: false,
-            }
-        )]
+        children![
+            (
+                CharacterPart::BaseMesh,
+                VisibilityRange {
+                    start_margin: 0.0..0.0,
+                    end_margin: 2.0..2.,
+                    use_aabb: false,
+                }
+            ),
+            (
+                CharacterPart::ProxyMesh(lod1),
+                VisibilityRange {
+                    start_margin: 2.0..2.0,
+                    end_margin: 4.0..4.0,
+                    use_aabb: false,
+                }
+            ),
+            (
+                CharacterPart::ProxyMesh(lod2),
+                VisibilityRange {
+                    start_margin: 4.0..4.,
+                    end_margin: 6.0..6.,
+                    use_aabb: false,
+                }
+            ),
+            (
+                CharacterPart::ProxyMesh(lod3),
+                VisibilityRange {
+                    start_margin: 6.0..6.0,
+                    end_margin: 8.0..10.0,
+                    use_aabb: false,
+                }
+            )
+        ],
     ));
 
     // Just for comparison we'll spawn the proxies used here
@@ -90,9 +93,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-1.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
-        children![(
-            CharacterPart::BaseMesh
-        )]
+        children![(CharacterPart::BaseMesh)],
     ));
 
     // male_generic (high poly-count 13k tris)
@@ -100,9 +101,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-0.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
-        children![(
-            CharacterPart::ProxyMesh(lod1)
-        )]
+        children![(CharacterPart::ProxyMesh(lod1))],
     ));
 
     //  male1591 (low poly-count)
@@ -110,9 +109,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(0.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
-        children![(
-            CharacterPart::ProxyMesh(lod2)
-        )]
+        children![(CharacterPart::ProxyMesh(lod2))],
     ));
 
     // proxy741 (very low poly-count)
@@ -120,9 +117,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(1.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
-        children![(
-            CharacterPart::ProxyMesh(lod3)
-        )]
+        children![(CharacterPart::ProxyMesh(lod3))],
     ));
 
     // There are also female specific proxies which may have better topology for breasts
@@ -146,16 +141,13 @@ fn add_material(
     }
 }
 
-
 fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("asian", 1.);
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
-    let bodybuilder_shape = CharacterShapeArchetype::new(
-        "bodybuilder",
-        morphs.compute_target_weights(&morph_targets),
-    );
+    let bodybuilder_shape =
+        CharacterShapeArchetype::new("bodybuilder", morphs.compute_target_weights(&morph_targets));
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
@@ -163,7 +155,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
         CharacterArchetypePrefab::new(
             vec![bodybuilder_shape],
             CharacterAnimationArchetype::default(), // No animation in this example
-        )
+        ),
     );
 
     commands.insert_resource(CharacterArchetypePrefabs::new(prefabs));

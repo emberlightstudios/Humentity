@@ -1,27 +1,35 @@
-use bevy::{asset::RenderAssetUsages, mesh::{Indices, Mesh, PrimitiveTopology, morph::{MorphAttributes, MorphTargetImage}}, prelude::*};
-use smallvec::SmallVec;
-use std::{
-    io::BufReader,
-    fs::File,
-};
 use ahash::AHashMap;
+use bevy::{
+    asset::RenderAssetUsages,
+    mesh::{
+        morph::{MorphAttributes, MorphTargetImage},
+        Indices, Mesh, PrimitiveTopology,
+    },
+    prelude::*,
+};
 use serde::Deserialize;
 use serde_json;
+use smallvec::SmallVec;
+use std::{fs::File, io::BufReader};
 
-use crate::mesh_ops::{MeshProcessingState, PrefabLoadState, fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices};
+use crate::mesh_ops::{
+    fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals,
+    get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState,
+    PrefabLoadState,
+};
 use crate::prelude::*;
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
 pub(crate) const BODY_SCALE: f32 = 0.1;
 
 /*-------------+
- |  Resources  |
- +-------------*/
+|  Resources  |
++-------------*/
 #[derive(Resource, Deserialize, Debug)]
 pub(crate) struct VertexGroups(pub(crate) AHashMap<String, Vec<[usize; 2]>>);
 
 #[derive(Resource)]
-pub struct BaseMesh{
+pub struct BaseMesh {
     /// The prefab mesh loading state
     pub prefab_state: PrefabLoadState,
     /// A handle to the raw base mesh
@@ -38,7 +46,9 @@ pub(crate) struct HelperMeshHandle(Handle<Mesh>);
 // Load base mesh with helpers and vertex group data
 impl FromWorld for BaseMesh {
     fn from_world(world: &mut World) -> Self {
-        let config = world.get_resource::<HumentityPathsConfig>().expect("NO CONFIG LOADED");
+        let config = world
+            .get_resource::<HumentityPathsConfig>()
+            .expect("NO CONFIG LOADED");
         let path = config.core_assets_path.clone();
         if !path.join("base.obj").exists() {
             panic!("base.obj not found.  Did you provide the correct path to the Humentity crate?")
@@ -58,13 +68,12 @@ impl FromWorld for BaseMesh {
         world.insert_resource(vg);
         world.insert_resource(HelperMeshHandle(base_handle.clone()));
 
-        BaseMesh{
+        BaseMesh {
             mesh_handle: base_handle,
             vertices: mh_vertices,
             mhid_lookup: vec![],
             prefab_state: PrefabLoadState::default(),
         }
-
     }
 }
 
@@ -79,12 +88,12 @@ impl BaseMesh {
         mh_morphs: &MakeHumanMorphs,
     ) -> Option<Handle<Mesh>> {
         self.prefab_state.entry(prefab_name).or_default();
-         
+
         match &self.prefab_state[prefab_name] {
             MeshProcessingState::Unprocessed => {
                 self.create_prefab_shapes(prefab, prefab_name, meshes, mh_morphs);
                 None
-            },
+            }
             MeshProcessingState::Shaped(_handles) => {
                 self.create_prefab_morphable_mesh(prefab, prefab_name, meshes, images);
                 None
@@ -93,10 +102,8 @@ impl BaseMesh {
                 self.rig_prefab_meshes(prefab, prefab_name, rig_data, meshes);
                 None
             }
-            MeshProcessingState::Ready(handle) => {
-                return Some(handle.clone())
-            }
-            _ => unimplemented!("Should not be here")
+            MeshProcessingState::Ready(handle) => return Some(handle.clone()),
+            _ => unimplemented!("Should not be here"),
         }
     }
 
@@ -107,7 +114,9 @@ impl BaseMesh {
         meshes: &mut Assets<Mesh>,
         morphs: &MakeHumanMorphs,
     ) {
-        if self.prefab_state[prefab_name] != MeshProcessingState::Unprocessed { return }
+        if self.prefab_state[prefab_name] != MeshProcessingState::Unprocessed {
+            return;
+        }
         let mut prefab_meshes = vec![];
         let mut heights = SmallVec::<[f32; 8]>::new();
         for shape in prefab.shapes.iter() {
@@ -121,26 +130,26 @@ impl BaseMesh {
 
             heights.push(f32::max(
                 shape.height,
-                positions
-                    .iter()
-                    .map(|v| v.y)
-                    .reduce(f32::max)
-                    .unwrap()
+                positions.iter().map(|v| v.y).reduce(f32::max).unwrap(),
             ));
 
-            let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
-                .with_inserted_indices(mesh.indices().unwrap().clone())
-                .with_computed_area_weighted_normals()
-                .with_generated_tangents()
-                .unwrap();
+            let mesh = Mesh::new(
+                PrimitiveTopology::TriangleList,
+                RenderAssetUsages::default(),
+            )
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
+            .with_inserted_indices(mesh.indices().unwrap().clone())
+            .with_computed_area_weighted_normals()
+            .with_generated_tangents()
+            .unwrap();
 
             let handle = meshes.add(mesh);
             prefab_meshes.push(handle);
         }
-        self.prefab_state.insert(prefab_name, MeshProcessingState::Shaped(prefab_meshes));
-        
+        self.prefab_state
+            .insert(prefab_name, MeshProcessingState::Shaped(prefab_meshes));
+
         for i_shape in 0..heights.len() {
             let shape = prefab.shapes.get_mut(i_shape).unwrap();
             shape.height = heights[i_shape];
@@ -156,9 +165,15 @@ impl BaseMesh {
     ) {
         let mesh = meshes.get(&self.mesh_handle).unwrap().clone();
 
-        if !matches!(self.prefab_state[prefab_name], MeshProcessingState::Shaped(_)) { return }
-        let MeshProcessingState::Shaped(shaped_meshes) = &self.prefab_state[prefab_name] 
-            else { unimplemented!("This should not happen") };
+        if !matches!(
+            self.prefab_state[prefab_name],
+            MeshProcessingState::Shaped(_)
+        ) {
+            return;
+        }
+        let MeshProcessingState::Shaped(shaped_meshes) = &self.prefab_state[prefab_name] else {
+            unimplemented!("This should not happen")
+        };
         let mut morphs = vec![];
         let mut morph_names = vec![];
 
@@ -176,10 +191,10 @@ impl BaseMesh {
                 .expect("Base mesh should always have tangents at this point.");
 
             for vtx in 0..base_positions.len() {
-                if (shape_positions[vtx] - base_positions[vtx]).length_squared() > 1e-6 || 
-                   (  shape_normals[vtx] - base_normals[vtx]  ).length_squared() > 1e-6 || 
-                   ( shape_tangents[vtx] - base_tangents[vtx] ).length_squared() > 1e-6 {
-
+                if (shape_positions[vtx] - base_positions[vtx]).length_squared() > 1e-6
+                    || (shape_normals[vtx] - base_normals[vtx]).length_squared() > 1e-6
+                    || (shape_tangents[vtx] - base_tangents[vtx]).length_squared() > 1e-6
+                {
                     morph.push(MorphAttributes::from([
                         shape_positions[vtx] - base_positions[vtx],
                         shape_normals[vtx] - base_normals[vtx],
@@ -192,26 +207,33 @@ impl BaseMesh {
             morphs.push(morph.into_iter());
         }
 
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, get_vertex_positions(&mesh))
-            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
-            .with_inserted_indices(mesh.indices().unwrap().clone())
-            .with_computed_area_weighted_normals()
-            .with_generated_tangents().unwrap();
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, get_vertex_positions(&mesh))
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
+        .with_inserted_indices(mesh.indices().unwrap().clone())
+        .with_computed_area_weighted_normals()
+        .with_generated_tangents()
+        .unwrap();
         fix_normals(&mut mesh, &self.mhid_lookup);
 
         if !morphs.is_empty() {
             let image = MorphTargetImage::new(
-                morphs.into_iter(), base_positions.len(), RenderAssetUsages::default()
-            ).expect("failed to create morph target image");
+                morphs.into_iter(),
+                base_positions.len(),
+                RenderAssetUsages::default(),
+            )
+            .expect("failed to create morph target image");
 
             mesh = mesh
                 .with_morph_targets(images.add(image.0))
                 .with_morph_target_names(morph_names)
         }
 
-        self.prefab_state.insert(prefab_name, MeshProcessingState::Morphed(meshes.add(mesh)));
-        
+        self.prefab_state
+            .insert(prefab_name, MeshProcessingState::Morphed(meshes.add(mesh)));
     }
 
     pub(crate) fn rig_prefab_meshes(
@@ -221,21 +243,28 @@ impl BaseMesh {
         rig_data: &crate::rigs::RigData,
         meshes: &mut Assets<Mesh>,
     ) {
-        if !matches!(self.prefab_state[prefab_name], MeshProcessingState::Morphed(_)) { return }
-        let MeshProcessingState::Morphed(mesh_handle) = &self.prefab_state[prefab_name]
-            else { unimplemented!("This should not happen") };
+        if !matches!(
+            self.prefab_state[prefab_name],
+            MeshProcessingState::Morphed(_)
+        ) {
+            return;
+        }
+        let MeshProcessingState::Morphed(mesh_handle) = &self.prefab_state[prefab_name] else {
+            unimplemented!("This should not happen")
+        };
         let handle = crate::rigs::set_basemesh_rig_arrays(
             meshes.get(mesh_handle).unwrap().clone(),
             &self,
             meshes,
             &prefab.rig.bone_order,
             prefab.rig.rig_type,
-            rig_data
+            rig_data,
         );
-        self.prefab_state.insert(prefab_name, MeshProcessingState::Ready(handle));
+        self.prefab_state
+            .insert(prefab_name, MeshProcessingState::Ready(handle));
     }
 }
-        
+
 // Remove helper vertices to generate body only mesh
 pub(crate) fn create_body_mesh(
     mut base_mesh: ResMut<BaseMesh>,
@@ -244,8 +273,12 @@ pub(crate) fn create_body_mesh(
     helper_handle: Option<Res<HelperMeshHandle>>,
     mut state: ResMut<NextState<HumentityLoadState>>,
 ) {
-    let Some(helper_handle) = helper_handle else { return; };
-    let Some(mesh) = meshes.get_mut(&helper_handle.0) else { return };
+    let Some(helper_handle) = helper_handle else {
+        return;
+    };
+    let Some(mesh) = meshes.get_mut(&helper_handle.0) else {
+        return;
+    };
 
     // Get mesh arrays
     let raw_indices = mesh.indices().expect("FAILED TO LOAD MESH INDICES");
@@ -255,12 +288,7 @@ pub(crate) fn create_body_mesh(
     let mhid_lookup = generate_mhid_lookup(&vertex_map);
 
     // Create mesh without helpers
-    let mesh = generate_mesh_without_helpers(
-        &mhid_lookup,
-        vtx_data,
-        uv_data,
-        raw_indices
-    );
+    let mesh = generate_mesh_without_helpers(&mhid_lookup, vtx_data, uv_data, raw_indices);
 
     let vtx_data = get_vertex_positions(&mesh);
     let vertex_map = generate_vertex_map(&base_mesh.vertices[..BODY_VERTICES as usize], &vtx_data);
@@ -271,7 +299,7 @@ pub(crate) fn create_body_mesh(
 
     commands.remove_resource::<HelperMeshHandle>();
     state.set(HumentityLoadState::BuildingPrefabs)
-} 
+}
 
 fn generate_mesh_without_helpers(
     mhid_lookup: &Vec<u16>,
@@ -309,13 +337,16 @@ fn generate_mesh_without_helpers(
     }
 
     // Create the new mesh
-    let mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-        .with_inserted_indices(Indices::U16(new_indices))
-        .with_computed_area_weighted_normals()
-        .with_generated_tangents()
-        .unwrap();
-    
+    let mesh = Mesh::new(
+        bevy::mesh::PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+    .with_inserted_indices(Indices::U16(new_indices))
+    .with_computed_area_weighted_normals()
+    .with_generated_tangents()
+    .unwrap();
+
     mesh
 }

@@ -2,56 +2,52 @@
 
 mod shared;
 
-use bevy::feathers::FeathersPlugins;
-use bevy::feathers::controls::ButtonProps;
-use bevy::feathers::controls::SliderProps;
 use bevy::feathers::controls::button;
 use bevy::feathers::controls::slider;
+use bevy::feathers::controls::ButtonProps;
+use bevy::feathers::controls::SliderProps;
 use bevy::feathers::dark_theme::create_dark_theme;
 use bevy::feathers::theme::ThemedText;
 use bevy::feathers::theme::UiTheme;
+use bevy::feathers::FeathersPlugins;
 use bevy::prelude::*;
+use bevy::ui_widgets::observe;
+use bevy::ui_widgets::slider_self_update;
 use bevy::ui_widgets::Activate;
 use bevy::ui_widgets::Slider;
 use bevy::ui_widgets::SliderPrecision;
 use bevy::ui_widgets::SliderStep;
 use bevy::ui_widgets::ValueChange;
-use bevy::ui_widgets::observe;
-use bevy::ui_widgets::slider_self_update;
 use humentity::prelude::*;
-use shared::{cam_controls, add_material};
+use shared::{add_material, cam_controls};
 
 const PREFAB: &'static str = "PrefabName";
 const SHAPE_NAME: &'static str = "DefaultShapeName";
 
 fn main() {
     let mut app = App::new();
-    app
-        .add_plugins((
-            // Point to the humentity crate location
-            Humentity {
-                paths: HumentityPathsConfig::from_crate_path("./"),
-                config: HumentityGlobalConfig {
-                    translation_tracks: TranslationTracks::None,
-                    ..default()
-                }
+    app.add_plugins((
+        // Point to the humentity crate location
+        Humentity {
+            paths: HumentityPathsConfig::from_crate_path("./"),
+            config: HumentityGlobalConfig {
+                translation_tracks: TranslationTracks::None,
+                ..default()
             },
-            DefaultPlugins,
-            FeathersPlugins,
-        ))
-        .insert_resource(UiTheme(create_dark_theme()))
-        .add_systems(Startup, setup_env)
-        .add_systems(
-            OnExit(HumentityLoadState::LoadingCoreAssets), 
-            setup_prefab
-        )
-        .add_systems(
-            OnEnter(HumentityLoadState::Ready),
-            move |mut commands: Commands| { add_human(&mut commands) },
-        )
-        .add_systems(Update, (cam_controls, add_material, poll_mesh_handle))
-        .insert_resource(SliderValues::default())
-        .run();
+        },
+        DefaultPlugins,
+        FeathersPlugins,
+    ))
+    .insert_resource(UiTheme(create_dark_theme()))
+    .add_systems(Startup, setup_env)
+    .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefab)
+    .add_systems(
+        OnEnter(HumentityLoadState::Ready),
+        move |mut commands: Commands| add_human(&mut commands),
+    )
+    .add_systems(Update, (cam_controls, add_material, poll_mesh_handle))
+    .insert_resource(SliderValues::default())
+    .run();
 }
 
 // For tracking categories when reacting to button presses
@@ -72,16 +68,17 @@ fn setup_prefab(mut commands: Commands, mh_morphs: Res<MakeHumanMorphs>) {
     morphs.insert("age", 0.5);
     morphs.insert("gender", 1.0);
     morphs.insert("caucasian", 1.0);
-    
+
     let mut prefabs = CharacterArchetypePrefabs::default();
     prefabs.insert(
         PREFAB,
         CharacterArchetypePrefab::new(
-            vec![
-                CharacterShapeArchetype::new(SHAPE_NAME, mh_morphs.compute_target_weights(&morphs)),
-            ],
-            CharacterAnimationArchetype::default(), 
-        )
+            vec![CharacterShapeArchetype::new(
+                SHAPE_NAME,
+                mh_morphs.compute_target_weights(&morphs),
+            )],
+            CharacterAnimationArchetype::default(),
+        ),
     );
 
     commands.insert_resource(prefabs);
@@ -121,8 +118,27 @@ impl SliderValues {
 
     fn categories(&self) -> Vec<&'static str> {
         vec![
-            "macro", "head", "forehead",  "eyes", "eyebrows", "nose", "mouth", "cheek", "chin", "ears", 
-            "neck", "torso", "breast", "stomach", "pelvis", "buttocks", "arms", "hands", "legs", "feet", "asymmetry",
+            "macro",
+            "head",
+            "forehead",
+            "eyes",
+            "eyebrows",
+            "nose",
+            "mouth",
+            "cheek",
+            "chin",
+            "ears",
+            "neck",
+            "torso",
+            "breast",
+            "stomach",
+            "pelvis",
+            "buttocks",
+            "arms",
+            "hands",
+            "legs",
+            "feet",
+            "asymmetry",
         ]
     }
 }
@@ -133,7 +149,9 @@ fn poll_mesh_handle(
     human: Query<(Entity, &Mesh3d), With<CharacterPart>>,
     mut commands: Commands,
 ) {
-    let Ok((entity, human)) = human.single() else { return };
+    let Ok((entity, human)) = human.single() else {
+        return;
+    };
     // CharacterAsset (which you can get from the CharacterAssetRegistry) also has a prefab_state field.
     if let MeshProcessingState::Ready(handle) = &basemesh.prefab_state[PREFAB] {
         if *handle != **human {
@@ -154,8 +172,8 @@ fn on_slider_value_changed(
     // several stages to get to the end result.
     //
     // This is just a simple example.  In a real game you might load several assets, eyes, eyebrows, etc.
-    // Each will need to be re-processesed.  In addition you might play an idle animation in the 
-    // character creation menu.  After reshaping the mesh the skeleton will need to be re-fitted to the 
+    // Each will need to be re-processesed.  In addition you might play an idle animation in the
+    // character creation menu.  After reshaping the mesh the skeleton will need to be re-fitted to the
     // shape of the new mesh.
 
     let metadata = slider_metadata.get(trigger.event().source).unwrap();
@@ -179,7 +197,7 @@ fn on_slider_value_changed(
         prefab_name: PREFAB,
         shape_name: SHAPE_NAME,
         parts: vec![CharacterPart::BaseMesh], // Insert other loaded assets as necessary
-        morphs 
+        morphs,
     });
 }
 
@@ -221,9 +239,7 @@ fn setup_env(
 }
 
 // Spawn the human
-fn add_human(
-    commands: &mut Commands,
-) {
+fn add_human(commands: &mut Commands) {
     let mut morphs = MorphTargets::default();
     morphs.insert(SHAPE_NAME, 1.0);
 
@@ -231,9 +247,7 @@ fn add_human(
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
-        children![(
-            CharacterPart::BaseMesh 
-        )]
+        children![(CharacterPart::BaseMesh)],
     ));
 }
 
@@ -243,8 +257,8 @@ fn init_ui(
     mh_morphs: Res<MakeHumanMorphs>,
     mut sliders: ResMut<SliderValues>,
 ) {
-    let root = commands.spawn(
-        (
+    let root = commands
+        .spawn((
             Node {
                 width: percent(100),
                 height: percent(100),
@@ -252,18 +266,23 @@ fn init_ui(
                 align_items: AlignItems::Start,
                 justify_content: JustifyContent::Start,
                 flex_direction: FlexDirection::Column,
-                overflow: Overflow { x: OverflowAxis::Visible, y: OverflowAxis::Scroll },
+                overflow: Overflow {
+                    x: OverflowAxis::Visible,
+                    y: OverflowAxis::Scroll,
+                },
                 ..default()
             },
             RootNode,
-        )
-    ).id();
-    let top_bar = commands.spawn(Node {
-        width: percent(100),
-        display: Display::Flex,
-        flex_direction: FlexDirection::Row,
-        ..default()
-    }).id();
+        ))
+        .id();
+    let top_bar = commands
+        .spawn(Node {
+            width: percent(100),
+            display: Display::Flex,
+            flex_direction: FlexDirection::Row,
+            ..default()
+        })
+        .id();
     commands.entity(root).add_child(top_bar);
     let morphs = mh_morphs.get_morph_names();
 
@@ -276,19 +295,15 @@ fn init_ui(
             }
         }
 
-        let btn = commands.spawn(
-            (
+        let btn = commands
+            .spawn((
                 ButtonCategory(category),
                 button(
                     ButtonProps::default(),
                     (),
-                    Spawn((
-                        Text::new(category),
-                        ThemedText,
-                    )),
-                )
-            )
-        )
+                    Spawn((Text::new(category), ThemedText)),
+                ),
+            ))
             .observe(category_selected)
             .id();
         commands.entity(top_bar).add_child(btn);
@@ -317,33 +332,34 @@ fn category_selected(
     let root = root.single().unwrap();
     let morphs = slider_values.get(category).unwrap();
     for (&name, morph) in morphs.iter() {
-        let slider = commands.spawn((
-            Node {
-                display: Display::Grid,
-                grid_auto_flow: GridAutoFlow::Column,
-                grid_template_columns: RepeatedGridTrack::flex(2, 1.),
-                width: percent(45),
-                ..default()
-            },
-            children![
-                (
-                    SliderMetadata(category, name),
-                    slider(
-                        SliderProps {
-                            min: min_values[name],
-                            max: 1.0,
-                            value: *morph,
-                            ..default()
-                        },
-                        (SliderStep(0.1), SliderPrecision(2)),
+        let slider = commands
+            .spawn((
+                Node {
+                    display: Display::Grid,
+                    grid_auto_flow: GridAutoFlow::Column,
+                    grid_template_columns: RepeatedGridTrack::flex(2, 1.),
+                    width: percent(45),
+                    ..default()
+                },
+                children![
+                    (
+                        SliderMetadata(category, name),
+                        slider(
+                            SliderProps {
+                                min: min_values[name],
+                                max: 1.0,
+                                value: *morph,
+                                ..default()
+                            },
+                            (SliderStep(0.1), SliderPrecision(2)),
+                        ),
+                        observe(on_slider_value_changed),
+                        observe(slider_self_update)
                     ),
-                    observe(on_slider_value_changed),
-                    observe(slider_self_update)
-                ), (
-                    Text::new(name), ThemedText,
-                )
-            ]
-        )).id();
+                    (Text::new(name), ThemedText,)
+                ],
+            ))
+            .id();
         commands.entity(root).add_child(slider);
     }
 }

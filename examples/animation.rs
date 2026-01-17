@@ -4,17 +4,17 @@
 //! different sized humans, e.g. the baby mesh.  
 
 mod shared;
-use shared::{cam_controls, add_material};
 use ahash::AHashMap;
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*, scene::SceneInstanceReady};
-use humentity::{HumentityGlobalConfig, prelude::*};
+use humentity::{prelude::*, HumentityGlobalConfig};
+use shared::{add_material, cam_controls};
 
 fn main() {
     App::new()
         .add_plugins((
             Humentity {
                 paths: HumentityPathsConfig::from_crate_path("./"),
-                // This will enable translation track rescaling in animation clips. 
+                // This will enable translation track rescaling in animation clips.
                 // This is an animation post-processing system so there is some cost.
                 config: HumentityGlobalConfig {
                     debug_draw_bones: true,
@@ -24,8 +24,15 @@ fn main() {
             DefaultPlugins,
         ))
         .add_systems(Startup, setup_env)
-        .add_systems(Update, (cam_controls, add_material, setup_graph_on_new_human, start_graph)
-            .run_if(in_state(HumentityLoadState::Ready)),
+        .add_systems(
+            Update,
+            (
+                cam_controls,
+                add_material,
+                setup_graph_on_new_human,
+                start_graph,
+            )
+                .run_if(in_state(HumentityLoadState::Ready)),
         )
         .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
         .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
@@ -44,17 +51,17 @@ fn setup_env(
 ) {
     // Spawn idle animation straight from glb
     let (graph, index) = AnimationGraph::from_clip(
-        asset_server.load(GltfAssetLabel::Animation(0).from_asset("animation/idle.glb"))
+        asset_server.load(GltfAssetLabel::Animation(0).from_asset("animation/idle.glb")),
     );
     let graph_handle = graphs.add(graph);
     let animation = TestAnimation(graph_handle, index);
-    commands.spawn((
-        SceneRoot(asset_server.load(
-            GltfAssetLabel::Scene(0).from_asset("animation/idle.glb"),
-        )),
-        animation,
-    )).observe(start_animation_clip_on_imported_glb);
-    
+    commands
+        .spawn((
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("animation/idle.glb"))),
+            animation,
+        ))
+        .observe(start_animation_clip_on_imported_glb);
+
     // circular base
     let mesh = meshes.add(Circle::new(4.0));
     let material = materials.add(Color::WHITE);
@@ -88,21 +95,15 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
-    let baby = CharacterShapeArchetype::new(
-        "baby",
-        morphs.compute_target_weights(&morph_targets),
-    );
+    let baby = CharacterShapeArchetype::new("baby", morphs.compute_target_weights(&morph_targets));
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
         "ExampleHumanPrefab",
         CharacterArchetypePrefab::new(
             vec![baby],
-            CharacterAnimationArchetype::new(
-                RigType::Default,
-                ["assets/animation/idle.glb"]
-            ), 
-        )
+            CharacterAnimationArchetype::new(RigType::Default, ["assets/animation/idle.glb"]),
+        ),
     );
 
     commands.insert_resource(CharacterArchetypePrefabs::new(prefabs));
@@ -115,18 +116,21 @@ fn start_animation_clip_on_imported_glb(
     children: Query<&Children>,
     mut commands: Commands,
 ) {
-    if players.count() == 0 { return }
+    if players.count() == 0 {
+        return;
+    }
     for (e, anim) in animations.iter() {
-        let (e, _) = children.iter_descendants(e)
+        let (e, _) = children
+            .iter_descendants(e)
             .map(|e| players.get(e))
             .filter_map(|r| r.ok())
             .last()
             .unwrap();
         let (e, mut p) = players.get_mut(e).unwrap();
         p.play(anim.1).repeat();
-        commands.entity(e).insert(
-            AnimationGraphHandle(anim.0.clone())
-        );
+        commands
+            .entity(e)
+            .insert(AnimationGraphHandle(anim.0.clone()));
     }
 }
 
@@ -136,9 +140,7 @@ fn add_human(mut commands: Commands) {
     commands.spawn((
         Transform::from_translation(Vec3::new(1., 0., 1.)),
         CharacterShapeConfig::new("ExampleHumanPrefab", morphs),
-        children![(
-            CharacterPart::BaseMesh,
-        )]
+        children![(CharacterPart::BaseMesh,)],
     ));
 }
 

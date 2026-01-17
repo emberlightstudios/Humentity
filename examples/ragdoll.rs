@@ -1,8 +1,8 @@
 mod shared;
+use avian3d::prelude::*;
 use bevy::prelude::*;
 use humentity::prelude::*;
-use avian3d::prelude::*;
-use shared::{setup_env, cam_controls, add_material};
+use shared::{add_material, cam_controls, setup_env};
 
 fn main() {
     App::new()
@@ -12,7 +12,7 @@ fn main() {
                 config: HumentityGlobalConfig {
                     translation_tracks: TranslationTracks::None,
                     ..default()
-                }
+                },
             },
             DefaultPlugins,
             PhysicsPlugins::default(),
@@ -41,17 +41,13 @@ fn floor(mut commands: Commands) {
     ));
 }
 
-fn add_human(
-    mut commands: Commands,
-) {
+fn add_human(mut commands: Commands) {
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0.2, 0.)),
         CharacterShapeConfig::default(),
         InheritedVisibility::default(),
         CharacterRagdoll::new(false),
-        children![(
-            CharacterPart::BaseMesh
-        )],
+        children![(CharacterPart::BaseMesh)],
     ));
 }
 

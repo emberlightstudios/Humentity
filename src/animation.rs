@@ -1,12 +1,26 @@
-use std::{path::{Path, PathBuf}, f32::consts::PI};
-use bevy::{animation::{AnimationTargetId, animated_field}, ecs::intern::Internable, prelude::*};
 use ahash::{AHashMap, AHashSet};
+use bevy::{
+    animation::{animated_field, AnimationTargetId},
+    ecs::intern::Internable,
+    prelude::*,
+};
 use gltf::Skin;
+use std::{
+    f32::consts::PI,
+    path::{Path, PathBuf},
+};
 
-use crate::{HumentityGlobalConfig, prelude::*, rigs::{BoneTranslationData, RigType, RootBone, RootBonePrevious}, spawn::RelatedEntities};
+use crate::{
+    prelude::*,
+    rigs::{BoneTranslationData, RigType, RootBone, RootBonePrevious},
+    spawn::RelatedEntities,
+    HumentityGlobalConfig,
+};
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct CharacterAnimationClips(AHashMap<RigType, AHashMap<&'static str, Handle<AnimationClip>>>);
+pub struct CharacterAnimationClips(
+    AHashMap<RigType, AHashMap<&'static str, Handle<AnimationClip>>>,
+);
 
 /// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
 /// in realtime using data cached on the human config.
@@ -19,18 +33,32 @@ pub(crate) fn rescale_bone_translations(
 ) {
     for (entity, human) in humans {
         let ref_translations = &prefabs[human.prefab].rig.bone_translations;
-        let BoneTranslationData::Full(shape_translations) = &human.bone_translations else { continue };
+        let BoneTranslationData::Full(shape_translations) = &human.bone_translations else {
+            continue;
+        };
         let rotation_deltas = &human.bone_delta_rotations;
 
         for child in children.iter_descendants(entity) {
             let Ok(name) = names.get(child) else { continue };
             let name = name.as_str();
-            let Some(ref_trans) = ref_translations.get(name) else { continue };
+            let Some(ref_trans) = ref_translations.get(name) else {
+                continue;
+            };
             let ref_trans = ref_trans.length();
-            if ref_trans < 1e-3 { continue }
-            let Some(shape_trans) = shape_translations.get(name) else { continue };
-            let Ok(mut transform) = transforms.get_mut(child) else { continue };
-            let rot = if let Some(rot) = rotation_deltas.get(name) { rot } else { &Quat::IDENTITY };
+            if ref_trans < 1e-3 {
+                continue;
+            }
+            let Some(shape_trans) = shape_translations.get(name) else {
+                continue;
+            };
+            let Ok(mut transform) = transforms.get_mut(child) else {
+                continue;
+            };
+            let rot = if let Some(rot) = rotation_deltas.get(name) {
+                rot
+            } else {
+                &Quat::IDENTITY
+            };
             transform.translation = rot * transform.translation * shape_trans.length() / ref_trans;
         }
     }
@@ -45,28 +73,40 @@ pub(crate) fn rescale_root_bone_translation(
 ) {
     for (related, human) in humans {
         let &root_bone = &prefabs[human.prefab].rig.bone_order[0];
-        let BoneTranslationData::Root(shape_trans) = &human.bone_translations else { continue };
+        let BoneTranslationData::Root(shape_trans) = &human.bone_translations else {
+            continue;
+        };
         let ref_trans = &prefabs[human.prefab].rig.bone_translations;
-        let Ok(mut root) = transforms.get_mut(related.root_bone) else { continue };
+        let Ok(mut root) = transforms.get_mut(related.root_bone) else {
+            continue;
+        };
         root.translation = root.translation * shape_trans.length() / ref_trans[root_bone].length();
     }
 }
 
 pub(crate) fn root_motion(
     mut humans: Query<(&RelatedEntities, &RootMotion, &mut Transform), With<CharacterShapeConfig>>,
-    mut root_transforms: Query<(&mut Transform, &mut RootBonePrevious), (With<RootBone>, Without<CharacterShapeConfig>)>,
+    mut root_transforms: Query<
+        (&mut Transform, &mut RootBonePrevious),
+        (With<RootBone>, Without<CharacterShapeConfig>),
+    >,
     players: Query<&AnimationPlayer>,
     time: Res<Time>,
 ) {
     for (related, root_motion, mut human_transform) in humans.iter_mut() {
-        let Ok((mut root_bone_transform, mut previous))
-                = root_transforms.get_mut(related.root_bone) else { continue };
+        let Ok((mut root_bone_transform, mut previous)) =
+            root_transforms.get_mut(related.root_bone)
+        else {
+            continue;
+        };
 
         // Blending between clips causes issues due to different root motion behavior.
-        // I think I would have to track changes at the level of individual clips. 
+        // I think I would have to track changes at the level of individual clips.
         // For now, let's only apply root motion if our animation state isn't changing.
         let mut weights = vec![];
-        let Ok(player) = players.get(related.rig) else { continue };
+        let Ok(player) = players.get(related.rig) else {
+            continue;
+        };
         for (_i, a) in player.playing_animations() {
             weights.push(a.weight());
         }
@@ -111,8 +151,12 @@ pub(crate) fn root_motion(
             // I think it depends on the roll on the root bone. This looks good for default rig.
             let (yaw, pitch, roll) = root_bone_transform.rotation.to_euler(EulerRot::YZX);
             let mut delta_yaw = yaw - previous.yaw;
-            while delta_yaw > PI { delta_yaw -= 2.0 * PI; }
-            while delta_yaw < -PI { delta_yaw += 2.0 * PI; }
+            while delta_yaw > PI {
+                delta_yaw -= 2.0 * PI;
+            }
+            while delta_yaw < -PI {
+                delta_yaw += 2.0 * PI;
+            }
             previous.yaw = yaw;
 
             if !skip && delta_yaw * delta_yaw < 1000. * t2 {
@@ -122,7 +166,6 @@ pub(crate) fn root_motion(
         }
     }
 }
-
 
 pub(crate) fn rebuild_animations(
     prefabs: Res<CharacterArchetypePrefabs>,
@@ -135,7 +178,8 @@ pub(crate) fn rebuild_animations(
         .map(|(_, p)| p.rig.rig_type)
         .collect::<Vec<_>>();
 
-    let mut rig_clips = AHashMap::<RigType, AHashMap<&'static str, Handle<AnimationClip>>>::default();
+    let mut rig_clips =
+        AHashMap::<RigType, AHashMap<&'static str, Handle<AnimationClip>>>::default();
     for rig in rig_types.into_iter() {
         let glbs = prefabs
             .iter()
@@ -162,9 +206,11 @@ pub(crate) fn rebuild_animations(
 
 /// Returns a tuple of HashMaps, one for (model space) rotations, the other for (bone space) translations
 pub(crate) fn get_skeleton_transforms(
-    world: &mut World, rig: RigType
+    world: &mut World,
+    rig: RigType,
 ) -> Result<(AHashMap<&'static str, Quat>, AHashMap<&'static str, Vec3>), BevyError> {
-    let config = world.get_resource::<HumentityPathsConfig>()
+    let config = world
+        .get_resource::<HumentityPathsConfig>()
         .expect("Humentity not loaded");
     let mut path = config.core_assets_path.clone();
     match rig {
@@ -174,8 +220,12 @@ pub(crate) fn get_skeleton_transforms(
         //_ => unimplemented!("Add skeleton glb file for this skeleton")
     }
     let (document, ..) = gltf::import(path)?;
-    if document.skins().len() > 1 { return Err(BevyError::from("More than one skin present in file")) };
-    let Some(skin) = document.skins().next() else { return Err(BevyError::from("No skins available")) };
+    if document.skins().len() > 1 {
+        return Err(BevyError::from("More than one skin present in file"));
+    };
+    let Some(skin) = document.skins().next() else {
+        return Err(BevyError::from("No skins available"));
+    };
     let mut transforms = AHashMap::<&'static str, Transform>::default();
     let mut node_indices = AHashMap::<&'static str, usize>::default();
 
@@ -195,20 +245,23 @@ pub(crate) fn get_skeleton_transforms(
     // Convert to global transforms
     let mut global_transforms = AHashMap::<&'static str, Transform>::default();
     let root = &find_root_joints(&skin);
-    compute_global_transform(root, &transforms, &mut global_transforms, Transform::IDENTITY)?;
+    compute_global_transform(
+        root,
+        &transforms,
+        &mut global_transforms,
+        Transform::IDENTITY,
+    )?;
 
-    Ok(
-        (
-            global_transforms
-                .iter()
-                .map(|(&n, t)| (n, t.rotation))
-                .collect::<AHashMap<&'static str, Quat>>(),
-            transforms
-                .iter()
-                .map(|(&n, t)| (n, t.translation))
-                .collect::<AHashMap<&'static str, Vec3>>()
-        )
-    )
+    Ok((
+        global_transforms
+            .iter()
+            .map(|(&n, t)| (n, t.rotation))
+            .collect::<AHashMap<&'static str, Quat>>(),
+        transforms
+            .iter()
+            .map(|(&n, t)| (n, t.translation))
+            .collect::<AHashMap<&'static str, Vec3>>(),
+    ))
 }
 
 pub(crate) fn get_animation_clips(
@@ -216,8 +269,12 @@ pub(crate) fn get_animation_clips(
     translation_tracks: TranslationTracks,
 ) -> Result<AHashMap<&'static str, AnimationClip>, BevyError> {
     let (document, buffers, _) = gltf::import(path)?;
-    if document.skins().len() > 1 { return Err(BevyError::from("More than one skin present in file")) };
-    let Some(skin) = document.skins().next() else { return Err(BevyError::from("No skins available")) };
+    if document.skins().len() > 1 {
+        return Err(BevyError::from("More than one skin present in file"));
+    };
+    let Some(skin) = document.skins().next() else {
+        return Err(BevyError::from("No skins available"));
+    };
     let mut transforms = AHashMap::<&'static str, Transform>::default();
     let mut node_indices = AHashMap::<&'static str, usize>::default();
 
@@ -237,7 +294,12 @@ pub(crate) fn get_animation_clips(
     // Convert to global transforms
     let mut global_transforms = AHashMap::default();
     let root = &find_root_joints(&skin);
-    compute_global_transform(root, &transforms, &mut global_transforms, Transform::IDENTITY)?;
+    compute_global_transform(
+        root,
+        &transforms,
+        &mut global_transforms,
+        Transform::IDENTITY,
+    )?;
 
     // Get bone paths
     let joint_targets = build_joint_paths(root);
@@ -248,14 +310,16 @@ pub(crate) fn get_animation_clips(
     // Build new clips
     for animation in document.animations() {
         let mut clip = AnimationClip::default();
-        let clip_name = animation.name()
+        let clip_name = animation
+            .name()
             .ok_or(BevyError::from("Animation clip has no name"))?;
 
         for channel in animation.channels() {
             // Get input values (t1, t2, ...)
             let sampler = channel.sampler();
             let input_accessor = sampler.input();
-            let input_view = input_accessor.view()
+            let input_view = input_accessor
+                .view()
                 .ok_or(BevyError::from("Failed to get input_view for animation"))?;
             let buffer = &buffers[input_view.buffer().index()];
 
@@ -267,15 +331,15 @@ pub(crate) fn get_animation_clips(
 
             // Get output values (pos1, pos2, ...) or (quat1, quat2, ...)
             let output_accessor = sampler.output();
-            let output_view = output_accessor.view()
+            let output_view = output_accessor
+                .view()
                 .ok_or(BevyError::from("Missing output view"))?;
             let buffer = &buffers[output_view.buffer().index()];
 
             let target = channel.target();
-            let target_property = target.property(); 
+            let target_property = target.property();
             let target_node = target.node();
-            let target_name = target_node.name()
-                .expect("Failed to match node name");
+            let target_name = target_node.name().expect("Failed to match node name");
             let target_name = Name::new(NAME_INTERNER.intern(target_name).leak());
             let target_id = AnimationTargetId::from_names(joint_targets[&target_name].iter());
 
@@ -283,17 +347,24 @@ pub(crate) fn get_animation_clips(
             let floats_per_element = match target_property {
                 gltf::animation::Property::Translation | gltf::animation::Property::Scale => 3,
                 gltf::animation::Property::Rotation => 4,
-                _ => { continue } // Morph target weights
+                _ => continue, // Morph target weights
             };
-            let end = start + output_accessor.count() * floats_per_element * std::mem::size_of::<f32>();
+            let end =
+                start + output_accessor.count() * floats_per_element * std::mem::size_of::<f32>();
             let values = &buffer[start..end];
             let floats: &[f32] = bytemuck::cast_slice(values);
 
             // Add new curve to new clip
             match target_property {
                 gltf::animation::Property::Translation => {
-                    if matches!(translation_tracks, TranslationTracks::None) { continue };
-                    if matches!(translation_tracks, TranslationTracks::Root) && target_name.as_str() != root.name().unwrap() { continue };
+                    if matches!(translation_tracks, TranslationTracks::None) {
+                        continue;
+                    };
+                    if matches!(translation_tracks, TranslationTracks::Root)
+                        && target_name.as_str() != root.name().unwrap()
+                    {
+                        continue;
+                    };
 
                     let values: Vec<Vec3> = floats
                         .chunks(floats_per_element)
@@ -304,8 +375,8 @@ pub(crate) fn get_animation_clips(
                         AnimatableCurve::new(
                             animated_field!(Transform::translation),
                             AnimatableKeyframeCurve::new(times.into_iter().zip(values.into_iter()))
-                                .expect("Failed to construct curve")
-                        )
+                                .expect("Failed to construct curve"),
+                        ),
                     );
                 }
                 gltf::animation::Property::Scale => {
@@ -318,25 +389,27 @@ pub(crate) fn get_animation_clips(
                         AnimatableCurve::new(
                             animated_field!(Transform::scale),
                             AnimatableKeyframeCurve::new(times.into_iter().zip(values.into_iter()))
-                                .expect("Failed to construct curve")
-                        )
+                                .expect("Failed to construct curve"),
+                        ),
                     );
                 }
                 gltf::animation::Property::Rotation => {
                     let values: Vec<Quat> = floats
                         .chunks(floats_per_element)
-                        .map(|chunk| Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]]).normalize())
+                        .map(|chunk| {
+                            Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]]).normalize()
+                        })
                         .collect();
                     clip.add_curve_to_target(
                         target_id,
                         AnimatableCurve::new(
                             animated_field!(Transform::rotation),
                             AnimatableKeyframeCurve::new(times.into_iter().zip(values.into_iter()))
-                                .expect("Failed to construct curve")
-                        )
+                                .expect("Failed to construct curve"),
+                        ),
                     );
                 }
-                _ => { continue }
+                _ => continue,
             }
         }
         new_clips.insert(NAME_INTERNER.intern(clip_name).leak(), clip);
@@ -353,7 +426,9 @@ fn compute_global_transform(
 ) -> Result<(), BevyError> {
     let name = root.name().ok_or(BevyError::from("No name for bone"))?;
     let name = NAME_INTERNER.intern(name).leak();
-    let local = local_transforms.get(&name).ok_or(BevyError::from("Missing local transform"))?;
+    let local = local_transforms
+        .get(&name)
+        .ok_or(BevyError::from("Missing local transform"))?;
     let global = Transform::from_matrix(parent_global.to_matrix() * local.to_matrix());
     global_transforms.insert(name, global);
 
@@ -370,15 +445,14 @@ pub fn build_joint_paths(root: &gltf::Node) -> AHashMap<Name, Vec<Name>> {
     collect_paths_recursive(root, &mut current_path, &mut paths);
     paths
         .into_iter()
-        .map(|(k, v)|
-            ( 
+        .map(|(k, v)| {
+            (
                 Name::new(NAME_INTERNER.intern(&k).leak()),
-                v
-                    .into_iter()
+                v.into_iter()
                     .map(|n| Name::new(NAME_INTERNER.intern(&n).leak()))
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
             )
-        )
+        })
         .collect::<AHashMap<Name, Vec<Name>>>()
 }
 
@@ -389,15 +463,15 @@ fn collect_paths_recursive(
 ) {
     let name = node.name().unwrap().to_string();
     current_path.push(name.clone());
-    
+
     // Store a clone of the current path for this node
     paths.insert(name, current_path.clone());
-    
+
     // Recurse into children
     for child in node.children() {
         collect_paths_recursive(&child, current_path, paths);
     }
-    
+
     current_path.pop();
 }
 

@@ -1,9 +1,15 @@
+use crate::{
+    animation::get_skeleton_transforms,
+    mesh_ops::MeshProcessingState,
+    morphs::adjust_helpers_to_morphs,
+    prelude::*,
+    rigs::{get_bone_order, RigData},
+};
+use ahash::AHashMap;
 use bevy::prelude::*;
-use crate::{animation::get_skeleton_transforms,mesh_ops::{MeshProcessingState}, morphs::adjust_helpers_to_morphs, prelude::*, rigs::{get_bone_order, RigData}};
-use ahash::{AHashMap};
 
-/// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh 
-/// cached from a given set of MorphTargets.  Archetypes are added as new distinct shapekeys to the base 
+/// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh
+/// cached from a given set of MorphTargets.  Archetypes are added as new distinct shapekeys to the base
 /// mesh, and the rest of the makehuman shapekeys are removed.  Use this for distinct faces or body types.
 /// You can also blend between them, since they are just shapekeys.
 pub struct CharacterShapeArchetype {
@@ -14,7 +20,11 @@ pub struct CharacterShapeArchetype {
 
 impl CharacterShapeArchetype {
     pub fn new(name: &'static str, morphs: MorphTargets) -> Self {
-        Self { name, morphs, height: 0. }
+        Self {
+            name,
+            morphs,
+            height: 0.,
+        }
     }
 
     pub fn get_height(&self) -> f32 {
@@ -40,9 +50,7 @@ impl CharacterAnimationArchetype {
     pub fn new(rig_type: RigType, animation_glbs: impl IntoIterator<Item = &'static str>) -> Self {
         let mut instance = Self::default();
         instance.rig_type = rig_type;
-        instance.animation_glbs = animation_glbs
-            .into_iter()
-            .collect::<Vec<_>>();
+        instance.animation_glbs = animation_glbs.into_iter().collect::<Vec<_>>();
         instance
     }
 }
@@ -56,14 +64,27 @@ pub struct CharacterArchetypePrefab {
 }
 
 impl CharacterArchetypePrefab {
-    pub fn new(shapes: impl IntoIterator<Item = CharacterShapeArchetype>, rig: CharacterAnimationArchetype) -> Self {
-        Self { shapes: shapes.into_iter().collect(), rig }
+    pub fn new(
+        shapes: impl IntoIterator<Item = CharacterShapeArchetype>,
+        rig: CharacterAnimationArchetype,
+    ) -> Self {
+        Self {
+            shapes: shapes.into_iter().collect(),
+            rig,
+        }
     }
 
-    pub(crate) fn get_helpers(&self, morph_values: &MorphTargets, basemesh: &BaseMesh, morph_targets: &MakeHumanMorphs) -> Vec<Vec3> {
+    pub(crate) fn get_helpers(
+        &self,
+        morph_values: &MorphTargets,
+        basemesh: &BaseMesh,
+        morph_targets: &MakeHumanMorphs,
+    ) -> Vec<Vec3> {
         let mut mh_morphs = MorphTargets::default();
         for shape in self.shapes.iter() {
-            let Some(weight) = morph_values.get(&shape.name) else { continue };
+            let Some(weight) = morph_values.get(&shape.name) else {
+                continue;
+            };
             for (&k, v) in shape.morphs.iter() {
                 let entry = mh_morphs.entry(k).or_insert(0.);
                 *entry += *v * weight;
@@ -74,27 +95,33 @@ impl CharacterArchetypePrefab {
 }
 
 /*--------+
- | Events |
- +--------*/
- /// Use this to modify prefab shapes
- /// The systems below will update mesh handles
- #[derive(Event, Clone)]
- pub struct ModifyPrefabShape {
+| Events |
++--------*/
+/// Use this to modify prefab shapes
+/// The systems below will update mesh handles
+#[derive(Event, Clone)]
+pub struct ModifyPrefabShape {
     pub morphs: MorphTargets,
     pub prefab_name: &'static str,
     pub shape_name: &'static str,
     pub parts: Vec<CharacterPart>,
- }
+}
 
 /*-----------+
- | Resources +|
- +-----------*/
+| Resources +|
++-----------*/
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct CharacterArchetypePrefabs(AHashMap<&'static str, CharacterArchetypePrefab>);
 
 impl CharacterArchetypePrefabs {
-    pub fn new(prefabs: impl IntoIterator<Item = (&'static str, CharacterArchetypePrefab)>) -> Self {
-        Self(prefabs.into_iter().collect::<AHashMap<&'static str, CharacterArchetypePrefab>>())
+    pub fn new(
+        prefabs: impl IntoIterator<Item = (&'static str, CharacterArchetypePrefab)>,
+    ) -> Self {
+        Self(
+            prefabs
+                .into_iter()
+                .collect::<AHashMap<&'static str, CharacterArchetypePrefab>>(),
+        )
     }
 
     pub fn basemesh() -> Self {
@@ -106,11 +133,11 @@ impl CharacterArchetypePrefabs {
 
 /// Tracks modified shapes with pending mesh updates
 #[derive(Resource, Deref, DerefMut, Default)]
-pub(crate) struct ArchetypeShapeUpdate(Vec::<ModifyPrefabShape>);
+pub(crate) struct ArchetypeShapeUpdate(Vec<ModifyPrefabShape>);
 
 /*---------+
- | Systems |
- +---------*/
+| Systems |
++---------*/
 /// Monitor pending shape changes in asset meshes
 pub(crate) fn update_asset_shapes(
     mut shape_updates: ResMut<ArchetypeShapeUpdate>,
@@ -135,18 +162,38 @@ pub(crate) fn update_asset_shapes(
         for part in shape_mod.parts.iter() {
             match part {
                 CharacterPart::BaseMesh => {
-                    if basemesh.get_rigged_mesh_handle(prefab_name, prefab, &mut *meshes,
-                            &mut *images, &*rig_data, &*mh_morphs).is_none()
+                    if basemesh
+                        .get_rigged_mesh_handle(
+                            prefab_name,
+                            prefab,
+                            &mut *meshes,
+                            &mut *images,
+                            &*rig_data,
+                            &*mh_morphs,
+                        )
+                        .is_none()
                     {
                         finished = false;
-                    } else {}
-                },
-                CharacterPart::BodyPart(_) |
-                CharacterPart::Equipment(_) |
-                CharacterPart::ProxyMesh(_) => {
+                    } else {
+                    }
+                }
+                CharacterPart::BodyPart(_)
+                | CharacterPart::Equipment(_)
+                | CharacterPart::ProxyMesh(_) => {
                     let asset = assets.assets.get_mut(part).unwrap();
-                    if asset.get_rigged_mesh_handle(&mut *asset_server, prefab_name, prefab, &*rig_data,
-                            &*basemesh, &*mh_morphs, &*paths, &mut *meshes, &mut *images).is_none()
+                    if asset
+                        .get_rigged_mesh_handle(
+                            &mut *asset_server,
+                            prefab_name,
+                            prefab,
+                            &*rig_data,
+                            &*basemesh,
+                            &*mh_morphs,
+                            &*paths,
+                            &mut *meshes,
+                            &mut *images,
+                        )
+                        .is_none()
                     {
                         finished = false;
                     }
@@ -154,7 +201,9 @@ pub(crate) fn update_asset_shapes(
             }
         }
 
-        if finished { done.push(i) }
+        if finished {
+            done.push(i)
+        }
     }
 
     for i in done.iter().rev() {
@@ -174,20 +223,26 @@ pub(crate) fn on_prefab_shape_modified(
     shape_updates: Option<ResMut<ArchetypeShapeUpdate>>,
     mut commands: Commands,
 ) {
-    let ModifyPrefabShape{ morphs, prefab_name, shape_name, parts } = trigger.event();
+    let ModifyPrefabShape {
+        morphs,
+        prefab_name,
+        shape_name,
+        parts,
+    } = trigger.event();
     let prefab_name = *prefab_name;
     let shape_name = *shape_name;
 
-    let Some(prefab) = prefabs.get_mut(prefab_name) 
-        else {
-            error!("No such prefab to modify: {}", prefab_name);
-            return;
-        };
-    let Some(shape_index) = prefab.shapes.iter().position(|s| s.name == shape_name)
-        else {
-            error!("No such shape to modify {} on prefab {}", shape_name, prefab_name);
-            return;
-        };
+    let Some(prefab) = prefabs.get_mut(prefab_name) else {
+        error!("No such prefab to modify: {}", prefab_name);
+        return;
+    };
+    let Some(shape_index) = prefab.shapes.iter().position(|s| s.name == shape_name) else {
+        error!(
+            "No such shape to modify {} on prefab {}",
+            shape_name, prefab_name
+        );
+        return;
+    };
 
     let shape = prefab.shapes.get_mut(shape_index).unwrap();
     shape.morphs = morphs.clone();
@@ -210,40 +265,44 @@ pub(crate) fn on_prefab_shape_modified(
     for part in parts {
         match part {
             CharacterPart::BaseMesh => {
-                basemesh.prefab_state.insert(prefab_name, MeshProcessingState::Unprocessed);
-            },
-            CharacterPart::BodyPart(name) |
-            CharacterPart::Equipment(name) |
-            CharacterPart::ProxyMesh(name) => {
-                let Some(asset) = assets.assets.get_mut(part)
-                    else {
-                        error!("No registered asset called {}", name);
-                        return;
-                    };
+                basemesh
+                    .prefab_state
+                    .insert(prefab_name, MeshProcessingState::Unprocessed);
+            }
+            CharacterPart::BodyPart(name)
+            | CharacterPart::Equipment(name)
+            | CharacterPart::ProxyMesh(name) => {
+                let Some(asset) = assets.assets.get_mut(part) else {
+                    error!("No registered asset called {}", name);
+                    return;
+                };
                 if let Some(ref mut data) = &mut asset.data {
-                    data.prefab_load_state.insert(name, MeshProcessingState::Unprocessed);
+                    data.prefab_load_state
+                        .insert(name, MeshProcessingState::Unprocessed);
                 }
                 // If the asset isn't loaded then it shouldn't have been passed in the message.
                 // I'm not going to force loading now.
             }
         }
     }
-
 }
 
 pub(crate) fn create_human_prefab_rig_scenes(world: &mut World) {
     // Only run if prefab rig scenes are None
-    let prefabs = world.get_resource::<CharacterArchetypePrefabs>()
+    let prefabs = world
+        .get_resource::<CharacterArchetypePrefabs>()
         .expect("No human prefabs resource found");
     for (_, prefab) in prefabs.iter() {
-        if prefab.rig.scene.is_some() { return }
+        if prefab.rig.scene.is_some() {
+            return;
+        }
     }
 
     let prefab_data = prefabs
         .iter()
         .map(|(&n, p)| (n, p.rig.rig_type))
         .collect::<Vec<_>>();
-    
+
     for (name, rig_type) in prefab_data {
         let (bone_rotations, bone_translations) = get_skeleton_transforms(world, rig_type)
             .expect("Failed to get skeleton rotations from glb file");
@@ -252,9 +311,13 @@ pub(crate) fn create_human_prefab_rig_scenes(world: &mut World) {
         let base_mesh = world.get_resource::<BaseMesh>().unwrap();
         let helpers = &base_mesh.vertices.clone();
         let scene = crate::rigs::build_human_rig_scene(
-            &helpers, rig_type, &bone_rotations, &bone_order, world
+            &helpers,
+            rig_type,
+            &bone_rotations,
+            &bone_order,
+            world,
         );
-        
+
         let mut prefabs = world.resource_mut::<CharacterArchetypePrefabs>();
         let prefab = prefabs.get_mut(&name).unwrap();
         prefab.rig.scene = Some(scene);

@@ -1,8 +1,6 @@
+use ahash::AHashSet;
 use bevy::prelude::*;
 use std::path::{Path, PathBuf};
-use ahash::AHashSet;
-
-
 
 /// Metadata about where an asset should be loaded from. Anything that should be
 /// loaded with the AssetServer needs to specify which asset source it resides in,
@@ -17,7 +15,10 @@ pub struct HumentityAssetPath {
 
 impl Default for HumentityAssetPath {
     fn default() -> Self {
-        Self { path: PathBuf::from("."), source_id: None }
+        Self {
+            path: PathBuf::from("."),
+            source_id: None,
+        }
     }
 }
 
@@ -33,25 +34,41 @@ pub struct HumentityAssetSourceId {
 
 impl HumentityAssetSourceId {
     pub fn new(id: &'static str, root_path: impl AsRef<Path>) -> Self {
-        Self { id, root_path: root_path.as_ref().to_path_buf() }
+        Self {
+            id,
+            root_path: root_path.as_ref().to_path_buf(),
+        }
     }
 }
 
 impl HumentityAssetPath {
-    pub fn from_custom_asset_source(path: impl AsRef<Path>, source_id: &HumentityAssetSourceId) -> Self {
-        Self { path: path.as_ref().to_path_buf(), source_id: Some(source_id.clone()) }
+    pub fn from_custom_asset_source(
+        path: impl AsRef<Path>,
+        source_id: &HumentityAssetSourceId,
+    ) -> Self {
+        Self {
+            path: path.as_ref().to_path_buf(),
+            source_id: Some(source_id.clone()),
+        }
     }
 
     pub fn from_default_asset_source(path: impl AsRef<Path>) -> Self {
-        Self { path: path.as_ref().to_path_buf(), source_id: None }
+        Self {
+            path: path.as_ref().to_path_buf(),
+            source_id: None,
+        }
     }
 
     pub fn load_asset<T: Asset>(&self, asset_server: &AssetServer) -> Option<Handle<T>> {
         let prefix = if let Some(ref source_id) = self.source_id {
             &format!("{}://", source_id.id)
-        } else { "" };
+        } else {
+            ""
+        };
         let path = self.path.to_str();
-        if path.is_none() { return None; }
+        if path.is_none() {
+            return None;
+        }
         let path = format!("{prefix}{}", path.unwrap());
         Some(asset_server.load(path))
     }
@@ -81,16 +98,28 @@ impl HumentityPathsConfig {
         let mut equipment_paths = AHashSet::default();
         let mut skin_texture_paths = AHashSet::default();
         let mut target_paths = AHashSet::default();
-        
+
         // The path you give to Source Ids must relative to your working directory.
         let root = path.as_ref().to_path_buf().join("./assets");
         let humentity_source = HumentityAssetSourceId::new("humentity", root.clone());
 
         // These paths are relative to the source folder, provided above.
-        proxymesh_paths.insert(HumentityAssetPath::from_custom_asset_source("./proxymeshes", &humentity_source));
-        body_part_paths.insert(HumentityAssetPath::from_custom_asset_source("./body_parts", &humentity_source));
-        equipment_paths.insert(HumentityAssetPath::from_custom_asset_source("./clothes", &humentity_source));
-        skin_texture_paths.insert(HumentityAssetPath::from_custom_asset_source("./skin_textures", &humentity_source));
+        proxymesh_paths.insert(HumentityAssetPath::from_custom_asset_source(
+            "./proxymeshes",
+            &humentity_source,
+        ));
+        body_part_paths.insert(HumentityAssetPath::from_custom_asset_source(
+            "./body_parts",
+            &humentity_source,
+        ));
+        equipment_paths.insert(HumentityAssetPath::from_custom_asset_source(
+            "./clothes",
+            &humentity_source,
+        ));
+        skin_texture_paths.insert(HumentityAssetPath::from_custom_asset_source(
+            "./skin_textures",
+            &humentity_source,
+        ));
         target_paths.insert(root.join("targets"));
         Self {
             core_assets_path: root,
@@ -98,7 +127,7 @@ impl HumentityPathsConfig {
             body_part_paths,
             equipment_paths,
             skin_texture_paths,
-            target_paths
+            target_paths,
         }
     }
 }
