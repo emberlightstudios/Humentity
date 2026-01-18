@@ -10,7 +10,6 @@ use bevy::{
     prelude::*,
 };
 use serde::Deserialize;
-use serde_json;
 use std::{fs::File, io::BufReader};
 
 use crate::{
@@ -215,7 +214,7 @@ pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static st
         while !parent.is_empty() {
             depth += 1;
             parent = &mh_config
-                .get(NAME_INTERNER.intern(&parent).leak())
+                .get(NAME_INTERNER.intern(parent).leak())
                 .unwrap()
                 .parent;
         }
@@ -223,7 +222,7 @@ pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static st
     }
 
     let mut sorted_bones: Vec<(&'static str, usize)> = depths.into_iter().collect();
-    sorted_bones.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    sorted_bones.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
     sorted_bones
         .into_iter()
         .map(|(name, _)| name)
@@ -316,8 +315,8 @@ pub(crate) fn set_asset_rig_arrays(
     mut mesh: Mesh,
     meshes: &mut Assets<Mesh>,
     rig_data: &RigData,
-    mhid_lookup: &Vec<u16>,
-    helper_map: &Vec<HelperMap>,
+    mhid_lookup: &[u16],
+    helper_map: &[HelperMap],
     rig: &CharacterAnimationArchetype,
 ) -> Handle<Mesh> {
     let weights_res = rig_data
@@ -358,7 +357,7 @@ pub(crate) fn set_asset_rig_arrays(
                 // Triangle.  Have to weight the base vertices
                 let triangle = helper_map.triangle.as_ref().unwrap();
                 for (i, mh_id) in triangle.helper_verts.iter().enumerate() {
-                    let Some(helper_wt) = bone_weights.get(&mh_id) else {
+                    let Some(helper_wt) = bone_weights.get(mh_id) else {
                         continue;
                     };
                     if *helper_wt <= 0.0 {
@@ -429,7 +428,7 @@ pub(crate) fn set_asset_rig_arrays(
 
 /// Spawns bone entities and sets up the hierarchy
 pub(crate) fn build_human_rig_scene(
-    helpers: &Vec<Vec3>,
+    helpers: &[Vec3],
     rig: RigType,
     bone_rotations: &AHashMap<&'static str, Quat>,
     bone_order: &Vec<&'static str>,
@@ -460,7 +459,7 @@ pub(crate) fn build_human_rig_scene(
         let mut bone = &mh_config[&name];
 
         while !bone.parent.is_empty() {
-            let parent = NAME_INTERNER.intern(&bone.parent).leak();
+            let parent = NAME_INTERNER.intern(bone.parent).leak();
             path.push(Name::new(parent));
             bone = &mh_config[&parent];
         }
@@ -479,7 +478,7 @@ pub(crate) fn build_human_rig_scene(
         }
 
         let parent = mh_config[name].parent;
-        if parent != "" {
+        if !parent.is_empty() {
             let parent = bone_entities[parent];
             scene_world.entity_mut(entity).insert(ParentBone(parent));
         }
@@ -518,11 +517,11 @@ pub(crate) fn build_human_rig_scene(
         helpers,
         rig,
         bone_rotations,
-        &vg,
-        &rig_data,
+        vg,
+        rig_data,
     );
     let local_transforms =
-        get_local_skeleton_transforms(bone_order, rig, &rig_data, &global_transforms);
+        get_local_skeleton_transforms(bone_order, rig, rig_data, &global_transforms);
 
     // compute inverse bindposes
     let mut inverse_bindposes = Vec::with_capacity(bone_order.len());
@@ -558,7 +557,7 @@ pub(crate) fn build_human_rig_scene(
 
 pub(crate) fn get_model_space_skeleton_transforms(
     bone_order: &Vec<&'static str>,
-    helpers: &Vec<Vec3>,
+    helpers: &[Vec3],
     rig_type: RigType,
     bone_rotations: &AHashMap<&'static str, Quat>,
     vg: &VertexGroups,
@@ -590,8 +589,8 @@ pub(crate) fn get_local_skeleton_transforms(
 
         let mut bone = &mh_config[name];
         while !bone.parent.is_empty() {
-            parent_names.push(&bone.parent);
-            bone = &mh_config[NAME_INTERNER.intern(&bone.parent).leak()];
+            parent_names.push(bone.parent);
+            bone = &mh_config[NAME_INTERNER.intern(bone.parent).leak()];
         }
 
         // Apply inverse of each parent's local transform
@@ -609,7 +608,7 @@ pub(crate) fn get_bone_transform(
     bone: &BoneData,
     base_rot: Quat,
     vg: &VertexGroups,
-    helpers: &Vec<Vec3>,
+    helpers: &[Vec3],
 ) -> Transform {
     let start = get_bone_position(&bone.head, vg, helpers);
     let end = get_bone_position(&bone.tail, vg, helpers);
@@ -620,7 +619,7 @@ pub(crate) fn get_bone_transform(
     Transform::from_translation(start).with_rotation(correction * base_rot)
 }
 
-fn get_bone_position(bone: &BoneTransform, vg: &VertexGroups, helpers: &Vec<Vec3>) -> Vec3 {
+fn get_bone_position(bone: &BoneTransform, vg: &VertexGroups, helpers: &[Vec3]) -> Vec3 {
     let v1: u16;
     let v2: u16;
     if bone.strategy == "MEAN" {

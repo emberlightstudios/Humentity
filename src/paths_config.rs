@@ -66,9 +66,7 @@ impl HumentityAssetPath {
             ""
         };
         let path = self.path.to_str();
-        if path.is_none() {
-            return None;
-        }
+        path?;
         let path = format!("{prefix}{}", path.unwrap());
         Some(asset_server.load(path))
     }

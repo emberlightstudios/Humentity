@@ -48,10 +48,11 @@ pub struct CharacterAnimationArchetype {
 
 impl CharacterAnimationArchetype {
     pub fn new(rig_type: RigType, animation_glbs: impl IntoIterator<Item = &'static str>) -> Self {
-        let mut instance = Self::default();
-        instance.rig_type = rig_type;
-        instance.animation_glbs = animation_glbs.into_iter().collect::<Vec<_>>();
-        instance
+        Self {
+            animation_glbs: animation_glbs.into_iter().collect::<Vec<_>>(),
+            rig_type,
+            ..Default::default()
+        }
     }
 }
 
@@ -166,16 +167,15 @@ pub(crate) fn update_asset_shapes(
                         .get_rigged_mesh_handle(
                             prefab_name,
                             prefab,
-                            &mut *meshes,
-                            &mut *images,
-                            &*rig_data,
-                            &*mh_morphs,
+                            &mut meshes,
+                            &mut images,
+                            &rig_data,
+                            &mh_morphs,
                         )
                         .is_none()
                     {
                         finished = false;
-                    } else {
-                    }
+                    } 
                 }
                 CharacterPart::BodyPart(_)
                 | CharacterPart::Equipment(_)
@@ -183,15 +183,15 @@ pub(crate) fn update_asset_shapes(
                     let asset = assets.assets.get_mut(part).unwrap();
                     if asset
                         .get_rigged_mesh_handle(
-                            &mut *asset_server,
+                            &mut asset_server,
                             prefab_name,
                             prefab,
-                            &*rig_data,
-                            &*basemesh,
-                            &*mh_morphs,
-                            &*paths,
-                            &mut *meshes,
-                            &mut *images,
+                            &rig_data,
+                            &basemesh,
+                            &mh_morphs,
+                            &paths,
+                            &mut meshes,
+                            &mut images,
                         )
                         .is_none()
                     {
@@ -311,7 +311,7 @@ pub(crate) fn create_human_prefab_rig_scenes(world: &mut World) {
         let base_mesh = world.get_resource::<BaseMesh>().unwrap();
         let helpers = &base_mesh.vertices.clone();
         let scene = crate::rigs::build_human_rig_scene(
-            &helpers,
+            helpers,
             rig_type,
             &bone_rotations,
             &bone_order,

@@ -21,6 +21,7 @@ const LOWER_ARM_VERTICES: [usize; 4] = [3412, 3877, 3552, 3906];
 const HAND_VERTICES: [usize; 6] = [2776, 3189, 2119, 3909, 3247, 3650];
 const FOOT_VERTICES: [usize; 6] = [6251, 6705, 4972, 5845, 6214, 6298];
 
+#[allow(clippy::type_complexity)]
 pub(crate) fn control_ragdoll(
     mut commands: Commands,
     ragdolls: Query<
@@ -90,7 +91,7 @@ impl CharacterRagdoll {
     pub(crate) fn spawn_ragdoll(
         &mut self,
         commands: &mut Commands,
-        helpers: &Vec<Vec3>,
+        helpers: &[Vec3],
         rig_type: RigType,
         bone_entities: &AHashMap<&'static str, Entity>,
         global_transforms: &Query<&GlobalTransform>,
@@ -98,7 +99,7 @@ impl CharacterRagdoll {
         rig_entity: Entity,
     ) {
         let config = &rig_data.configs[&rig_type];
-        let rig_transform = Transform::from(global_transforms.get(rig_entity).unwrap().clone());
+        let rig_transform = Transform::from(*global_transforms.get(rig_entity).unwrap());
 
         let (collider, transform) = self.get_head_collider(helpers);
         let name = self.get_head_bone_name(rig_type);
@@ -257,7 +258,7 @@ impl CharacterRagdoll {
         let (collider, transform) = self.get_extremity_collider(helpers, RagdollBone::LeftHand);
         let name = self.get_left_hand_name(rig_type);
         let &bone = bone_entities.get(name).unwrap();
-        let transform = Transform::from(global_transforms.get(bone).unwrap().clone()) * transform;
+        let transform = Transform::from(*global_transforms.get(bone).unwrap()) * transform;
         self.insert_collider(
             collider,
             transform,
@@ -273,7 +274,7 @@ impl CharacterRagdoll {
         let (collider, transform) = self.get_extremity_collider(helpers, RagdollBone::RightHand);
         let name = self.get_right_hand_name(rig_type);
         let &bone = bone_entities.get(name).unwrap();
-        let transform = Transform::from(global_transforms.get(bone).unwrap().clone()) * transform;
+        let transform = Transform::from(*global_transforms.get(bone).unwrap()) * transform;
         self.insert_collider(
             collider,
             transform,
@@ -289,7 +290,7 @@ impl CharacterRagdoll {
         let (collider, transform) = self.get_extremity_collider(helpers, RagdollBone::LeftFoot);
         let name = self.get_left_foot_name(rig_type);
         let &bone = bone_entities.get(name).unwrap();
-        let transform = Transform::from(global_transforms.get(bone).unwrap().clone()) * transform;
+        let transform = Transform::from(*global_transforms.get(bone).unwrap()) * transform;
         self.insert_collider(
             collider,
             transform,
@@ -305,7 +306,7 @@ impl CharacterRagdoll {
         let (collider, transform) = self.get_extremity_collider(helpers, RagdollBone::RightFoot);
         let name = self.get_right_foot_name(rig_type);
         let &bone = bone_entities.get(name).unwrap();
-        let transform = Transform::from(global_transforms.get(bone).unwrap().clone()) * transform;
+        let transform = Transform::from(*global_transforms.get(bone).unwrap()) * transform;
         self.insert_collider(
             collider,
             transform,
@@ -334,7 +335,7 @@ impl CharacterRagdoll {
                 .spawn((
                     SphericalJoint::new(head, torso),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Neck Joint"),
                 ))
                 .id(),
@@ -346,7 +347,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(hips, torso),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Spine Joint"),
                 ))
                 .id(),
@@ -358,7 +359,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(hips, upper_leg),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Left Hip Joint"),
                 ))
                 .id(),
@@ -370,7 +371,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(lower_leg, upper_leg),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Left Knee Joint"),
                 ))
                 .id(),
@@ -382,7 +383,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(lower_leg, foot),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Left Ankle Joint"),
                 ))
                 .id(),
@@ -394,7 +395,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(hips, upper_leg),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Right Hip Joint"),
                 ))
                 .id(),
@@ -406,7 +407,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(lower_leg, upper_leg),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Right Knee Joint"),
                 ))
                 .id(),
@@ -418,7 +419,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(lower_leg, foot),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Right Ankle Joint"),
                 ))
                 .id(),
@@ -430,7 +431,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(torso, upper_arm),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Left Shoulder Joint"),
                 ))
                 .id(),
@@ -442,7 +443,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(lower_arm, upper_arm),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Left Elbow Joint"),
                 ))
                 .id(),
@@ -454,7 +455,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(lower_arm, hand),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Left Wrist Joint"),
                 ))
                 .id(),
@@ -466,7 +467,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(torso, upper_arm),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Right Shoulder Joint"),
                 ))
                 .id(),
@@ -478,7 +479,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(lower_arm, upper_arm),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Right Elbow Joint"),
                 ))
                 .id(),
@@ -490,7 +491,7 @@ impl CharacterRagdoll {
                 .spawn((
                     FixedJoint::new(lower_arm, hand),
                     JointCollisionDisabled,
-                    damping.clone(),
+                    damping,
                     Name::new("Right Wrist Joint"),
                 ))
                 .id(),
@@ -534,7 +535,7 @@ impl CharacterRagdoll {
         self.rigidbodies.insert(ragdoll_bone, rb);
     }
 
-    fn get_head_collider(&self, helpers: &Vec<Vec3>) -> (Collider, Transform) {
+    fn get_head_collider(&self, helpers: &[Vec3]) -> (Collider, Transform) {
         let center = (helpers[HEAD_VERTICES[0]] + helpers[HEAD_VERTICES[1]]) * 0.5;
         let radius = (helpers[HEAD_VERTICES[0]] - center).length();
         (
@@ -545,7 +546,7 @@ impl CharacterRagdoll {
 
     fn get_midsection_collider(
         &self,
-        helpers: &Vec<Vec3>,
+        helpers: &[Vec3],
         joint: RagdollBone,
     ) -> (Collider, Transform) {
         let ref_verts = match joint {
@@ -597,7 +598,7 @@ impl CharacterRagdoll {
         )
     }
 
-    fn get_limb_collider(&self, helpers: &Vec<Vec3>, joint: RagdollBone) -> (Collider, Transform) {
+    fn get_limb_collider(&self, helpers: &[Vec3], joint: RagdollBone) -> (Collider, Transform) {
         let ref_verts = match joint {
             RagdollBone::LowerLeftArm | RagdollBone::LowerRightArm => LOWER_ARM_VERTICES,
             RagdollBone::UpperLeftArm | RagdollBone::UpperRightArm => UPPER_ARM_VERTICES,
@@ -626,7 +627,7 @@ impl CharacterRagdoll {
 
     fn get_extremity_collider(
         &self,
-        helpers: &Vec<Vec3>,
+        helpers: &[Vec3],
         joint: RagdollBone,
     ) -> (Collider, Transform) {
         let ref_verts = match joint {
@@ -654,105 +655,105 @@ impl CharacterRagdoll {
 
     pub(crate) fn get_head_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "head",
+            RigType::Default => "head",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_torso_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "spine03",
+            RigType::Default => "spine03",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_pelvis_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "root",
+            RigType::Default => "root",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_upper_left_arm_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "upperarm01.L",
+            RigType::Default => "upperarm01.L",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_upper_right_arm_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "upperarm01.R",
+            RigType::Default => "upperarm01.R",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_lower_left_arm_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "lowerarm01.L",
+            RigType::Default => "lowerarm01.L",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_lower_right_arm_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "lowerarm01.R",
+            RigType::Default => "lowerarm01.R",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_upper_left_leg_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "upperleg01.L",
+            RigType::Default => "upperleg01.L",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_upper_right_leg_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "upperleg01.R",
+            RigType::Default => "upperleg01.R",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_lower_left_leg_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "lowerleg01.L",
+            RigType::Default => "lowerleg01.L",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_lower_right_leg_bone_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "lowerleg01.R",
+            RigType::Default => "lowerleg01.R",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_left_hand_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "metacarpal2.L",
+            RigType::Default => "metacarpal2.L",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_right_hand_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "metacarpal2.R",
+            RigType::Default => "metacarpal2.R",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_left_foot_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "foot.L",
+            RigType::Default => "foot.L",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }
 
     pub(crate) fn get_right_foot_name(&self, rig_type: RigType) -> &'static str {
         match rig_type {
-            RigType::Default => return "foot.R",
+            RigType::Default => "foot.R",
             _ => unimplemented!("need more bone mappings set up"),
         }
     }

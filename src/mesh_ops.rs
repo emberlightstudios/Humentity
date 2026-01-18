@@ -30,7 +30,7 @@ pub type PrefabLoadState = AHashMap<&'static str, MeshProcessingState>;
 
 pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     let path = filename.as_ref();
-    let file = File::open(path).expect(&format!("Couldn't open file {:?}", path));
+    let file = File::open(path).unwrap_or_else(|_| panic!("Couldn't open file {:?}", path));
     let mut vertices = Vec::<Vec3>::new();
     for line_result in BufReader::new(file).lines() {
         let Ok(line) = line_result else { break };
@@ -110,6 +110,10 @@ pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
 
     // 1) Build groups by MH index
     let mut groups: AHashMap<u16, Vec<usize>> = AHashMap::default();
+
+    #[allow(clippy::needless_range_loop)]
+    // Index-based loop is intentional: Bevy vertex indices do not
+    // match OBJ vertex indices; mhid_lookup maps between spaces.
     for bevy_idx in 0..normals.len() {
         groups
             .entry(mhid_lookup[bevy_idx])
@@ -125,13 +129,13 @@ pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
 
         let mut sum = Vec3::ZERO;
         for &i in group {
-            sum += normals[i as usize];
+            sum += normals[i];
         }
         let avg = sum.normalize_or_zero();
 
         // 3) Assign the same normal to all duplicates
         for &i in group {
-            normals[i as usize] = avg;
+            normals[i] = avg;
         }
     }
 

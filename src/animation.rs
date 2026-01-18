@@ -84,6 +84,7 @@ pub(crate) fn rescale_root_bone_translation(
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub(crate) fn root_motion(
     mut humans: Query<(&RelatedEntities, &RootMotion, &mut Transform), With<CharacterShapeConfig>>,
     mut root_transforms: Query<
@@ -173,9 +174,7 @@ pub(crate) fn rebuild_animations(
     mut commands: Commands,
     config: Res<HumentityGlobalConfig>,
 ) {
-    let rig_types = prefabs
-        .iter()
-        .map(|(_, p)| p.rig.rig_type)
+    let rig_types = prefabs.values().map(|p| p.rig.rig_type)
         .collect::<Vec<_>>();
 
     let mut rig_clips =
@@ -184,7 +183,7 @@ pub(crate) fn rebuild_animations(
         let glbs = prefabs
             .iter()
             .filter(|(_, p)| p.rig.rig_type == rig)
-            .flat_map(|(_, &ref p)| p.rig.animation_glbs.iter())
+            .flat_map(|(_, p)| p.rig.animation_glbs.iter())
             .collect::<Vec<_>>();
 
         let mut clip_handles = AHashMap::<&'static str, Handle<AnimationClip>>::new();
@@ -204,11 +203,13 @@ pub(crate) fn rebuild_animations(
     commands.set_state(HumentityLoadState::Ready);
 }
 
+pub type SkeletonTransforms = (AHashMap<&'static str, Quat>, AHashMap<&'static str, Vec3>);
+
 /// Returns a tuple of HashMaps, one for (model space) rotations, the other for (bone space) translations
 pub(crate) fn get_skeleton_transforms(
     world: &mut World,
     rig: RigType,
-) -> Result<(AHashMap<&'static str, Quat>, AHashMap<&'static str, Vec3>), BevyError> {
+) -> Result<SkeletonTransforms, BevyError> {
     let config = world
         .get_resource::<HumentityPathsConfig>()
         .expect("Humentity not loaded");
@@ -326,8 +327,7 @@ pub(crate) fn get_animation_clips(
             let start = input_accessor.offset() + input_view.offset();
             let end = start + input_accessor.count() * std::mem::size_of::<f32>();
             let data = &buffer[start..end];
-            let times: &[f32] = bytemuck::cast_slice(data);
-            let times = times.iter().map(|x| *x).collect::<Vec<_>>();
+            let times: Vec<f32> = bytemuck::cast_slice(data).to_vec();
 
             // Get output values (pos1, pos2, ...) or (quat1, quat2, ...)
             let output_accessor = sampler.output();
@@ -495,6 +495,6 @@ fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
     joints
         .into_iter()
         .filter(|j| !seen_as_child.contains(&j.index()))
-        .last()
+        .next_back()
         .expect("Unable to find root node")
 }

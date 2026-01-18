@@ -94,6 +94,7 @@ pub(crate) fn spawn_rig_scene(
     })
 }
 
+#[allow(clippy::type_complexity)]
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
     prefabs: Res<CharacterArchetypePrefabs>,
@@ -154,14 +155,14 @@ pub(crate) fn fit_skeleton_to_shape(
         let skinned_mesh = skinned_mesh.unwrap();
 
         // Re-fit skeleton to mesh shape
-        let helpers = prefab.get_helpers(&config.prefab_morph_targets, &*basemesh, &*morph_targets);
+        let helpers = prefab.get_helpers(&config.prefab_morph_targets, &basemesh, &morph_targets);
         let mut global_bone_transforms = get_model_space_skeleton_transforms(
             &prefab.rig.bone_order,
             &helpers,
             prefab.rig.rig_type,
             &bone_rotations,
-            &*vg,
-            &*rig_data,
+            &vg,
+            &rig_data,
         );
         let mut local_bone_transforms = AHashMap::default();
 
@@ -228,7 +229,7 @@ pub(crate) fn fit_skeleton_to_shape(
                 let mut bone_rotation_deltas: AHashMap<&'static str, Quat> = AHashMap::default();
                 for &name in prefab.rig.bone_order.iter() {
                     let bone_data = bone_config.get(name).unwrap();
-                    if bone_data.parent == "" {
+                    if bone_data.parent.is_empty() {
                         continue;
                     };
                     let ref_bone = global_transforms.get(bone_entities[name]).unwrap();
@@ -325,7 +326,7 @@ pub(crate) fn fit_skeleton_to_shape(
                 prefab.rig.rig_type,
                 &bone_entities,
                 &global_transforms,
-                &*rig_data,
+                &rig_data,
                 rig_entity,
             );
         }
@@ -368,10 +369,10 @@ pub(crate) fn setup_human_parts(
                 if let Some(handle) = basemesh.get_rigged_mesh_handle(
                     prefab_name,
                     prefab,
-                    &mut *meshes,
-                    &mut *images,
-                    &*rig_data,
-                    &*mh_morphs,
+                    &mut meshes,
+                    &mut images,
+                    &rig_data,
+                    &mh_morphs,
                 ) {
                     commands
                         .entity(entity)
@@ -391,15 +392,15 @@ pub(crate) fn setup_human_parts(
                     continue;
                 };
                 if let Some(handle) = asset.get_rigged_mesh_handle(
-                    &mut *asset_server,
+                    &mut asset_server,
                     prefab_name,
                     prefab,
-                    &*rig_data,
-                    &*basemesh,
-                    &*mh_morphs,
-                    &*paths,
-                    &mut *meshes,
-                    &mut *images,
+                    &rig_data,
+                    &basemesh,
+                    &mh_morphs,
+                    &paths,
+                    &mut meshes,
+                    &mut images,
                 ) {
                     commands
                         .entity(entity)
