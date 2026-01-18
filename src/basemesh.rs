@@ -152,7 +152,7 @@ impl BaseMesh {
             .insert(prefab_name, MeshProcessingState::Shaped(prefab_meshes));
 
         for i_shape in 0..heights.len() {
-            let shape = prefab.shapes.get_mut(i_shape).unwrap();
+            let shape = &mut prefab.shapes[i_shape];
             shape.height = heights[i_shape];
         }
     }

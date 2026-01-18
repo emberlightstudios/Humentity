@@ -164,7 +164,6 @@ impl MakeHumanMorphs {
                 .macrotargets
                 .keys()
                 .map(|n| NAME_INTERNER.intern(n).leak())
-                .collect::<Vec<&'static str>>(),
         );
         sliders.insert("macro", macro_sliders);
         sliders.extend(self.composite_categories.clone());

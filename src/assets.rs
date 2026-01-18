@@ -58,7 +58,7 @@ pub struct CharacterAsset {
 }
 
 impl CharacterAsset {
-    pub fn get_name(&self) -> &'static str {
+    pub const fn get_name(&self) -> &'static str {
         match self.part {
             CharacterPart::BaseMesh => "basemesh",
             CharacterPart::ProxyMesh(name)
@@ -68,7 +68,7 @@ impl CharacterAsset {
     }
 
     /// Check if the data is defined
-    pub fn is_loaded(&self) -> bool {
+    pub const fn is_loaded(&self) -> bool {
         self.data.is_some()
     }
 
@@ -90,7 +90,7 @@ impl CharacterAsset {
         if self.data.is_none() {
             self.load_asset_if_unloaded(asset_server);
         }
-        let data = self.data.as_mut().unwrap();
+        let data = self.data.as_mut()?;
         Some(data.base_mesh_handle.clone())
     }
 
@@ -111,7 +111,7 @@ impl CharacterAsset {
             self.load_asset_if_unloaded(asset_server);
             return None;
         }
-        let data = self.data.as_mut().unwrap();
+        let data = self.data.as_mut()?;
         data.get_rigged_mesh_handle(
             prefab_name,
             prefab,
@@ -247,7 +247,7 @@ impl CharacterAssetData {
         match &self.prefab_load_state[prefab_name] {
             MeshProcessingState::Ready(handle) => Some(handle.clone()),
             MeshProcessingState::Morphed(handle) => {
-                let mesh = meshes.get(handle).unwrap().clone();
+                let mesh = meshes.get(handle)?.clone();
                 let handle = set_asset_rig_arrays(
                     mesh,
                     meshes,
@@ -276,25 +276,24 @@ impl CharacterAssetData {
                     handles.push(handle);
                     shape.height = f32::max(
                         shape.height,
-                        helpers.iter().map(|v| v.y).reduce(f32::max).unwrap(),
+                        helpers.iter().map(|v| v.y).reduce(f32::max)?
                     );
                 }
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Shaped(handles));
 
-                let asset_base_mesh = meshes.get(&self.base_mesh_handle).unwrap();
+                let asset_base_mesh = meshes.get(&self.base_mesh_handle)?;
                 self.base_mesh_handle = meshes.add(
                     asset_base_mesh
                         .clone()
                         .with_computed_area_weighted_normals()
-                        .with_generated_tangents()
-                        .unwrap(),
+                        .with_generated_tangents().ok()?
                 );
 
                 None
             }
             MeshProcessingState::Shaped(shaped_meshes) => {
-                let asset_base_mesh = meshes.get(&self.base_mesh_handle).unwrap();
+                let asset_base_mesh = meshes.get(&self.base_mesh_handle)?;
                 let base_positions = get_vertex_positions(asset_base_mesh);
                 let base_normals = get_vertex_normals(asset_base_mesh);
                 let Ok(base_tangents) = get_vertex_tangents(asset_base_mesh) else {
@@ -305,7 +304,7 @@ impl CharacterAssetData {
 
                 for (is, shape) in prefab.shapes.iter().enumerate() {
                     let mut morph = Vec::<MorphAttributes>::new();
-                    let shape_mesh = meshes.get(&shaped_meshes[is]).unwrap();
+                    let shape_mesh = meshes.get(&shaped_meshes[is])?;
                     let shape_positions = get_vertex_positions(shape_mesh);
                     let shape_normals = get_vertex_normals(shape_mesh);
                     let shape_tangents = get_vertex_tangents(shape_mesh)
@@ -344,12 +343,11 @@ impl CharacterAssetData {
                     get_vertex_positions(asset_base_mesh),
                 )
                 .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(asset_base_mesh))
-                .with_inserted_indices(asset_base_mesh.indices().unwrap().clone())
+                .with_inserted_indices(asset_base_mesh.indices()?.clone())
                 .with_computed_area_weighted_normals()
                 .with_morph_targets(images.add(image.0))
                 .with_morph_target_names(morph_names)
-                .with_generated_tangents()
-                .unwrap();
+                .with_generated_tangents().ok()?;
 
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Morphed(meshes.add(mesh)));

@@ -19,7 +19,7 @@ pub struct CharacterShapeArchetype {
 }
 
 impl CharacterShapeArchetype {
-    pub fn new(name: &'static str, morphs: MorphTargets) -> Self {
+    pub const fn new(name: &'static str, morphs: MorphTargets) -> Self {
         Self {
             name,
             morphs,
@@ -27,7 +27,7 @@ impl CharacterShapeArchetype {
         }
     }
 
-    pub fn get_height(&self) -> f32 {
+    pub const fn get_height(&self) -> f32 {
         self.height
     }
 }
@@ -244,7 +244,7 @@ pub(crate) fn on_prefab_shape_modified(
         return;
     };
 
-    let shape = prefab.shapes.get_mut(shape_index).unwrap();
+    let shape = &mut prefab.shapes[shape_index];
     shape.morphs = morphs.clone();
 
     if let Some(mut shape_updates) = shape_updates {
