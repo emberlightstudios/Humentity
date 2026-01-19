@@ -26,7 +26,7 @@ pub mod prelude {
         animation::CharacterAnimationClips,
         assets::{CharacterAsset, CharacterAssetRegistry, CharacterBodyTextures, CharacterPart},
         basemesh::BaseMesh,
-        material::{CharacterMaterialExtension, CharacterMaterialExtensionData},
+        material::{CharacterMaterialExtension},//, CharacterMaterialExtensionData},
         mesh_ops::{CharacterAssetMeshReady, MeshProcessingState},
         morphs::{MakeHumanMorphs, MorphTargets},
         paths_config::HumentityPathsConfig,
@@ -116,17 +116,19 @@ impl Plugin for Humentity {
                 Update,
                 (
                     // PHASE 1 : LOADING CORE ASSETS
-                    (basemesh::create_body_mesh
-                        .run_if(resource_exists::<basemesh::HelperMeshHandle>),)
+                    basemesh::create_body_mesh
+                        .run_if(resource_exists::<basemesh::HelperMeshHandle>)
                         .run_if(in_state(HumentityLoadState::LoadingCoreAssets)),
+
                     // PHASE 2 : BUILDING ARCHETYPE PREFABS
-                    ((prefab::create_human_prefab_rig_scenes,).chain().run_if(
-                        resource_exists::<CharacterArchetypePrefabs>
-                            .and(in_state(HumentityLoadState::BuildingPrefabs)),
-                    ),),
+                    prefab::create_human_prefab_rig_scenes
+                        .run_if(resource_exists::<CharacterArchetypePrefabs>)
+                        .run_if(in_state(HumentityLoadState::BuildingPrefabs)),
+
                     // PHASE 3 : REBUILDING ANIMATION CLIPS
                     animation::rebuild_animations
                         .run_if(in_state(HumentityLoadState::AnimationProcessing)),
+
                     // PHASE 4 : READY TO BUILD HUMANS
                     (
                         spawn::spawn_rig_scene,
@@ -136,11 +138,9 @@ impl Plugin for Humentity {
                         prefab::update_asset_shapes.run_if(resource_exists::<ArchetypeShapeUpdate>),
                     )
                         .chain()
-                        .run_if(
-                            in_state(HumentityLoadState::Ready)
-                                .and(resource_exists::<CharacterAssetRegistry>),
-                        ),
-                ),
+                        .run_if(in_state(HumentityLoadState::Ready))
+                        .run_if(resource_exists::<CharacterAssetRegistry>),
+                )
             );
 
         if self.config.debug_draw_bones {
