@@ -41,6 +41,7 @@ pub struct ParentBone(#[entities] pub Entity);
 
 /// Adds root motion to XZ-components on translation.  I would add Y but the default rig has a
 /// root bone at the hips.  If animation translation tracks are not enabled this will have no effect.
+/// This is still experimental and will probably remain broken until official support arrives in Bevy.
 #[derive(Component, Default)]
 pub struct RootMotion {
     /// I wouldn't use this unless your root bone is at the ground
