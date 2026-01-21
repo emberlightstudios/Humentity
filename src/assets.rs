@@ -1,13 +1,11 @@
 use crate::{
     mesh_ops::{
-        generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals,
-        get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState,
-        PrefabLoadState,
+        MeshProcessingState, PrefabLoadState, fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, 
     },
     morphs::adjust_helpers_to_morphs,
     paths_config::{HumentityAssetPath, HumentityAssetSourceId},
     prelude::*,
-    rigs::{set_asset_rig_arrays, RigData},
+    rigs::{RigData, set_asset_rig_arrays},
 };
 use ::bevy::{
     asset::RenderAssetUsages,
@@ -248,14 +246,15 @@ impl CharacterAssetData {
             MeshProcessingState::Ready(handle) => Some(handle.clone()),
             MeshProcessingState::Morphed(handle) => {
                 let mesh = meshes.get(handle)?.clone();
-                let handle = set_asset_rig_arrays(
+                let mut mesh = set_asset_rig_arrays(
                     mesh,
-                    meshes,
                     rig_data,
                     &self.mhid_lookup,
                     &self.helper_map,
                     &prefab.rig,
                 );
+                fix_normals(&mut mesh, &self.mhid_lookup);
+                let handle = meshes.add(mesh);
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Ready(handle.clone()));
                 Some(handle)

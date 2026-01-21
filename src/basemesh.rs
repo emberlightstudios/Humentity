@@ -12,9 +12,7 @@ use smallvec::SmallVec;
 use std::{fs::File, io::BufReader};
 
 use crate::mesh_ops::{
-    fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals,
-    get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState,
-    PrefabLoadState,
+    MeshProcessingState, PrefabLoadState, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, fix_normals,
 };
 use crate::prelude::*;
 
@@ -49,8 +47,9 @@ impl FromWorld for BaseMesh {
             .get_resource::<HumentityPathsConfig>()
             .expect("NO CONFIG LOADED");
         let path = config.core_assets_path.clone();
+        info!("{}", path.exists());
         if !path.join("base.obj").exists() {
-            panic!("base.obj not found.  Did you provide the correct path to the Humentity crate?")
+            panic!("Path {path:#?} not valid. base.obj not found.  Did you provide the correct path to the Humentity crate?")
         }
         // Get mh vertices from base mesh and helper files
         let mh_vertices = parse_obj_vertices(path.join("base.obj"));
@@ -253,16 +252,15 @@ impl BaseMesh {
         let MeshProcessingState::Morphed(mesh_handle) = &self.prefab_state[prefab_name] else {
             unimplemented!("This should not happen")
         };
-        let handle = crate::rigs::set_basemesh_rig_arrays(
+        let mesh = crate::rigs::set_basemesh_rig_arrays(
             meshes.get(mesh_handle).unwrap().clone(),
             self,
-            meshes,
             &prefab.rig.bone_order,
             prefab.rig.rig_type,
             rig_data,
         );
         self.prefab_state
-            .insert(prefab_name, MeshProcessingState::Ready(handle));
+            .insert(prefab_name, MeshProcessingState::Ready(meshes.add(mesh)));
     }
 }
 

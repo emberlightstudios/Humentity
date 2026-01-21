@@ -236,11 +236,10 @@ pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static st
 pub(crate) fn set_basemesh_rig_arrays(
     mut mesh: Mesh,
     basemesh: &BaseMesh,
-    meshes: &mut Assets<Mesh>,
     bone_order: &[&'static str],
     rig_type: RigType,
     rig_data: &RigData,
-) -> Handle<Mesh> {
+) -> Mesh {
     // Get the weight data for this rig type
     let weights_res = rig_data
         .weights
@@ -308,18 +307,16 @@ pub(crate) fn set_basemesh_rig_arrays(
         VertexAttributeValues::Float32x4(weights),
     );
 
-    // Add mesh to Assets and return handle
-    meshes.add(mesh)
+    mesh
 }
 
 pub(crate) fn set_asset_rig_arrays(
     mut mesh: Mesh,
-    meshes: &mut Assets<Mesh>,
     rig_data: &RigData,
     mhid_lookup: &[u16],
     helper_map: &[HelperMap],
     rig: &CharacterAnimationArchetype,
-) -> Handle<Mesh> {
+) -> Mesh {
     let weights_res = rig_data
         .weights
         .get(&rig.rig_type)
@@ -424,7 +421,7 @@ pub(crate) fn set_asset_rig_arrays(
         Mesh::ATTRIBUTE_JOINT_WEIGHT,
         VertexAttributeValues::Float32x4(weights),
     );
-    meshes.add(mesh)
+    mesh
 }
 
 /// Spawns bone entities and sets up the hierarchy
