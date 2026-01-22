@@ -12,6 +12,7 @@ use ::bevy::{
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::path::Path;
 use ::std::{
     fs::File,
@@ -30,12 +31,53 @@ use walkdir::WalkDir;
 +---------*/
 /// The types of asset types which can be added to humans.
 /// Does not include base mesh which is special
-#[derive(Component, Clone, Eq, PartialEq, Hash)]
+#[derive(Component, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum CharacterPart {
     BaseMesh,
     ProxyMesh(&'static str),
     BodyPart(&'static str),
     Equipment(&'static str),
+}
+
+
+impl Serialize for CharacterPart {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = match self {
+            CharacterPart::BaseMesh => "BaseMesh".to_string(),
+            CharacterPart::ProxyMesh(name) => format!("ProxyMesh:{}", name),
+            CharacterPart::BodyPart(name) => format!("BodyPart:{}", name),
+            CharacterPart::Equipment(name) => format!("Equipment:{}", name),
+        };
+        serializer.serialize_str(&s)
+    }
+}
+
+impl<'de> Deserialize<'de> for CharacterPart {
+    fn deserialize<D>(deserializer: D) -> Result<CharacterPart, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s == "BaseMesh" {
+            return Ok(CharacterPart::BaseMesh);
+        }
+
+        let mut parts = s.splitn(2, ':');
+        let variant = parts.next().unwrap();
+        let value = parts.next().ok_or_else(|| de::Error::custom("expected variant:data"))?;
+
+        let interned = NAME_INTERNER.intern(value).leak();
+
+        match variant {
+            "ProxyMesh" => Ok(CharacterPart::ProxyMesh(interned)),
+            "BodyPart" => Ok(CharacterPart::BodyPart(interned)),
+            "Equipment" => Ok(CharacterPart::Equipment(interned)),
+            other => Err(de::Error::custom(format!("unknown variant `{}`", other))),
+        }
+    }
 }
 
 /// The texture types which can be loaded for materials which go on [`CharacterAsset`] meshes
