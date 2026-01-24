@@ -5,6 +5,7 @@ edition = "2021"
 
 [dev-dependencies]
 rand = "0.8.5"
+toml = "0.9.11"
 
 [dependencies]
 bevy = { version = ">=0.17.2", features = ["dynamic_linking", "experimental_bevy_feathers"] }
