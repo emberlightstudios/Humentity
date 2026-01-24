@@ -203,7 +203,7 @@ impl CharacterAsset {
                 .get(&name)
                 .unwrap_or_else(|| panic!("No albedo map {name} found for {}", part_name));
 
-            handles.insert(name, path.load_asset(&asset_server));
+            handles.insert(name, path.load_asset(asset_server));
         }
 
         handles[&name].clone()
@@ -776,7 +776,7 @@ fn parse_character_asset(
         "Couldn't open target file {}",
         mh_path_buf.to_string_lossy()
     );
-    let file = File::open(&mh_path_buf).expect(&err_msg);
+    let file = File::open(mh_path_buf).expect(&err_msg);
 
     for line_result in BufReader::new(file).lines() {
         let Ok(line) = line_result else { break };

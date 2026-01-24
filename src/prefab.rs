@@ -49,7 +49,6 @@ impl CharacterAnimationArchetype {
         Self {
             animation_glbs: animation_glbs.into_iter().collect::<Vec<_>>(),
             rig_type,
-            ..Default::default()
         }
     }
 }
@@ -159,7 +158,7 @@ pub(crate) fn update_asset_shapes(
         let prefab_name = shape_mod.prefab_name;
         let prefab = prefabs.get_mut(prefab_name).unwrap();
         let rig_type = &prefab.rig.rig_type;
-        let cache = &skeleton_caches[&rig_type];
+        let cache = &skeleton_caches[rig_type];
         let mut finished = true;
 
         for part in shape_mod.parts.iter() {

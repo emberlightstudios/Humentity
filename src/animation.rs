@@ -31,7 +31,7 @@ pub(crate) fn rescale_bone_translations(
 ) {
     for (entity, human) in humans {
         let rig_type = &prefabs[human.prefab].rig.rig_type;
-        let cache = &skeleton_caches[&rig_type];
+        let cache = &skeleton_caches[rig_type];
         let ref_translations = &cache.bone_local_translations;
         let BoneTranslationData::Full(shape_translations) = &human.bone_translations else {
             continue;
