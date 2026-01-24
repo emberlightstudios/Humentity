@@ -1,5 +1,88 @@
 #![allow(dead_code)]
-use bevy::{input::mouse::MouseMotion, prelude::*};
+use std::path::PathBuf;
+
+use ahash::AHashSet;
+use bevy::{asset::io::AssetSourceBuilder, input::mouse::MouseMotion, prelude::*};
+use humentity::prelude::*;
+
+
+pub fn add_humentity_plugin(app: &mut App) {
+
+    let paths = build_humentity_custom_source_paths(app);
+
+    app.add_plugins(
+        HumentityPlugin {
+            paths,
+            config: HumentityGlobalConfig {
+                debug_draw_bones: false,
+                translation_tracks: TranslationTracks::None,
+            },
+        }
+    );
+}
+
+pub fn build_humentity_custom_source_paths(app: &mut App) -> HumentityPathsConfig {
+    /// We will build the path configs for included assets with a custom source
+    const ASSET_SOURCE_ID: &str = "humentity";
+
+    // In this case it's just the default assets folder in this crate.
+    // This is just for example
+    let path = "./assets";
+
+    app.register_asset_source(
+        "humentity",
+        AssetSourceBuilder::platform_default(path, None),
+    );
+
+    let humentity_source = HumentityAssetSourceId::new(
+        // None if using default asset source
+        Some(ASSET_SOURCE_ID),            
+
+        // This would still be required in case default asset source path has changed
+        PathBuf::from(path)  
+    );
+
+    // Set up paths to all asset types.  Assets in folders will be scanned and imported into the CharacterAssetRegistry
+
+    // ProxyMeshes/body lod
+    let mut proxymesh_paths = AHashSet::default();
+    // Hair, eyes, eyebrows, etc
+    let mut body_part_paths = AHashSet::default();
+    // Clothes, armor, etc
+    let mut equipment_paths = AHashSet::default();
+    // Skin textures
+    let mut skin_texture_paths = AHashSet::default();
+    // Morph target files, exported from Makehuman/MPFB
+    let mut target_paths = AHashSet::default();
+
+    // These paths must be relative to the source root folder
+    proxymesh_paths.insert(HumentityAssetPath::new(
+        "./proxymeshes",
+        &humentity_source,
+    ));
+    body_part_paths.insert(HumentityAssetPath::new(
+        "./body_parts",
+        &humentity_source,
+    ));
+    equipment_paths.insert(HumentityAssetPath::new(
+        "./clothes",
+        &humentity_source,
+    ));
+    skin_texture_paths.insert(HumentityAssetPath::new(
+        "./skin_textures",
+        &humentity_source,
+    ));
+    target_paths.insert(PathBuf::from(path).join("targets"));
+
+    HumentityPathsConfig {
+        core_assets_path: humentity_source.root_path.clone(),
+        proxymesh_paths,
+        body_part_paths,
+        equipment_paths,
+        skin_texture_paths,
+        target_paths,
+    }
+}
 
 pub fn cam_controls(
     mut cam: Query<&mut Transform, With<Camera3d>>,

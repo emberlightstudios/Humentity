@@ -5,27 +5,20 @@ mod shared;
 use bevy::{ecs::{intern::Internable}, prelude::*};
 use humentity::prelude::*;
 use serde::{Deserialize, Serialize};
-use shared::setup_env;
+use shared::{setup_env, add_humentity_plugin};
 
 const PREFAB_NAME: &str = "ExampleHumanPrefab";
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins((
-        // Point to the humentity crate location
-        Humentity {
-            paths: HumentityPathsConfig::from_crate_path("./"),
-            config: HumentityGlobalConfig {
-                translation_tracks: TranslationTracks::None,
-                ..default()
-            },
-        },
-        DefaultPlugins,
-    ))
-    .add_systems(Startup, setup_env)
-    .add_systems(OnEnter(HumentityLoadState::BuildingPrefabs), setup_prefabs)
-    .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
-    .run();
+    add_humentity_plugin(&mut app);
+
+    app
+        .add_plugins(DefaultPlugins)
+        .add_systems(Startup, setup_env)
+        .add_systems(OnEnter(HumentityLoadState::BuildingPrefabs), setup_prefabs)
+        .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
+        .run();
 }
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
@@ -77,7 +70,7 @@ struct CharacterParts {
 fn add_humans(
     mut commands: Commands,
     skins: Res<CharacterBodyTextures>,
-    character_asset_registry: Res<CharacterAssetRegistry>,
+    mut character_asset_registry: ResMut<CharacterAssetRegistry>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
@@ -125,7 +118,7 @@ fn add_humans(
 
             match &part.part {
                 CharacterPart::BaseMesh | CharacterPart::ProxyMesh(_) => {
-                    let handle: Handle<Image> = skins.albedo_maps[albedo].load_asset(&asset_server).unwrap();
+                    let handle: Handle<Image> = skins.albedo_maps[albedo].load_asset(&asset_server);
                     let mat = StandardMaterial {
                         base_color_texture: Some(handle),
                         ..default()
@@ -136,11 +129,9 @@ fn add_humans(
                     );
                 }
                 CharacterPart::BodyPart(_) | CharacterPart::Equipment(_) => {
-                    let handle: Handle<Image> = character_asset_registry[&part.part]
-                        .paths
-                        .albedo_maps[&albedo]
-                        .load_asset(&asset_server)
-                        .unwrap();
+                    let handle: Handle<Image> = character_asset_registry.get_mut(&part.part)  
+                        .unwrap()
+                        .get_texture_handle(albedo, CharacterAssetTextureType::Albedo, &asset_server);
                     let mat = StandardMaterial {
                         base_color_texture: Some(handle),
                         ..default()

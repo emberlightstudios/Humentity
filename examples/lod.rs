@@ -6,23 +6,16 @@ mod shared;
 use ahash::AHashMap;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
-use shared::{cam_controls, setup_env};
+use shared::{cam_controls, setup_env, add_humentity_plugin};
 
 const PREFAB: &str = "ExamplePrefab";
 
 fn main() {
-    info!("Use WASDQE to move the camera around");
-    App::new()
-        .add_plugins((
-            Humentity {
-                paths: HumentityPathsConfig::from_crate_path("./"),
-                config: HumentityGlobalConfig {
-                    translation_tracks: TranslationTracks::None,
-                    ..default()
-                },
-            },
-            DefaultPlugins,
-        ))
+    let mut app = App::new();
+    add_humentity_plugin(&mut app);
+
+    app
+        .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
         .add_systems(Update, (cam_controls, add_material))
         .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)

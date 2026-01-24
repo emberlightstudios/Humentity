@@ -22,26 +22,20 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{add_material, cam_controls, setup_env};
+use shared::{add_material, cam_controls, setup_env, add_humentity_plugin};
+
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins((
-        // Point to the humentity crate location
-        Humentity {
-            paths: HumentityPathsConfig::from_crate_path("./"),
-            config: HumentityGlobalConfig {
-                translation_tracks: TranslationTracks::None,
-                ..default()
-            },
-        },
-        DefaultPlugins,
-    ))
-    .add_systems(Startup, setup_env)
-    .add_systems(OnEnter(HumentityLoadState::BuildingPrefabs), setup_prefabs)
-    .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
-    .add_systems(Update, (cam_controls, add_material))
-    .run();
+    add_humentity_plugin(&mut app);
+
+    app
+        .add_plugins(DefaultPlugins)
+        .add_systems(Startup, setup_env)
+        .add_systems(OnEnter(HumentityLoadState::BuildingPrefabs), setup_prefabs)
+        .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
+        .add_systems(Update, (cam_controls, add_material))
+        .run();
 }
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {

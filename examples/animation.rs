@@ -6,23 +6,15 @@
 mod shared;
 use ahash::AHashMap;
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*, scene::SceneInstanceReady};
-use humentity::{prelude::*, HumentityGlobalConfig};
-use shared::{add_material, cam_controls};
+use humentity::{prelude::*};
+use shared::{add_material, cam_controls, add_humentity_plugin};
 
 fn main() {
-    App::new()
-        .add_plugins((
-            Humentity {
-                paths: HumentityPathsConfig::from_crate_path("./"),
-                // This will enable translation track rescaling in animation clips.
-                // This is an animation post-processing system so there is some cost.
-                config: HumentityGlobalConfig {
-                    debug_draw_bones: true,
-                    translation_tracks: TranslationTracks::Root,
-                },
-            },
-            DefaultPlugins,
-        ))
+    let mut app = App::new();
+    add_humentity_plugin(&mut app);
+
+    app
+        .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
         .add_systems(
             Update,

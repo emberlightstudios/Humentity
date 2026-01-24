@@ -24,12 +24,12 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 pub mod prelude {
     pub use crate::{
         animation::CharacterAnimationClips,
-        assets::{CharacterAsset, CharacterAssetRegistry, CharacterBodyTextures, CharacterPart},
+        assets::{CharacterAsset, CharacterAssetRegistry, CharacterBodyTextures, CharacterPart, CharacterAssetTextureType},
         basemesh::BaseMesh,
         material::{CharacterMaterialExtension},//, CharacterMaterialExtensionData},
         mesh_ops::{CharacterAssetMeshReady, MeshProcessingState},
         morphs::{MakeHumanMorphs, MorphTargets},
-        paths_config::HumentityPathsConfig,
+        paths_config::{HumentityPathsConfig, HumentityAssetPath, HumentityAssetSourceId},
         physics::CharacterRagdoll,
         prefab::{
             CharacterAnimationArchetype, CharacterArchetypePrefab, CharacterArchetypePrefabs,
@@ -37,7 +37,7 @@ pub mod prelude {
         },
         rigs::{ParentBone, RigType, RootMotion},
         spawn::{CharacterPartMeshSpawned, CharacterShapeConfig, FitSkeleton, RelatedEntities},
-        Humentity, HumentityGlobalConfig, HumentityLoadState, TranslationTracks, NAME_INTERNER,
+        HumentityPlugin, HumentityGlobalConfig, HumentityLoadState, TranslationTracks, NAME_INTERNER,
     };
 }
 
@@ -76,22 +76,22 @@ pub struct HumentityAnimationSystems;
 |  Plugin  |
 +----------*/
 /// The plugin struct
-pub struct Humentity {
+pub struct HumentityPlugin {
     /// The paths used by the plugin
     pub paths: paths_config::HumentityPathsConfig,
     pub config: HumentityGlobalConfig,
 }
 
-impl Humentity {
+impl HumentityPlugin {
     pub fn new(paths: paths_config::HumentityPathsConfig) -> Self {
-        Humentity {
+        HumentityPlugin {
             paths,
             config: HumentityGlobalConfig::default(),
         }
     }
 }
 
-impl Plugin for Humentity {
+impl Plugin for HumentityPlugin {
     fn build(&self, app: &mut App) {
         if app.world().is_resource_added::<AssetServer>() {
             panic!("Humentity plugin must be added before AssetServer/DefaultPlugins.")

@@ -113,7 +113,7 @@ impl CharacterAsset {
     }
 
     /// Checks if asset data is loaded.  If not, parses makehuman file and then loads the mesh.  Returns true if mesh was just loaded
-    pub fn load_asset_if_unloaded(&mut self, asset_server: &mut AssetServer) -> bool {
+    pub fn load_asset_if_unloaded(&mut self, asset_server: &AssetServer) -> bool {
         if self.is_loaded() {
             return false;
         }
@@ -171,7 +171,7 @@ impl CharacterAsset {
         &mut self,
         name: &'static str,
         texture_type: CharacterAssetTextureType,
-        asset_server: &mut AssetServer,
+        asset_server: &AssetServer,
     ) -> Handle<Image> {
         if self.data.is_none() {
             self.load_asset_if_unloaded(asset_server);
@@ -203,19 +203,9 @@ impl CharacterAsset {
                 .get(&name)
                 .unwrap_or_else(|| panic!("No albedo map {name} found for {}", part_name));
 
-            let path = if let Some(source_id) = &path.source_id {
-                &source_id.root_path.join(&path.path)
-            } else {
-                &path.path
-            };
-            handles.insert(
-                name,
-                asset_server.load(format!(
-                    "humentity://{}",
-                    path.to_str().expect("Unreadable path string")
-                )),
-            );
+            handles.insert(name, path.load_asset(&asset_server));
         }
+
         handles[&name].clone()
     }
 
@@ -519,12 +509,7 @@ impl FromWorld for CharacterAssetRegistry {
         | Body Parts |
         +------------*/
         for dir in &config.body_part_paths {
-            let prefix: PathBuf;
-            if let Some(source) = &dir.source_id {
-                prefix = source.root_path.clone();
-            } else {
-                prefix = PathBuf::from("./assets");
-            }
+            let prefix = &dir.source_id.root_path;
 
             for entry in WalkDir::new(prefix.join(&dir.path))
                 .into_iter()
@@ -556,9 +541,8 @@ impl FromWorld for CharacterAssetRegistry {
                         &dir.source_id,
                     );
                     let mh_file = path
-                        .strip_prefix(&prefix)
-                        .expect("Failed to strip prefix from path")
                         .to_path_buf();
+
                     let mh_file = HumentityAssetPath {
                         path: mh_file,
                         source_id: dir.source_id.clone(),
@@ -585,12 +569,7 @@ impl FromWorld for CharacterAssetRegistry {
         | Equipment |
         +-----------*/
         for dir in &config.equipment_paths {
-            let prefix: PathBuf;
-            if let Some(source) = &dir.source_id {
-                prefix = source.root_path.clone();
-            } else {
-                prefix = PathBuf::from("./assets");
-            }
+            let prefix = &dir.source_id.root_path;
 
             for entry in WalkDir::new(prefix.join(&dir.path))
                 .into_iter()
@@ -622,8 +601,6 @@ impl FromWorld for CharacterAssetRegistry {
                         &dir.source_id,
                     );
                     let mh_file = path
-                        .strip_prefix(&prefix)
-                        .expect("Failed to strip prefix from path")
                         .to_path_buf();
                     let mh_file = HumentityAssetPath {
                         path: mh_file,
@@ -651,12 +628,7 @@ impl FromWorld for CharacterAssetRegistry {
         | Proxy Meshes |
         +--------------*/
         for dir in &config.proxymesh_paths {
-            let prefix: PathBuf;
-            if let Some(source) = &dir.source_id {
-                prefix = source.root_path.clone();
-            } else {
-                prefix = PathBuf::from("./assets");
-            }
+            let prefix = &dir.source_id.root_path;
             for entry in WalkDir::new(prefix.join(&dir.path))
                 .into_iter()
                 .filter_map(Result::ok)
@@ -676,8 +648,6 @@ impl FromWorld for CharacterAssetRegistry {
                     let name = NAME_INTERNER.intern(name).leak();
                     info!("Importing proxy mesh : {name}");
                     let mh_file = path
-                        .strip_prefix(&prefix)
-                        .expect("Failed to strip prefix from path")
                         .to_path_buf();
                     let mh_file = HumentityAssetPath {
                         path: mh_file,
@@ -708,12 +678,7 @@ impl FromWorld for CharacterAssetRegistry {
         let mut ao_maps = AHashMap::default();
 
         for dir in &config.skin_texture_paths {
-            let prefix: PathBuf;
-            if let Some(source) = &dir.source_id {
-                prefix = source.root_path.clone();
-            } else {
-                prefix = PathBuf::from("./assets");
-            }
+            let prefix = &dir.source_id.root_path;
             let path = prefix.join(&dir.path);
             albedo_maps.extend(get_textures(
                 &path,
@@ -749,7 +714,7 @@ impl FromWorld for CharacterAssetRegistry {
 fn get_textures(
     path: &Path,
     texture_type: CharacterAssetTextureType,
-    source_id: &Option<HumentityAssetSourceId>,
+    source_id: &HumentityAssetSourceId,
 ) -> AHashMap<&'static str, HumentityAssetPath> {
     let folder = match texture_type {
         CharacterAssetTextureType::Albedo => path.join("albedo"),
@@ -767,11 +732,7 @@ fn get_textures(
         if path.is_file() {
             if let Some(stem) = path.file_stem() {
                 let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
-                let prefix = if let Some(ref source_id) = source_id {
-                    &source_id.root_path
-                } else {
-                    &PathBuf::from("./assets")
-                };
+                let prefix = &source_id.root_path;
                 let Ok(path) = path.strip_prefix(prefix) else {
                     continue;
                 };
@@ -803,13 +764,14 @@ fn parse_character_asset(
     //let mut name = "";
 
     let source_id = &mh_path.source_id;
-    let prefix = if let Some(ref source) = source_id {
-        &source.root_path
-    } else {
-        &PathBuf::from("./assets")
-    };
+    //let prefix = if let Some(ref source) = source_id {
+    //    &source.root_path
+    //} else {
+    //    &PathBuf::from("./assets")
+    //};
 
-    let mh_path_buf = prefix.join(&mh_path.path);
+    //let mh_path_buf = prefix.join(&mh_path.path);
+    let mh_path_buf = &mh_path.path;
     let err_msg = format!(
         "Couldn't open target file {}",
         mh_path_buf.to_string_lossy()
@@ -840,6 +802,9 @@ fn parse_character_asset(
                 let &filename = line_vec.last().unwrap();
                 obj_file = mh_path.path.clone();
                 obj_file.set_file_name(filename);
+                obj_file = obj_file.strip_prefix(&mh_path.source_id.root_path)
+                    .expect("Invalid path prefix")
+                    .to_path_buf();
             } else if *line_vec.first().unwrap() == "x_scale" {
                 x_scale.min = line_vec[1].parse().unwrap();
                 x_scale.max = line_vec[2].parse().unwrap();
@@ -942,7 +907,7 @@ fn parse_character_asset(
         path: obj_file,
         source_id: source_id.clone(),
     };
-    let raw_mesh_handle: Handle<Mesh> = obj_file.load_asset(asset_server).unwrap();
+    let raw_mesh_handle: Handle<Mesh> = obj_file.load_asset(asset_server);
 
     CharacterAssetData {
         obj_file,

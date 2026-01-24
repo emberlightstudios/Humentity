@@ -47,7 +47,7 @@ impl FromWorld for BaseMesh {
             .get_resource::<HumentityPathsConfig>()
             .expect("NO CONFIG LOADED");
         let path = config.core_assets_path.clone();
-        info!("{}", path.exists());
+        
         if !path.join("base.obj").exists() {
             panic!("Path {path:#?} not valid. base.obj not found.  Did you provide the correct path to the Humentity crate?")
         }

@@ -5,18 +5,14 @@
 mod shared;
 use bevy::{pbr::ExtendedMaterial, prelude::*};
 use humentity::prelude::*;
-use shared::{cam_controls, setup_env};
+use shared::{cam_controls, setup_env, add_humentity_plugin};
 
 fn main() {
-    App::new()
+    let mut app = App::new();
+    add_humentity_plugin(&mut app);
+
+    app
         .add_plugins((
-            Humentity {
-                paths: HumentityPathsConfig::from_crate_path("./"),
-                config: HumentityGlobalConfig {
-                    translation_tracks: TranslationTracks::None,
-                    ..default()
-                }
-            },
             DefaultPlugins,
             MaterialPlugin::<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>::default(),
         ))
@@ -49,10 +45,10 @@ fn add_skin_material(
         // on the base mesh or the proxy meshes, not any other parts/assets.
         if matches!(part, CharacterPart::BaseMesh) {
             let albedo = &textures.albedo_maps[name];
-            let handle: Option<Handle<Image>> = albedo.load_asset(&*asset_server);
+            let handle: Handle<Image> = albedo.load_asset(&asset_server);
             let material = ExtendedMaterial {
                 base: StandardMaterial {
-                    base_color_texture: handle,
+                    base_color_texture: Some(handle),
                     ..default()
                 },
                 extension: CharacterMaterialExtension::default(),

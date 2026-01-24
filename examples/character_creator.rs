@@ -19,35 +19,31 @@ use bevy::ui_widgets::SliderPrecision;
 use bevy::ui_widgets::SliderStep;
 use bevy::ui_widgets::ValueChange;
 use humentity::prelude::*;
-use shared::{add_material, cam_controls};
+use shared::{add_material, cam_controls, add_humentity_plugin};
+
 
 const PREFAB: &'static str = "PrefabName";
 const SHAPE_NAME: &'static str = "DefaultShapeName";
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins((
-        // Point to the humentity crate location
-        Humentity {
-            paths: HumentityPathsConfig::from_crate_path("./"),
-            config: HumentityGlobalConfig {
-                translation_tracks: TranslationTracks::None,
-                ..default()
-            },
-        },
-        DefaultPlugins,
-        FeathersPlugins,
-    ))
-    .insert_resource(UiTheme(create_dark_theme()))
-    .add_systems(Startup, setup_env)
-    .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefab)
-    .add_systems(
-        OnEnter(HumentityLoadState::Ready),
-        move |mut commands: Commands| add_human(&mut commands),
-    )
-    .add_systems(Update, (cam_controls, add_material, poll_mesh_handle))
-    .insert_resource(SliderValues::default())
-    .run();
+    add_humentity_plugin(&mut app);
+
+    app
+        .add_plugins((
+            DefaultPlugins,
+            FeathersPlugins,
+        ))
+        .insert_resource(UiTheme(create_dark_theme()))
+        .add_systems(Startup, setup_env)
+        .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefab)
+        .add_systems(
+            OnEnter(HumentityLoadState::Ready),
+            move |mut commands: Commands| add_human(&mut commands),
+        )
+        .add_systems(Update, (cam_controls, add_material, poll_mesh_handle))
+        .insert_resource(SliderValues::default())
+        .run();
 }
 
 // For tracking categories when reacting to button presses

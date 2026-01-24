@@ -1,8 +1,8 @@
 mod shared;
 
 use bevy::prelude::*;
-use humentity::{prelude::*, HumentityGlobalConfig};
-use shared::{add_material, cam_controls, setup_env};
+use humentity::prelude::*;
+use shared::{cam_controls, setup_env, add_humentity_plugin};
 
 use ahash::AHashMap;
 
@@ -21,27 +21,21 @@ const HAIR: &str = "ponytail01";
 const HAIR_TEXTURE: &str = "ponytail01";
 
 fn main() {
-    App::new()
-        .add_plugins((
-            Humentity {
-                paths: HumentityPathsConfig::from_crate_path("./"),
-                config: HumentityGlobalConfig {
-                    translation_tracks: TranslationTracks::None,
-                    ..default()
-                },
-            },
-            DefaultPlugins,
-        ))
+    let mut app = App::new();
+    add_humentity_plugin(&mut app);
+
+    app
+        .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
         .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
         .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
-        .add_systems(Update, (cam_controls, add_materials, add_material))
+        .add_systems(Update, (cam_controls, add_materials))
         .run();
 }
 
 fn add_materials(
     skins: Res<CharacterBodyTextures>,
-    human_assets: Res<CharacterAssetRegistry>,
+    mut human_assets: ResMut<CharacterAssetRegistry>,
     parts: Query<
         (Entity, &CharacterPart),
         (With<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>),
@@ -53,19 +47,17 @@ fn add_materials(
     for (entity, part) in parts {
         match part {
             CharacterPart::BaseMesh | CharacterPart::ProxyMesh(_) => {
-                let skin = skins.albedo_maps[SKIN].load_asset(&*asset_server);
+                let skin: Handle<Image> = skins.albedo_maps[SKIN].load_asset(&asset_server);
                 commands
                     .entity(entity)
                     .insert(MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color_texture: skin,
+                        base_color_texture: Some(skin),
                         ..default()
                     })));
             }
             CharacterPart::BodyPart(EYES) => {
-                let asset = &human_assets[part];
-                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYE_TEXTURE]
-                    .load_asset(&*asset_server)
-                    .unwrap();
+                let asset = human_assets.get_mut(part).unwrap();
+                let albedo: Handle<Image> = asset.get_texture_handle(EYE_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server);
                 commands
                     .entity(entity)
                     .insert(MeshMaterial3d(materials.add(StandardMaterial {
@@ -75,10 +67,8 @@ fn add_materials(
                     })));
             }
             CharacterPart::BodyPart(EYEBROW) => {
-                let asset = &human_assets[part];
-                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYEBROW_TEXTURE]
-                    .load_asset(&*asset_server)
-                    .unwrap();
+                let asset = human_assets.get_mut(part).unwrap();
+                let albedo: Handle<Image> = asset.get_texture_handle(EYEBROW_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server);
                 commands
                     .entity(entity)
                     .insert(MeshMaterial3d(materials.add(StandardMaterial {
@@ -89,10 +79,8 @@ fn add_materials(
                     })));
             }
             CharacterPart::BodyPart(HAIR) => {
-                let asset = &human_assets[part];
-                let albedo: Handle<Image> = asset.paths.albedo_maps[&HAIR_TEXTURE]
-                    .load_asset(&*asset_server)
-                    .unwrap();
+                let asset = human_assets.get_mut(part).unwrap();
+                let albedo: Handle<Image> = asset.get_texture_handle(HAIR_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server);
                 commands
                     .entity(entity)
                     .insert(MeshMaterial3d(materials.add(StandardMaterial {
@@ -110,8 +98,7 @@ fn add_materials(
             CharacterPart::BodyPart(EYELASH) => {
                 let asset = &human_assets[part];
                 let albedo: Handle<Image> = asset.paths.albedo_maps[&EYELASH_TEXTURE]
-                    .load_asset(&*asset_server)
-                    .unwrap();
+                    .load_asset(&*asset_server);
                 commands
                     .entity(entity)
                     .insert(MeshMaterial3d(materials.add(StandardMaterial {

@@ -2,18 +2,14 @@ mod shared;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{add_material, cam_controls, setup_env};
+use shared::{add_material, cam_controls, setup_env, add_humentity_plugin};
 
 fn main() {
-    App::new()
+    let mut app = App::new();
+    add_humentity_plugin(&mut app);
+
+    app
         .add_plugins((
-            Humentity {
-                paths: HumentityPathsConfig::from_crate_path("./"),
-                config: HumentityGlobalConfig {
-                    translation_tracks: TranslationTracks::None,
-                    ..default()
-                },
-            },
             DefaultPlugins,
             PhysicsPlugins::default(),
             PhysicsDebugPlugin,
