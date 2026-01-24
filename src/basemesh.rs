@@ -11,9 +11,9 @@ use serde::Deserialize;
 use smallvec::SmallVec;
 use std::{fs::File, io::BufReader};
 
-use crate::mesh_ops::{
-    MeshProcessingState, PrefabLoadState, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, fix_normals,
-};
+use crate::{mesh_ops::{
+    MeshProcessingState, PrefabLoadState, fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices
+}, rigs::SkeletonCache};
 use crate::prelude::*;
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
@@ -84,6 +84,7 @@ impl BaseMesh {
         images: &mut Assets<Image>,
         rig_data: &crate::rigs::RigData,
         mh_morphs: &MakeHumanMorphs,
+        cache: &SkeletonCache,
     ) -> Option<Handle<Mesh>> {
         self.prefab_state.entry(prefab_name).or_default();
 
@@ -97,7 +98,7 @@ impl BaseMesh {
                 None
             }
             MeshProcessingState::Morphed(_) => {
-                self.rig_prefab_meshes(prefab, prefab_name, rig_data, meshes);
+                self.rig_prefab_meshes(prefab, prefab_name, rig_data, meshes, cache);
                 None
             }
             MeshProcessingState::Ready(handle) => Some(handle.clone()),
@@ -203,7 +204,7 @@ impl BaseMesh {
                 }
             }
 
-            morph_names.push(String::from(shape.name));
+            morph_names.push(shape.name.clone());
             morphs.push(morph.into_iter());
         }
 
@@ -242,6 +243,7 @@ impl BaseMesh {
         prefab_name: &'static str,
         rig_data: &crate::rigs::RigData,
         meshes: &mut Assets<Mesh>,
+        cache: &SkeletonCache,
     ) {
         if !matches!(
             self.prefab_state[prefab_name],
@@ -252,11 +254,13 @@ impl BaseMesh {
         let MeshProcessingState::Morphed(mesh_handle) = &self.prefab_state[prefab_name] else {
             unimplemented!("This should not happen")
         };
+        let rig_type = prefab.rig.rig_type;
+
         let mesh = crate::rigs::set_basemesh_rig_arrays(
             meshes.get(mesh_handle).unwrap().clone(),
             self,
-            &prefab.rig.bone_order,
-            prefab.rig.rig_type,
+            &cache.bone_order,
+            rig_type,
             rig_data,
         );
         self.prefab_state

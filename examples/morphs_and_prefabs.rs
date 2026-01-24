@@ -38,7 +38,7 @@ fn main() {
         DefaultPlugins,
     ))
     .add_systems(Startup, setup_env)
-    .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
+    .add_systems(OnEnter(HumentityLoadState::BuildingPrefabs), setup_prefabs)
     .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
     .add_systems(Update, (cam_controls, add_material))
     .run();
@@ -58,7 +58,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
 
     // We'll give our prefab 2 shapes, a baby archetype and a bodybuilder archetype
     let baby_shape = CharacterShapeArchetype::new(
-        "baby",
+        "baby".to_string(),
         // This fn call is necessary to deconstruct compound "morph" values
         // down to the level of individual makehuman morph targets.
         // Many of the available morphs (see line 83) actually drive multiple
@@ -71,7 +71,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
     let bodybuilder_shape =
-        CharacterShapeArchetype::new("bodybuilder", morphs.compute_target_weights(&morph_targets));
+        CharacterShapeArchetype::new("bodybuilder".to_string(), morphs.compute_target_weights(&morph_targets));
 
     // You could use this, e.g. to define distinct face presets on a body also. Since they
     // become morph targets you can generate essentially infinite face shapes from the vector

@@ -74,7 +74,7 @@ fn setup_prefab(mut commands: Commands, mh_morphs: Res<MakeHumanMorphs>) {
         PREFAB,
         CharacterArchetypePrefab::new(
             vec![CharacterShapeArchetype::new(
-                SHAPE_NAME,
+                SHAPE_NAME.to_string(),
                 mh_morphs.compute_target_weights(&morphs),
             )],
             CharacterAnimationArchetype::default(),

@@ -516,12 +516,12 @@ impl MakeHumanMorphs {
 +-------------*/
 pub(crate) fn adjust_helpers_to_morphs(
     morph_values: &MorphTargets,
-    morph_targets: &MakeHumanMorphs,
+    mh_morphs: &MakeHumanMorphs,
     basemesh: &crate::basemesh::BaseMesh,
 ) -> Vec<Vec3> {
     let mut helpers = basemesh.vertices.clone();
     for (target_name, &value) in morph_values.iter() {
-        let target = morph_targets
+        let target = mh_morphs
             .targets
             .get(target_name)
             .unwrap_or_else(|| panic!("Failed to find morph {}", target_name));

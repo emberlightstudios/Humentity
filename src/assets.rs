@@ -5,7 +5,7 @@ use crate::{
     morphs::adjust_helpers_to_morphs,
     paths_config::{HumentityAssetPath, HumentityAssetSourceId},
     prelude::*,
-    rigs::{RigData, set_asset_rig_arrays},
+    rigs::{RigData, SkeletonCache, set_asset_rig_arrays},
 };
 use ::bevy::{
     asset::RenderAssetUsages,
@@ -146,6 +146,7 @@ impl CharacterAsset {
         paths: &HumentityPathsConfig,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
+        cache: &SkeletonCache,
     ) -> Option<Handle<Mesh>> {
         if self.data.is_none() {
             self.load_asset_if_unloaded(asset_server);
@@ -161,6 +162,7 @@ impl CharacterAsset {
             paths,
             meshes,
             images,
+            cache,
         )
     }
 
@@ -277,6 +279,7 @@ impl CharacterAssetData {
         paths: &HumentityPathsConfig,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
+        cache: &SkeletonCache,
     ) -> Option<Handle<Mesh>> {
         if !self.prefab_load_state.contains_key(prefab_name) {
             self.prefab_load_state
@@ -294,6 +297,7 @@ impl CharacterAssetData {
                     &self.mhid_lookup,
                     &self.helper_map,
                     &prefab.rig,
+                    cache,
                 );
                 fix_normals(&mut mesh, &self.mhid_lookup);
                 let handle = meshes.add(mesh);
@@ -364,7 +368,7 @@ impl CharacterAssetData {
                         }
                     }
 
-                    morph_names.push(String::from(shape.name));
+                    morph_names.push(shape.name.clone());
                     morphs.push(morph.into_iter());
                 }
 
@@ -497,21 +501,9 @@ pub struct CharacterBodyTextures {
     pub ao_maps: AHashMap<&'static str, HumentityAssetPath>,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Deref, DerefMut)]
 #[allow(dead_code)]
-pub struct CharacterAssetRegistry {
-    pub assets: AHashMap<CharacterPart, CharacterAsset>,
-}
-
-impl CharacterAssetRegistry {
-    pub fn get(&self, part: &CharacterPart) -> Option<&CharacterAsset> {
-        self.assets.get(part)
-    }
-
-    pub fn get_mut(&mut self, part: &CharacterPart) -> Option<&mut CharacterAsset> {
-        self.assets.get_mut(part)
-    }
-}
+pub struct CharacterAssetRegistry(AHashMap<CharacterPart, CharacterAsset>);
 
 impl FromWorld for CharacterAssetRegistry {
     fn from_world(world: &mut World) -> Self {
@@ -747,7 +739,7 @@ impl FromWorld for CharacterAssetRegistry {
         };
         world.insert_resource(textures);
 
-        CharacterAssetRegistry { assets }
+        CharacterAssetRegistry(assets)
     }
 }
 

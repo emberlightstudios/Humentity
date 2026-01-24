@@ -9,14 +9,14 @@ use bevy::{
     },
     prelude::*,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{fs::File, io::BufReader};
 
 use crate::{
     assets::HelperMap, basemesh::VertexGroups, mesh_ops::get_vertex_positions, prelude::*,
 };
 
-#[derive(Eq, PartialEq, Hash, Copy, Clone, Default)]
+#[derive(Eq, PartialEq, Hash, Copy, Clone, Default, Serialize, Deserialize, Debug)]
 pub enum RigType {
     #[default]
     Default,
@@ -105,6 +105,19 @@ pub(crate) struct BoneData {
     pub(crate) parent: &'static str,
     head: BoneTransform,
     tail: BoneTransform,
+}
+
+#[derive(Resource, Default, Deref, DerefMut)]
+pub(crate) struct SkeletonCaches(AHashMap<RigType, SkeletonCache>);
+
+pub(crate) struct SkeletonCache {
+    pub(crate) bone_order: Vec<&'static str>,
+    /// Model Space
+    pub(crate) bone_model_space_rots: AHashMap<&'static str, Quat>,
+    /// Bone Local Space
+    pub(crate) bone_local_translations: AHashMap<&'static str, Vec3>,
+    /// A scene for the skeleton
+    pub(crate) scene: Handle<DynamicScene>,
 }
 
 impl From<BoneJson> for BoneData {
@@ -316,6 +329,7 @@ pub(crate) fn set_asset_rig_arrays(
     mhid_lookup: &[u16],
     helper_map: &[HelperMap],
     rig: &CharacterAnimationArchetype,
+    cache: &SkeletonCache,
 ) -> Mesh {
     let weights_res = rig_data
         .weights
@@ -336,7 +350,7 @@ pub(crate) fn set_asset_rig_arrays(
         let helper_map = &helper_map[*mhv as usize];
 
         // loop over bones and find any matching helper indices
-        for (bone_index, bone_name) in rig.bone_order.iter().enumerate() {
+        for (bone_index, bone_name) in cache.bone_order.iter().enumerate() {
             let Some(bone_weights) = weights_res.get(bone_name) else {
                 continue;
             };

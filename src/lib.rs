@@ -121,7 +121,7 @@ impl Plugin for Humentity {
                         .run_if(in_state(HumentityLoadState::LoadingCoreAssets)),
 
                     // PHASE 2 : BUILDING ARCHETYPE PREFABS
-                    prefab::create_human_prefab_rig_scenes
+                    prefab::create_character_prefab_rig_scenes
                         .run_if(resource_exists::<CharacterArchetypePrefabs>)
                         .run_if(in_state(HumentityLoadState::BuildingPrefabs)),
 
@@ -184,6 +184,7 @@ impl Plugin for Humentity {
         }
         // Most of the core assets are loaded in the FromWorld impl for these resources
         app.init_resource::<basemesh::BaseMesh>()
+            .init_resource::<rigs::SkeletonCaches>()
             .init_resource::<assets::CharacterAssetRegistry>()
             .init_resource::<morphs::MakeHumanMorphs>()
             .init_resource::<rigs::RigData>();

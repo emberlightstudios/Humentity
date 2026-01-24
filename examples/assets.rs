@@ -62,7 +62,7 @@ fn add_materials(
                     })));
             }
             CharacterPart::BodyPart(EYES) => {
-                let asset = &human_assets.assets[part];
+                let asset = &human_assets[part];
                 let albedo: Handle<Image> = asset.paths.albedo_maps[&EYE_TEXTURE]
                     .load_asset(&*asset_server)
                     .unwrap();
@@ -75,7 +75,7 @@ fn add_materials(
                     })));
             }
             CharacterPart::BodyPart(EYEBROW) => {
-                let asset = &human_assets.assets[part];
+                let asset = &human_assets[part];
                 let albedo: Handle<Image> = asset.paths.albedo_maps[&EYEBROW_TEXTURE]
                     .load_asset(&*asset_server)
                     .unwrap();
@@ -89,7 +89,7 @@ fn add_materials(
                     })));
             }
             CharacterPart::BodyPart(HAIR) => {
-                let asset = &human_assets.assets[part];
+                let asset = &human_assets[part];
                 let albedo: Handle<Image> = asset.paths.albedo_maps[&HAIR_TEXTURE]
                     .load_asset(&*asset_server)
                     .unwrap();
@@ -108,7 +108,7 @@ fn add_materials(
                     })));
             }
             CharacterPart::BodyPart(EYELASH) => {
-                let asset = &human_assets.assets[part];
+                let asset = &human_assets[part];
                 let albedo: Handle<Image> = asset.paths.albedo_maps[&EYELASH_TEXTURE]
                     .load_asset(&*asset_server)
                     .unwrap();
@@ -172,7 +172,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.);
     let base_shape =
-        CharacterShapeArchetype::new("female", morphs.compute_target_weights(&morph_targets));
+        CharacterShapeArchetype::new("female".to_string(), morphs.compute_target_weights(&morph_targets));
     let mut prefabs = AHashMap::default();
     prefabs.insert(
         PREFAB,

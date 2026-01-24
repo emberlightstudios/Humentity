@@ -95,14 +95,19 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
-    let baby = CharacterShapeArchetype::new("baby", morphs.compute_target_weights(&morph_targets));
+    let baby = CharacterShapeArchetype::new("baby".to_string(), morphs.compute_target_weights(&morph_targets));
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
         "ExampleHumanPrefab",
         CharacterArchetypePrefab::new(
             vec![baby],
-            CharacterAnimationArchetype::new(RigType::Default, ["assets/animation/idle.glb"]),
+            CharacterAnimationArchetype::new(
+                RigType::Default,
+                [
+                    "assets/animation/idle.glb".to_string(),
+                ]
+            ),
         ),
     );
 

@@ -11,10 +11,7 @@ use std::{
 };
 
 use crate::{
-    prelude::*,
-    rigs::{BoneTranslationData, RigType, RootBone, RootBonePrevious},
-    spawn::RelatedEntities,
-    HumentityGlobalConfig,
+    HumentityGlobalConfig, prelude::*, rigs::{BoneTranslationData, RigType, RootBone, RootBonePrevious, SkeletonCaches}, spawn::RelatedEntities
 };
 
 #[derive(Resource, Deref, DerefMut)]
@@ -30,9 +27,12 @@ pub(crate) fn rescale_bone_translations(
     children: Query<&Children>,
     names: Query<&Name>,
     mut transforms: Query<&mut Transform>,
+    skeleton_caches: Res<SkeletonCaches>,
 ) {
     for (entity, human) in humans {
-        let ref_translations = &prefabs[human.prefab].rig.bone_translations;
+        let rig_type = &prefabs[human.prefab].rig.rig_type;
+        let cache = &skeleton_caches[&rig_type];
+        let ref_translations = &cache.bone_local_translations;
         let BoneTranslationData::Full(shape_translations) = &human.bone_translations else {
             continue;
         };
@@ -70,13 +70,16 @@ pub(crate) fn rescale_root_bone_translation(
     prefabs: Res<CharacterArchetypePrefabs>,
     humans: Query<(&RelatedEntities, &CharacterShapeConfig), Without<FitSkeleton>>,
     mut transforms: Query<&mut Transform>,
+    skeleton_caches: Res<SkeletonCaches>,
 ) {
     for (related, human) in humans {
-        let &root_bone = &prefabs[human.prefab].rig.bone_order[0];
+        let rig_type = &prefabs[human.prefab].rig.rig_type;
+        let cache = &skeleton_caches[rig_type];
+        let &root_bone = &cache.bone_order[0];
         let BoneTranslationData::Root(shape_trans) = &human.bone_translations else {
             continue;
         };
-        let ref_trans = &prefabs[human.prefab].rig.bone_translations;
+        let ref_trans = &cache.bone_local_translations;
         let Ok(mut root) = transforms.get_mut(related.root_bone) else {
             continue;
         };
@@ -187,7 +190,7 @@ pub(crate) fn rebuild_animations(
             .collect::<Vec<_>>();
 
         let mut clip_handles = AHashMap::<&'static str, Handle<AnimationClip>>::new();
-        for &glb in glbs {
+        for &glb in &glbs {
             let path = PathBuf::from(glb);
             let clips = get_animation_clips(path, config.translation_tracks)
                 .expect("Failed to retarget animation clips");

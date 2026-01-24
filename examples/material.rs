@@ -55,9 +55,7 @@ fn add_skin_material(
                     base_color_texture: handle,
                     ..default()
                 },
-                extension: CharacterMaterialExtension {
-                    // No data defined yet.
-                },
+                extension: CharacterMaterialExtension::default(),
             };
             let material = human_material_assets.add(material.clone());
             commands

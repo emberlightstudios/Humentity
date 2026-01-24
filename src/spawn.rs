@@ -1,9 +1,5 @@
 use crate::{
-    assets::CharacterAssetRegistry,
-    basemesh::VertexGroups,
-    prelude::*,
-    rigs::{get_model_space_skeleton_transforms, BoneTranslationData, RigData, RootBonePrevious},
-    HumentityGlobalConfig, TranslationTracks,
+    HumentityGlobalConfig, TranslationTracks, assets::CharacterAssetRegistry, basemesh::VertexGroups, prelude::*, rigs::{BoneTranslationData, RigData, RootBonePrevious, SkeletonCaches, get_model_space_skeleton_transforms}
 };
 use ahash::AHashMap;
 use bevy::{
@@ -14,18 +10,40 @@ use bevy::{
     },
     prelude::*,
 };
+use serde::{Deserialize, Deserializer, Serialize};
 
 /*--------------+
 |  Components  |
 +--------------*/
 /// Defines the shape of a character.  Place it at the root, with individual parts as children.
-#[derive(Component, Clone, Default, Debug)]
+#[derive(Component, Clone, Default, Debug, Serialize)]
 pub struct CharacterShapeConfig {
     pub prefab_morph_targets: MorphTargets,
     pub prefab: &'static str,
+    #[serde(skip)]
     pub(crate) bone_translations: BoneTranslationData,
+    #[serde(skip)]
     pub(crate) bone_delta_rotations: AHashMap<&'static str, Quat>,
 }
+
+impl<'de> Deserialize<'de> for CharacterShapeConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            prefab_morph_targets: MorphTargets,
+            prefab: String,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        let prefab: &'static str = NAME_INTERNER.intern(&raw.prefab).leak();
+
+        Ok(Self::new(prefab, raw.prefab_morph_targets))
+    }
+}
+
 
 impl CharacterShapeConfig {
     pub fn new(prefab: &'static str, morphs: MorphTargets) -> Self {
@@ -70,16 +88,14 @@ pub struct CharacterPartMeshSpawned(Entity);
 pub(crate) fn spawn_rig_scene(
     new_humans: Query<(Entity, &CharacterShapeConfig), Added<CharacterShapeConfig>>,
     prefabs: Res<CharacterArchetypePrefabs>,
+    skeleton_caches: Res<SkeletonCaches>,
     mut commands: Commands,
 ) {
     new_humans.iter().for_each(|(human, config)| {
         // Spawn rig scene
         if let Some(prefab) = prefabs.get(&config.prefab) {
-            let cached_scene = prefab
-                .rig
-                .scene
-                .clone()
-                .expect("No rig archetype scene found");
+            let rig_type = prefab.rig.rig_type;
+            let cached_scene = skeleton_caches[&rig_type].scene.clone();
             let cached_scene = commands
                 .spawn((DynamicSceneRoot::from(cached_scene), Name::new("RigScene")))
                 .id();
@@ -116,15 +132,21 @@ pub(crate) fn fit_skeleton_to_shape(
     mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     basemesh: Res<BaseMesh>,
     morph_targets: Res<MakeHumanMorphs>,
+    skeleton_caches: Res<SkeletonCaches>,
     vg: Res<VertexGroups>,
     rig_data: Res<RigData>,
     global_config: Res<HumentityGlobalConfig>,
 ) {
     for (root, mut config, model_transform, ragdoll, root_motion) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
+        let rig_type = prefab.rig.rig_type;
+        let cache = &skeleton_caches[&rig_type];
 
+        // Find the relevant entities below
         let mut skinned_mesh: Option<&SkinnedMesh> = None;
         let mut rig_entity = Entity::PLACEHOLDER;
+
+        // Cache current bone rotations and entities
         let mut bone_rotations = AHashMap::default();
         let mut bone_entities = AHashMap::default();
 
@@ -154,12 +176,13 @@ pub(crate) fn fit_skeleton_to_shape(
         }
         let skinned_mesh = skinned_mesh.unwrap();
 
-        // Re-fit skeleton to mesh shape
+        // Re-fit skeleton to mesh shape.  This is based on fixed vertices in the base mesh. 
+        // This will move and rotate the bones to align with those verts.
         let helpers = prefab.get_helpers(&config.prefab_morph_targets, &basemesh, &morph_targets);
         let mut global_bone_transforms = get_model_space_skeleton_transforms(
-            &prefab.rig.bone_order,
+            &cache.bone_order,
             &helpers,
-            prefab.rig.rig_type,
+            rig_type,
             &bone_rotations,
             &vg,
             &rig_data,
@@ -168,11 +191,14 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // The skeleton was adjusted so that the bones' rotations align head to tail.
         // The skeleton now fits the mesh's shape but this can induce animation artifacts due to
-        // differences in proportions/bind poses. In order to prevent this let's adjust the skeleton so
-        // that the bones have the same positions, but rotations are adjusted to align exactly with
-        // the reference skeleton from the animation glb files.
+        // differences in proportions/bind poses. In order to prevent this we adjust the bone rotations 
+        // so that they have the same positions, but rotations are adjusted to align exactly with
+        // the reference skeleton from the animation glb files. In other words, the bones may not be 
+        // rotated such that they point to their child bone anymore, but they will match the reference rig rotations.
+        // This will require changing both rotations and translations. A child bone needs to translate
+        // back into it's correct model space position after its parent rotates.
         let bone_config = &rig_data.configs[&prefab.rig.rig_type];
-        for &bone in &prefab.rig.bone_order {
+        for &bone in &cache.bone_order {
             if let Some(bone_data) = bone_config.get(bone) {
                 let parent_transform = match global_bone_transforms.get(bone_data.parent) {
                     Some(xform) => *xform,
@@ -181,7 +207,7 @@ pub(crate) fn fit_skeleton_to_shape(
                 let old_global = global_bone_transforms[bone];
 
                 // Use reference rotation, preserve global position
-                let reference_rot = prefab.rig.bone_rotations[bone];
+                let reference_rot = cache.bone_model_space_rots[bone];
                 let new_global = Transform {
                     translation: old_global.translation,
                     rotation: reference_rot,
@@ -207,7 +233,7 @@ pub(crate) fn fit_skeleton_to_shape(
             // Cache the bone translations for animation post-processing
             match global_config.translation_tracks {
                 TranslationTracks::Root => {
-                    let root_bone = prefab.rig.bone_order[0];
+                    let root_bone = cache.bone_order[0];
                     let root_trans = local_bone_transforms[root_bone];
                     config.bone_translations = BoneTranslationData::Root(root_trans.translation);
                 }
@@ -221,13 +247,13 @@ pub(crate) fn fit_skeleton_to_shape(
                 _ => {}
             }
 
-            // We re-aligned the bone rotations to match the reference skeleton exaclty, but this
+            // We re-aligned the bone rotations to match the reference skeleton exactly, but this
             // came at the cost of adding in some translation offsets.  When retargeting translation
             // tracks we need to correct for this.  Here we cache a small rotation which we can
             // apply to re-align translation directions later.
             if matches!(global_config.translation_tracks, TranslationTracks::Full) {
                 let mut bone_rotation_deltas: AHashMap<&'static str, Quat> = AHashMap::default();
-                for &name in prefab.rig.bone_order.iter() {
+                for &name in cache.bone_order.iter() {
                     let bone_data = bone_config.get(name).unwrap();
                     if bone_data.parent.is_empty() {
                         continue;
@@ -252,11 +278,11 @@ pub(crate) fn fit_skeleton_to_shape(
         // Create new skinned_mesh, put it on root
         // Root doesn't have a mesh3d but it makes it easier to clone for added components.
         let mut inv_bindposes = vec![];
-        for &bone in prefab.rig.bone_order.iter() {
+        for &bone in cache.bone_order.iter() {
             inv_bindposes.push(global_bone_transforms[bone].to_matrix().inverse());
         }
 
-        let root_bone = bone_entities[prefab.rig.bone_order[0]];
+        let root_bone = bone_entities[cache.bone_order[0]];
         let mut head = Entity::PLACEHOLDER;
         let mut right_hand = Entity::PLACEHOLDER;
         let mut left_hand = Entity::PLACEHOLDER;
@@ -264,7 +290,7 @@ pub(crate) fn fit_skeleton_to_shape(
         let mut left_foot = Entity::PLACEHOLDER;
         let mut right_shoulder = Entity::PLACEHOLDER;
         let mut left_shoulder = Entity::PLACEHOLDER;
-        for &bone in prefab.rig.bone_order.iter() {
+        for &bone in cache.bone_order.iter() {
             if ["head"].contains(&bone) {
                 head = bone_entities[bone];
             } else if ["wrist.L"].contains(&bone) {
@@ -307,7 +333,7 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // Set up root bone transform tracking
         if let Some(root_motion) = root_motion {
-            let root_name = prefab.rig.bone_order[0];
+            let root_name = cache.bone_order[0];
             let transform = local_bone_transforms[root_name];
             let mut translation = transform.translation;
             if !root_motion.y_translate {
@@ -339,6 +365,7 @@ pub(crate) fn setup_human_parts(
     mut registry: ResMut<CharacterAssetRegistry>,
     mut prefabs: ResMut<CharacterArchetypePrefabs>,
     rig_data: Res<RigData>,
+    skeleton_caches: Res<SkeletonCaches>,
     mut basemesh: ResMut<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     paths: Res<HumentityPathsConfig>,
@@ -356,10 +383,14 @@ pub(crate) fn setup_human_parts(
         // Get some releveant data
         let prefab_name = config.prefab;
         let prefab = prefabs.get_mut(&config.prefab).unwrap();
+        let rig_type = prefab.rig.rig_type;
+        let cache = &skeleton_caches[&rig_type];
+
         let morph_weights = prefab
             .shapes
             .iter()
-            .map(|s| *config.prefab_morph_targets.get(&s.name).unwrap_or(&0.))
+            .map(|s| NAME_INTERNER.intern(&s.name).leak())
+            .map(|s| *config.prefab_morph_targets.get(s).unwrap_or(&0.))
             .collect::<Vec<_>>();
         let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
 
@@ -373,6 +404,7 @@ pub(crate) fn setup_human_parts(
                     &mut images,
                     &rig_data,
                     &mh_morphs,
+                    cache,
                 ) {
                     commands
                         .entity(entity)
@@ -401,6 +433,7 @@ pub(crate) fn setup_human_parts(
                     &paths,
                     &mut meshes,
                     &mut images,
+                    cache,
                 ) {
                     commands
                         .entity(entity)

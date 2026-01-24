@@ -147,7 +147,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
     let bodybuilder_shape =
-        CharacterShapeArchetype::new("bodybuilder", morphs.compute_target_weights(&morph_targets));
+        CharacterShapeArchetype::new("bodybuilder".to_string(), morphs.compute_target_weights(&morph_targets));
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
