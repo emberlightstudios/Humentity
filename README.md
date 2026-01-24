@@ -11,6 +11,6 @@
 - Customizable morph targets
 
 ## Future Plans
-- Better shaders
-- Compute shaders for faster realtime mesh shaping
+- Better shaders with overlay textures
+- Maybe compute shaders for realtime mesh shaping
 - Working ragdolls when physics support matures
