@@ -41,6 +41,7 @@ pub mod prelude {
     };
 }
 
+/// Which translation tracks should be kept on animation clips
 #[derive(Copy, Clone, Default, Debug)]
 pub enum TranslationTracks {
     #[default]
