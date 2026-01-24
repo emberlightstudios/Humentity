@@ -30,7 +30,7 @@ pub fn build_humentity_custom_source_paths(app: &mut App) -> HumentityPathsConfi
     let path = "./assets";
 
     app.register_asset_source(
-        "humentity",
+        ASSET_SOURCE_ID,
         AssetSourceBuilder::platform_default(path, None),
     );
 
