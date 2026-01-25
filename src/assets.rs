@@ -32,6 +32,7 @@ use walkdir::WalkDir;
 /// The types of asset types which can be added to humans.
 /// Does not include base mesh which is special
 #[derive(Component, Clone, Eq, PartialEq, Hash, Debug)]
+#[require(Visibility)]
 pub enum CharacterPart {
     BaseMesh,
     ProxyMesh(&'static str),
