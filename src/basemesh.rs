@@ -19,9 +19,6 @@ use crate::prelude::*;
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
 pub(crate) const BODY_SCALE: f32 = 0.1;
 
-/*-------------+
-|  Resources  |
-+-------------*/
 #[derive(Resource, Deserialize, Debug)]
 pub(crate) struct VertexGroups(pub(crate) AHashMap<String, Vec<[usize; 2]>>);
 

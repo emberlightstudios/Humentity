@@ -5,9 +5,6 @@ use bevy::shader::ShaderRef;
 
 const SHADER_ASSET_PATH: &str = "humentity://shaders/human.wgsl";
 
-/*--------------+
-|   Material   |
-+--------------*/
 #[derive(Default, Clone, ShaderType)]
 pub struct CharacterMaterialExtensionData {
     pub overlay1: u32,

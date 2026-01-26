@@ -9,9 +9,6 @@ use std::{
 };
 use walkdir::WalkDir;
 
-/*--------------+
-|  Components  |
-+--------------*/
 #[derive(Component, Deref, DerefMut, Clone, Default, Debug)]
 pub struct MorphTargets(AHashMap<&'static str, f32>);
 
@@ -43,9 +40,6 @@ impl<'de> Deserialize<'de> for MorphTargets {
     }
 }
 
-/*-------------+
-|  Resources  |
-+-------------*/
 #[derive(Resource)]
 pub struct MakeHumanMorphs {
     macro_morphs: MacroData,
@@ -511,9 +505,6 @@ impl MakeHumanMorphs {
     }
 }
 
-/*-------------+
-|  Functions  |
-+-------------*/
 pub(crate) fn adjust_helpers_to_morphs(
     morph_values: &MorphTargets,
     mh_morphs: &MakeHumanMorphs,
@@ -532,9 +523,6 @@ pub(crate) fn adjust_helpers_to_morphs(
     helpers
 }
 
-/*--------------+
-|  JSON Types  |
-+--------------*/
 #[derive(Deserialize, Debug)]
 struct MacroData {
     macrotargets: AHashMap<String, MacroBounds>,

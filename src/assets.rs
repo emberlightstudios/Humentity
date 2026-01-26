@@ -26,9 +26,6 @@ use bevy::{
 };
 use walkdir::WalkDir;
 
-/*---------+
-|  Asset  |
-+---------*/
 /// The types of asset types which can be added to humans.
 /// Does not include base mesh which is special
 #[derive(Component, Clone, Eq, PartialEq, Hash, Debug)]
@@ -40,6 +37,21 @@ pub enum CharacterPart {
     Equipment(&'static str),
 }
 
+impl CharacterPart {
+    pub fn get_texture_handle(
+        &self,
+        texture_name: impl AsRef<str>,
+        texture_type: CharacterAssetTextureType,
+        asset_server: &AssetServer,
+        asset_registry: &CharacterAssetRegistry,
+    ) -> Handle<Image> {
+        let Some(asset) = asset_registry.get(self) else {
+            error!("No such asset registered: {:#?}", self);
+            return Handle::default();
+        };
+        asset.get_texture_handle(texture_name.as_ref(), texture_type, asset_server)
+    }
+}
 
 impl Serialize for CharacterPart {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -132,7 +144,7 @@ impl CharacterAsset {
             self.load_asset_if_unloaded(asset_server);
         }
         let data = self.data.as_mut()?;
-        Some(data.base_mesh_handle.clone())
+        Some(data.bare_mesh_handle.clone())
     }
 
     /// Return the mesh handle of the asset which has been augmented with arrays for skinning with the given rig
@@ -142,72 +154,44 @@ impl CharacterAsset {
         prefab_name: &'static str,
         prefab: &mut CharacterArchetypePrefab,
         rig_data: &RigData,
-        basemesh: &BaseMesh,
+        basemesh: &mut BaseMesh,
         mh_morphs: &MakeHumanMorphs,
         paths: &HumentityPathsConfig,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
         cache: &SkeletonCache,
     ) -> Option<Handle<Mesh>> {
+        if self.part == CharacterPart::BaseMesh {
+            return basemesh.get_rigged_mesh_handle(prefab_name, prefab, meshes, images, rig_data, mh_morphs, cache);
+        }
+
         if self.data.is_none() {
             self.load_asset_if_unloaded(asset_server);
             return None;
         }
         let data = self.data.as_mut()?;
-        data.get_rigged_mesh_handle(
-            prefab_name,
-            prefab,
-            basemesh,
-            mh_morphs,
-            rig_data,
-            paths,
-            meshes,
-            images,
-            cache,
-        )
+        data.get_rigged_mesh_handle(prefab_name, prefab, basemesh,
+            mh_morphs, rig_data, paths, meshes, images, cache)
     }
 
-    /// Get a texture by name, loading into Assets if necessary
+    /// Get a texture by name and texture type
     pub fn get_texture_handle(
-        &mut self,
-        name: &'static str,
+        &self,
+        texture_name: impl AsRef<str>,
         texture_type: CharacterAssetTextureType,
         asset_server: &AssetServer,
     ) -> Handle<Image> {
-        if self.data.is_none() {
-            self.load_asset_if_unloaded(asset_server);
-        }
-        let handles = match texture_type {
-            CharacterAssetTextureType::Albedo => {
-                &mut self.data.as_mut().unwrap().albedo_map_handles
-            }
-            CharacterAssetTextureType::Normal => {
-                &mut self.data.as_mut().unwrap().normal_map_handles
-            }
-            CharacterAssetTextureType::AmbientOcclusion => {
-                &mut self.data.as_mut().unwrap().ao_map_handles
-            }
+        let paths = match texture_type {
+            CharacterAssetTextureType::Albedo => &self.paths.albedo_maps,
+            CharacterAssetTextureType::Normal => &self.paths.normal_maps,
+            CharacterAssetTextureType::AmbientOcclusion => &self.paths.ao_maps,
         };
-        if !handles.contains_key(&name) {
-            let paths = match texture_type {
-                CharacterAssetTextureType::Albedo => &mut self.paths.albedo_maps,
-                CharacterAssetTextureType::Normal => &mut self.paths.normal_maps,
-                CharacterAssetTextureType::AmbientOcclusion => &mut self.paths.ao_maps,
-            };
-            let part_name = match &self.part {
-                CharacterPart::BodyPart(n)
-                | CharacterPart::Equipment(n)
-                | CharacterPart::ProxyMesh(n) => n,
-                _ => unimplemented!("Base mesh is not a CharacterAsset"),
-            };
-            let path = paths
-                .get(&name)
-                .unwrap_or_else(|| panic!("No albedo map {name} found for {}", part_name));
-
-            handles.insert(name, path.load_asset(asset_server));
+        if let Some(path) = paths.get(texture_name.as_ref()) {
+            path.load_asset(asset_server)
+        } else {
+            error!("No such texture {} for {}", texture_name.as_ref(), self.get_name());
+            Handle::<Image>::default()
         }
-
-        handles[&name].clone()
     }
 
     /// Remove cached handles.  If there are no other handles in the world then
@@ -231,7 +215,7 @@ pub struct CharacterMeshAssetFilePaths {
 #[allow(dead_code)]
 pub struct CharacterAssetData {
     pub prefab_load_state: PrefabLoadState,
-    pub(crate) base_mesh_handle: Handle<Mesh>,
+    pub(crate) bare_mesh_handle: Handle<Mesh>,
     pub(crate) albedo_map_handles: AHashMap<&'static str, Handle<Image>>,
     pub(crate) normal_map_handles: AHashMap<&'static str, Handle<Image>>,
     pub(crate) ao_map_handles: AHashMap<&'static str, Handle<Image>>,
@@ -245,13 +229,13 @@ pub struct CharacterAssetData {
 }
 
 impl CharacterAssetData {
-    pub(crate) fn process_base_mesh(
+    pub(crate) fn process_bare_mesh(
         &mut self,
         meshes: &mut Assets<Mesh>,
         paths: &HumentityPathsConfig,
     ) -> Option<()> {
         // Get the makehuman vertex index lookup
-        let mesh = meshes.get(&self.base_mesh_handle)?;
+        let mesh = meshes.get(&self.bare_mesh_handle)?;
         let path = paths.core_assets_path.join(&self.obj_file.path);
         let mh_verts = parse_obj_vertices(path);
         let verts = get_vertex_positions(mesh);
@@ -276,30 +260,15 @@ impl CharacterAssetData {
             self.prefab_load_state
                 .insert(prefab_name, MeshProcessingState::Unprocessed);
         }
-        meshes.get(&self.base_mesh_handle)?;
+        meshes.get(&self.bare_mesh_handle)?;
 
         match &self.prefab_load_state[prefab_name] {
             MeshProcessingState::Ready(handle) => Some(handle.clone()),
-            MeshProcessingState::Morphed(handle) => {
-                let mesh = meshes.get(handle)?.clone();
-                let mut mesh = set_asset_rig_arrays(
-                    mesh,
-                    rig_data,
-                    &self.mhid_lookup,
-                    &self.helper_map,
-                    &prefab.rig,
-                    cache,
-                );
-                fix_normals(&mut mesh, &self.mhid_lookup);
-                let handle = meshes.add(mesh);
-                self.prefab_load_state
-                    .insert(prefab_name, MeshProcessingState::Ready(handle.clone()));
-                Some(handle)
-            }
             MeshProcessingState::Unprocessed => {
-                self.process_base_mesh(meshes, paths)?;
-                let handle = self.asset_mesh_from_helpers(&basemesh.vertices, meshes);
-                self.base_mesh_handle = handle;
+                self.process_bare_mesh(meshes, paths)?;
+                // Verts will be positioned relative to helpers verts.  
+                // This will fix issues with different mesh scales.
+                self.bare_mesh_handle = self.asset_mesh_from_helpers(&basemesh.vertices, meshes);
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Rescaled);
                 None
@@ -318,8 +287,8 @@ impl CharacterAssetData {
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Shaped(handles));
 
-                let asset_base_mesh = meshes.get(&self.base_mesh_handle)?;
-                self.base_mesh_handle = meshes.add(
+                let asset_base_mesh = meshes.get(&self.bare_mesh_handle)?;
+                self.bare_mesh_handle = meshes.add(
                     asset_base_mesh
                         .clone()
                         .with_computed_area_weighted_normals()
@@ -329,7 +298,7 @@ impl CharacterAssetData {
                 None
             }
             MeshProcessingState::Shaped(shaped_meshes) => {
-                let asset_base_mesh = meshes.get(&self.base_mesh_handle)?;
+                let asset_base_mesh = meshes.get(&self.bare_mesh_handle)?;
                 let base_positions = get_vertex_positions(asset_base_mesh);
                 let base_normals = get_vertex_normals(asset_base_mesh);
                 let Ok(base_tangents) = get_vertex_tangents(asset_base_mesh) else {
@@ -389,6 +358,16 @@ impl CharacterAssetData {
                     .insert(prefab_name, MeshProcessingState::Morphed(meshes.add(mesh)));
                 None
             }
+            MeshProcessingState::Morphed(handle) => {
+                let mesh = meshes.get(handle)?.clone();
+                let mut mesh = set_asset_rig_arrays(mesh, rig_data,
+                    &self.mhid_lookup, &self.helper_map, &prefab.rig, cache);
+                fix_normals(&mut mesh, &self.mhid_lookup);
+                let handle = meshes.add(mesh);
+                self.prefab_load_state
+                    .insert(prefab_name, MeshProcessingState::Ready(handle.clone()));
+                Some(handle)
+            }
         }
     }
 
@@ -413,7 +392,7 @@ impl CharacterAssetData {
         meshes: &mut Assets<Mesh>,
     ) -> Handle<Mesh> {
         // Note that helpers should already be morphed before input so we don't have to apply weights
-        let mesh = meshes.get(&self.base_mesh_handle).unwrap().clone();
+        let mesh = meshes.get(&self.bare_mesh_handle).unwrap().clone();
         let mut vertices = get_vertex_positions(&mesh);
         for (vert, mh_asset_vertex) in self.mhid_lookup.iter().enumerate() {
             let helper_map = &self.helper_map[*mh_asset_vertex as usize];
@@ -449,9 +428,6 @@ impl CharacterAssetData {
     }
 }
 
-/*-------------------+
-|  Makehuman Types  |
-+-------------------*/
 // Each vertex is mapped to either a single helper vertex
 // or triangulated by 3 of them
 #[derive(Default, Debug)]
@@ -481,17 +457,6 @@ enum FileSection {
     DeleteVertices,
 }
 
-/*-------------+
-|  Resources  |
-+-------------*/
-#[derive(Default, Resource)]
-#[allow(dead_code)]
-pub struct CharacterBodyTextures {
-    pub albedo_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub normal_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub ao_maps: AHashMap<&'static str, HumentityAssetPath>,
-}
-
 #[derive(Resource, Deref, DerefMut)]
 #[allow(dead_code)]
 pub struct CharacterAssetRegistry(AHashMap<CharacterPart, CharacterAsset>);
@@ -499,16 +464,12 @@ pub struct CharacterAssetRegistry(AHashMap<CharacterPart, CharacterAsset>);
 impl FromWorld for CharacterAssetRegistry {
     fn from_world(world: &mut World) -> Self {
         let mut assets = AHashMap::<CharacterPart, CharacterAsset>::default();
-        //let mut body_parts = AHashMap::<BodyPartSlot, Vec<&'static str>>::default();
-        //let mut equipment = AHashMap::<EquipmentSlot, Vec<&'static str>>::default();
 
         let config = world
             .get_resource_mut::<HumentityPathsConfig>()
             .expect("No global Humentity config loaded");
 
-        /*------------+
-        | Body Parts |
-        +------------*/
+        // Body Parts
         for dir in &config.body_part_paths {
             let prefix = &dir.source_id.root_path;
 
@@ -566,9 +527,7 @@ impl FromWorld for CharacterAssetRegistry {
             }
         }
 
-        /*-----------+
-        | Equipment |
-        +-----------*/
+        // Equipment
         for dir in &config.equipment_paths {
             let prefix = &dir.source_id.root_path;
 
@@ -625,9 +584,31 @@ impl FromWorld for CharacterAssetRegistry {
             }
         }
 
-        /*--------------+
-        | Proxy Meshes |
-        +--------------*/
+        let mut skin_albedo_maps = AHashMap::default();
+        let mut skin_normal_maps = AHashMap::default();
+        let mut skin_ao_maps = AHashMap::default();
+
+        for dir in &config.skin_texture_paths {
+            let prefix = &dir.source_id.root_path;
+            let path = prefix.join(&dir.path);
+            skin_albedo_maps.extend(get_textures(
+                &path,
+                CharacterAssetTextureType::Albedo,
+                &dir.source_id,
+            ));
+            skin_normal_maps.extend(get_textures(
+                &path,
+                CharacterAssetTextureType::Normal,
+                &dir.source_id,
+            ));
+            skin_ao_maps.extend(get_textures(
+                &path,
+                CharacterAssetTextureType::AmbientOcclusion,
+                &dir.source_id,
+            ));
+        }
+
+        // Proxy Meshes
         for dir in &config.proxymesh_paths {
             let prefix = &dir.source_id.root_path;
             for entry in WalkDir::new(prefix.join(&dir.path))
@@ -656,9 +637,9 @@ impl FromWorld for CharacterAssetRegistry {
                     };
                     let paths = CharacterMeshAssetFilePaths {
                         mh_file,
-                        albedo_maps: AHashMap::default(),
-                        normal_maps: AHashMap::default(),
-                        ao_maps: AHashMap::default(),
+                        albedo_maps: skin_albedo_maps.clone(),
+                        normal_maps: skin_normal_maps.clone(),
+                        ao_maps: skin_ao_maps.clone(),
                     };
                     let part = CharacterPart::ProxyMesh(name);
                     let asset = CharacterAsset {
@@ -670,48 +651,29 @@ impl FromWorld for CharacterAssetRegistry {
                 }
             }
         }
-
-        /*---------------+
-        | Skin Textures |
-        +---------------*/
-        let mut albedo_maps = AHashMap::default();
-        let mut normal_maps = AHashMap::default();
-        let mut ao_maps = AHashMap::default();
-
-        for dir in &config.skin_texture_paths {
-            let prefix = &dir.source_id.root_path;
-            let path = prefix.join(&dir.path);
-            albedo_maps.extend(get_textures(
-                &path,
-                CharacterAssetTextureType::Albedo,
-                &dir.source_id,
-            ));
-            normal_maps.extend(get_textures(
-                &path,
-                CharacterAssetTextureType::Normal,
-                &dir.source_id,
-            ));
-            ao_maps.extend(get_textures(
-                &path,
-                CharacterAssetTextureType::AmbientOcclusion,
-                &dir.source_id,
-            ));
-        }
-
-        let textures = CharacterBodyTextures {
-            albedo_maps,
-            normal_maps,
-            ao_maps,
+        
+        // Add entry for base mesh
+        let paths = CharacterMeshAssetFilePaths {
+            // Won't actually be used, basemesh logic is rerouted
+            mh_file: HumentityAssetPath::default(), 
+            albedo_maps: skin_albedo_maps.clone(),
+            normal_maps: skin_normal_maps.clone(),
+            ao_maps: skin_ao_maps.clone(),
         };
-        world.insert_resource(textures);
+
+        assets.insert(
+            CharacterPart::BaseMesh,
+            CharacterAsset {
+                part: CharacterPart::BaseMesh,
+                data: None,
+                paths,
+            }
+        );
 
         CharacterAssetRegistry(assets)
     }
 }
 
-/*-------------+
-|  Functions  |
-+-------------*/
 fn get_textures(
     path: &Path,
     texture_type: CharacterAssetTextureType,
@@ -765,13 +727,6 @@ fn parse_character_asset(
     //let mut name = "";
 
     let source_id = &mh_path.source_id;
-    //let prefix = if let Some(ref source) = source_id {
-    //    &source.root_path
-    //} else {
-    //    &PathBuf::from("./assets")
-    //};
-
-    //let mh_path_buf = prefix.join(&mh_path.path);
     let mh_path_buf = &mh_path.path;
     let err_msg = format!(
         "Couldn't open target file {}",
@@ -916,15 +871,17 @@ fn parse_character_asset(
         z_depth,
         delete_verts,
         scale_data: [x_scale, y_scale, z_scale],
-        base_mesh_handle: raw_mesh_handle,
+        bare_mesh_handle: raw_mesh_handle,
         helper_map,
         ..default()
     }
 }
 
 /// MHCLO assets can define a list of delete verts which can be occluded (by clothes for example)
-/// If you wanted to bake out everything to a new mesh this would be a good optimization, but it
-/// breaks instancing which should be a far superior approach
+/// This can stop the body mesh from popping through clothes also, which can be an issue.
+/// If we were to bake out everything to a new mesh this would be a good optimization, but that
+/// breaks instancing so it would be a downgrade. If we could add a per material instance GPU buffer of
+/// indices to cull this would be better and wouldn't break instancing.
 #[allow(dead_code)]
 pub(crate) fn delete_mesh_verts(
     meshes: &mut ResMut<Assets<Mesh>>,

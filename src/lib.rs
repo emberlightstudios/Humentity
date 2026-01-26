@@ -24,7 +24,7 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 pub mod prelude {
     pub use crate::{
         animation::CharacterAnimationClips,
-        assets::{CharacterAsset, CharacterAssetRegistry, CharacterBodyTextures, CharacterPart, CharacterAssetTextureType},
+        assets::{CharacterAsset, CharacterAssetRegistry, CharacterPart, CharacterAssetTextureType},
         basemesh::BaseMesh,
         material::{CharacterMaterialExtension},//, CharacterMaterialExtensionData},
         mesh_ops::{CharacterAssetMeshReady, MeshProcessingState},
@@ -73,9 +73,6 @@ pub enum HumentityLoadState {
 #[derive(SystemSet, Debug, Hash, Copy, Clone, Eq, PartialEq)]
 pub struct HumentityAnimationSystems;
 
-/*----------+
-|  Plugin  |
-+----------*/
 /// The plugin struct
 pub struct HumentityPlugin {
     /// The paths used by the plugin

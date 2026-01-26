@@ -32,9 +32,6 @@ pub(crate) enum BoneTranslationData {
     Full(AHashMap<&'static str, Vec3>),
 }
 
-/*--------------+
-|  Components  |
-+--------------*/
 #[derive(Component, Deref, Reflect)]
 #[reflect(Component)]
 pub struct ParentBone(#[entities] pub Entity);
@@ -60,9 +57,6 @@ pub(crate) struct RootBonePrevious {
     pub(crate) prev_weights: Vec<f32>,
 }
 
-/*---------+
-|  JSON   |
-+---------*/
 #[derive(Deserialize, Debug)]
 pub struct BoneTransform {
     cube_name: Option<String>,
@@ -91,9 +85,6 @@ struct MixamoConfig {
     bones: AHashMap<String, BoneJson>,
 }
 
-/*-----------+
-| Resources |
-+-----------*/
 /// Raw rig data from makehuman json files
 #[derive(Resource)]
 pub(crate) struct RigData {
@@ -197,9 +188,6 @@ impl FromWorld for RigData {
     }
 }
 
-/*---------+
-| Systems |
-+---------*/
 pub(crate) fn bone_debug_draw(
     query: Query<(&GlobalTransform, &ChildOf), With<AnimationTargetId>>,
     transforms: Query<&GlobalTransform, With<AnimationTargetId>>,
@@ -213,9 +201,6 @@ pub(crate) fn bone_debug_draw(
     })
 }
 
-/*-----------+
-| Functions |
-+-----------*/
 pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static str> {
     let mh_config = world
         .get_resource::<RigData>()

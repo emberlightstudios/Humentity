@@ -33,8 +33,8 @@ fn add_skin_material(
             Without<MeshMaterial3d<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>>,
         ),
     >,
-    textures: Res<CharacterBodyTextures>,
     asset_server: Res<AssetServer>,
+    mut asset_registry: ResMut<CharacterAssetRegistry>,
     mut human_material_assets: ResMut<
         Assets<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>,
     >,
@@ -44,11 +44,10 @@ fn add_skin_material(
         // This should always be true here, but in general we only want to put skin textures
         // on the base mesh or the proxy meshes, not any other parts/assets.
         if matches!(part, CharacterPart::BaseMesh) {
-            let albedo = &textures.albedo_maps[name];
-            let handle: Handle<Image> = albedo.load_asset(&asset_server);
+            let albedo = part.get_texture_handle(name, CharacterAssetTextureType::Albedo, &asset_server, &mut asset_registry);
             let material = ExtendedMaterial {
                 base: StandardMaterial {
-                    base_color_texture: Some(handle),
+                    base_color_texture: Some(albedo),
                     ..default()
                 },
                 extension: CharacterMaterialExtension::default(),

@@ -12,9 +12,6 @@ use bevy::{
 };
 use serde::{Deserialize, Deserializer, Serialize};
 
-/*--------------+
-|  Components  |
-+--------------*/
 /// Defines the shape of a character.  Place it at the root, with individual parts as children.
 #[derive(Component, Clone, Default, Debug, Serialize)]
 #[require(Visibility)]
@@ -77,15 +74,9 @@ pub struct RelatedEntities {
     pub left_shoulder: Entity,
 }
 
-/*------------+
-|  Messages  |
-+------------*/
 #[derive(Message, Deref)]
 pub struct CharacterPartMeshSpawned(Entity);
 
-/*-----------+
-|  Systems  |
-+-----------*/
 pub(crate) fn spawn_rig_scene(
     new_humans: Query<(Entity, &CharacterShapeConfig), Added<CharacterShapeConfig>>,
     prefabs: Res<CharacterArchetypePrefabs>,
@@ -396,56 +387,22 @@ pub(crate) fn setup_human_parts(
         let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
 
         // Spawn meshes
-        match part {
-            CharacterPart::BaseMesh => {
-                if let Some(handle) = basemesh.get_rigged_mesh_handle(
-                    prefab_name,
-                    prefab,
-                    &mut meshes,
-                    &mut images,
-                    &rig_data,
-                    &mh_morphs,
-                    cache,
-                ) {
-                    commands
-                        .entity(entity)
-                        .insert((Mesh3d(handle.clone()), skinned_mesh.clone()));
-                    let mesh = meshes.get(&handle).unwrap();
-                    if mesh.has_morph_targets() {
-                        commands.entity(entity).insert(morph_weights);
-                    }
-                    writer.write(CharacterPartMeshSpawned(human));
-                }
+        let Some(asset) = registry.get_mut(part) else {
+            error!("No such asset: {:#?} - Cannot load", part);
+            continue;
+        };
+        if let Some(handle) = asset.get_rigged_mesh_handle(
+            &mut asset_server, prefab_name, prefab, &rig_data, &mut basemesh,
+            &mh_morphs, &paths, &mut meshes, &mut images, cache,
+        ) {
+            commands
+                .entity(entity)
+                .insert((Mesh3d(handle.clone()), skinned_mesh.clone()));
+            let mesh = meshes.get(&handle).unwrap();
+            if mesh.has_morph_targets() {
+                commands.entity(entity).insert(morph_weights);
             }
-            CharacterPart::BodyPart(name)
-            | CharacterPart::Equipment(name)
-            | CharacterPart::ProxyMesh(name) => {
-                let Some(asset) = registry.get_mut(part) else {
-                    error!("No such asset: {} - Cannot load", name);
-                    continue;
-                };
-                if let Some(handle) = asset.get_rigged_mesh_handle(
-                    &mut asset_server,
-                    prefab_name,
-                    prefab,
-                    &rig_data,
-                    &basemesh,
-                    &mh_morphs,
-                    &paths,
-                    &mut meshes,
-                    &mut images,
-                    cache,
-                ) {
-                    commands
-                        .entity(entity)
-                        .insert((Mesh3d(handle.clone()), skinned_mesh.clone()));
-                    let mesh = meshes.get(&handle).unwrap();
-                    if mesh.has_morph_targets() {
-                        commands.entity(entity).insert(morph_weights);
-                    }
-                    writer.write(CharacterPartMeshSpawned(human));
-                }
-            }
+            writer.write(CharacterPartMeshSpawned(human));
         }
     }
 }

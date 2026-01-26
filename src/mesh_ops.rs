@@ -25,7 +25,7 @@ pub struct CharacterAssetMeshReady {
     pub prefab: &'static str,
 }
 
-/// A container for tracking load states for different prefabs
+/// A container for tracking load states for possibly different prefabs/morphs
 pub type PrefabLoadState = AHashMap<&'static str, MeshProcessingState>;
 
 pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {

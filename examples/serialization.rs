@@ -2,7 +2,7 @@
 
 mod shared;
 
-use bevy::{ecs::{intern::Internable}, prelude::*};
+use bevy::prelude::*;
 use humentity::prelude::*;
 use serde::{Deserialize, Serialize};
 use shared::{setup_env, add_humentity_plugin};
@@ -51,6 +51,9 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
         shape.morphs = morphs.compute_target_weights(&shape.morphs);
     }
 
+    // Here we have a &'static str name for the PREFAB.  If you have String, e.g. from Deserialize, use
+    // let name = humentity::prelude::NAME_INTERNER.intern(some_string).leak();
+    // to get a &'static str
     commands.insert_resource(CharacterArchetypePrefabs::new([
         (PREFAB_NAME, prefab)
     ]));
@@ -69,16 +72,10 @@ struct CharacterParts {
 
 fn add_humans(
     mut commands: Commands,
-    skins: Res<CharacterBodyTextures>,
-    mut character_asset_registry: ResMut<CharacterAssetRegistry>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_registry: ResMut<CharacterAssetRegistry>,
     asset_server: Res<AssetServer>,
 ) {
-    let albedo = &skins.albedo_maps;
-    for key in albedo.keys() {
-        info!("{:#}", key);
-    }
-
     let baby: CharacterShapeConfig = toml::from_str(r#"
         prefab = "ExampleHumanPrefab"
 
@@ -112,36 +109,16 @@ fn add_humans(
 
     let mut part_bundle = |part: PartDef| -> (CharacterPart, MeshMaterial3d<StandardMaterial>) {
         if let Some(albedo) = part.albedo_map {
-
-            // Use the provided str interner from the humentity crate to convert to &'static str
-            let albedo: &'static str = NAME_INTERNER.intern(&albedo).leak();
-
-            match &part.part {
-                CharacterPart::BaseMesh | CharacterPart::ProxyMesh(_) => {
-                    let handle: Handle<Image> = skins.albedo_maps[albedo].load_asset(&asset_server);
-                    let mat = StandardMaterial {
-                        base_color_texture: Some(handle),
-                        ..default()
-                    };
-                    return (
-                        part.part.clone(),
-                        MeshMaterial3d(materials.add(mat))
-                    );
-                }
-                CharacterPart::BodyPart(_) | CharacterPart::Equipment(_) => {
-                    let handle: Handle<Image> = character_asset_registry.get_mut(&part.part)  
-                        .unwrap()
-                        .get_texture_handle(albedo, CharacterAssetTextureType::Albedo, &asset_server);
-                    let mat = StandardMaterial {
-                        base_color_texture: Some(handle),
-                        ..default()
-                    };
-                    return (
-                        part.part.clone(),
-                        MeshMaterial3d(materials.add(mat))
-                    );
-                }
-            }
+            let handle = part.part.get_texture_handle(
+                &albedo, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+            let mat = StandardMaterial {
+                base_color_texture: Some(handle),
+                ..default()
+            };
+            return (
+                part.part.clone(),
+                MeshMaterial3d(materials.add(mat))
+            );
         } else {
             let mat = StandardMaterial {
                 base_color: Color::LinearRgba(LinearRgba::WHITE),

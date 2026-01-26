@@ -34,8 +34,7 @@ fn main() {
 }
 
 fn add_materials(
-    skins: Res<CharacterBodyTextures>,
-    mut human_assets: ResMut<CharacterAssetRegistry>,
+    mut asset_registry: ResMut<CharacterAssetRegistry>,
     parts: Query<
         (Entity, &CharacterPart),
         (With<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>),
@@ -45,75 +44,66 @@ fn add_materials(
     mut commands: Commands,
 ) {
     for (entity, part) in parts {
-        match part {
+        let mat = match part {
             CharacterPart::BaseMesh | CharacterPart::ProxyMesh(_) => {
-                let skin: Handle<Image> = skins.albedo_maps[SKIN].load_asset(&asset_server);
-                commands
-                    .entity(entity)
-                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color_texture: Some(skin),
-                        ..default()
-                    })));
+                let skin_albedo: Handle<Image> = part.get_texture_handle(SKIN, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                materials.add(StandardMaterial {
+                    base_color_texture: Some(skin_albedo),
+                    ..default()
+                })
             }
             CharacterPart::BodyPart(EYES) => {
-                let asset = human_assets.get_mut(part).unwrap();
-                let albedo: Handle<Image> = asset.get_texture_handle(EYE_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server);
-                commands
-                    .entity(entity)
-                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color_texture: Some(albedo),
-                        alpha_mode: AlphaMode::Blend,
-                        ..default()
-                    })));
+                let albedo: Handle<Image> = part.get_texture_handle(EYE_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                materials.add(StandardMaterial {
+                    base_color_texture: Some(albedo),
+                    alpha_mode: AlphaMode::Blend,
+                    ..default()
+                })
             }
             CharacterPart::BodyPart(EYEBROW) => {
-                let asset = human_assets.get_mut(part).unwrap();
-                let albedo: Handle<Image> = asset.get_texture_handle(EYEBROW_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server);
-                commands
-                    .entity(entity)
-                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color_texture: Some(albedo),
-                        base_color: Color::BLACK,
-                        alpha_mode: AlphaMode::Blend,
-                        ..default()
-                    })));
+                let albedo: Handle<Image> = part.get_texture_handle(EYEBROW_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                materials.add(StandardMaterial {
+                    base_color_texture: Some(albedo),
+                    base_color: Color::BLACK,
+                    alpha_mode: AlphaMode::Blend,
+                    ..default()
+                })
             }
             CharacterPart::BodyPart(HAIR) => {
-                let asset = human_assets.get_mut(part).unwrap();
-                let albedo: Handle<Image> = asset.get_texture_handle(HAIR_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server);
-                commands
-                    .entity(entity)
-                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color_texture: Some(albedo),
-                        //base_color: Color::LinearRgba(LinearRgba::RED),
-                        alpha_mode: AlphaMode::Blend,
-                        clearcoat_perceptual_roughness: 0.1,
-                        clearcoat: 0.2,
-                        perceptual_roughness: 0.3,
-                        reflectance: 0.1,
-                        metallic: 0.,
-                        ..default()
-                    })));
+                let albedo: Handle<Image> = part.get_texture_handle(HAIR_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                materials.add(StandardMaterial {
+                    base_color_texture: Some(albedo),
+                    //base_color: Color::LinearRgba(LinearRgba::RED),
+                    alpha_mode: AlphaMode::Blend,
+                    clearcoat_perceptual_roughness: 0.1,
+                    clearcoat: 0.2,
+                    perceptual_roughness: 0.3,
+                    reflectance: 0.1,
+                    metallic: 0.,
+                    ..default()
+                })
             }
             CharacterPart::BodyPart(EYELASH) => {
-                let asset = &human_assets[part];
-                let albedo: Handle<Image> = asset.paths.albedo_maps[&EYELASH_TEXTURE]
-                    .load_asset(&*asset_server);
-                commands
-                    .entity(entity)
-                    .insert(MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color_texture: Some(albedo),
-                        base_color: Color::LinearRgba(LinearRgba::RED),
-                        alpha_mode: AlphaMode::Blend,
-                        ..default()
-                    })));
+                let albedo: Handle<Image> = part.get_texture_handle(EYELASH_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                materials.add(StandardMaterial {
+                    base_color_texture: Some(albedo),
+                    base_color: Color::LinearRgba(LinearRgba::RED),
+                    alpha_mode: AlphaMode::Blend,
+                    ..default()
+                })
             }
             _ => {
                 // I didnt' make any textures for the basic clothes
-                let mat = materials.add(StandardMaterial::from_color(Color::BLACK));
-                commands.entity(entity).insert(MeshMaterial3d(mat.clone()));
+                // Should just return a dummy handle and log an error
+                let _albedo: Handle<Image> = part.get_texture_handle(EYELASH_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &mut asset_registry);
+                materials.add(StandardMaterial {
+                    base_color: Color::LinearRgba(LinearRgba::RED),
+                    alpha_mode: AlphaMode::Blend,
+                    ..default()
+                })
             }
-        }
+        };
+        commands.entity(entity).insert(MeshMaterial3d(mat));
     }
 }
 

@@ -93,9 +93,6 @@ impl CharacterArchetypePrefab {
     }
 }
 
-/*--------+
-| Events |
-+--------*/
 /// Use this to modify prefab shapes
 /// The systems below will update mesh handles
 #[derive(Event, Clone)]
@@ -106,9 +103,6 @@ pub struct ModifyPrefabShape {
     pub parts: Vec<CharacterPart>,
 }
 
-/*-----------+
-| Resources +|
-+-----------*/
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct CharacterArchetypePrefabs(AHashMap<&'static str, CharacterArchetypePrefab>);
 
@@ -134,9 +128,6 @@ impl CharacterArchetypePrefabs {
 #[derive(Resource, Deref, DerefMut, Default)]
 pub(crate) struct ArchetypeShapeUpdate(Vec<ModifyPrefabShape>);
 
-/*---------+
-| Systems |
-+---------*/
 /// Monitor pending shape changes in asset meshes
 pub(crate) fn update_asset_shapes(
     mut shape_updates: ResMut<ArchetypeShapeUpdate>,
@@ -166,13 +157,8 @@ pub(crate) fn update_asset_shapes(
                 CharacterPart::BaseMesh => {
                     if basemesh
                         .get_rigged_mesh_handle(
-                            prefab_name,
-                            prefab,
-                            &mut meshes,
-                            &mut images,
-                            &rig_data,
-                            &mh_morphs,
-                            cache,
+                            prefab_name, prefab, &mut meshes,
+                            &mut images, &rig_data, &mh_morphs, cache,
                         )
                         .is_none()
                     {
@@ -185,16 +171,8 @@ pub(crate) fn update_asset_shapes(
                     let asset = assets.get_mut(part).unwrap();
                     if asset
                         .get_rigged_mesh_handle(
-                            &mut asset_server,
-                            prefab_name,
-                            prefab,
-                            &rig_data,
-                            &basemesh,
-                            &mh_morphs,
-                            &paths,
-                            &mut meshes,
-                            &mut images,
-                            cache,
+                            &mut asset_server, prefab_name, prefab, &rig_data, &mut basemesh,
+                            &mh_morphs, &paths, &mut meshes, &mut images, cache,
                         )
                         .is_none()
                     {
