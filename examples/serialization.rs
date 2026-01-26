@@ -5,7 +5,7 @@ mod shared;
 use bevy::prelude::*;
 use humentity::prelude::*;
 use serde::{Deserialize, Serialize};
-use shared::{setup_env, add_humentity_plugin};
+use shared::{add_humentity_plugin, setup_env};
 
 const PREFAB_NAME: &str = "ExampleHumanPrefab";
 
@@ -13,8 +13,7 @@ fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
-    app
-        .add_plugins(DefaultPlugins)
+    app.add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
         .add_systems(OnEnter(HumentityLoadState::BuildingPrefabs), setup_prefabs)
         .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
@@ -54,9 +53,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     // Here we have a &'static str name for the PREFAB.  If you have String, e.g. from Deserialize, use
     // let name = humentity::prelude::NAME_INTERNER.intern(some_string).leak();
     // to get a &'static str
-    commands.insert_resource(CharacterArchetypePrefabs::new([
-        (PREFAB_NAME, prefab)
-    ]));
+    commands.insert_resource(CharacterArchetypePrefabs::new([(PREFAB_NAME, prefab)]));
 }
 
 #[derive(Serialize, Deserialize)]
@@ -76,26 +73,36 @@ fn add_humans(
     asset_registry: ResMut<CharacterAssetRegistry>,
     asset_server: Res<AssetServer>,
 ) {
-    let baby: CharacterShapeConfig = toml::from_str(r#"
+    let baby: CharacterShapeConfig = toml::from_str(
+        r#"
         prefab = "ExampleHumanPrefab"
 
         [prefab_morph_targets]
         baby = 1
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
-    let woman: CharacterShapeConfig = toml::from_str(r#"
+    let woman: CharacterShapeConfig = toml::from_str(
+        r#"
         prefab = "ExampleHumanPrefab"
 
         [prefab_morph_targets]
         woman = 1
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
-    let baby_parts: CharacterParts = toml::from_str(r#"
+    let baby_parts: CharacterParts = toml::from_str(
+        r#"
         [[parts]]
         part = "BaseMesh"
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
-    let woman_parts: CharacterParts = toml::from_str(r#"
+    let woman_parts: CharacterParts = toml::from_str(
+        r#"
         [[parts]]
         part = "ProxyMesh:proxy741"
         albedo_map = "young_asian_male"
@@ -105,54 +112,57 @@ fn add_humans(
 
         [[parts]]
         part ="Equipment:simple_briefs"
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
     let mut part_bundle = |part: PartDef| -> (CharacterPart, MeshMaterial3d<StandardMaterial>) {
         if let Some(albedo) = part.albedo_map {
             let handle = part.part.get_texture_handle(
-                &albedo, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                &albedo,
+                CharacterAssetTextureType::Albedo,
+                &asset_server,
+                &asset_registry,
+            );
             let mat = StandardMaterial {
                 base_color_texture: Some(handle),
                 ..default()
             };
-            return (
-                part.part.clone(),
-                MeshMaterial3d(materials.add(mat))
-            );
+            return (part.part.clone(), MeshMaterial3d(materials.add(mat)));
         } else {
             let mat = StandardMaterial {
                 base_color: Color::LinearRgba(LinearRgba::WHITE),
                 ..default()
             };
-            return (
-                part.part.clone(),
-                MeshMaterial3d(materials.add(mat))
-            )
+            return (part.part.clone(), MeshMaterial3d(materials.add(mat)));
         }
     };
 
-    let baby_entity = commands.spawn((
-        Transform::from_translation(Vec3::new(-1., 0., 0.)),
-        InheritedVisibility::default(),
-        baby,
-    )).id();
+    let baby_entity = commands
+        .spawn((
+            Transform::from_translation(Vec3::new(-1., 0., 0.)),
+            InheritedVisibility::default(),
+            baby,
+        ))
+        .id();
 
-    commands.entity(baby_entity).with_children(|e | {
+    commands.entity(baby_entity).with_children(|e| {
         for part in baby_parts.parts.into_iter() {
             e.spawn(part_bundle(part));
         }
     });
 
-    let woman_entity = commands.spawn((
-        Transform::from_translation(Vec3::new(0., 0., 0.)),
-        InheritedVisibility::default(),
-        woman,
-    )).id();
+    let woman_entity = commands
+        .spawn((
+            Transform::from_translation(Vec3::new(0., 0., 0.)),
+            InheritedVisibility::default(),
+            woman,
+        ))
+        .id();
 
     commands.entity(woman_entity).with_children(|e| {
         for part in woman_parts.parts.into_iter() {
             e.spawn(part_bundle(part));
         }
     });
-
 }

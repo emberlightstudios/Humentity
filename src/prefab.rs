@@ -3,7 +3,7 @@ use crate::{
     mesh_ops::MeshProcessingState,
     morphs::adjust_helpers_to_morphs,
     prelude::*,
-    rigs::{RigData, SkeletonCache, SkeletonCaches, get_bone_order},
+    rigs::{get_bone_order, RigData, SkeletonCache, SkeletonCaches},
 };
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
@@ -140,7 +140,6 @@ pub(crate) fn update_asset_shapes(
     rig_data: Res<RigData>,
     mut prefabs: ResMut<CharacterArchetypePrefabs>,
     skeleton_caches: Res<SkeletonCaches>,
-    paths: Res<HumentityPathsConfig>,
     mut commands: Commands,
 ) {
     let mut done = vec![];
@@ -157,13 +156,18 @@ pub(crate) fn update_asset_shapes(
                 CharacterPart::BaseMesh => {
                     if basemesh
                         .get_rigged_mesh_handle(
-                            prefab_name, prefab, &mut meshes,
-                            &mut images, &rig_data, &mh_morphs, cache,
+                            prefab_name,
+                            prefab,
+                            &mut meshes,
+                            &mut images,
+                            &rig_data,
+                            &mh_morphs,
+                            cache,
                         )
                         .is_none()
                     {
                         finished = false;
-                    } 
+                    }
                 }
                 CharacterPart::BodyPart(_)
                 | CharacterPart::Equipment(_)
@@ -171,8 +175,15 @@ pub(crate) fn update_asset_shapes(
                     let asset = assets.get_mut(part).unwrap();
                     if asset
                         .get_rigged_mesh_handle(
-                            &mut asset_server, prefab_name, prefab, &rig_data, &mut basemesh,
-                            &mh_morphs, &paths, &mut meshes, &mut images, cache,
+                            &mut asset_server,
+                            prefab_name,
+                            prefab,
+                            &rig_data,
+                            &mut basemesh,
+                            &mh_morphs,
+                            &mut meshes,
+                            &mut images,
+                            cache,
                         )
                         .is_none()
                     {
@@ -300,12 +311,15 @@ pub(crate) fn create_character_prefab_rig_scenes(world: &mut World) {
 
         let mut skeleton_caches = world.resource_mut::<SkeletonCaches>();
         if !skeleton_caches.contains_key(&rig_type) {
-            skeleton_caches.insert(rig_type, SkeletonCache {
-                bone_order: bone_order.clone(),
-                bone_model_space_rots: bone_rotations,
-                bone_local_translations: bone_translations,
-                scene,
-            });
+            skeleton_caches.insert(
+                rig_type,
+                SkeletonCache {
+                    bone_order: bone_order.clone(),
+                    bone_model_space_rots: bone_rotations,
+                    bone_local_translations: bone_translations,
+                    scene,
+                },
+            );
         }
     }
     let mut state = world.resource_mut::<NextState<HumentityLoadState>>();

@@ -22,15 +22,13 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{add_material, cam_controls, setup_env, add_humentity_plugin};
-
+use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
 
 fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
-    app
-        .add_plugins(DefaultPlugins)
+    app.add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
         .add_systems(OnEnter(HumentityLoadState::BuildingPrefabs), setup_prefabs)
         .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
@@ -64,8 +62,10 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     // These are desinged in makehuman such that you don't have to normalize their sum.
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
-    let bodybuilder_shape =
-        CharacterShapeArchetype::new("bodybuilder".to_string(), morphs.compute_target_weights(&morph_targets));
+    let bodybuilder_shape = CharacterShapeArchetype::new(
+        "bodybuilder".to_string(),
+        morphs.compute_target_weights(&morph_targets),
+    );
 
     // You could use this, e.g. to define distinct face presets on a body also. Since they
     // become morph targets you can generate essentially infinite face shapes from the vector

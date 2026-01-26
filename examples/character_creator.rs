@@ -19,8 +19,7 @@ use bevy::ui_widgets::SliderPrecision;
 use bevy::ui_widgets::SliderStep;
 use bevy::ui_widgets::ValueChange;
 use humentity::prelude::*;
-use shared::{add_material, cam_controls, add_humentity_plugin};
-
+use shared::{add_humentity_plugin, add_material, cam_controls};
 
 const PREFAB: &'static str = "PrefabName";
 const SHAPE_NAME: &'static str = "DefaultShapeName";
@@ -29,11 +28,7 @@ fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
-    app
-        .add_plugins((
-            DefaultPlugins,
-            FeathersPlugins,
-        ))
+    app.add_plugins((DefaultPlugins, FeathersPlugins))
         .insert_resource(UiTheme(create_dark_theme()))
         .add_systems(Startup, setup_env)
         .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefab)

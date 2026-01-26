@@ -2,7 +2,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{cam_controls, setup_env, add_humentity_plugin};
+use shared::{add_humentity_plugin, cam_controls, setup_env};
 
 use ahash::AHashMap;
 
@@ -24,8 +24,7 @@ fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
-    app
-        .add_plugins(DefaultPlugins)
+    app.add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
         .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
         .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
@@ -46,14 +45,24 @@ fn add_materials(
     for (entity, part) in parts {
         let mat = match part {
             CharacterPart::BaseMesh | CharacterPart::ProxyMesh(_) => {
-                let skin_albedo: Handle<Image> = part.get_texture_handle(SKIN, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                let skin_albedo: Handle<Image> = part.get_texture_handle(
+                    SKIN,
+                    CharacterAssetTextureType::Albedo,
+                    &asset_server,
+                    &asset_registry,
+                );
                 materials.add(StandardMaterial {
                     base_color_texture: Some(skin_albedo),
                     ..default()
                 })
             }
             CharacterPart::BodyPart(EYES) => {
-                let albedo: Handle<Image> = part.get_texture_handle(EYE_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                let albedo: Handle<Image> = part.get_texture_handle(
+                    EYE_TEXTURE,
+                    CharacterAssetTextureType::Albedo,
+                    &asset_server,
+                    &asset_registry,
+                );
                 materials.add(StandardMaterial {
                     base_color_texture: Some(albedo),
                     alpha_mode: AlphaMode::Blend,
@@ -61,7 +70,12 @@ fn add_materials(
                 })
             }
             CharacterPart::BodyPart(EYEBROW) => {
-                let albedo: Handle<Image> = part.get_texture_handle(EYEBROW_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                let albedo: Handle<Image> = part.get_texture_handle(
+                    EYEBROW_TEXTURE,
+                    CharacterAssetTextureType::Albedo,
+                    &asset_server,
+                    &asset_registry,
+                );
                 materials.add(StandardMaterial {
                     base_color_texture: Some(albedo),
                     base_color: Color::BLACK,
@@ -70,7 +84,12 @@ fn add_materials(
                 })
             }
             CharacterPart::BodyPart(HAIR) => {
-                let albedo: Handle<Image> = part.get_texture_handle(HAIR_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                let albedo: Handle<Image> = part.get_texture_handle(
+                    HAIR_TEXTURE,
+                    CharacterAssetTextureType::Albedo,
+                    &asset_server,
+                    &asset_registry,
+                );
                 materials.add(StandardMaterial {
                     base_color_texture: Some(albedo),
                     //base_color: Color::LinearRgba(LinearRgba::RED),
@@ -84,7 +103,12 @@ fn add_materials(
                 })
             }
             CharacterPart::BodyPart(EYELASH) => {
-                let albedo: Handle<Image> = part.get_texture_handle(EYELASH_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &asset_registry);
+                let albedo: Handle<Image> = part.get_texture_handle(
+                    EYELASH_TEXTURE,
+                    CharacterAssetTextureType::Albedo,
+                    &asset_server,
+                    &asset_registry,
+                );
                 materials.add(StandardMaterial {
                     base_color_texture: Some(albedo),
                     base_color: Color::LinearRgba(LinearRgba::RED),
@@ -95,7 +119,12 @@ fn add_materials(
             _ => {
                 // I didnt' make any textures for the basic clothes
                 // Should just return a dummy handle and log an error
-                let _albedo: Handle<Image> = part.get_texture_handle(EYELASH_TEXTURE, CharacterAssetTextureType::Albedo, &asset_server, &mut asset_registry);
+                let _albedo: Handle<Image> = part.get_texture_handle(
+                    EYELASH_TEXTURE,
+                    CharacterAssetTextureType::Albedo,
+                    &asset_server,
+                    &mut asset_registry,
+                );
                 materials.add(StandardMaterial {
                     base_color: Color::LinearRgba(LinearRgba::RED),
                     alpha_mode: AlphaMode::Blend,
@@ -148,8 +177,10 @@ fn add_human(mut commands: Commands) {
 fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.);
-    let base_shape =
-        CharacterShapeArchetype::new("female".to_string(), morphs.compute_target_weights(&morph_targets));
+    let base_shape = CharacterShapeArchetype::new(
+        "female".to_string(),
+        morphs.compute_target_weights(&morph_targets),
+    );
     let mut prefabs = AHashMap::default();
     prefabs.insert(
         PREFAB,

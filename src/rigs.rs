@@ -509,14 +509,8 @@ pub(crate) fn build_human_rig_scene(
 
     let vg = world.resource::<VertexGroups>();
     let rig_data = world.resource::<RigData>();
-    let global_transforms = get_model_space_skeleton_transforms(
-        bone_order,
-        helpers,
-        rig,
-        bone_rotations,
-        vg,
-        rig_data,
-    );
+    let global_transforms =
+        get_model_space_skeleton_transforms(bone_order, helpers, rig, bone_rotations, vg, rig_data);
     let local_transforms =
         get_local_skeleton_transforms(bone_order, rig, rig_data, &global_transforms);
 

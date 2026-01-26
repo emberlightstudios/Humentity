@@ -1,5 +1,12 @@
 use crate::{
-    HumentityGlobalConfig, TranslationTracks, assets::CharacterAssetRegistry, basemesh::VertexGroups, prelude::*, rigs::{BoneTranslationData, RigData, RootBonePrevious, SkeletonCaches, get_model_space_skeleton_transforms}
+    assets::CharacterAssetRegistry,
+    basemesh::VertexGroups,
+    prelude::*,
+    rigs::{
+        get_model_space_skeleton_transforms, BoneTranslationData, RigData, RootBonePrevious,
+        SkeletonCaches,
+    },
+    HumentityGlobalConfig, TranslationTracks,
 };
 use ahash::AHashMap;
 use bevy::{
@@ -41,7 +48,6 @@ impl<'de> Deserialize<'de> for CharacterShapeConfig {
         Ok(Self::new(prefab, raw.prefab_morph_targets))
     }
 }
-
 
 impl CharacterShapeConfig {
     pub fn new(prefab: &'static str, morphs: MorphTargets) -> Self {
@@ -168,7 +174,7 @@ pub(crate) fn fit_skeleton_to_shape(
         }
         let skinned_mesh = skinned_mesh.unwrap();
 
-        // Re-fit skeleton to mesh shape.  This is based on fixed vertices in the base mesh. 
+        // Re-fit skeleton to mesh shape.  This is based on fixed vertices in the base mesh.
         // This will move and rotate the bones to align with those verts.
         let helpers = prefab.get_helpers(&config.prefab_morph_targets, &basemesh, &morph_targets);
         let mut global_bone_transforms = get_model_space_skeleton_transforms(
@@ -183,9 +189,9 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // The skeleton was adjusted so that the bones' rotations align head to tail.
         // The skeleton now fits the mesh's shape but this can induce animation artifacts due to
-        // differences in proportions/bind poses. In order to prevent this we adjust the bone rotations 
+        // differences in proportions/bind poses. In order to prevent this we adjust the bone rotations
         // so that they have the same positions, but rotations are adjusted to align exactly with
-        // the reference skeleton from the animation glb files. In other words, the bones may not be 
+        // the reference skeleton from the animation glb files. In other words, the bones may not be
         // rotated such that they point to their child bone anymore, but they will match the reference rig rotations.
         // This will require changing both rotations and translations. A child bone needs to translate
         // back into it's correct model space position after its parent rotates.
@@ -360,7 +366,6 @@ pub(crate) fn setup_human_parts(
     skeleton_caches: Res<SkeletonCaches>,
     mut basemesh: ResMut<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
-    paths: Res<HumentityPathsConfig>,
     mut asset_server: ResMut<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
@@ -392,8 +397,15 @@ pub(crate) fn setup_human_parts(
             continue;
         };
         if let Some(handle) = asset.get_rigged_mesh_handle(
-            &mut asset_server, prefab_name, prefab, &rig_data, &mut basemesh,
-            &mh_morphs, &paths, &mut meshes, &mut images, cache,
+            &mut asset_server,
+            prefab_name,
+            prefab,
+            &rig_data,
+            &mut basemesh,
+            &mh_morphs,
+            &mut meshes,
+            &mut images,
+            cache,
         ) {
             commands
                 .entity(entity)

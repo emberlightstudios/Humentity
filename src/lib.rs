@@ -24,12 +24,14 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 pub mod prelude {
     pub use crate::{
         animation::CharacterAnimationClips,
-        assets::{CharacterAsset, CharacterAssetRegistry, CharacterPart, CharacterAssetTextureType},
+        assets::{
+            CharacterAsset, CharacterAssetRegistry, CharacterAssetTextureType, CharacterPart,
+        },
         basemesh::BaseMesh,
-        material::{CharacterMaterialExtension},//, CharacterMaterialExtensionData},
+        material::CharacterMaterialExtension, //, CharacterMaterialExtensionData},
         mesh_ops::{CharacterAssetMeshReady, MeshProcessingState},
         morphs::{MakeHumanMorphs, MorphTargets},
-        paths_config::{HumentityPathsConfig, HumentityAssetPath, HumentityAssetSourceId},
+        paths_config::{HumentityAssetPath, HumentityAssetSourceId, HumentityPathsConfig},
         physics::CharacterRagdoll,
         prefab::{
             CharacterAnimationArchetype, CharacterArchetypePrefab, CharacterArchetypePrefabs,
@@ -37,7 +39,11 @@ pub mod prelude {
         },
         rigs::{ParentBone, RigType, RootMotion},
         spawn::{CharacterPartMeshSpawned, CharacterShapeConfig, FitSkeleton, RelatedEntities},
-        HumentityPlugin, HumentityGlobalConfig, HumentityLoadState, TranslationTracks, NAME_INTERNER,
+        HumentityGlobalConfig,
+        HumentityLoadState,
+        HumentityPlugin,
+        TranslationTracks,
+        NAME_INTERNER,
     };
 }
 
@@ -117,16 +123,13 @@ impl Plugin for HumentityPlugin {
                     basemesh::create_body_mesh
                         .run_if(resource_exists::<basemesh::HelperMeshHandle>)
                         .run_if(in_state(HumentityLoadState::LoadingCoreAssets)),
-
                     // PHASE 2 : BUILDING ARCHETYPE PREFABS
                     prefab::create_character_prefab_rig_scenes
                         .run_if(resource_exists::<CharacterArchetypePrefabs>)
                         .run_if(in_state(HumentityLoadState::BuildingPrefabs)),
-
                     // PHASE 3 : REBUILDING ANIMATION CLIPS
                     animation::rebuild_animations
                         .run_if(in_state(HumentityLoadState::AnimationProcessing)),
-
                     // PHASE 4 : READY TO BUILD HUMANS
                     (
                         spawn::spawn_rig_scene,
@@ -138,7 +141,7 @@ impl Plugin for HumentityPlugin {
                         .chain()
                         .run_if(in_state(HumentityLoadState::Ready))
                         .run_if(resource_exists::<CharacterAssetRegistry>),
-                )
+                ),
             );
 
         if self.config.debug_draw_bones {

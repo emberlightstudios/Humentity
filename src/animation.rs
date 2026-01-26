@@ -11,7 +11,10 @@ use std::{
 };
 
 use crate::{
-    HumentityGlobalConfig, prelude::*, rigs::{BoneTranslationData, RigType, RootBone, RootBonePrevious, SkeletonCaches}, spawn::RelatedEntities
+    prelude::*,
+    rigs::{BoneTranslationData, RigType, RootBone, RootBonePrevious, SkeletonCaches},
+    spawn::RelatedEntities,
+    HumentityGlobalConfig,
 };
 
 #[derive(Resource, Deref, DerefMut)]
@@ -177,8 +180,7 @@ pub(crate) fn rebuild_animations(
     mut commands: Commands,
     config: Res<HumentityGlobalConfig>,
 ) {
-    let rig_types = prefabs.values().map(|p| p.rig.rig_type)
-        .collect::<Vec<_>>();
+    let rig_types = prefabs.values().map(|p| p.rig.rig_type).collect::<Vec<_>>();
 
     let mut rig_clips =
         AHashMap::<RigType, AHashMap<&'static str, Handle<AnimationClip>>>::default();
@@ -373,10 +375,13 @@ pub(crate) fn get_animation_clips(
                         target_id,
                         AnimatableCurve::new(
                             animated_field!(Transform::translation),
-                            AnimatableKeyframeCurve::new(times.into_iter().zip(floats
-                                .chunks(floats_per_element)
-                                .map(|chunk| Vec3::from_array([chunk[0], chunk[1], chunk[2]]))
-                            ))?
+                            AnimatableKeyframeCurve::new(
+                                times.into_iter().zip(
+                                    floats.chunks(floats_per_element).map(|chunk| {
+                                        Vec3::from_array([chunk[0], chunk[1], chunk[2]])
+                                    }),
+                                ),
+                            )?,
                         ),
                     );
                 }
@@ -385,10 +390,13 @@ pub(crate) fn get_animation_clips(
                         target_id,
                         AnimatableCurve::new(
                             animated_field!(Transform::scale),
-                            AnimatableKeyframeCurve::new(times.into_iter().zip(floats
-                                .chunks(floats_per_element)
-                                .map(|chunk| Vec3::from_array([chunk[0], chunk[1], chunk[2]]))
-                            ))?
+                            AnimatableKeyframeCurve::new(
+                                times.into_iter().zip(
+                                    floats.chunks(floats_per_element).map(|chunk| {
+                                        Vec3::from_array([chunk[0], chunk[1], chunk[2]])
+                                    }),
+                                ),
+                            )?,
                         ),
                     );
                 }
@@ -397,12 +405,12 @@ pub(crate) fn get_animation_clips(
                         target_id,
                         AnimatableCurve::new(
                             animated_field!(Transform::rotation),
-                            AnimatableKeyframeCurve::new(times.into_iter().zip(floats
-                                .chunks(floats_per_element)
-                                .map(|chunk| {
-                                    Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]]).normalize()
-                                })
-                            ))?
+                            AnimatableKeyframeCurve::new(times.into_iter().zip(
+                                floats.chunks(floats_per_element).map(|chunk| {
+                                    Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]])
+                                        .normalize()
+                                }),
+                            ))?,
                         ),
                     );
                 }
@@ -421,7 +429,9 @@ fn compute_global_transform(
     global_transforms: &mut AHashMap<&'static str, Transform>,
     parent_global: Transform,
 ) -> Result<(), BevyError> {
-    let name = root.name().ok_or_else(|| BevyError::from("No name for bone"))?;
+    let name = root
+        .name()
+        .ok_or_else(|| BevyError::from("No name for bone"))?;
     let name = NAME_INTERNER.intern(name).leak();
     let local = local_transforms
         .get(&name)

@@ -5,23 +5,22 @@
 mod shared;
 use bevy::{pbr::ExtendedMaterial, prelude::*};
 use humentity::prelude::*;
-use shared::{cam_controls, setup_env, add_humentity_plugin};
+use shared::{add_humentity_plugin, cam_controls, setup_env};
 
 fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
-    app
-        .add_plugins((
-            DefaultPlugins,
-            MaterialPlugin::<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>::default(),
-        ))
-        .add_systems(Startup, setup_env)
-        .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
-        .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
-        .add_systems(Update, add_skin_material)
-        .add_systems(Update, cam_controls)
-        .run();
+    app.add_plugins((
+        DefaultPlugins,
+        MaterialPlugin::<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>::default(),
+    ))
+    .add_systems(Startup, setup_env)
+    .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
+    .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
+    .add_systems(Update, add_skin_material)
+    .add_systems(Update, cam_controls)
+    .run();
 }
 
 fn add_skin_material(
@@ -44,7 +43,12 @@ fn add_skin_material(
         // This should always be true here, but in general we only want to put skin textures
         // on the base mesh or the proxy meshes, not any other parts/assets.
         if matches!(part, CharacterPart::BaseMesh) {
-            let albedo = part.get_texture_handle(name, CharacterAssetTextureType::Albedo, &asset_server, &mut asset_registry);
+            let albedo = part.get_texture_handle(
+                name,
+                CharacterAssetTextureType::Albedo,
+                &asset_server,
+                &mut asset_registry,
+            );
             let material = ExtendedMaterial {
                 base: StandardMaterial {
                     base_color_texture: Some(albedo),

@@ -6,15 +6,14 @@
 mod shared;
 use ahash::AHashMap;
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*, scene::SceneInstanceReady};
-use humentity::{prelude::*};
-use shared::{add_material, cam_controls, add_humentity_plugin};
+use humentity::prelude::*;
+use shared::{add_humentity_plugin, add_material, cam_controls};
 
 fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
-    app
-        .add_plugins(DefaultPlugins)
+    app.add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
         .add_systems(
             Update,
@@ -87,7 +86,10 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
-    let baby = CharacterShapeArchetype::new("baby".to_string(), morphs.compute_target_weights(&morph_targets));
+    let baby = CharacterShapeArchetype::new(
+        "baby".to_string(),
+        morphs.compute_target_weights(&morph_targets),
+    );
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
@@ -96,9 +98,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
             vec![baby],
             CharacterAnimationArchetype::new(
                 RigType::Default,
-                [
-                    "assets/animation/idle.glb".to_string(),
-                ]
+                ["assets/animation/idle.glb".to_string()],
             ),
         ),
     );

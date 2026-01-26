@@ -51,7 +51,7 @@ pub struct MakeHumanMorphs {
 impl FromWorld for MakeHumanMorphs {
     fn from_world(world: &mut World) -> Self {
         // Create Morph Target Entities from all the .target files
-        
+
         let config = world
             .get_resource::<HumentityPathsConfig>()
             .expect("No global Humentity config loaded");
@@ -69,8 +69,8 @@ impl FromWorld for MakeHumanMorphs {
                     let Some(stem) = path.file_stem().unwrap().to_str() else {
                         continue;
                     };
-                    let file =
-                        File::open(path).unwrap_or_else(|_| panic!("Couldn't open target file {}", filename));
+                    let file = File::open(path)
+                        .unwrap_or_else(|_| panic!("Couldn't open target file {}", filename));
                     for line_result in BufReader::new(file).lines() {
                         let Ok(line) = line_result else { break };
                         let mut line_elements = line.split_whitespace();
@@ -157,7 +157,7 @@ impl MakeHumanMorphs {
             self.macro_morphs
                 .macrotargets
                 .keys()
-                .map(|n| NAME_INTERNER.intern(n).leak())
+                .map(|n| NAME_INTERNER.intern(n).leak()),
         );
         sliders.insert("macro", macro_sliders);
         sliders.extend(self.composite_categories.clone());

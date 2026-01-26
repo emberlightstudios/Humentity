@@ -2,23 +2,22 @@ mod shared;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{add_material, cam_controls, setup_env, add_humentity_plugin};
+use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
 
 fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
-    app
-        .add_plugins((
-            DefaultPlugins,
-            PhysicsPlugins::default(),
-            PhysicsDebugPlugin,
-        ))
-        .add_systems(Startup, (setup_env, floor))
-        .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
-        .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
-        .add_systems(Update, (cam_controls, add_material, toggle))
-        .run();
+    app.add_plugins((
+        DefaultPlugins,
+        PhysicsPlugins::default(),
+        PhysicsDebugPlugin,
+    ))
+    .add_systems(Startup, (setup_env, floor))
+    .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
+    .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
+    .add_systems(Update, (cam_controls, add_material, toggle))
+    .run();
 }
 
 fn toggle(input: Res<ButtonInput<KeyCode>>, mut ragdolls: Query<&mut CharacterRagdoll>) {

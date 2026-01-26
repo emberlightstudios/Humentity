@@ -11,10 +11,15 @@ use serde::Deserialize;
 use smallvec::SmallVec;
 use std::{fs::File, io::BufReader};
 
-use crate::{mesh_ops::{
-    MeshProcessingState, PrefabLoadState, fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices
-}, rigs::SkeletonCache};
 use crate::prelude::*;
+use crate::{
+    mesh_ops::{
+        fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals,
+        get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState,
+        PrefabLoadState,
+    },
+    rigs::SkeletonCache,
+};
 
 pub(crate) const BODY_VERTICES: u16 = 13380u16;
 pub(crate) const BODY_SCALE: f32 = 0.1;
@@ -44,7 +49,7 @@ impl FromWorld for BaseMesh {
             .get_resource::<HumentityPathsConfig>()
             .expect("NO CONFIG LOADED");
         let path = config.core_assets_path.clone();
-        
+
         if !path.join("base.obj").exists() {
             panic!("Path {path:#?} not valid. base.obj not found.  Did you provide the correct path to the Humentity crate?")
         }
@@ -337,7 +342,6 @@ fn generate_mesh_without_helpers(
     }
 
     // Create the new mesh
-    
 
     Mesh::new(
         bevy::mesh::PrimitiveTopology::TriangleList,

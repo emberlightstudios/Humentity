@@ -26,7 +26,7 @@ impl MaterialExtension for CharacterMaterialExtension {
     }
 }
 
-impl <'a> From<&'a CharacterMaterialExtension> for CharacterMaterialExtensionData {
+impl<'a> From<&'a CharacterMaterialExtension> for CharacterMaterialExtensionData {
     fn from(value: &'a CharacterMaterialExtension) -> Self {
         CharacterMaterialExtensionData {
             overlay1: value.overlays[0].unwrap_or_default(),

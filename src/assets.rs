@@ -1,19 +1,19 @@
 use crate::{
     mesh_ops::{
-        MeshProcessingState, PrefabLoadState, fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices, 
+        fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals,
+        get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState,
+        PrefabLoadState,
     },
     morphs::adjust_helpers_to_morphs,
     paths_config::{HumentityAssetPath, HumentityAssetSourceId},
     prelude::*,
-    rigs::{RigData, SkeletonCache, set_asset_rig_arrays},
+    rigs::{set_asset_rig_arrays, RigData, SkeletonCache},
 };
 use ::bevy::{
     asset::RenderAssetUsages,
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
-use std::path::Path;
 use ::std::{
     fs::File,
     io::{BufRead, BufReader},
@@ -24,6 +24,8 @@ use bevy::{
     ecs::intern::Internable,
     mesh::morph::{MorphAttributes, MorphTargetImage},
 };
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use std::path::Path;
 use walkdir::WalkDir;
 
 /// The types of asset types which can be added to humans.
@@ -80,7 +82,9 @@ impl<'de> Deserialize<'de> for CharacterPart {
 
         let mut parts = s.splitn(2, ':');
         let variant = parts.next().unwrap();
-        let value = parts.next().ok_or_else(|| de::Error::custom("expected variant:data"))?;
+        let value = parts
+            .next()
+            .ok_or_else(|| de::Error::custom("expected variant:data"))?;
 
         let interned = NAME_INTERNER.intern(value).leak();
 
@@ -156,13 +160,20 @@ impl CharacterAsset {
         rig_data: &RigData,
         basemesh: &mut BaseMesh,
         mh_morphs: &MakeHumanMorphs,
-        paths: &HumentityPathsConfig,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
         cache: &SkeletonCache,
     ) -> Option<Handle<Mesh>> {
         if self.part == CharacterPart::BaseMesh {
-            return basemesh.get_rigged_mesh_handle(prefab_name, prefab, meshes, images, rig_data, mh_morphs, cache);
+            return basemesh.get_rigged_mesh_handle(
+                prefab_name,
+                prefab,
+                meshes,
+                images,
+                rig_data,
+                mh_morphs,
+                cache,
+            );
         }
 
         if self.data.is_none() {
@@ -170,8 +181,16 @@ impl CharacterAsset {
             return None;
         }
         let data = self.data.as_mut()?;
-        data.get_rigged_mesh_handle(prefab_name, prefab, basemesh,
-            mh_morphs, rig_data, paths, meshes, images, cache)
+        data.get_rigged_mesh_handle(
+            prefab_name,
+            prefab,
+            basemesh,
+            mh_morphs,
+            rig_data,
+            meshes,
+            images,
+            cache,
+        )
     }
 
     /// Get a texture by name and texture type
@@ -189,7 +208,11 @@ impl CharacterAsset {
         if let Some(path) = paths.get(texture_name.as_ref()) {
             path.load_asset(asset_server)
         } else {
-            error!("No such texture {} for {}", texture_name.as_ref(), self.get_name());
+            error!(
+                "No such texture {} for {:#?}",
+                texture_name.as_ref(),
+                self.part
+            );
             Handle::<Image>::default()
         }
     }
@@ -211,7 +234,6 @@ pub struct CharacterMeshAssetFilePaths {
 
 /// The cached data for the asset, includes handles to relevant assets and
 /// other misc. data relevant to the makehuman system read from mh files.
-#[derive(Default)]
 #[allow(dead_code)]
 pub struct CharacterAssetData {
     pub prefab_load_state: PrefabLoadState,
@@ -229,14 +251,10 @@ pub struct CharacterAssetData {
 }
 
 impl CharacterAssetData {
-    pub(crate) fn process_bare_mesh(
-        &mut self,
-        meshes: &mut Assets<Mesh>,
-        paths: &HumentityPathsConfig,
-    ) -> Option<()> {
+    pub(crate) fn process_bare_mesh(&mut self, meshes: &mut Assets<Mesh>) -> Option<()> {
         // Get the makehuman vertex index lookup
         let mesh = meshes.get(&self.bare_mesh_handle)?;
-        let path = paths.core_assets_path.join(&self.obj_file.path);
+        let path = self.obj_file.full_path();
         let mh_verts = parse_obj_vertices(path);
         let verts = get_vertex_positions(mesh);
         let vertex_map = generate_vertex_map(&mh_verts, &verts);
@@ -251,7 +269,6 @@ impl CharacterAssetData {
         basemesh: &BaseMesh,
         mh_morphs: &MakeHumanMorphs,
         rig_data: &RigData,
-        paths: &HumentityPathsConfig,
         meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
         cache: &SkeletonCache,
@@ -265,8 +282,8 @@ impl CharacterAssetData {
         match &self.prefab_load_state[prefab_name] {
             MeshProcessingState::Ready(handle) => Some(handle.clone()),
             MeshProcessingState::Unprocessed => {
-                self.process_bare_mesh(meshes, paths)?;
-                // Verts will be positioned relative to helpers verts.  
+                self.process_bare_mesh(meshes)?;
+                // Verts will be positioned relative to helpers verts.
                 // This will fix issues with different mesh scales.
                 self.bare_mesh_handle = self.asset_mesh_from_helpers(&basemesh.vertices, meshes);
                 self.prefab_load_state
@@ -279,10 +296,8 @@ impl CharacterAssetData {
                     let helpers = adjust_helpers_to_morphs(&shape.morphs, mh_morphs, basemesh);
                     let handle = self.asset_mesh_from_helpers(&helpers, meshes);
                     handles.push(handle);
-                    shape.height = f32::max(
-                        shape.height,
-                        helpers.iter().map(|v| v.y).reduce(f32::max)?
-                    );
+                    shape.height =
+                        f32::max(shape.height, helpers.iter().map(|v| v.y).reduce(f32::max)?);
                 }
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Shaped(handles));
@@ -292,7 +307,8 @@ impl CharacterAssetData {
                     asset_base_mesh
                         .clone()
                         .with_computed_area_weighted_normals()
-                        .with_generated_tangents().ok()?
+                        .with_generated_tangents()
+                        .ok()?,
                 );
 
                 None
@@ -352,7 +368,8 @@ impl CharacterAssetData {
                 .with_computed_area_weighted_normals()
                 .with_morph_targets(images.add(image.0))
                 .with_morph_target_names(morph_names)
-                .with_generated_tangents().ok()?;
+                .with_generated_tangents()
+                .ok()?;
 
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Morphed(meshes.add(mesh)));
@@ -360,8 +377,14 @@ impl CharacterAssetData {
             }
             MeshProcessingState::Morphed(handle) => {
                 let mesh = meshes.get(handle)?.clone();
-                let mut mesh = set_asset_rig_arrays(mesh, rig_data,
-                    &self.mhid_lookup, &self.helper_map, &prefab.rig, cache);
+                let mut mesh = set_asset_rig_arrays(
+                    mesh,
+                    rig_data,
+                    &self.mhid_lookup,
+                    &self.helper_map,
+                    &prefab.rig,
+                    cache,
+                );
                 fix_normals(&mut mesh, &self.mhid_lookup);
                 let handle = meshes.add(mesh);
                 self.prefab_load_state
@@ -502,8 +525,7 @@ impl FromWorld for CharacterAssetRegistry {
                         CharacterAssetTextureType::AmbientOcclusion,
                         &dir.source_id,
                     );
-                    let mh_file = path
-                        .to_path_buf();
+                    let mh_file = path.to_path_buf();
 
                     let mh_file = HumentityAssetPath {
                         path: mh_file,
@@ -560,8 +582,7 @@ impl FromWorld for CharacterAssetRegistry {
                         CharacterAssetTextureType::AmbientOcclusion,
                         &dir.source_id,
                     );
-                    let mh_file = path
-                        .to_path_buf();
+                    let mh_file = path.to_path_buf();
                     let mh_file = HumentityAssetPath {
                         path: mh_file,
                         source_id: dir.source_id.clone(),
@@ -629,8 +650,7 @@ impl FromWorld for CharacterAssetRegistry {
                         .expect("Failed to parse file name");
                     let name = NAME_INTERNER.intern(name).leak();
                     info!("Importing proxy mesh : {name}");
-                    let mh_file = path
-                        .to_path_buf();
+                    let mh_file = path.to_path_buf();
                     let mh_file = HumentityAssetPath {
                         path: mh_file,
                         source_id: dir.source_id.clone(),
@@ -651,11 +671,17 @@ impl FromWorld for CharacterAssetRegistry {
                 }
             }
         }
-        
+
         // Add entry for base mesh
         let paths = CharacterMeshAssetFilePaths {
             // Won't actually be used, basemesh logic is rerouted
-            mh_file: HumentityAssetPath::default(), 
+            mh_file: HumentityAssetPath::new(
+                ".",
+                &HumentityAssetSourceId {
+                    id: None,
+                    root_path: ".".into(),
+                },
+            ),
             albedo_maps: skin_albedo_maps.clone(),
             normal_maps: skin_normal_maps.clone(),
             ao_maps: skin_ao_maps.clone(),
@@ -667,7 +693,7 @@ impl FromWorld for CharacterAssetRegistry {
                 part: CharacterPart::BaseMesh,
                 data: None,
                 paths,
-            }
+            },
         );
 
         CharacterAssetRegistry(assets)
@@ -758,7 +784,8 @@ fn parse_character_asset(
                 let &filename = line_vec.last().unwrap();
                 obj_file = mh_path.path.clone();
                 obj_file.set_file_name(filename);
-                obj_file = obj_file.strip_prefix(&mh_path.source_id.root_path)
+                obj_file = obj_file
+                    .strip_prefix(&mh_path.source_id.root_path)
                     .expect("Invalid path prefix")
                     .to_path_buf();
             } else if *line_vec.first().unwrap() == "x_scale" {
@@ -873,7 +900,11 @@ fn parse_character_asset(
         scale_data: [x_scale, y_scale, z_scale],
         bare_mesh_handle: raw_mesh_handle,
         helper_map,
-        ..default()
+        prefab_load_state: PrefabLoadState::default(),
+        albedo_map_handles: AHashMap::default(),
+        normal_map_handles: AHashMap::default(),
+        ao_map_handles: AHashMap::default(),
+        mhid_lookup: vec![],
     }
 }
 

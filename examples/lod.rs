@@ -6,7 +6,7 @@ mod shared;
 use ahash::AHashMap;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
-use shared::{cam_controls, setup_env, add_humentity_plugin};
+use shared::{add_humentity_plugin, cam_controls, setup_env};
 
 const PREFAB: &str = "ExamplePrefab";
 
@@ -14,8 +14,7 @@ fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
-    app
-        .add_plugins(DefaultPlugins)
+    app.add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
         .add_systems(Update, (cam_controls, add_material))
         .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
@@ -139,8 +138,10 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     morph_targets.insert("asian", 1.);
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
-    let bodybuilder_shape =
-        CharacterShapeArchetype::new("bodybuilder".to_string(), morphs.compute_target_weights(&morph_targets));
+    let bodybuilder_shape = CharacterShapeArchetype::new(
+        "bodybuilder".to_string(),
+        morphs.compute_target_weights(&morph_targets),
+    );
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
