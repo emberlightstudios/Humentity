@@ -98,7 +98,7 @@ impl<'de> Deserialize<'de> for CharacterPart {
 }
 
 /// The texture types which can be loaded for materials which go on [`CharacterAsset`] meshes
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum CharacterAssetTextureType {
     Albedo,
     Normal,
@@ -280,7 +280,6 @@ impl CharacterAssetData {
         meshes.get(&self.bare_mesh_handle)?;
 
         match &self.prefab_load_state[prefab_name] {
-            MeshProcessingState::Ready(handle) => Some(handle.clone()),
             MeshProcessingState::Unprocessed => {
                 self.process_bare_mesh(meshes)?;
                 // Verts will be positioned relative to helpers verts.
@@ -391,6 +390,7 @@ impl CharacterAssetData {
                     .insert(prefab_name, MeshProcessingState::Ready(handle.clone()));
                 Some(handle)
             }
+            MeshProcessingState::Ready(handle) => Some(handle.clone()),
         }
     }
 

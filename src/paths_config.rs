@@ -5,8 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Metadata about where an asset should be loaded from. Anything that should be
-/// loaded with the AssetServer needs to specify which asset source it resides in.
+/// Stored the path to an asset relative to the asset source root, as well as source data
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct HumentityAssetPath {
     /// The path to the folder (relative to the source asset directory e.g. ./assets)
