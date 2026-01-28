@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use crate::{
     assets::CharacterAssetRegistry,
     basemesh::VertexGroups,
@@ -326,8 +328,10 @@ pub(crate) fn fit_skeleton_to_shape(
             ))
             .remove::<FitSkeleton>();
 
-        // Remove skinned mesh from rig_entity
-        commands.entity(rig_entity).remove::<SkinnedMesh>();
+        // Remove skinned mesh from rig_entity, and rotate to face the correct forward direction
+        commands.entity(rig_entity)
+            .remove::<SkinnedMesh>()
+            .insert(Transform::from_rotation(Quat::from_rotation_y(PI)));
 
         // Set up root bone transform tracking
         if let Some(root_motion) = root_motion {
