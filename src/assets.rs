@@ -40,6 +40,7 @@ pub enum CharacterPart {
 }
 
 impl CharacterPart {
+    /// Load a texture by name/type for this part and return the handle
     pub fn get_texture_handle(
         &self,
         texture_name: impl AsRef<str>,
@@ -52,6 +53,32 @@ impl CharacterPart {
             return Handle::default();
         };
         asset.get_texture_handle(texture_name.as_ref(), texture_type, asset_server)
+    }
+
+    /// Clear out the CharacterAssetData struct storing mesh and texture handles
+    pub fn unload_data(&self, registry: &mut CharacterAssetRegistry) {
+        if let Some(asset) = registry.get_mut(self) {
+            asset.unload();
+        }
+    }
+
+    /// Unload a single texture by name/type
+    pub fn unload_texture(
+        &self,
+        registry: &mut CharacterAssetRegistry,
+        texture: impl AsRef<str>,
+        texture_type: CharacterAssetTextureType,
+    ) {
+        if let Some(asset) = registry.get_mut(self) {
+            if let Some(data) = &mut asset.data {
+                let handles = match texture_type {
+                    CharacterAssetTextureType::Albedo => &mut data.albedo_map_handles,
+                    CharacterAssetTextureType::Normal => &mut data.normal_map_handles,
+                    CharacterAssetTextureType::AmbientOcclusion => &mut data.normal_map_handles,
+                };
+                handles.remove(texture.as_ref());
+            }
+        }
     }
 }
 
@@ -148,7 +175,7 @@ impl CharacterAsset {
             self.load_asset_if_unloaded(asset_server);
         }
         let data = self.data.as_mut()?;
-        Some(data.bare_mesh_handle.clone())
+        Some(data.obj_mesh_handle.as_ref().unwrap().clone())
     }
 
     /// Return the mesh handle of the asset which has been augmented with arrays for skinning with the given rig
@@ -237,7 +264,8 @@ pub struct CharacterMeshAssetFilePaths {
 #[allow(dead_code)]
 pub struct CharacterAssetData {
     pub prefab_load_state: PrefabLoadState,
-    pub(crate) bare_mesh_handle: Handle<Mesh>,
+    // TODO : Do we want to keep this loaded even after preparing the final mesh?  
+    pub(crate) obj_mesh_handle: Option<Handle<Mesh>>,
     pub(crate) albedo_map_handles: AHashMap<&'static str, Handle<Image>>,
     pub(crate) normal_map_handles: AHashMap<&'static str, Handle<Image>>,
     pub(crate) ao_map_handles: AHashMap<&'static str, Handle<Image>>,
@@ -253,7 +281,10 @@ pub struct CharacterAssetData {
 impl CharacterAssetData {
     pub(crate) fn process_bare_mesh(&mut self, meshes: &mut Assets<Mesh>) -> Option<()> {
         // Get the makehuman vertex index lookup
-        let mesh = meshes.get(&self.bare_mesh_handle)?;
+        let mesh = meshes.get(
+            self.obj_mesh_handle.as_ref()
+                .expect("obj mesh not loaded")
+        )?;
         let path = self.obj_file.full_path();
         let mh_verts = parse_obj_vertices(path);
         let verts = get_vertex_positions(mesh);
@@ -277,14 +308,14 @@ impl CharacterAssetData {
             self.prefab_load_state
                 .insert(prefab_name, MeshProcessingState::Unprocessed);
         }
-        meshes.get(&self.bare_mesh_handle)?;
+        meshes.get(self.obj_mesh_handle.as_ref().unwrap())?;
 
         match &self.prefab_load_state[prefab_name] {
             MeshProcessingState::Unprocessed => {
                 self.process_bare_mesh(meshes)?;
                 // Verts will be positioned relative to helpers verts.
                 // This will fix issues with different mesh scales.
-                self.bare_mesh_handle = self.asset_mesh_from_helpers(&basemesh.vertices, meshes);
+                self.obj_mesh_handle = Some(self.asset_mesh_from_helpers(&basemesh.vertices, meshes));
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Rescaled);
                 None
@@ -301,19 +332,19 @@ impl CharacterAssetData {
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Shaped(handles));
 
-                let asset_base_mesh = meshes.get(&self.bare_mesh_handle)?;
-                self.bare_mesh_handle = meshes.add(
+                let asset_base_mesh = meshes.get(self.obj_mesh_handle.as_ref().unwrap())?;
+                self.obj_mesh_handle = Some(meshes.add(
                     asset_base_mesh
                         .clone()
                         .with_computed_area_weighted_normals()
                         .with_generated_tangents()
                         .ok()?,
-                );
+                ));
 
                 None
             }
             MeshProcessingState::Shaped(shaped_meshes) => {
-                let asset_base_mesh = meshes.get(&self.bare_mesh_handle)?;
+                let asset_base_mesh = meshes.get(self.obj_mesh_handle.as_ref().unwrap())?;
                 let base_positions = get_vertex_positions(asset_base_mesh);
                 let base_normals = get_vertex_normals(asset_base_mesh);
                 let Ok(base_tangents) = get_vertex_tangents(asset_base_mesh) else {
@@ -388,6 +419,10 @@ impl CharacterAssetData {
                 let handle = meshes.add(mesh);
                 self.prefab_load_state
                     .insert(prefab_name, MeshProcessingState::Ready(handle.clone()));
+
+                // Not needed anymore, at least for this prefab.  Can be loaded again.
+                self.obj_mesh_handle = None;
+
                 Some(handle)
             }
             MeshProcessingState::Ready(handle) => Some(handle.clone()),
@@ -415,7 +450,7 @@ impl CharacterAssetData {
         meshes: &mut Assets<Mesh>,
     ) -> Handle<Mesh> {
         // Note that helpers should already be morphed before input so we don't have to apply weights
-        let mesh = meshes.get(&self.bare_mesh_handle).unwrap().clone();
+        let mesh = meshes.get(self.obj_mesh_handle.as_ref().unwrap()).unwrap().clone();
         let mut vertices = get_vertex_positions(&mesh);
         for (vert, mh_asset_vertex) in self.mhid_lookup.iter().enumerate() {
             let helper_map = &self.helper_map[*mh_asset_vertex as usize];
@@ -898,7 +933,7 @@ fn parse_character_asset(
         z_depth,
         delete_verts,
         scale_data: [x_scale, y_scale, z_scale],
-        bare_mesh_handle: raw_mesh_handle,
+        obj_mesh_handle: Some(raw_mesh_handle),
         helper_map,
         prefab_load_state: PrefabLoadState::default(),
         albedo_map_handles: AHashMap::default(),

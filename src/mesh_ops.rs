@@ -11,7 +11,7 @@ use std::{
 #[derive(Default, Eq, PartialEq, Clone)]
 pub enum MeshProcessingState {
     #[default]
-    Unprocessed, // Loaded obj
+    Unprocessed,               // Loaded obj
     Rescaled,                  // Rescaled
     Shaped(Vec<Handle<Mesh>>), // Reshaped, one per shape, per prefab
     Morphed(Handle<Mesh>),     // Mesh morphs instead of shapes, one per prefab
