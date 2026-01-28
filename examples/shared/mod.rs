@@ -147,12 +147,12 @@ pub fn setup_env(
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(-1.0, 3.0, 5.0),
+        Transform::from_xyz(-1.0, 3.0, -5.0),
     ));
 
     // A camera:
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(-1.0, 2.0, 4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
+        Transform::from_xyz(-1.0, 2.0, -4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
     ));
 }

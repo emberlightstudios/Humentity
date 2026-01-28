@@ -39,7 +39,7 @@ fn add_humans(mut commands: Commands) {
     let lod3 = "proxy741";
 
     commands.spawn((
-        Transform::from_translation(Vec3::new(0., 0., 1.)),
+        Transform::from_translation(Vec3::new(0., 0., -1.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         LevelOfDetail, // Just a marker component for this example
         InheritedVisibility::default(),
