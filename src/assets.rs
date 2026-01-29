@@ -28,10 +28,10 @@ use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::path::Path;
 use walkdir::WalkDir;
 
-const ALBEDO_SUBFOLDERS: [&str; 4] = ["albedo", "diffuse", "base_color", "basecolor"];
+const ALBEDO_SUBFOLDERS: [&str; 3] = ["albedo", "diffuse", "base_color"];
 const NORMAL_SUBFOLDERS: [&str; 1] = ["normal"];
-const OCCLUSION_SUBFOLDERS: [&str; 3] = ["occlusion", "ambientocclusion", "ambient_occlusion"];
-const ROUGHNESS_METALLIC_SUBFOLDERS: [&str; 4] = ["roughness", "roughnessmetallic", "roughness_metallic", "metallic"];
+const OCCLUSION_SUBFOLDERS: [&str; 2] = ["occlusion", "ambient_occlusion"];
+const ROUGHNESS_METALLIC_SUBFOLDERS: [&str; 3] = ["roughness", "roughness_metallic", "metallic"];
 
 /// The types of asset types which can be added to humans.
 /// Does not include base mesh which is special
@@ -290,11 +290,11 @@ impl CharacterAssetData {
         images: &mut Assets<Image>,
         cache: &SkeletonCache,
     ) -> Option<Handle<Mesh>> {
+
         if !self.prefab_load_state.contains_key(prefab_name) {
             self.prefab_load_state
                 .insert(prefab_name, MeshProcessingState::Unprocessed);
         }
-        meshes.get(self.obj_mesh_handle.as_ref().unwrap())?;
 
         match &self.prefab_load_state[prefab_name] {
             MeshProcessingState::Unprocessed => {
@@ -740,11 +740,10 @@ fn get_textures(
         CharacterAssetTextureType::AmbientOcclusion => &OCCLUSION_SUBFOLDERS.to_vec(),
         CharacterAssetTextureType::RoughnessMetallic => &ROUGHNESS_METALLIC_SUBFOLDERS.to_vec(),
     };
-    let textures = AHashMap::default();
+    let mut textures = AHashMap::default();
 
     for &folder in subfolders {
         let subfolder = path.join(folder);
-        let mut textures = AHashMap::default();
         if !subfolder.exists() { continue; }
 
         for entry in std::fs::read_dir(subfolder).expect("Failed to read folder") {
