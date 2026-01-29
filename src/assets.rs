@@ -28,6 +28,11 @@ use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::path::Path;
 use walkdir::WalkDir;
 
+const ALBEDO_SUBFOLDERS: [&str; 4] = ["albedo", "diffuse", "base_color", "basecolor"];
+const NORMAL_SUBFOLDERS: [&str; 1] = ["normal"];
+const OCCLUSION_SUBFOLDERS: [&str; 3] = ["occlusion", "ambientocclusion", "ambient_occlusion"];
+const ROUGHNESS_METALLIC_SUBFOLDERS: [&str; 4] = ["roughness", "roughnessmetallic", "roughness_metallic", "metallic"];
+
 /// The types of asset types which can be added to humans.
 /// Does not include base mesh which is special
 #[derive(Component, Clone, Eq, PartialEq, Hash, Debug)]
@@ -59,25 +64,6 @@ impl CharacterPart {
     pub fn unload_data(&self, registry: &mut CharacterAssetRegistry) {
         if let Some(asset) = registry.get_mut(self) {
             asset.unload();
-        }
-    }
-
-    /// Unload a single texture by name/type
-    pub fn unload_texture(
-        &self,
-        registry: &mut CharacterAssetRegistry,
-        texture: impl AsRef<str>,
-        texture_type: CharacterAssetTextureType,
-    ) {
-        if let Some(asset) = registry.get_mut(self) {
-            if let Some(data) = &mut asset.data {
-                let handles = match texture_type {
-                    CharacterAssetTextureType::Albedo => &mut data.albedo_map_handles,
-                    CharacterAssetTextureType::Normal => &mut data.normal_map_handles,
-                    CharacterAssetTextureType::AmbientOcclusion => &mut data.normal_map_handles,
-                };
-                handles.remove(texture.as_ref());
-            }
         }
     }
 }
@@ -130,6 +116,7 @@ pub enum CharacterAssetTextureType {
     Albedo,
     Normal,
     AmbientOcclusion,
+    RoughnessMetallic,
 }
 
 /// Represents a part of a human, either a body part, equipment, or a proxy mesh.
@@ -231,6 +218,7 @@ impl CharacterAsset {
             CharacterAssetTextureType::Albedo => &self.paths.albedo_maps,
             CharacterAssetTextureType::Normal => &self.paths.normal_maps,
             CharacterAssetTextureType::AmbientOcclusion => &self.paths.ao_maps,
+            CharacterAssetTextureType::RoughnessMetallic => &self.paths.ao_maps,
         };
         if let Some(path) = paths.get(texture_name.as_ref()) {
             path.load_asset(asset_server)
@@ -257,6 +245,7 @@ pub struct CharacterMeshAssetFilePaths {
     pub albedo_maps: AHashMap<&'static str, HumentityAssetPath>,
     pub normal_maps: AHashMap<&'static str, HumentityAssetPath>,
     pub ao_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub roughness_metallic_maps: AHashMap<&'static str, HumentityAssetPath>,
 }
 
 /// The cached data for the asset, includes handles to relevant assets and
@@ -266,9 +255,6 @@ pub struct CharacterAssetData {
     pub prefab_load_state: PrefabLoadState,
     // TODO : Do we want to keep this loaded even after preparing the final mesh?  
     pub(crate) obj_mesh_handle: Option<Handle<Mesh>>,
-    pub(crate) albedo_map_handles: AHashMap<&'static str, Handle<Image>>,
-    pub(crate) normal_map_handles: AHashMap<&'static str, Handle<Image>>,
-    pub(crate) ao_map_handles: AHashMap<&'static str, Handle<Image>>,
     pub(crate) helper_map: Vec<HelperMap>,
     pub(crate) mhid_lookup: Vec<u16>,
     pub(crate) delete_verts: AHashSet<u16>,
@@ -555,11 +541,10 @@ impl FromWorld for CharacterAssetRegistry {
                         get_textures(&folder, CharacterAssetTextureType::Albedo, &dir.source_id);
                     let normal_maps =
                         get_textures(&folder, CharacterAssetTextureType::Normal, &dir.source_id);
-                    let ao_maps = get_textures(
-                        &folder,
-                        CharacterAssetTextureType::AmbientOcclusion,
-                        &dir.source_id,
-                    );
+                    let ao_maps = 
+                        get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
+                    let roughness_metallic_maps = 
+                        get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
                     let mh_file = path.to_path_buf();
 
                     let mh_file = HumentityAssetPath {
@@ -570,6 +555,7 @@ impl FromWorld for CharacterAssetRegistry {
                         albedo_maps,
                         normal_maps,
                         ao_maps,
+                        roughness_metallic_maps,
                         mh_file,
                     };
                     let part = CharacterPart::BodyPart(name);
@@ -612,11 +598,10 @@ impl FromWorld for CharacterAssetRegistry {
                         get_textures(&folder, CharacterAssetTextureType::Albedo, &dir.source_id);
                     let normal_maps =
                         get_textures(&folder, CharacterAssetTextureType::Normal, &dir.source_id);
-                    let ao_maps = get_textures(
-                        &folder,
-                        CharacterAssetTextureType::AmbientOcclusion,
-                        &dir.source_id,
-                    );
+                    let ao_maps =
+                        get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
+                    let roughness_metallic_maps = 
+                        get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
                     let mh_file = path.to_path_buf();
                     let mh_file = HumentityAssetPath {
                         path: mh_file,
@@ -626,6 +611,7 @@ impl FromWorld for CharacterAssetRegistry {
                         albedo_maps,
                         normal_maps,
                         ao_maps,
+                        roughness_metallic_maps,
                         mh_file,
                     };
                     let part = CharacterPart::Equipment(name);
@@ -643,6 +629,7 @@ impl FromWorld for CharacterAssetRegistry {
         let mut skin_albedo_maps = AHashMap::default();
         let mut skin_normal_maps = AHashMap::default();
         let mut skin_ao_maps = AHashMap::default();
+        let mut skin_roughness_metallic_maps = AHashMap::default();
 
         for dir in &config.skin_texture_paths {
             let prefix = &dir.source_id.root_path;
@@ -660,6 +647,11 @@ impl FromWorld for CharacterAssetRegistry {
             skin_ao_maps.extend(get_textures(
                 &path,
                 CharacterAssetTextureType::AmbientOcclusion,
+                &dir.source_id,
+            ));
+            skin_roughness_metallic_maps.extend(get_textures(
+                &path,
+                CharacterAssetTextureType::RoughnessMetallic,
                 &dir.source_id,
             ));
         }
@@ -695,6 +687,7 @@ impl FromWorld for CharacterAssetRegistry {
                         albedo_maps: skin_albedo_maps.clone(),
                         normal_maps: skin_normal_maps.clone(),
                         ao_maps: skin_ao_maps.clone(),
+                        roughness_metallic_maps: skin_roughness_metallic_maps.clone(),
                     };
                     let part = CharacterPart::ProxyMesh(name);
                     let asset = CharacterAsset {
@@ -720,6 +713,7 @@ impl FromWorld for CharacterAssetRegistry {
             albedo_maps: skin_albedo_maps.clone(),
             normal_maps: skin_normal_maps.clone(),
             ao_maps: skin_ao_maps.clone(),
+            roughness_metallic_maps: skin_roughness_metallic_maps.clone(),
         };
 
         assets.insert(
@@ -740,32 +734,37 @@ fn get_textures(
     texture_type: CharacterAssetTextureType,
     source_id: &HumentityAssetSourceId,
 ) -> AHashMap<&'static str, HumentityAssetPath> {
-    let folder = match texture_type {
-        CharacterAssetTextureType::Albedo => path.join("albedo"),
-        CharacterAssetTextureType::Normal => path.join("Normal"),
-        CharacterAssetTextureType::AmbientOcclusion => path.join("ao"),
+    let subfolders = match texture_type {
+        CharacterAssetTextureType::Albedo => &ALBEDO_SUBFOLDERS.to_vec(),
+        CharacterAssetTextureType::Normal => &NORMAL_SUBFOLDERS.to_vec(),
+        CharacterAssetTextureType::AmbientOcclusion => &OCCLUSION_SUBFOLDERS.to_vec(),
+        CharacterAssetTextureType::RoughnessMetallic => &ROUGHNESS_METALLIC_SUBFOLDERS.to_vec(),
     };
-    let mut textures = AHashMap::default();
-    if !folder.exists() {
-        return textures;
-    }
-    for entry in std::fs::read_dir(folder).expect("Failed to read folder") {
-        let Ok(entry) = entry else { continue };
-        let path = entry.path();
+    let textures = AHashMap::default();
 
-        if path.is_file() {
-            if let Some(stem) = path.file_stem() {
-                let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
-                let prefix = &source_id.root_path;
-                let Ok(path) = path.strip_prefix(prefix) else {
-                    continue;
-                };
-                let path = path.to_path_buf();
-                let asset_path = HumentityAssetPath {
-                    path,
-                    source_id: source_id.clone(),
-                };
-                textures.insert(stem, asset_path);
+    for &folder in subfolders {
+        let subfolder = path.join(folder);
+        let mut textures = AHashMap::default();
+        if !subfolder.exists() { continue; }
+
+        for entry in std::fs::read_dir(subfolder).expect("Failed to read folder") {
+            let Ok(entry) = entry else { continue };
+            let path = entry.path();
+
+            if path.is_file() {
+                if let Some(stem) = path.file_stem() {
+                    let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
+                    let prefix = &source_id.root_path;
+                    let Ok(path) = path.strip_prefix(prefix) else {
+                        continue;
+                    };
+                    let path = path.to_path_buf();
+                    let asset_path = HumentityAssetPath {
+                        path,
+                        source_id: source_id.clone(),
+                    };
+                    textures.insert(stem, asset_path);
+                }
             }
         }
     }
@@ -936,9 +935,6 @@ fn parse_character_asset(
         obj_mesh_handle: Some(raw_mesh_handle),
         helper_map,
         prefab_load_state: PrefabLoadState::default(),
-        albedo_map_handles: AHashMap::default(),
-        normal_map_handles: AHashMap::default(),
-        ao_map_handles: AHashMap::default(),
         mhid_lookup: vec![],
     }
 }
