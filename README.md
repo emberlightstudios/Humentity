@@ -23,13 +23,22 @@ All needed types should be exported via the crate prelude module.  The steps to 
 
 ### Notes
 You can find working examples in the examples folder.
+
+The prefab you build contains a rig spec for animation.
+You can provide .glb files with animation clips.
+It is assumed the clips will be authored for the character in the base mesh with no shape keys applied, so remove all shapekeys in blender before making clips.
+Clips should be retargetable to any character using the same prefab.
+By default translation tracks are dropped.
+Support for translation tracks is very experimental still and requires an animation post-processing system so there is an extra cost.
+
 Custom assets can be built inside Blender with MPFB to export .mhclo/.obj files.
 There are special path types to handle loading assets from different asset sources. See the shared module in examples.
 You must set up paths for the relevant CharacterPart types, body parts, equipment, body meshes.
 The textures must be in subfolders beside your asset .mhclo/.obj files, ./albedo, ./normal, ./ao, ./roughness_metallic, etc..
-This crate does not handle texture loading. 
+
+Regarding asset loading and unloading, rhis crate does not handle texture loading. 
 It only stores texture paths in the registry.
-CharacterPart provides an API for quick retrieval, so automatic texture unloading should just work when you remove the last CharacterPart components using the texture.
+CharacterPart provides an API for quick retrieval of a handle but it is not cached anywhere inside the plugin, so automatic texture unloading should just work when you remove the last CharacterPart components using the texture.
 The meshes for the CharacterParts will be built automatically in a background thread.
-Mesh handles are cached inside the CharacterAssetRegistry because this is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be manually removed.
+Mesh handles **are** cached inside the CharacterAssetRegistry because this is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be manually removed.
 There is a helper fn on CharacterPart for this purpose.
