@@ -12,5 +12,23 @@
 
 ## Future Plans
 - Better shaders with overlay textures
-- Maybe compute shaders for realtime mesh shaping
 - Working ragdolls when physics support matures
+
+## How It Works
+All needed types should be exported via the crate prelude module.  The steps to create humanoid characters are as follows.
+1. Setup/add the HumentityPlugin.
+2. Create a humanoid prefab with some shapes.
+3. Create an entity with a CharacterShapeConfig component.
+4. Add children with CharacterPart components.
+
+### Notes
+You can find working examples in the examples folder.
+Custom assets can be built inside Blender with MPFB to export .mhclo/.obj files.
+There are special path types to handle loading assets from different asset sources. See the shared module in examples.
+You must set up paths for the relevant CharacterPart types, body parts, equipment, body meshes.
+The textures must be in subfolders beside your asset .mhclo/.obj files, ./albedo, ./normal, ./ao, ./roughness_metallic, etc..
+This crate does not handle texture loading. 
+It only stores texture paths in the registry.  CharacterPart provides an API for quick retrieval, so automatic texture unloading should just work when you remove the last CharacterPart components using the texture.
+The meshes for the CharacterParts will be built automatically in a background thread.  
+Mesh handles are cached inside the CharacterAssetRegistry because this is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be removed. 
+There is a helper fn on CharacterPart for this purpose.
