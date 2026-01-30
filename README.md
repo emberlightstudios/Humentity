@@ -38,9 +38,9 @@ There are special path types to handle loading assets from different bevy asset 
 You must set up paths for the relevant CharacterPart types, body parts, equipment, body meshes, skin_textures, targets, etc..
 Texture maps for CharacterPart meshes must be in subfolders beside your asset .mhclo/.obj files, ./albedo, ./normal, ./ao, ./roughness_metallic, etc..
 
-Regarding asset loading and unloading, rhis crate does not handle texture loading. 
-It only stores texture paths in the registry.
-CharacterPart provides an API for quick retrieval of a handle but it is not cached anywhere inside the plugin, so automatic texture unloading should just work when you remove the last assets using the texture.
-The meshes for the CharacterParts will be built automatically in a background thread.
-Mesh handles **are** cached inside the CharacterAssetRegistry because this is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be manually removed.
+Regarding asset loading and unloading, for textures this crate only stores the paths in the registry.
+CharacterPart provides an API for quick retrieval of a Handle<Image> but it is not cached anywhere inside the plugin, so automatic texture unloading should just work when you remove the last assets (e.g. material) referencing the image.
+The meshes are a different story.
+Meshes for the CharacterParts will be built automatically in a background thread on any (not disabled) entity satisfying (With<CharacterPart>, Without<Mesh3d>).
+Mesh handles **are** cached inside the CharacterAssetRegistry (per prefab) because mesh construction is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be manually removed.
 There is a helper fn on CharacterPart for this purpose.
