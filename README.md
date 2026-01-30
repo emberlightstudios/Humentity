@@ -28,7 +28,8 @@ There are special path types to handle loading assets from different asset sourc
 You must set up paths for the relevant CharacterPart types, body parts, equipment, body meshes.
 The textures must be in subfolders beside your asset .mhclo/.obj files, ./albedo, ./normal, ./ao, ./roughness_metallic, etc..
 This crate does not handle texture loading. 
-It only stores texture paths in the registry.  CharacterPart provides an API for quick retrieval, so automatic texture unloading should just work when you remove the last CharacterPart components using the texture.
-The meshes for the CharacterParts will be built automatically in a background thread.  
-Mesh handles are cached inside the CharacterAssetRegistry because this is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be removed. 
+It only stores texture paths in the registry.
+CharacterPart provides an API for quick retrieval, so automatic texture unloading should just work when you remove the last CharacterPart components using the texture.
+The meshes for the CharacterParts will be built automatically in a background thread.
+Mesh handles are cached inside the CharacterAssetRegistry because this is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be manually removed.
 There is a helper fn on CharacterPart for this purpose.
