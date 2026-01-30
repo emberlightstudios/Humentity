@@ -30,15 +30,17 @@ It is assumed the clips will be authored for the character in the base mesh with
 Clips should be retargetable to any character using the same prefab.
 By default translation tracks are dropped.
 Support for translation tracks is very experimental still and requires an animation post-processing system so there is an extra cost.
+The .glb files you supply are pre-processed outside the Bevy Asset system, so the paths you supply should be readable from your cwd, not relative to the assets folder in the usual way.
+This also applies to .target files (custom morphs) which don't interface with the asset system at all.
 
-Custom assets can be built inside Blender with MPFB to export .mhclo/.obj files.
-There are special path types to handle loading assets from different asset sources. See the shared module in examples.
-You must set up paths for the relevant CharacterPart types, body parts, equipment, body meshes.
-The textures must be in subfolders beside your asset .mhclo/.obj files, ./albedo, ./normal, ./ao, ./roughness_metallic, etc..
+Custom assets can be built inside Blender with MPFB to export .mhclo/.obj files, custom .target files too.
+There are special path types to handle loading assets from different bevy asset sources. See the shared module in examples.
+You must set up paths for the relevant CharacterPart types, body parts, equipment, body meshes, skin_textures, targets, etc..
+Texture maps for CharacterPart meshes must be in subfolders beside your asset .mhclo/.obj files, ./albedo, ./normal, ./ao, ./roughness_metallic, etc..
 
 Regarding asset loading and unloading, rhis crate does not handle texture loading. 
 It only stores texture paths in the registry.
-CharacterPart provides an API for quick retrieval of a handle but it is not cached anywhere inside the plugin, so automatic texture unloading should just work when you remove the last CharacterPart components using the texture.
+CharacterPart provides an API for quick retrieval of a handle but it is not cached anywhere inside the plugin, so automatic texture unloading should just work when you remove the last assets using the texture.
 The meshes for the CharacterParts will be built automatically in a background thread.
 Mesh handles **are** cached inside the CharacterAssetRegistry because this is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be manually removed.
 There is a helper fn on CharacterPart for this purpose.
