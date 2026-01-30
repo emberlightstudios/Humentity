@@ -1,17 +1,14 @@
 use crate::{
     mesh_ops::{
-        fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals,
-        get_vertex_positions, get_vertex_tangents, parse_obj_vertices, MeshProcessingState,
-        PrefabLoadState,
+        fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices
     },
-    morphs::adjust_helpers_to_morphs,
+    morphs::{MHMorphs, adjust_helpers_to_morphs},
     paths_config::{HumentityAssetPath, HumentityAssetSourceId},
     prelude::*,
-    rigs::{set_asset_rig_arrays, RigData, SkeletonCache},
+    rigs::{RigWeights, SkeletonCache, set_asset_rig_arrays}, spawn_mesh::{AssetLoadedMsg, MeshConstructedMsg},
 };
 use ::bevy::{
     asset::RenderAssetUsages,
-    mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
 use ::std::{
@@ -25,8 +22,9 @@ use bevy::{
     mesh::morph::{MorphAttributes, MorphTargetImage},
 };
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 use walkdir::WalkDir;
+use crossbeam_channel::{Sender, Receiver};
 
 const ALBEDO_SUBFOLDERS: [&str; 3] = ["albedo", "diffuse", "base_color"];
 const NORMAL_SUBFOLDERS: [&str; 1] = ["normal"];
@@ -38,8 +36,7 @@ const ROUGHNESS_METALLIC_SUBFOLDERS: [&str; 3] = ["roughness", "roughness_metall
 #[derive(Component, Clone, Eq, PartialEq, Hash, Debug)]
 #[require(Visibility)]
 pub enum CharacterPart {
-    BaseMesh,
-    ProxyMesh(&'static str),
+    BodyMesh(&'static str),
     BodyPart(&'static str),
     Equipment(&'static str),
 }
@@ -61,9 +58,9 @@ impl CharacterPart {
     }
 
     /// Clear out the CharacterAssetData struct storing mesh and texture handles
-    pub fn unload_data(&self, registry: &mut CharacterAssetRegistry) {
+    pub fn unload_data(&self, registry: &mut CharacterAssetRegistry, prefab_name: &'static str) {
         if let Some(asset) = registry.get_mut(self) {
-            asset.unload();
+            asset.unload(prefab_name);
         }
     }
 }
@@ -74,8 +71,7 @@ impl Serialize for CharacterPart {
         S: Serializer,
     {
         let s = match self {
-            CharacterPart::BaseMesh => "BaseMesh".to_string(),
-            CharacterPart::ProxyMesh(name) => format!("ProxyMesh:{}", name),
+            CharacterPart::BodyMesh(name) => format!("BodyMesh:{}", name),
             CharacterPart::BodyPart(name) => format!("BodyPart:{}", name),
             CharacterPart::Equipment(name) => format!("Equipment:{}", name),
         };
@@ -89,9 +85,6 @@ impl<'de> Deserialize<'de> for CharacterPart {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        if s == "BaseMesh" {
-            return Ok(CharacterPart::BaseMesh);
-        }
 
         let mut parts = s.splitn(2, ':');
         let variant = parts.next().unwrap();
@@ -102,7 +95,7 @@ impl<'de> Deserialize<'de> for CharacterPart {
         let interned = NAME_INTERNER.intern(value).leak();
 
         match variant {
-            "ProxyMesh" => Ok(CharacterPart::ProxyMesh(interned)),
+            "BodyMesh" => Ok(CharacterPart::BodyMesh(interned)),
             "BodyPart" => Ok(CharacterPart::BodyPart(interned)),
             "Equipment" => Ok(CharacterPart::Equipment(interned)),
             other => Err(de::Error::custom(format!("unknown variant `{}`", other))),
@@ -119,92 +112,48 @@ pub enum CharacterAssetTextureType {
     RoughnessMetallic,
 }
 
+#[derive(PartialEq, Eq, Debug, Default)]
+pub(crate) enum AssetLoadState {
+    #[default]
+    None,
+    LoadingData,
+    BuildingMesh,
+}
+
 /// Represents a part of a human, either a body part, equipment, or a proxy mesh.
 /// This is a wrapper around a mesh which is morphable by the makehuman morph targets.
 /// Does not represent the base mesh which is special
 pub struct CharacterAsset {
-    part: CharacterPart,
+    pub(crate) part: CharacterPart,
+    pub(crate) loading: AssetLoadState,
     pub paths: CharacterMeshAssetFilePaths,
     pub data: Option<CharacterAssetData>,
+    pub raw_mesh_handle: Option<Handle<Mesh>>,
+    pub mesh_handles: AHashMap<&'static str, Handle<Mesh>>,
+    pub(crate) mesh_building_msg_sender: Sender<MeshConstructedMsg>,
+    pub(crate) mesh_building_msg_receiver: Receiver<MeshConstructedMsg>,
+    pub(crate) asset_loading_msg_sender: Sender<AssetLoadedMsg>,
+    pub(crate) asset_loading_msg_receiver: Receiver<AssetLoadedMsg>,
 }
 
 impl CharacterAsset {
+    pub fn new(part: CharacterPart, paths: CharacterMeshAssetFilePaths) -> Self {
+        let ( asset_loading_msg_sender, asset_loading_msg_receiver ) = crossbeam_channel::unbounded();
+        let ( mesh_building_msg_sender, mesh_building_msg_receiver ) = crossbeam_channel::unbounded();
+        Self {
+            part, paths, data: None,
+            loading: AssetLoadState::None, raw_mesh_handle: None, mesh_handles: AHashMap::default(),
+            mesh_building_msg_sender, mesh_building_msg_receiver,
+            asset_loading_msg_sender, asset_loading_msg_receiver,
+         }
+    }
+
     pub const fn get_name(&self) -> &'static str {
         match self.part {
-            CharacterPart::BaseMesh => "basemesh",
-            CharacterPart::ProxyMesh(name)
+            CharacterPart::BodyMesh(name)
             | CharacterPart::Equipment(name)
             | CharacterPart::BodyPart(name) => name,
         }
-    }
-
-    /// Check if the data is defined
-    pub const fn is_loaded(&self) -> bool {
-        self.data.is_some()
-    }
-
-    /// Checks if asset data is loaded.  If not, parses makehuman file and then loads the mesh.  Returns true if mesh was just loaded
-    pub fn load_asset_if_unloaded(&mut self, asset_server: &AssetServer) -> bool {
-        if self.is_loaded() {
-            return false;
-        }
-        self.data = Some(parse_character_asset(&self.paths.mh_file, asset_server));
-        true
-    }
-
-    /// Return the mesh handle of the asset's core mesh.  This is not the obj mesh, which must be resized first.
-    #[allow(dead_code)] // not used anywhere yet
-    pub(crate) fn get_mesh_handle(
-        &mut self,
-        asset_server: &mut AssetServer,
-    ) -> Option<Handle<Mesh>> {
-        if self.data.is_none() {
-            self.load_asset_if_unloaded(asset_server);
-        }
-        let data = self.data.as_mut()?;
-        Some(data.obj_mesh_handle.as_ref().unwrap().clone())
-    }
-
-    /// Return the mesh handle of the asset which has been augmented with arrays for skinning with the given rig
-    pub(crate) fn get_rigged_mesh_handle(
-        &mut self,
-        asset_server: &mut AssetServer,
-        prefab_name: &'static str,
-        prefab: &mut CharacterArchetypePrefab,
-        rig_data: &RigData,
-        basemesh: &mut BaseMesh,
-        mh_morphs: &MakeHumanMorphs,
-        meshes: &mut Assets<Mesh>,
-        images: &mut Assets<Image>,
-        cache: &SkeletonCache,
-    ) -> Option<Handle<Mesh>> {
-        if self.part == CharacterPart::BaseMesh {
-            return basemesh.get_rigged_mesh_handle(
-                prefab_name,
-                prefab,
-                meshes,
-                images,
-                rig_data,
-                mh_morphs,
-                cache,
-            );
-        }
-
-        if self.data.is_none() {
-            self.load_asset_if_unloaded(asset_server);
-            return None;
-        }
-        let data = self.data.as_mut()?;
-        data.get_rigged_mesh_handle(
-            prefab_name,
-            prefab,
-            basemesh,
-            mh_morphs,
-            rig_data,
-            meshes,
-            images,
-            cache,
-        )
     }
 
     /// Get a texture by name and texture type
@@ -232,16 +181,21 @@ impl CharacterAsset {
         }
     }
 
-    /// Remove cached handles.  If there are no other handles in the world then
-    /// bevy should unload the assets.
-    pub fn unload(&mut self) {
-        self.data = None
+    /// Remove cached mesh handle. 
+    pub fn unload(&mut self, prefab_name: &'static str) {
+        self.mesh_handles.remove(prefab_name);
+        if self.mesh_handles.is_empty() {
+            self.data = None;
+            self.raw_mesh_handle = None;
+            self.mesh_handles.clear();
+            self.loading = AssetLoadState::None;
+        }
     }
 }
 
 /// File paths for assets to be loaded for assets
 pub struct CharacterMeshAssetFilePaths {
-    mh_file: HumentityAssetPath,
+    pub(crate) mh_file: HumentityAssetPath,
     pub albedo_maps: AHashMap<&'static str, HumentityAssetPath>,
     pub normal_maps: AHashMap<&'static str, HumentityAssetPath>,
     pub ao_maps: AHashMap<&'static str, HumentityAssetPath>,
@@ -251,168 +205,90 @@ pub struct CharacterMeshAssetFilePaths {
 /// The cached data for the asset, includes handles to relevant assets and
 /// other misc. data relevant to the makehuman system read from mh files.
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct CharacterAssetData {
-    pub prefab_load_state: PrefabLoadState,
-    // TODO : Do we want to keep this loaded even after preparing the final mesh?  
-    pub(crate) obj_mesh_handle: Option<Handle<Mesh>>,
     pub(crate) helper_map: Vec<HelperMap>,
-    pub(crate) mhid_lookup: Vec<u16>,
     pub(crate) delete_verts: AHashSet<u16>,
-    obj_file: HumentityAssetPath,
+    pub(crate) obj_file: HumentityAssetPath,
     tags: Vec<&'static str>,
     z_depth: i8, // Currently unused
     scale_data: [ScaleData; 3],
 }
 
 impl CharacterAssetData {
-    pub(crate) fn process_bare_mesh(&mut self, meshes: &mut Assets<Mesh>) -> Option<()> {
-        // Get the makehuman vertex index lookup
-        let mesh = meshes.get(
-            self.obj_mesh_handle.as_ref()
-                .expect("obj mesh not loaded")
-        )?;
-        let path = self.obj_file.full_path();
-        let mh_verts = parse_obj_vertices(path);
-        let verts = get_vertex_positions(mesh);
-        let vertex_map = generate_vertex_map(&mh_verts, &verts);
-        self.mhid_lookup = generate_mhid_lookup(&vertex_map);
-        Some(())
-    }
-
-    pub(crate) fn get_rigged_mesh_handle(
-        &mut self,
-        prefab_name: &'static str,
-        prefab: &mut CharacterArchetypePrefab,
+    pub(crate) fn build_final_mesh(
+        &self,
+        input_mesh: &Mesh,
+        prefab: &CharacterArchetypePrefab,
+        mh_morphs: &Arc<MHMorphs>,
         basemesh: &BaseMesh,
-        mh_morphs: &MakeHumanMorphs,
-        rig_data: &RigData,
-        meshes: &mut Assets<Mesh>,
-        images: &mut Assets<Image>,
-        cache: &SkeletonCache,
-    ) -> Option<Handle<Mesh>> {
+        rig_weights: &Arc<RigWeights>,
+        sk_cache: &Arc<SkeletonCache>,
+    ) -> (Mesh, Vec<String>, MorphTargetImage) {
 
-        if !self.prefab_load_state.contains_key(prefab_name) {
-            self.prefab_load_state
-                .insert(prefab_name, MeshProcessingState::Unprocessed);
+        // Load raw mesh and build vertex lookup between mh indices and bevy indices (vert duplicates in bevy)
+        let mh_vertices = parse_obj_vertices(self.obj_file.full_path());
+        let verts = get_vertex_positions(&input_mesh);
+        let vertex_map = generate_vertex_map(&mh_vertices, &verts);
+        let mhid_lookup = generate_mhid_lookup(vertex_map);
+
+        // Recaculate mesh from helpers, fixes scale, redoes normals and tangents
+        let input_mesh = self.shape_mesh_from_helpers(&input_mesh, &basemesh.0, &mhid_lookup);
+
+        // Build shaped meshes
+        let mut meshes = vec![];
+        for shape in prefab.shapes.iter() {
+            let helpers = adjust_helpers_to_morphs(&shape.morphs, &mh_morphs, &basemesh);
+            let mesh = self.shape_mesh_from_helpers(&input_mesh, &helpers, &mhid_lookup);
+            meshes.push(mesh);
+            //// How to handle heights
+            //shape.height =
+            //    f32::max(shape.height, helpers.iter().map(|v| v.y).reduce(f32::max)?);
         }
 
-        match &self.prefab_load_state[prefab_name] {
-            MeshProcessingState::Unprocessed => {
-                self.process_bare_mesh(meshes)?;
-                // Verts will be positioned relative to helpers verts.
-                // This will fix issues with different mesh scales.
-                self.obj_mesh_handle = Some(self.asset_mesh_from_helpers(&basemesh.vertices, meshes));
-                self.prefab_load_state
-                    .insert(prefab_name, MeshProcessingState::Rescaled);
-                None
-            }
-            MeshProcessingState::Rescaled => {
-                let mut handles = vec![];
-                for shape in prefab.shapes.iter_mut() {
-                    let helpers = adjust_helpers_to_morphs(&shape.morphs, mh_morphs, basemesh);
-                    let handle = self.asset_mesh_from_helpers(&helpers, meshes);
-                    handles.push(handle);
-                    shape.height =
-                        f32::max(shape.height, helpers.iter().map(|v| v.y).reduce(f32::max)?);
+        // Build morphs from shapes
+        let base_positions = get_vertex_positions(&input_mesh);
+        let base_normals = get_vertex_normals(&input_mesh);
+        let base_tangents = get_vertex_tangents(&input_mesh)
+            .expect("Failed to get tangents");
+        let mut morph_names = vec![];
+        let mut morphs = vec![];
+
+        for (is, shape_mesh) in meshes.iter().enumerate() {
+            let mut morph = Vec::<MorphAttributes>::new();
+            let shape_positions = get_vertex_positions(shape_mesh);
+            let shape_normals = get_vertex_normals(shape_mesh);
+            let shape_tangents = get_vertex_tangents(shape_mesh)
+                .expect("Shape meshes should always have tangents");
+
+            for vtx in 0..base_positions.len() {
+                if (shape_positions[vtx] - base_positions[vtx]).length_squared() > 1e-6
+                    || (shape_normals[vtx] - base_normals[vtx]).length_squared() > 1e-6
+                    || (shape_tangents[vtx] - base_tangents[vtx]).length_squared() > 1e-6
+                {
+                    morph.push(MorphAttributes::from([
+                        shape_positions[vtx] - base_positions[vtx],
+                        shape_normals[vtx] - base_normals[vtx],
+                        shape_tangents[vtx] - base_tangents[vtx],
+                    ]));
                 }
-                self.prefab_load_state
-                    .insert(prefab_name, MeshProcessingState::Shaped(handles));
-
-                let asset_base_mesh = meshes.get(self.obj_mesh_handle.as_ref().unwrap())?;
-                self.obj_mesh_handle = Some(meshes.add(
-                    asset_base_mesh
-                        .clone()
-                        .with_computed_area_weighted_normals()
-                        .with_generated_tangents()
-                        .ok()?,
-                ));
-
-                None
             }
-            MeshProcessingState::Shaped(shaped_meshes) => {
-                let asset_base_mesh = meshes.get(self.obj_mesh_handle.as_ref().unwrap())?;
-                let base_positions = get_vertex_positions(asset_base_mesh);
-                let base_normals = get_vertex_normals(asset_base_mesh);
-                let Ok(base_tangents) = get_vertex_tangents(asset_base_mesh) else {
-                    return None;
-                };
-                let mut morph_names = vec![];
-                let mut morphs = vec![];
 
-                for (is, shape) in prefab.shapes.iter().enumerate() {
-                    let mut morph = Vec::<MorphAttributes>::new();
-                    let shape_mesh = meshes.get(&shaped_meshes[is])?;
-                    let shape_positions = get_vertex_positions(shape_mesh);
-                    let shape_normals = get_vertex_normals(shape_mesh);
-                    let shape_tangents = get_vertex_tangents(shape_mesh)
-                        .expect("Shape meshes should always have tangents");
-
-                    for vtx in 0..base_positions.len() {
-                        if (shape_positions[vtx] - base_positions[vtx]).length_squared() > 1e-6
-                            || (shape_normals[vtx] - base_normals[vtx]).length_squared() > 1e-6
-                            || (shape_tangents[vtx] - base_tangents[vtx]).length_squared() > 1e-6
-                        {
-                            morph.push(MorphAttributes::from([
-                                shape_positions[vtx] - base_positions[vtx],
-                                shape_normals[vtx] - base_normals[vtx],
-                                shape_tangents[vtx] - base_tangents[vtx],
-                            ]));
-                        }
-                    }
-
-                    morph_names.push(shape.name.clone());
-                    morphs.push(morph.into_iter());
-                }
-
-                let image = MorphTargetImage::new(
-                    morphs.into_iter(),
-                    base_positions.len(),
-                    RenderAssetUsages::default(),
-                )
-                .expect("failed to create morph target image");
-
-                let mesh = Mesh::new(
-                    PrimitiveTopology::TriangleList,
-                    RenderAssetUsages::default(),
-                )
-                .with_inserted_attribute(
-                    Mesh::ATTRIBUTE_POSITION,
-                    get_vertex_positions(asset_base_mesh),
-                )
-                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(asset_base_mesh))
-                .with_inserted_indices(asset_base_mesh.indices()?.clone())
-                .with_computed_area_weighted_normals()
-                .with_morph_targets(images.add(image.0))
-                .with_morph_target_names(morph_names)
-                .with_generated_tangents()
-                .ok()?;
-
-                self.prefab_load_state
-                    .insert(prefab_name, MeshProcessingState::Morphed(meshes.add(mesh)));
-                None
-            }
-            MeshProcessingState::Morphed(handle) => {
-                let mesh = meshes.get(handle)?.clone();
-                let mut mesh = set_asset_rig_arrays(
-                    mesh,
-                    rig_data,
-                    &self.mhid_lookup,
-                    &self.helper_map,
-                    &prefab.rig,
-                    cache,
-                );
-                fix_normals(&mut mesh, &self.mhid_lookup);
-                let handle = meshes.add(mesh);
-                self.prefab_load_state
-                    .insert(prefab_name, MeshProcessingState::Ready(handle.clone()));
-
-                // Not needed anymore, at least for this prefab.  Can be loaded again.
-                self.obj_mesh_handle = None;
-
-                Some(handle)
-            }
-            MeshProcessingState::Ready(handle) => Some(handle.clone()),
+            morph_names.push(prefab.shapes[is].name.clone());
+            morphs.push(morph.into_iter());
         }
+        let image = MorphTargetImage::new(
+            morphs.into_iter(),
+            base_positions.len(),
+            RenderAssetUsages::default(),
+        )
+        .expect("failed to create morph target image");
+
+        // Rig the mesh
+        let mut mesh = set_asset_rig_arrays(input_mesh, rig_weights,
+            &mhid_lookup, &self.helper_map, &prefab.rig, &sk_cache);
+        fix_normals(&mut mesh, &mhid_lookup);
+        (mesh, morph_names, image)
     }
 
     pub(crate) fn get_offset_scale(&self, helpers: &[Vec3]) -> Vec3 {
@@ -430,15 +306,15 @@ impl CharacterAssetData {
     }
 
     /// Adjust an asset mesh to match morphed helpers
-    pub(crate) fn asset_mesh_from_helpers(
+    pub fn shape_mesh_from_helpers(
         &self,
+        mesh: &Mesh,
         helpers: &[Vec3],
-        meshes: &mut Assets<Mesh>,
-    ) -> Handle<Mesh> {
+        mhid_lookup: &[u16]
+    ) -> Mesh {
         // Note that helpers should already be morphed before input so we don't have to apply weights
-        let mesh = meshes.get(self.obj_mesh_handle.as_ref().unwrap()).unwrap().clone();
-        let mut vertices = get_vertex_positions(&mesh);
-        for (vert, mh_asset_vertex) in self.mhid_lookup.iter().enumerate() {
+        let mut vertices = get_vertex_positions(mesh);
+        for (vert, mh_asset_vertex) in mhid_lookup.iter().enumerate() {
             let helper_map = &self.helper_map[*mh_asset_vertex as usize];
             if let Some(mh_helper_vertex) = helper_map.single_vertex {
                 vertices[vert] = helpers[mh_helper_vertex as usize];
@@ -457,7 +333,7 @@ impl CharacterAssetData {
                 vertices[vert] = position + offset;
             }
         }
-        let mesh = Mesh::new(
+        Mesh::new(
             bevy::mesh::PrimitiveTopology::TriangleList,
             RenderAssetUsages::default(),
         )
@@ -466,28 +342,26 @@ impl CharacterAssetData {
         .with_inserted_indices(mesh.indices().unwrap().clone())
         .with_computed_area_weighted_normals()
         .with_generated_tangents()
-        .unwrap();
-
-        meshes.add(mesh)
+        .unwrap()
     }
 }
 
 // Each vertex is mapped to either a single helper vertex
 // or triangulated by 3 of them
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub(crate) struct HelperMap {
     pub(crate) single_vertex: Option<u16>,
     pub(crate) triangle: Option<Triangle>,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub(crate) struct Triangle {
     pub(crate) helper_verts: [u16; 3],
     pub(crate) helper_weights: [f32; 3],
     pub(crate) helper_offset: Vec3,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct ScaleData {
     min: u16,
     max: u16,
@@ -538,13 +412,13 @@ impl FromWorld for CharacterAssetRegistry {
                     info!("Importing body part : {name}");
                     let name = NAME_INTERNER.intern(name).leak();
                     let albedo_maps =
-                        get_textures(&folder, CharacterAssetTextureType::Albedo, &dir.source_id);
+                        get_texture_paths(&folder, CharacterAssetTextureType::Albedo, &dir.source_id);
                     let normal_maps =
-                        get_textures(&folder, CharacterAssetTextureType::Normal, &dir.source_id);
+                        get_texture_paths(&folder, CharacterAssetTextureType::Normal, &dir.source_id);
                     let ao_maps = 
-                        get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
+                        get_texture_paths(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
                     let roughness_metallic_maps = 
-                        get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
+                        get_texture_paths(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
                     let mh_file = path.to_path_buf();
 
                     let mh_file = HumentityAssetPath {
@@ -559,12 +433,7 @@ impl FromWorld for CharacterAssetRegistry {
                         mh_file,
                     };
                     let part = CharacterPart::BodyPart(name);
-                    let asset = CharacterAsset {
-                        part: part.clone(),
-                        data: None,
-                        paths,
-                    };
-                    // insert into name hashmap
+                    let asset = CharacterAsset::new(part.clone(), paths);
                     assets.insert(part.clone(), asset);
                 }
             }
@@ -595,13 +464,13 @@ impl FromWorld for CharacterAssetRegistry {
                     info!("Importing equipment : {name}");
                     let name = NAME_INTERNER.intern(name).leak();
                     let albedo_maps =
-                        get_textures(&folder, CharacterAssetTextureType::Albedo, &dir.source_id);
+                        get_texture_paths(&folder, CharacterAssetTextureType::Albedo, &dir.source_id);
                     let normal_maps =
-                        get_textures(&folder, CharacterAssetTextureType::Normal, &dir.source_id);
+                        get_texture_paths(&folder, CharacterAssetTextureType::Normal, &dir.source_id);
                     let ao_maps =
-                        get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
+                        get_texture_paths(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
                     let roughness_metallic_maps = 
-                        get_textures(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
+                        get_texture_paths(&folder, CharacterAssetTextureType::AmbientOcclusion, &dir.source_id);
                     let mh_file = path.to_path_buf();
                     let mh_file = HumentityAssetPath {
                         path: mh_file,
@@ -615,12 +484,7 @@ impl FromWorld for CharacterAssetRegistry {
                         mh_file,
                     };
                     let part = CharacterPart::Equipment(name);
-                    let asset = CharacterAsset {
-                        part: part.clone(),
-                        data: None,
-                        paths,
-                    };
-                    // insert into name hashmap
+                    let asset = CharacterAsset::new(part.clone(), paths);
                     assets.insert(part, asset);
                 }
             }
@@ -634,22 +498,22 @@ impl FromWorld for CharacterAssetRegistry {
         for dir in &config.skin_texture_paths {
             let prefix = &dir.source_id.root_path;
             let path = prefix.join(&dir.path);
-            skin_albedo_maps.extend(get_textures(
+            skin_albedo_maps.extend(get_texture_paths(
                 &path,
                 CharacterAssetTextureType::Albedo,
                 &dir.source_id,
             ));
-            skin_normal_maps.extend(get_textures(
+            skin_normal_maps.extend(get_texture_paths(
                 &path,
                 CharacterAssetTextureType::Normal,
                 &dir.source_id,
             ));
-            skin_ao_maps.extend(get_textures(
+            skin_ao_maps.extend(get_texture_paths(
                 &path,
                 CharacterAssetTextureType::AmbientOcclusion,
                 &dir.source_id,
             ));
-            skin_roughness_metallic_maps.extend(get_textures(
+            skin_roughness_metallic_maps.extend(get_texture_paths(
                 &path,
                 CharacterAssetTextureType::RoughnessMetallic,
                 &dir.source_id,
@@ -689,47 +553,18 @@ impl FromWorld for CharacterAssetRegistry {
                         ao_maps: skin_ao_maps.clone(),
                         roughness_metallic_maps: skin_roughness_metallic_maps.clone(),
                     };
-                    let part = CharacterPart::ProxyMesh(name);
-                    let asset = CharacterAsset {
-                        part: part.clone(),
-                        data: None,
-                        paths,
-                    };
+                    let part = CharacterPart::BodyMesh(name);
+                    let asset = CharacterAsset::new(part.clone(), paths);
                     assets.insert(part, asset);
                 }
             }
         }
 
-        // Add entry for base mesh
-        let paths = CharacterMeshAssetFilePaths {
-            // Won't actually be used, basemesh logic is rerouted
-            mh_file: HumentityAssetPath::new(
-                ".",
-                &HumentityAssetSourceId {
-                    id: None,
-                    root_path: ".".into(),
-                },
-            ),
-            albedo_maps: skin_albedo_maps.clone(),
-            normal_maps: skin_normal_maps.clone(),
-            ao_maps: skin_ao_maps.clone(),
-            roughness_metallic_maps: skin_roughness_metallic_maps.clone(),
-        };
-
-        assets.insert(
-            CharacterPart::BaseMesh,
-            CharacterAsset {
-                part: CharacterPart::BaseMesh,
-                data: None,
-                paths,
-            },
-        );
-
         CharacterAssetRegistry(assets)
     }
 }
 
-fn get_textures(
+fn get_texture_paths(
     path: &Path,
     texture_type: CharacterAssetTextureType,
     source_id: &HumentityAssetSourceId,
@@ -770,9 +605,8 @@ fn get_textures(
     textures
 }
 
-fn parse_character_asset(
+pub(crate) fn parse_character_asset(
     mh_path: &HumentityAssetPath,
-    asset_server: &AssetServer,
 ) -> CharacterAssetData {
     let mut tags = Vec::<String>::new();
     let mut z_depth = 0_i8;
@@ -923,7 +757,6 @@ fn parse_character_asset(
         path: obj_file,
         source_id: source_id.clone(),
     };
-    let raw_mesh_handle: Handle<Mesh> = obj_file.load_asset(asset_server);
 
     CharacterAssetData {
         obj_file,
@@ -931,74 +764,72 @@ fn parse_character_asset(
         z_depth,
         delete_verts,
         scale_data: [x_scale, y_scale, z_scale],
-        obj_mesh_handle: Some(raw_mesh_handle),
         helper_map,
-        prefab_load_state: PrefabLoadState::default(),
-        mhid_lookup: vec![],
     }
 }
 
-/// MHCLO assets can define a list of delete verts which can be occluded (by clothes for example)
-/// This can stop the body mesh from popping through clothes also, which can be an issue.
-/// If we were to bake out everything to a new mesh this would be a good optimization, but that
-/// breaks instancing so it would be a downgrade. If we could add a per material instance GPU buffer of
-/// indices to cull this would be better and wouldn't break instancing.
-#[allow(dead_code)]
-pub(crate) fn delete_mesh_verts(
-    meshes: &mut ResMut<Assets<Mesh>>,
-    base_mesh: &Res<crate::basemesh::BaseMesh>,
-    delete_verts: AHashSet<u16>,
-) -> Mesh {
-    let mesh = meshes.get(&base_mesh.mesh_handle).unwrap().clone();
-
-    let vertices = get_vertex_positions(&mesh);
-    let normals = get_vertex_normals(&mesh);
-    let uv = get_uv_coords(&mesh);
-    let indices = mesh.indices().expect("FAILED TO GET MESH FACES");
-
-    // Set up new storage for the new mesh
-    let verts = vertices.len() - delete_verts.len(); // Roughly
-    let mut new_vertices = Vec::<Vec3>::with_capacity(verts);
-    let mut new_normals = Vec::<Vec3>::with_capacity(verts);
-    let mut new_uv = Vec::<Vec2>::with_capacity(verts);
-    let mut new_indices = Vec::<u16>::with_capacity(verts);
-
-    // need to map new vertex indices to original before deleting verts
-    let mut indices_map = AHashMap::<u16, u16>::default();
-
-    for (vtx, &mh_vert) in base_mesh.mhid_lookup.iter().enumerate() {
-        if !delete_verts.contains(&mh_vert) {
-            indices_map.insert(vtx as u16, new_vertices.len() as u16);
-            new_vertices.push(vertices[vtx]);
-            new_normals.push(normals[vtx]);
-            new_uv.push(uv[vtx]);
-        }
-    }
-
-    let indices_vec: Vec<u16> = indices.iter().map(|x| x as u16).collect();
-    // Find new face indices
-    for face in indices_vec.chunks(3) {
-        // Check if all vertices still exist in new mesh verts
-        if !face.iter().all(|&i| indices_map.contains_key(&{ i })) {
-            continue;
-        }
-        // Map face to new vertex indices
-        new_indices.extend_from_slice(face);
-    }
-    new_indices = new_indices
-        .iter()
-        .map(|x| *indices_map.get(x).unwrap())
-        .collect();
-
-    let mut new_mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, new_vertices)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, new_normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, new_uv)
-    .with_inserted_indices(Indices::U16(new_indices));
-    new_mesh.compute_area_weighted_normals();
-    new_mesh.generate_tangents().ok();
-    new_mesh
-}
+// MHCLO assets can define a list of delete verts which can be occluded (by clothes for example)
+// This can stop the body mesh from popping through clothes, which can be an issue.
+// If we were to bake out everything to a new mesh this would be a good optimization, but that
+// breaks instancing so it would be a downgrade. If we could add a per material instance GPU buffer of
+// indices to cull this would be better and wouldn't break instancing.
+//#[allow(dead_code)]
+//pub(crate) fn delete_mesh_verts(
+//    meshes: &mut ResMut<Assets<Mesh>>,
+//    base_mesh: &Res<crate::basemesh::BaseMesh>,
+//    delete_verts: AHashSet<u16>,
+//) -> Mesh {
+//    let mesh = meshes.get(&base_mesh.mesh_handle).unwrap().clone();
+//
+//    let vertices = get_vertex_positions(&mesh);
+//    let normals = get_vertex_normals(&mesh);
+//    let uv = get_uv_coords(&mesh);
+//    let indices = mesh.indices().expect("FAILED TO GET MESH FACES");
+//
+//    // Set up new storage for the new mesh
+//    let verts = vertices.len() - delete_verts.len(); // Roughly
+//    let mut new_vertices = Vec::<Vec3>::with_capacity(verts);
+//    let mut new_normals = Vec::<Vec3>::with_capacity(verts);
+//    let mut new_uv = Vec::<Vec2>::with_capacity(verts);
+//    let mut new_indices = Vec::<u16>::with_capacity(verts);
+//
+//    // need to map new vertex indices to original before deleting verts
+//    let mut indices_map = AHashMap::<u16, u16>::default();
+//
+//    for (vtx, &mh_vert) in base_mesh.mhid_lookup.iter().enumerate() {
+//        if !delete_verts.contains(&mh_vert) {
+//            indices_map.insert(vtx as u16, new_vertices.len() as u16);
+//            new_vertices.push(vertices[vtx]);
+//            new_normals.push(normals[vtx]);
+//            new_uv.push(uv[vtx]);
+//        }
+//    }
+//
+//    let indices_vec: Vec<u16> = indices.iter().map(|x| x as u16).collect();
+//    // Find new face indices
+//    for face in indices_vec.chunks(3) {
+//        // Check if all vertices still exist in new mesh verts
+//        if !face.iter().all(|&i| indices_map.contains_key(&{ i })) {
+//            continue;
+//        }
+//        // Map face to new vertex indices
+//        new_indices.extend_from_slice(face);
+//    }
+//    new_indices = new_indices
+//        .iter()
+//        .map(|x| *indices_map.get(x).unwrap())
+//        .collect();
+//
+//    let mut new_mesh = Mesh::new(
+//        PrimitiveTopology::TriangleList,
+//        RenderAssetUsages::RENDER_WORLD,
+//    )
+//    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, new_vertices)
+//    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, new_normals)
+//    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, new_uv)
+//    .with_inserted_indices(Indices::U16(new_indices));
+//    new_mesh.compute_area_weighted_normals();
+//    new_mesh.generate_tangents().ok();
+//    new_mesh
+//}
+//

@@ -8,7 +8,8 @@ mod paths_config;
 mod physics;
 mod prefab;
 mod rigs;
-mod spawn;
+mod spawn_skeleton;
+mod spawn_mesh;
 
 use bevy::app::AnimationSystems;
 use bevy::asset::io::AssetSourceBuilder;
@@ -16,8 +17,6 @@ use bevy::ecs::intern::Interner;
 use bevy::prelude::*;
 use bevy_obj::ObjPlugin;
 use prelude::*;
-
-use crate::prefab::ArchetypeShapeUpdate;
 
 pub static NAME_INTERNER: Interner<str> = Interner::new();
 
@@ -29,7 +28,7 @@ pub mod prelude {
         },
         basemesh::BaseMesh,
         material::CharacterMaterialExtension, //, CharacterMaterialExtensionData},
-        mesh_ops::{CharacterAssetMeshReady, MeshProcessingState},
+        mesh_ops::CharacterAssetMeshReady,
         morphs::{MakeHumanMorphs, MorphTargets},
         paths_config::{HumentityAssetPath, HumentityAssetSourceId, HumentityPathsConfig},
         physics::CharacterRagdoll,
@@ -38,7 +37,8 @@ pub mod prelude {
             CharacterShapeArchetype, ModifyPrefabShape,
         },
         rigs::{ParentBone, RigType, RootMotion},
-        spawn::{CharacterPartMeshSpawned, CharacterShapeConfig, FitSkeleton, RelatedEntities},
+        spawn_mesh::{CharacterPartMeshSpawned, CharacterShapeConfig, BuildMesh},
+        spawn_skeleton::{FitSkeleton, RelatedEntities},
         HumentityGlobalConfig,
         HumentityLoadState,
         HumentityPlugin,
@@ -68,7 +68,6 @@ pub struct HumentityGlobalConfig {
 
 #[derive(States, Debug, Hash, Eq, PartialEq, Copy, Clone)]
 pub enum HumentityLoadState {
-    LoadingCoreAssets,
     BuildingPrefabs,
     AnimationProcessing,
     Ready,
@@ -115,28 +114,24 @@ impl Plugin for HumentityPlugin {
                 ),
             )
             .add_message::<CharacterAssetMeshReady>()
-            .add_observer(prefab::on_prefab_shape_modified)
+            .add_observer(spawn_mesh::trigger_mesh_build)
             .add_systems(
                 Update,
                 (
-                    // PHASE 1 : LOADING CORE ASSETS
-                    basemesh::create_body_mesh
-                        .run_if(resource_exists::<basemesh::HelperMeshHandle>)
-                        .run_if(in_state(HumentityLoadState::LoadingCoreAssets)),
-                    // PHASE 2 : BUILDING ARCHETYPE PREFABS
+                    // PHASE 1 : BUILDING ARCHETYPE PREFABS
                     prefab::create_character_prefab_rig_scenes
                         .run_if(resource_exists::<CharacterArchetypePrefabs>)
                         .run_if(in_state(HumentityLoadState::BuildingPrefabs)),
-                    // PHASE 3 : REBUILDING ANIMATION CLIPS
+                    // PHASE 2 : REBUILDING ANIMATION CLIPS
                     animation::rebuild_animations
                         .run_if(in_state(HumentityLoadState::AnimationProcessing)),
-                    // PHASE 4 : READY TO BUILD HUMANS
+                    // PHASE 3 : READY TO BUILD HUMANS
                     (
-                        spawn::spawn_rig_scene,
-                        spawn::fit_skeleton_to_shape,
-                        spawn::setup_human_parts,
+                        spawn_skeleton::spawn_rig_scene,
+                        spawn_skeleton::fit_skeleton_to_shape,
+                        spawn_mesh::handle_mesh_load_tasks,
                         physics::control_ragdoll,
-                        prefab::update_asset_shapes.run_if(resource_exists::<ArchetypeShapeUpdate>),
+                        //prefab::update_asset_shapes.run_if(resource_exists::<ArchetypeShapeUpdate>),
                     )
                         .chain()
                         .run_if(in_state(HumentityLoadState::Ready))
@@ -177,7 +172,7 @@ impl Plugin for HumentityPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        app.insert_state(HumentityLoadState::LoadingCoreAssets);
+        app.insert_state(HumentityLoadState::BuildingPrefabs);
         // We do this becuase the sequence of plugin load order must be
         // Humentity -> AssetServer -> ObjPlugin
         if !app.is_plugin_added::<ObjPlugin>() {

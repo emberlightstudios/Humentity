@@ -10,10 +10,10 @@ use bevy::{
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
-use std::{fs::File, io::BufReader};
+use std::{fs::File, io::BufReader, sync::Arc};
 
 use crate::{
-    assets::HelperMap, basemesh::VertexGroups, mesh_ops::get_vertex_positions, prelude::*,
+    assets::HelperMap, basemesh::VertexGroups, prelude::*,
 };
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Default, Serialize, Deserialize, Debug)]
@@ -85,11 +85,14 @@ struct MixamoConfig {
     bones: AHashMap<String, BoneJson>,
 }
 
+pub(crate) type RigWeights = AHashMap<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>;
+pub(crate) type RigConfigs = AHashMap<RigType, AHashMap<&'static str, BoneData>>;
+
 /// Raw rig data from makehuman json files
 #[derive(Resource)]
 pub(crate) struct RigData {
-    pub(crate) weights: AHashMap<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>,
-    pub(crate) configs: AHashMap<RigType, AHashMap<&'static str, BoneData>>,
+    pub(crate) weights: Arc<RigWeights>,
+    pub(crate) configs: Arc<RigConfigs>,
 }
 
 pub(crate) struct BoneData {
@@ -99,7 +102,7 @@ pub(crate) struct BoneData {
 }
 
 #[derive(Resource, Default, Deref, DerefMut)]
-pub(crate) struct SkeletonCaches(AHashMap<RigType, SkeletonCache>);
+pub(crate) struct SkeletonCaches(AHashMap<RigType, Arc<SkeletonCache>>);
 
 pub(crate) struct SkeletonCache {
     pub(crate) bone_order: Vec<&'static str>,
@@ -182,8 +185,8 @@ impl FromWorld for RigData {
             }
         }
         RigData {
-            weights: rig_weights,
-            configs: rig_configs,
+            weights: Arc::new(rig_weights),
+            configs: Arc::new(rig_configs),
         }
     }
 }
@@ -193,9 +196,9 @@ pub(crate) fn bone_debug_draw(
     transforms: Query<&GlobalTransform, With<AnimationTargetId>>,
     mut gizmos: Gizmos,
 ) {
-    query.iter().for_each(|(transform, child)| {
+    query.iter().for_each(|(transform, child_of)| {
         let start = transform.translation();
-        if let Ok(end) = transforms.get(child.parent()) {
+        if let Ok(end) = transforms.get(child_of.parent()) {
             gizmos.line(start, end.translation(), RED);
         }
     })
@@ -228,96 +231,15 @@ pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static st
         .collect::<Vec<&'static str>>()
 }
 
-/// Assigns joint indices and weights to a mesh based on MakeHuman base mesh data.
-/// Ensures each vertex has at most 4 bones influencing it (top-4 by weight),
-/// normalized, mimicking Blender skinning behavior.
-pub(crate) fn set_basemesh_rig_arrays(
-    mut mesh: Mesh,
-    basemesh: &BaseMesh,
-    bone_order: &[&'static str],
-    rig_type: RigType,
-    rig_data: &RigData,
-) -> Mesh {
-    // Get the weight data for this rig type
-    let weights_res = rig_data
-        .weights
-        .get(&rig_type)
-        .expect("No weights found for this rig type");
-
-    let vertices = get_vertex_positions(&mesh);
-    let num_vertices = vertices.len();
-
-    // Initialize joint index and weight arrays
-    let mut indices = vec![[0u16; 4]; num_vertices];
-    let mut weights = vec![[0.0f32; 4]; num_vertices];
-
-    // Loop over all vertices
-    for (vert_idx, mhv) in basemesh.mhid_lookup.iter().enumerate() {
-        let mut bone_weights_per_vertex: Vec<(u16, f32)> = Vec::new();
-
-        // Collect all bones that influence this vertex
-        for (bone_index, bone_name) in bone_order.iter().enumerate() {
-            if let Some(bone_map) = weights_res.get(*bone_name) {
-                if let Some(&w) = bone_map.get(mhv) {
-                    if w > 0.0 {
-                        bone_weights_per_vertex.push((bone_index as u16, w));
-                    }
-                }
-            }
-        }
-
-        if bone_weights_per_vertex.is_empty() {
-            // Assign a default weight if no bone influences this vertex
-            indices[vert_idx][0] = 0;
-            weights[vert_idx][0] = 1.0;
-            continue;
-        }
-
-        // Sort descending by weight and take top 4 bones
-        bone_weights_per_vertex.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        let top4 = &bone_weights_per_vertex[..bone_weights_per_vertex.len().min(4)];
-
-        // Fill joint index and weight arrays
-        for (i, (bone_idx, w)) in top4.iter().enumerate() {
-            indices[vert_idx][i] = *bone_idx;
-            weights[vert_idx][i] = *w;
-        }
-
-        // Normalize weights
-        let sum: f32 = weights[vert_idx].iter().sum();
-        if sum > 0.0 {
-            for w in weights[vert_idx].iter_mut() {
-                *w /= sum;
-            }
-        } else {
-            // Fallback if sum somehow zero
-            weights[vert_idx][0] = 1.0;
-        }
-    }
-
-    // Insert attributes into the mesh
-    mesh.insert_attribute(
-        Mesh::ATTRIBUTE_JOINT_INDEX,
-        VertexAttributeValues::Uint16x4(indices),
-    );
-    mesh.insert_attribute(
-        Mesh::ATTRIBUTE_JOINT_WEIGHT,
-        VertexAttributeValues::Float32x4(weights),
-    );
-
-    mesh
-}
-
 pub(crate) fn set_asset_rig_arrays(
     mut mesh: Mesh,
-    rig_data: &RigData,
+    rig_weights: &Arc<RigWeights>,
     mhid_lookup: &[u16],
     helper_map: &[HelperMap],
     rig: &CharacterAnimationArchetype,
     cache: &SkeletonCache,
 ) -> Mesh {
-    let weights_res = rig_data
-        .weights
+    let weights_res = rig_weights
         .get(&rig.rig_type)
         .expect("No weights for rig?");
 

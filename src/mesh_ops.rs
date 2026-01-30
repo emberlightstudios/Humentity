@@ -7,16 +7,6 @@ use std::{
     path::Path,
 };
 
-/// For tracking loading and processing of character assets
-#[derive(Default, Eq, PartialEq, Clone)]
-pub enum MeshProcessingState {
-    #[default]
-    Unprocessed,               // Loaded obj
-    Rescaled,                  // Rescaled
-    Shaped(Vec<Handle<Mesh>>), // Reshaped, one per shape, per prefab
-    Morphed(Handle<Mesh>),     // Mesh morphs instead of shapes, one per prefab
-    Ready(Handle<Mesh>),       // Rigged, one per prefab
-}
 
 /// A message to be sent when a mesh is ready
 #[derive(Message)]
@@ -25,10 +15,7 @@ pub struct CharacterAssetMeshReady {
     pub prefab: &'static str,
 }
 
-/// A container for tracking load states for possibly different prefabs/morphs
-pub type PrefabLoadState = AHashMap<&'static str, MeshProcessingState>;
-
-pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
+pub fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     let path = filename.as_ref();
     let file = File::open(path).unwrap_or_else(|_| panic!("Couldn't open file {:?}", path));
     let mut vertices = Vec::<Vec3>::new();
@@ -46,7 +33,7 @@ pub(crate) fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     vertices
 }
 
-pub(crate) fn get_vertex_positions(mesh: &Mesh) -> Vec<Vec3> {
+pub fn get_vertex_positions(mesh: &Mesh) -> Vec<Vec3> {
     let Some(VertexAttributeValues::Float32x3(verts)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
     else {
         panic!("FAILED TO LOAD MESH VERTEX POSITIONS")
@@ -149,7 +136,7 @@ pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
 }
 
 // Maps mh vertex ids to vec of bevy ids
-pub(crate) fn generate_vertex_map(
+pub fn generate_vertex_map(
     mh_vertices: &[Vec3],
     vertices: &[Vec3],
 ) -> AHashMap<u16, Vec<u16>> {
@@ -172,7 +159,7 @@ pub(crate) fn generate_vertex_map(
 }
 
 // Maps bevy vertex ids to mh id
-pub(crate) fn generate_mhid_lookup(map: &AHashMap<u16, Vec<u16>>) -> Vec<u16> {
+pub fn generate_mhid_lookup(map: AHashMap<u16, Vec<u16>>) -> Vec<u16> {
     let max_vert = map
         .values()
         .flat_map(|v| v.iter())

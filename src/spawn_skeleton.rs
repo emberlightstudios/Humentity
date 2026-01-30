@@ -1,7 +1,6 @@
 use std::f32::consts::PI;
 
 use crate::{
-    assets::CharacterAssetRegistry,
     basemesh::VertexGroups,
     prelude::*,
     rigs::{
@@ -14,53 +13,11 @@ use ahash::AHashMap;
 use bevy::{
     ecs::intern::Internable,
     mesh::{
-        morph::MeshMorphWeights,
         skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     },
     prelude::*,
 };
-use serde::{Deserialize, Deserializer, Serialize};
 
-/// Defines the shape of a character.  Place it at the root, with individual parts as children.
-#[derive(Component, Clone, Default, Debug, Serialize)]
-#[require(Visibility)]
-pub struct CharacterShapeConfig {
-    pub prefab_morph_targets: MorphTargets,
-    pub prefab: &'static str,
-    #[serde(skip)]
-    pub(crate) bone_translations: BoneTranslationData,
-    #[serde(skip)]
-    pub(crate) bone_delta_rotations: AHashMap<&'static str, Quat>,
-}
-
-impl<'de> Deserialize<'de> for CharacterShapeConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Raw {
-            prefab_morph_targets: MorphTargets,
-            prefab: String,
-        }
-
-        let raw = Raw::deserialize(deserializer)?;
-        let prefab: &'static str = NAME_INTERNER.intern(&raw.prefab).leak();
-
-        Ok(Self::new(prefab, raw.prefab_morph_targets))
-    }
-}
-
-impl CharacterShapeConfig {
-    pub fn new(prefab: &'static str, morphs: MorphTargets) -> Self {
-        Self {
-            prefab,
-            prefab_morph_targets: morphs,
-            bone_translations: BoneTranslationData::None,
-            bone_delta_rotations: AHashMap::<&'static str, Quat>::default(),
-        }
-    }
-}
 
 /// This component will trigger the re-fitting of the skeleton to the character's morphs.
 /// Add it after changing morphs.
@@ -81,9 +38,6 @@ pub struct RelatedEntities {
     pub right_shoulder: Entity,
     pub left_shoulder: Entity,
 }
-
-#[derive(Message, Deref)]
-pub struct CharacterPartMeshSpawned(Entity);
 
 pub(crate) fn spawn_rig_scene(
     new_humans: Query<(Entity, &CharacterShapeConfig), Added<CharacterShapeConfig>>,
@@ -334,13 +288,16 @@ pub(crate) fn fit_skeleton_to_shape(
             .insert(Transform::from_rotation(Quat::from_rotation_y(PI)));
 
         // Set up root bone transform tracking
-        if let Some(root_motion) = root_motion {
-            let root_name = cache.bone_order[0];
-            let transform = local_bone_transforms[root_name];
-            let mut translation = transform.translation;
-            if !root_motion.y_translate {
-                translation.y = 0.;
-            }
+        if let Some(_root_motion) = root_motion {
+
+            // what is going on here?
+            //let root_name = cache.bone_order[0];
+            //let transform = local_bone_transforms[root_name];
+            //let mut translation = transform.translation;
+            //if !root_motion.y_translate {
+            //    translation.y = 0.;
+            //}
+
             commands
                 .entity(root_bone)
                 .insert(RootBonePrevious::default());
@@ -357,68 +314,6 @@ pub(crate) fn fit_skeleton_to_shape(
                 &rig_data,
                 rig_entity,
             );
-        }
-    }
-}
-
-pub(crate) fn setup_human_parts(
-    parts: Query<(Entity, &CharacterPart, &ChildOf), Without<Mesh3d>>,
-    configs: Query<(Entity, &CharacterShapeConfig, &SkinnedMesh)>,
-    mut registry: ResMut<CharacterAssetRegistry>,
-    mut prefabs: ResMut<CharacterArchetypePrefabs>,
-    rig_data: Res<RigData>,
-    skeleton_caches: Res<SkeletonCaches>,
-    mut basemesh: ResMut<BaseMesh>,
-    mh_morphs: Res<MakeHumanMorphs>,
-    mut asset_server: ResMut<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut images: ResMut<Assets<Image>>,
-    mut commands: Commands,
-    mut writer: MessageWriter<CharacterPartMeshSpawned>,
-) {
-    for (entity, part, child_of) in parts.iter() {
-        let Ok((human, config, skinned_mesh)) = configs.get(child_of.parent()) else {
-            continue;
-        };
-
-        // Get some releveant data
-        let prefab_name = config.prefab;
-        let prefab = prefabs.get_mut(&config.prefab).unwrap();
-        let rig_type = prefab.rig.rig_type;
-        let cache = &skeleton_caches[&rig_type];
-
-        let morph_weights = prefab
-            .shapes
-            .iter()
-            .map(|s| NAME_INTERNER.intern(&s.name).leak())
-            .map(|s| *config.prefab_morph_targets.get(s).unwrap_or(&0.))
-            .collect::<Vec<_>>();
-        let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
-
-        // Spawn meshes
-        let Some(asset) = registry.get_mut(part) else {
-            error!("No such asset: {:#?} - Cannot load", part);
-            continue;
-        };
-        if let Some(handle) = asset.get_rigged_mesh_handle(
-            &mut asset_server,
-            prefab_name,
-            prefab,
-            &rig_data,
-            &mut basemesh,
-            &mh_morphs,
-            &mut meshes,
-            &mut images,
-            cache,
-        ) {
-            commands
-                .entity(entity)
-                .insert((Mesh3d(handle.clone()), skinned_mesh.clone()));
-            let mesh = meshes.get(&handle).unwrap();
-            if mesh.has_morph_targets() {
-                commands.entity(entity).insert(morph_weights);
-            }
-            writer.write(CharacterPartMeshSpawned(human));
         }
     }
 }

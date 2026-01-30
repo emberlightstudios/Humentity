@@ -5,7 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fs::File,
     io::{BufRead, BufReader},
-    path::PathBuf,
+    path::PathBuf, sync::Arc,
 };
 use walkdir::WalkDir;
 
@@ -40,12 +40,14 @@ impl<'de> Deserialize<'de> for MorphTargets {
     }
 }
 
+pub(crate) type MHMorphs = AHashMap<&'static str, AHashMap<u16, Vec3>>;
+
 #[derive(Resource)]
 pub struct MakeHumanMorphs {
     macro_morphs: MacroData,
     composite_categories: AHashMap<&'static str, Vec<&'static str>>,
     composite_morphs: AHashMap<&'static str, CompositeMorph>,
-    pub targets: AHashMap<&'static str, AHashMap<u16, Vec3>>,
+    pub targets: Arc<MHMorphs>,
 }
 
 impl FromWorld for MakeHumanMorphs {
@@ -125,7 +127,7 @@ impl FromWorld for MakeHumanMorphs {
             }
         }
         MakeHumanMorphs {
-            targets,
+            targets: Arc::new(targets),
             composite_categories,
             composite_morphs,
             macro_morphs: macro_sliders,
@@ -170,7 +172,7 @@ impl MakeHumanMorphs {
     pub fn get_asymetry_target_names(&self) -> Vec<&'static str> {
         self.targets
             .iter()
-            .filter(|(&name, _)| name.starts_with("asym"))
+            .filter(|(name, _)| name.starts_with("asym"))
             .map(|(&name, _)| name)
             .collect::<Vec<_>>()
     }
@@ -182,7 +184,7 @@ impl MakeHumanMorphs {
         // --- 1️⃣ Separate race sliders ---
         let race_sliders: AHashMap<_, _> = morph_targets
             .iter()
-            .filter(|(&k, _)| ["african", "asian", "caucasian"].contains(&k))
+            .filter(|(k, _)| ["african", "asian", "caucasian"].contains(&k))
             .map(|(&k, v)| (k, *v))
             .collect();
 
@@ -239,42 +241,42 @@ impl MakeHumanMorphs {
 
         let gender_values = macro_morphs
             .iter()
-            .filter(|(n, &_)| macro_combos["gender"].contains(n))
+            .filter(|(n, _)| macro_combos["gender"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let age_values = macro_morphs
             .iter()
-            .filter(|(n, &_)| macro_combos["age"].contains(n))
+            .filter(|(n, _)| macro_combos["age"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let muscle_values = macro_morphs
             .iter()
-            .filter(|(n, &_)| macro_combos["muscle"].contains(n))
+            .filter(|(n, _)| macro_combos["muscle"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let weight_values = macro_morphs
             .iter()
-            .filter(|(n, &_)| macro_combos["weight"].contains(n))
+            .filter(|(n, _)| macro_combos["weight"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let proportions_values = macro_morphs
             .iter()
-            .filter(|(n, &_)| macro_combos["proportions"].contains(n))
+            .filter(|(n, _)| macro_combos["proportions"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let height_values = macro_morphs
             .iter()
-            .filter(|(n, &_)| macro_combos["height"].contains(n))
+            .filter(|(n, _)| macro_combos["height"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let cupsize_values = macro_morphs
             .iter()
-            .filter(|(n, &_)| macro_combos["cupsize"].contains(n))
+            .filter(|(n, _)| macro_combos["cupsize"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
         let firmness_values = macro_morphs
             .iter()
-            .filter(|(n, &_)| macro_combos["firmness"].contains(n))
+            .filter(|(n, _)| macro_combos["firmness"].contains(n))
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
 
@@ -507,13 +509,12 @@ impl MakeHumanMorphs {
 
 pub(crate) fn adjust_helpers_to_morphs(
     morph_values: &MorphTargets,
-    mh_morphs: &MakeHumanMorphs,
-    basemesh: &crate::basemesh::BaseMesh,
+    mh_morphs: &Arc<MHMorphs>,
+    basemesh: &BaseMesh,
 ) -> Vec<Vec3> {
-    let mut helpers = basemesh.vertices.clone();
+    let mut helpers = (*basemesh.0).clone();
     for (target_name, &value) in morph_values.iter() {
         let target = mh_morphs
-            .targets
             .get(target_name)
             .unwrap_or_else(|| panic!("Failed to find morph {}", target_name));
         for (&vertex, &offset) in target.iter() {
