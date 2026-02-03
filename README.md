@@ -3,16 +3,16 @@
 ![Alt text](https://i.imghippo.com/files/eVWiu1727317384.png)
 
 ## Current features
-- Shape-able humans
+- Shape-able humanoids
 - Auto-rigging
 - Animation retargeting
-- LOD
+- LODs
 - Customizable equipment and body parts
-- Customizable morph targets
+- Custom morph targets
 
 ## Future Plans
-- Better shaders with overlay textures
 - Working ragdolls when physics support matures
+- Baked posed meshes
 
 ## How It Works
 All needed types should be exported via the crate prelude module.  The steps to create humanoid characters are as follows.
