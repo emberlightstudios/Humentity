@@ -109,6 +109,7 @@ impl CharacterArchetypePrefabs {
         )
     }
 
+    /// This is just for testing, no shapes are added
     pub fn basemesh() -> Self {
         let mut prefabs = AHashMap::default();
         prefabs.insert("", CharacterArchetypePrefab::default());

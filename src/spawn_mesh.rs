@@ -105,19 +105,20 @@ fn add_mesh_component(
     prefab: &CharacterArchetypePrefab,
     commands: &mut Commands,
 ) {
-    let morph_weights = prefab
-        .shapes
-        .iter()
-        .map(|s| NAME_INTERNER.intern(&s.name).leak())
-        .map(|s| *config.prefab_morph_targets.get(s).unwrap_or(&0.))
-        .collect::<Vec<_>>();
-    let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
-
     commands.entity(entity).insert((
-        morph_weights,
         Mesh3d(mesh_handle),
         skinned_mesh.clone(),
     ));
+    if !config.prefab_morph_targets.is_empty() {
+        let morph_weights = prefab
+            .shapes
+            .iter()
+            .map(|s| NAME_INTERNER.intern(&s.name).leak())
+            .map(|s| *config.prefab_morph_targets.get(s).unwrap_or(&0.))
+            .collect::<Vec<_>>();
+        let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
+        commands.entity(entity).insert(morph_weights);
+    }
 }
 
 pub(crate) fn trigger_mesh_build(
@@ -143,11 +144,16 @@ pub(crate) fn trigger_mesh_build(
 
     // Check if mesh construction just finished, add mesh3d component
     for MeshConstructedMsg { final_mesh, morph_names, morph_image }
-            in asset.mesh_building_msg_receiver.try_iter() {
-        let image = images.add(morph_image.0);
-        let mesh = final_mesh
-            .with_morph_target_names(morph_names)
-            .with_morph_targets(image);
+            in asset.mesh_building_msg_receiver.try_iter()
+    {
+
+        let mut mesh = final_mesh;
+        if !prefab.shapes.is_empty() {
+            let image = images.add(morph_image.0);
+            mesh = mesh
+                .with_morph_target_names(morph_names)
+                .with_morph_targets(image);
+        }
 
         let handle = meshes.add(mesh);
         asset.mesh_handles.insert(prefab_name, handle.clone());
