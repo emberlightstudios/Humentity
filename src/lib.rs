@@ -1,7 +1,6 @@
 mod animation;
 mod assets;
 mod basemesh;
-mod material;
 mod mesh_ops;
 mod morphs;
 mod paths_config;
@@ -27,7 +26,6 @@ pub mod prelude {
             CharacterAsset, CharacterAssetRegistry, CharacterAssetTextureType, CharacterPart,
         },
         basemesh::BaseMesh,
-        material::CharacterMaterialExtension, //, CharacterMaterialExtensionData},
         mesh_ops::CharacterAssetMeshReady,
         morphs::{MakeHumanMorphs, MorphTargets},
         paths_config::{HumentityAssetPath, HumentityAssetSourceId, HumentityPathsConfig},
