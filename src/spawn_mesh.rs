@@ -56,7 +56,6 @@ pub(crate) struct MeshConstructedMsg {
     pub(crate) final_mesh: Mesh,
     pub(crate) morph_names: Vec<String>,
     pub(crate) morph_image: MorphTargetImage, 
-    pub(crate) shape_heights: Vec<f32>,
 }
 
 #[derive(Event)]
@@ -143,7 +142,7 @@ pub(crate) fn trigger_mesh_build(
     };
 
     // Check if mesh construction just finished, add mesh3d component
-    for MeshConstructedMsg { final_mesh, morph_names, morph_image, shape_heights }
+    for MeshConstructedMsg { final_mesh, morph_names, morph_image }
             in asset.mesh_building_msg_receiver.try_iter() {
         let image = images.add(morph_image.0);
         let mesh = final_mesh
@@ -154,10 +153,6 @@ pub(crate) fn trigger_mesh_build(
         asset.mesh_handles.insert(prefab_name, handle.clone());
         asset.raw_mesh_handle = None;
         asset.loading = AssetLoadState::None;
-
-        for (i, height) in shape_heights.iter().enumerate() {
-            prefab.shapes[i].height = *height;
-        }
 
         return;
     }
@@ -209,10 +204,10 @@ pub(crate) fn trigger_mesh_build(
 
             let sender = asset.mesh_building_msg_sender.clone();
             pool.spawn(async move {
-                let (final_mesh, morph_names, morph_image, shape_heights) = data.build_final_mesh(
+                let (final_mesh, morph_names, morph_image) = data.build_final_mesh(
                     &input_mesh, &prefab, &mh_morphs, &basemesh, &rig_weights, &sk_cache
                 );
-                sender.send(MeshConstructedMsg { final_mesh, morph_names, morph_image, shape_heights })
+                sender.send(MeshConstructedMsg { final_mesh, morph_names, morph_image })
             }).detach()
         }
     }

@@ -18,10 +18,6 @@ use serde::{Deserialize, Serialize};
 pub struct CharacterShapeArchetype {
     pub name: String,
     pub morphs: MorphTargets,
-
-    // Computed at runtime, used for fitting colliders
-    #[serde(skip)]
-    pub(crate) height: f32,
 }
 
 impl CharacterShapeArchetype {
@@ -29,12 +25,7 @@ impl CharacterShapeArchetype {
         Self {
             name,
             morphs,
-            height: 0.,
         }
-    }
-
-    pub const fn get_height(&self) -> f32 {
-        self.height
     }
 }
 
