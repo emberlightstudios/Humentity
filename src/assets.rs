@@ -230,16 +230,16 @@ impl CharacterAssetData {
         let mh_vertices = parse_obj_vertices(self.obj_file.full_path());
         let verts = get_vertex_positions(&input_mesh);
         let vertex_map = generate_vertex_map(&mh_vertices, &verts);
-        let mhid_lookup = generate_mhid_lookup(vertex_map);
+        let mhid_lookup = generate_mhid_lookup(&vertex_map);
 
         // Recaculate mesh from helpers, fixes scale, redoes normals and tangents
-        let input_mesh = self.shape_mesh_from_helpers(&input_mesh, &basemesh.0, &mhid_lookup);
+        let input_mesh = self.shape_mesh_from_helpers(&input_mesh, &basemesh.0, &mhid_lookup, &vertex_map);
 
         // Build shaped meshes
         let mut meshes = vec![];
         for shape in prefab.shapes.iter() {
             let helpers = adjust_helpers_to_morphs(&shape.morphs, &mh_morphs, &basemesh);
-            let mesh = self.shape_mesh_from_helpers(&input_mesh, &helpers, &mhid_lookup);
+            let mesh = self.shape_mesh_from_helpers(&input_mesh, &helpers, &mhid_lookup, &vertex_map);
             meshes.push(mesh);
         }
 
@@ -282,11 +282,8 @@ impl CharacterAssetData {
         .expect("failed to create morph target image");
 
         // Rig the mesh
-        let mut mesh = set_asset_rig_arrays(input_mesh, rig_weights,
+        let mesh = set_asset_rig_arrays(input_mesh, rig_weights,
             &mhid_lookup, &self.helper_map, &prefab.rig, &sk_cache);
-
-        // Fix normals (broken)
-        fix_normals(&mut mesh, &mhid_lookup);
 
         (mesh, morph_names, image)
     }
@@ -310,7 +307,8 @@ impl CharacterAssetData {
         &self,
         mesh: &Mesh,
         helpers: &[Vec3],
-        mhid_lookup: &[u16]
+        mhid_lookup: &[u16],
+        bevy_vertex_map: &AHashMap<u16, Vec<u16>>,
     ) -> Mesh {
         // Note that helpers should already be morphed before input so we don't have to apply weights
         let mut vertices = get_vertex_positions(mesh);
@@ -333,16 +331,18 @@ impl CharacterAssetData {
                 vertices[vert] = position + offset;
             }
         }
-        Mesh::new(
-            bevy::mesh::PrimitiveTopology::TriangleList,
-            RenderAssetUsages::default(),
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
-        .with_inserted_indices(mesh.indices().unwrap().clone())
-        .with_computed_area_weighted_normals()
-        .with_generated_tangents()
-        .unwrap()
+        let mut mesh = Mesh::new(
+                bevy::mesh::PrimitiveTopology::TriangleList,
+                RenderAssetUsages::default(),
+            )
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
+            .with_inserted_indices(mesh.indices().unwrap().clone())
+            .with_computed_area_weighted_normals()
+            .with_generated_tangents()
+            .expect("Failed to generate tangents?");
+        fix_normals(&mut mesh, bevy_vertex_map);
+        mesh
     }
 }
 
