@@ -85,16 +85,6 @@ impl CharacterArchetypePrefab {
     }
 }
 
-/// Use this to modify prefab shapes
-/// The systems below will update mesh handles
-#[derive(Event, Clone)]
-pub struct ModifyPrefabShape {
-    pub morphs: MorphTargets,
-    pub prefab_name: &'static str,
-    pub shape_name: &'static str,
-    pub parts: Vec<CharacterPart>,
-}
-
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct CharacterArchetypePrefabs(AHashMap<&'static str, CharacterArchetypePrefab>);
 

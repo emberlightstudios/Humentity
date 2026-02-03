@@ -32,7 +32,7 @@ pub mod prelude {
         physics::CharacterRagdoll,
         prefab::{
             CharacterAnimationArchetype, CharacterArchetypePrefab, CharacterArchetypePrefabs,
-            CharacterShapeArchetype, ModifyPrefabShape,
+            CharacterShapeArchetype, 
         },
         rigs::{ParentBone, RigType, RootMotion},
         spawn_mesh::{CharacterPartMeshSpawned, CharacterShapeConfig, BuildMesh},
