@@ -26,7 +26,6 @@ pub mod prelude {
             CharacterAsset, CharacterAssetRegistry, CharacterAssetTextureType, CharacterPart,
         },
         basemesh::BaseMesh,
-        mesh_ops::CharacterAssetMeshReady,
         morphs::{MakeHumanMorphs, MorphTargets},
         paths_config::{HumentityAssetPath, HumentityAssetSourceId, HumentityPathsConfig},
         physics::CharacterRagdoll,
@@ -111,7 +110,6 @@ impl Plugin for HumentityPlugin {
                     None,
                 ),
             )
-            .add_message::<CharacterAssetMeshReady>()
             .add_observer(spawn_mesh::trigger_mesh_build)
             .add_systems(
                 Update,

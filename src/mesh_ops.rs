@@ -1,4 +1,3 @@
-use crate::assets::CharacterPart;
 use ahash::{AHashMap, AHashSet};
 use bevy::{mesh::VertexAttributeValues, prelude::*};
 use std::{
@@ -6,14 +5,6 @@ use std::{
     io::{BufRead, BufReader},
     path::Path,
 };
-
-
-/// A message to be sent when a mesh is ready
-#[derive(Message)]
-pub struct CharacterAssetMeshReady {
-    pub part: CharacterPart,
-    pub prefab: &'static str,
-}
 
 pub fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
     let path = filename.as_ref();
