@@ -101,7 +101,7 @@ fn add_humans(mut commands: Commands) {
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(CharacterPart::BaseMesh)],
+        children![(CharacterPart::BodyMesh("male_generic"))],
     ));
 
     // A baby
@@ -111,7 +111,7 @@ fn add_humans(mut commands: Commands) {
         Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(CharacterPart::BaseMesh)],
+        children![(CharacterPart::BodyMesh("male_generic"))],
     ));
 
     // A bodybuilder
@@ -121,7 +121,7 @@ fn add_humans(mut commands: Commands) {
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(CharacterPart::BaseMesh)],
+        children![(CharacterPart::BodyMesh("male_generic"))],
     ));
 
     // Half baby/half bodybuilder, ha!
@@ -132,7 +132,7 @@ fn add_humans(mut commands: Commands) {
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(CharacterPart::BaseMesh)],
+        children![(CharacterPart::BodyMesh("male_generic"))],
     ));
 
     // You have to be careful with normalization of mixed shapekeys sometimes
@@ -144,6 +144,6 @@ fn add_humans(mut commands: Commands) {
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(prefab_name, morphs),
-        children![(CharacterPart::BaseMesh)],
+        children![(CharacterPart::BodyMesh("male_generic"))],
     ));
 }

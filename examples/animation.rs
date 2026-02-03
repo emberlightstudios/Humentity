@@ -25,7 +25,7 @@ fn main() {
             )
                 .run_if(in_state(HumentityLoadState::Ready)),
         )
-        .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
+        .add_systems(Startup, setup_prefabs)
         .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
         .run();
 }
@@ -137,7 +137,9 @@ fn add_human(mut commands: Commands) {
     commands.spawn((
         Transform::from_translation(Vec3::new(1., 0., 1.)),
         CharacterShapeConfig::new("ExampleHumanPrefab", morphs),
-        children![(CharacterPart::BaseMesh,)],
+        children![(
+            CharacterPart::BodyMesh("male_generic"),
+        )],
     ));
 }
 
@@ -152,7 +154,6 @@ fn setup_graph_on_new_human(
     let Ok(human) = humans.single() else { return };
     // included clip is authored on the default rig
     let animations = &animations[&RigType::Default];
-    info!("{:#?}", animations.keys());
     let clip = &animations["Idle-loop"];
     let (graph, index) = AnimationGraph::from_clip(clip.clone());
     let graph_handle = graphs.add(graph.clone());

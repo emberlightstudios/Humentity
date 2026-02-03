@@ -91,16 +91,21 @@ pub(crate) fn get_uv_coords(mesh: &Mesh) -> Vec<Vec2> {
 //    d
 //}
 
+/// Some vertices from the makehuman obj file get duplicated in Bevy's Mesh GPU data.
+/// These duplicates show up at UV seams. We auto-generate normals for morphed
+/// meshes. This leads to artifacts at the seams because the algorithm does not see
+/// a smooth surface across the seam but rather 2 distinct surfaces edges which just
+/// happen to terminate along the same seam. mhid_lookup maps bevy verts back to the
+/// original obj vert indices.  Now we can partition the bevy verts to find groups 
+/// of duplicates which share exactly the same position in 3d space, i.e. verts on the
+/// seams. Finding the mean normal vector for each group SHOULD be the corrent normal
+/// for a smooth surface across the seam, which SHOULD fix the normals at the seams
+/// as well as the interpolated normals in triangles which border the seams. 
 pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
-    // Get mutable normals from the mesh
     let mut normals = get_vertex_normals(mesh);
-
-    // 1) Build groups by MH index
     let mut groups: AHashMap<u16, Vec<usize>> = AHashMap::default();
 
     #[allow(clippy::needless_range_loop)]
-    // Index-based loop is intentional: Bevy vertex indices do not
-    // match OBJ vertex indices; mhid_lookup maps between spaces.
     for bevy_idx in 0..normals.len() {
         groups
             .entry(mhid_lookup[bevy_idx])
@@ -108,31 +113,29 @@ pub fn fix_normals(mesh: &mut Mesh, mhid_lookup: &[u16]) {
             .push(bevy_idx);
     }
 
-    // 2) Average normals per group
-    for group in groups.values() {
-        if group.is_empty() {
-            continue;
-        }
-
+    // Average normals per group with duplicates
+    for group in groups.values()
+        .filter(|&v| v.len() > 1)
+    {
         let mut sum = Vec3::ZERO;
         for &i in group {
             sum += normals[i];
         }
         let avg = sum.normalize_or_zero();
-
-        // 3) Assign the same normal to all duplicates
         for &i in group {
             normals[i] = avg;
         }
     }
 
-    // 4) Write back to the mesh
+    // Write back to the mesh
     let normals = normals
         .iter()
         .map(|n| [n.x, n.y, n.z])
         .collect::<Vec<[f32; 3]>>();
-
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+
+    // Regenerate tangents
+    mesh.generate_tangents().ok();
 }
 
 // Maps mh vertex ids to vec of bevy ids

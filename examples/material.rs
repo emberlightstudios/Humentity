@@ -1,3 +1,5 @@
+//! Currently broken for some reason, WGPU validation errors.  Need to investigate.
+//! 
 //! This example shows how to use the HumanMaterialExtension to create a new material for
 //! the skin of a character.  You could also just use the StandardMaterial, but the idea
 //! is that this setup should improve GPU batching.  At least that's my intuition.
@@ -16,7 +18,7 @@ fn main() {
         MaterialPlugin::<ExtendedMaterial<StandardMaterial, CharacterMaterialExtension>>::default(),
     ))
     .add_systems(Startup, setup_env)
-    .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
+    .add_systems(Startup, setup_prefabs)
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
     .add_systems(Update, add_skin_material)
     .add_systems(Update, cam_controls)
@@ -40,9 +42,7 @@ fn add_skin_material(
 ) {
     for (entity, part) in humans.iter() {
         let name = "middleage_asian_female";
-        // This should always be true here, but in general we only want to put skin textures
-        // on the base mesh or the proxy meshes, not any other parts/assets.
-        if matches!(part, CharacterPart::BaseMesh) {
+        if matches!(part, CharacterPart::BodyMesh("female_generic")) {
             let albedo = part.get_texture_handle(
                 name,
                 CharacterAssetTextureType::Albedo,
@@ -54,7 +54,7 @@ fn add_skin_material(
                     base_color_texture: Some(albedo),
                     ..default()
                 },
-                extension: CharacterMaterialExtension::default(),
+                extension: CharacterMaterialExtension{},
             };
             let material = human_material_assets.add(material.clone());
             commands
@@ -69,7 +69,7 @@ fn add_human(mut commands: Commands) {
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         CharacterShapeConfig::default(),
         InheritedVisibility::default(),
-        children![(CharacterPart::BaseMesh)],
+        children![(CharacterPart::BodyMesh("female_generic"))],
     ));
 }
 

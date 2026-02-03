@@ -17,7 +17,7 @@ fn main() {
     app.add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
         .add_systems(Update, (cam_controls, add_material))
-        .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
+        .add_systems(Startup, setup_prefabs)
         .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
         .run();
 }
@@ -34,6 +34,7 @@ fn add_humans(mut commands: Commands) {
     morphs.insert(bodybuilder, 1.);
 
     // Base mesh will be lod0
+    let lod0 = "male_muscle_13290";
     let lod1 = "male_generic";
     let lod2 = "male1591";
     let lod3 = "proxy741";
@@ -45,15 +46,15 @@ fn add_humans(mut commands: Commands) {
         InheritedVisibility::default(),
         children![
             (
-                CharacterPart::BaseMesh,
+                CharacterPart::BodyMesh(lod0),
                 VisibilityRange {
                     start_margin: 0.0..0.0,
-                    end_margin: 2.0..2.,
+                    end_margin: 2.0..2.0,
                     use_aabb: false,
                 }
             ),
             (
-                CharacterPart::ProxyMesh(lod1),
+                CharacterPart::BodyMesh(lod1),
                 VisibilityRange {
                     start_margin: 2.0..2.0,
                     end_margin: 4.0..4.0,
@@ -61,7 +62,7 @@ fn add_humans(mut commands: Commands) {
                 }
             ),
             (
-                CharacterPart::ProxyMesh(lod2),
+                CharacterPart::BodyMesh(lod2),
                 VisibilityRange {
                     start_margin: 4.0..4.,
                     end_margin: 6.0..6.,
@@ -69,7 +70,7 @@ fn add_humans(mut commands: Commands) {
                 }
             ),
             (
-                CharacterPart::ProxyMesh(lod3),
+                CharacterPart::BodyMesh(lod3),
                 VisibilityRange {
                     start_margin: 6.0..6.0,
                     end_margin: 8.0..10.0,
@@ -80,12 +81,13 @@ fn add_humans(mut commands: Commands) {
     ));
 
     // Just for comparison we'll spawn the proxies used here
-    // The base mesh (highest poly-count ~15k tris I think)
+
+    // The muscle mesh is not higher vertex density than male_generic, just better topology for muscles
     commands.spawn((
         Transform::from_translation(Vec3::new(-1.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
-        children![(CharacterPart::BaseMesh)],
+        children![(CharacterPart::BodyMesh(lod0))],
     ));
 
     // male_generic (high poly-count 13k tris)
@@ -93,7 +95,7 @@ fn add_humans(mut commands: Commands) {
         Transform::from_translation(Vec3::new(-0.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
-        children![(CharacterPart::ProxyMesh(lod1))],
+        children![(CharacterPart::BodyMesh(lod1))],
     ));
 
     //  male1591 (low poly-count)
@@ -101,7 +103,7 @@ fn add_humans(mut commands: Commands) {
         Transform::from_translation(Vec3::new(0.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
-        children![(CharacterPart::ProxyMesh(lod2))],
+        children![(CharacterPart::BodyMesh(lod2))],
     ));
 
     // proxy741 (very low poly-count)
@@ -109,7 +111,7 @@ fn add_humans(mut commands: Commands) {
         Transform::from_translation(Vec3::new(1.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         InheritedVisibility::default(),
-        children![(CharacterPart::ProxyMesh(lod3))],
+        children![(CharacterPart::BodyMesh(lod3))],
     ));
 
     // There are also female specific proxies which may have better topology for breasts

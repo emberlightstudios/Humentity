@@ -56,6 +56,7 @@ pub(crate) struct MeshConstructedMsg {
     pub(crate) final_mesh: Mesh,
     pub(crate) morph_names: Vec<String>,
     pub(crate) morph_image: MorphTargetImage, 
+    pub(crate) shape_heights: Vec<f32>,
 }
 
 #[derive(Event)]
@@ -75,7 +76,10 @@ pub(crate) fn handle_mesh_load_tasks(
 
     for (entity, part, parent) in parts {
         let Ok((config, skinned_mesh)) = character_root.get(parent.parent())
-            else { continue };  // Wait for skinned mesh on root
+            // SkinnedMesh component will be added to the character root only
+            // after the skeleton is fit. Wait for this before inserting the mesh
+            // which requires this component
+            else { continue };
 
         let Some(asset) = asset_registry.get_mut(part) else {
             error!("No such asset: {:#?} - Cannot load", part);
@@ -119,7 +123,7 @@ fn add_mesh_component(
 
 pub(crate) fn trigger_mesh_build(
     trigger: On<BuildMesh>,
-    prefabs: Res<CharacterArchetypePrefabs>,
+    mut prefabs: ResMut<CharacterArchetypePrefabs>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut asset_registry: ResMut<CharacterAssetRegistry>,
@@ -130,6 +134,8 @@ pub(crate) fn trigger_mesh_build(
     sk_cache: Res<SkeletonCaches>,
 ) {
     let prefab_name = trigger.prefab;
+    let prefab = prefabs.get_mut(prefab_name)
+        .expect("No such prefab");
 
     let Some(asset) = asset_registry.get_mut(&trigger.part) else {
         error!("No such asset: {:#?} - Cannot load", trigger.part);
@@ -137,7 +143,8 @@ pub(crate) fn trigger_mesh_build(
     };
 
     // Check if mesh construction just finished, add mesh3d component
-    for MeshConstructedMsg { final_mesh, morph_names, morph_image } in asset.mesh_building_msg_receiver.try_iter() {
+    for MeshConstructedMsg { final_mesh, morph_names, morph_image, shape_heights }
+            in asset.mesh_building_msg_receiver.try_iter() {
         let image = images.add(morph_image.0);
         let mesh = final_mesh
             .with_morph_target_names(morph_names)
@@ -147,6 +154,10 @@ pub(crate) fn trigger_mesh_build(
         asset.mesh_handles.insert(prefab_name, handle.clone());
         asset.raw_mesh_handle = None;
         asset.loading = AssetLoadState::None;
+
+        for (i, height) in shape_heights.iter().enumerate() {
+            prefab.shapes[i].height = *height;
+        }
 
         return;
     }
@@ -190,7 +201,7 @@ pub(crate) fn trigger_mesh_build(
 
             let input_mesh = input_mesh.clone();
             let data = asset.data.as_ref().unwrap().clone();
-            let prefab = prefabs[prefab_name].clone();
+            let prefab = prefab.clone();
             let mh_morphs = morphs.targets.clone();
             let basemesh = basemesh.clone();
             let rig_weights = rig_data.weights.clone();
@@ -198,10 +209,10 @@ pub(crate) fn trigger_mesh_build(
 
             let sender = asset.mesh_building_msg_sender.clone();
             pool.spawn(async move {
-                let (final_mesh, morph_names, morph_image) = data.build_final_mesh(
+                let (final_mesh, morph_names, morph_image, shape_heights) = data.build_final_mesh(
                     &input_mesh, &prefab, &mh_morphs, &basemesh, &rig_weights, &sk_cache
                 );
-                sender.send(MeshConstructedMsg { final_mesh, morph_names, morph_image })
+                sender.send(MeshConstructedMsg { final_mesh, morph_names, morph_image, shape_heights })
             }).detach()
         }
     }

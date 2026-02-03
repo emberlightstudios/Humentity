@@ -26,7 +26,7 @@ fn main() {
 
     app.add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)
-        .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
+        .add_systems(Startup, setup_prefabs)
         .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
         .add_systems(Update, (cam_controls, add_materials))
         .run();
@@ -44,7 +44,7 @@ fn add_materials(
 ) {
     for (entity, part) in parts {
         let mat = match part {
-            CharacterPart::BaseMesh | CharacterPart::ProxyMesh(_) => {
+            CharacterPart::BodyMesh(_) => {
                 let skin_albedo: Handle<Image> = part.get_texture_handle(
                     SKIN,
                     CharacterAssetTextureType::Albedo,
@@ -145,7 +145,10 @@ fn add_human(mut commands: Commands) {
         CharacterShapeConfig::new(PREFAB, morph_targets),
         Visibility::Visible,
         children![
-            (CharacterPart::BaseMesh, InheritedVisibility::default(),),
+            (
+                CharacterPart::BodyMesh("female_muscle_13442"),
+                InheritedVisibility::default(),
+            ),
             (
                 CharacterPart::BodyPart(EYES),
                 InheritedVisibility::default(),

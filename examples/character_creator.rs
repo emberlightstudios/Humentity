@@ -2,6 +2,8 @@
 
 mod shared;
 
+use std::time::Duration;
+
 use bevy::feathers::controls::button;
 use bevy::feathers::controls::slider;
 use bevy::feathers::controls::ButtonProps;
@@ -11,6 +13,7 @@ use bevy::feathers::theme::ThemedText;
 use bevy::feathers::theme::UiTheme;
 use bevy::feathers::FeathersPlugins;
 use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
 use bevy::ui_widgets::observe;
 use bevy::ui_widgets::slider_self_update;
 use bevy::ui_widgets::Activate;
@@ -31,12 +34,13 @@ fn main() {
     app.add_plugins((DefaultPlugins, FeathersPlugins))
         .insert_resource(UiTheme(create_dark_theme()))
         .add_systems(Startup, setup_env)
-        .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefab)
+        .add_systems(Startup, setup_prefab)
         .add_systems(
             OnEnter(HumentityLoadState::Ready),
             move |mut commands: Commands| add_human(&mut commands),
         )
-        .add_systems(Update, (cam_controls, add_material, poll_mesh_handle))
+        .add_systems(Update, (cam_controls, add_material, update_mesh_handle))
+        .add_systems(Update, rebuild.run_if(on_timer(Duration::from_millis(50))))
         .insert_resource(SliderValues::default())
         .run();
 }
@@ -134,19 +138,18 @@ impl SliderValues {
     }
 }
 
-// Check for an updated mesh
-fn poll_mesh_handle(
-    basemesh: Res<BaseMesh>,
-    human: Query<(Entity, &Mesh3d), With<CharacterPart>>,
-    mut commands: Commands,
+// Update handle every frame
+fn update_mesh_handle(
+    asset_registry: Res<CharacterAssetRegistry>,
+    mut human: Query<(&mut Mesh3d, &ChildOf), With<CharacterPart>>,
+    shape_cfg: Query<&CharacterShapeConfig>,
 ) {
-    let Ok((entity, human)) = human.single() else {
-        return;
-    };
-    // CharacterAsset (which you can get from the CharacterAssetRegistry) also has a prefab_state field.
-    if let MeshProcessingState::Ready(handle) = &basemesh.prefab_state[PREFAB] {
-        if *handle != **human {
-            commands.entity(entity).insert(Mesh3d(handle.clone()));
+    let asset = asset_registry.get(&CharacterPart::BodyMesh("male_generic")).unwrap();
+    if let Ok((mut mesh3d, parent)) = human.single_mut() {
+        let shape = shape_cfg.get(parent.parent()).unwrap();
+        let prefab = shape.prefab;
+        if let Some(handle) = asset.mesh_handles.get(prefab) {
+            mesh3d.0 = handle.clone();
         }
     }
 }
@@ -154,24 +157,16 @@ fn poll_mesh_handle(
 // Trigger a change in a prefab shape
 fn on_slider_value_changed(
     trigger: On<ValueChange<f32>>,
-    mut commands: Commands,
     mut sliders: ResMut<SliderValues>,
     slider_metadata: Query<&SliderMetadata>,
     mh_morphs: Res<MakeHumanMorphs>,
+    mut prefabs: ResMut<CharacterArchetypePrefabs>,
 ) {
-    // The process for readying the body and asset meshes is not the fastest.  It has to go through
-    // several stages to get to the end result.
-    //
-    // This is just a simple example.  In a real game you might load several assets, eyes, eyebrows, etc.
-    // Each will need to be re-processesed.  In addition you might play an idle animation in the
-    // character creation menu.  After reshaping the mesh the skeleton will need to be re-fitted to the
-    // shape of the new mesh.
-
     let metadata = slider_metadata.get(trigger.event().source).unwrap();
     sliders.insert_value(metadata.0, metadata.1, trigger.event().value);
 
     // Only the UI uses nested iterators for categories
-    // Everything in humentity wanst flat iterators
+    // Everything in humentity wants flat iterators
     let mut morphs = MorphTargets::default();
     for (&category, targets) in sliders.iter() {
         for (&name, &value) in targets.iter() {
@@ -181,14 +176,34 @@ fn on_slider_value_changed(
         }
     }
 
-    // ALWAYS convert macro/composite sliders to makehuman morph targets
+    // ALWAYS convert macro/composite sliders to makehuman morph targets 
     morphs = mh_morphs.compute_target_weights(&morphs);
 
-    commands.trigger(ModifyPrefabShape {
-        prefab_name: PREFAB,
-        shape_name: SHAPE_NAME,
-        parts: vec![CharacterPart::BaseMesh], // Insert other loaded assets as necessary
-        morphs,
+    // Update morphs on the prefab shape (only 1 shape on 1 prefab here)
+    let prefab = prefabs.get_mut(PREFAB).unwrap();
+    let shape = prefab.shapes.get_mut(0).unwrap();
+    shape.morphs = morphs;
+
+    // I tried to trigger rebuild here but it lags behind the slider settings due
+    // to the asynchronous nature.  It tends to build the last slider values instead
+    // of the current
+}
+
+// This runs every 50 milliseconds and always triggers full rebuild from the current prefab. 
+// It does introduce a bit of a lag unfortunately, but this is inevitable due to the time
+// it takes to rebuild the mesh anyway.  It could be made faster by building the mesh
+// directly, avoiding morphs, skinning, etc. until the end.
+fn rebuild(
+    mut asset_registry: ResMut<CharacterAssetRegistry>,
+    mut commands: Commands,
+) {
+    // Delete the cached mesh handle
+    let asset = asset_registry.get_mut(&CharacterPart::BodyMesh("male_generic")).unwrap();
+    asset.mesh_handles.remove(PREFAB);
+
+    // This will trigger a rebuild
+    commands.trigger(BuildMesh {
+        prefab: PREFAB, part: CharacterPart::BodyMesh("male_generic")
     });
 }
 
@@ -238,7 +253,7 @@ fn add_human(commands: &mut Commands) {
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
-        children![(CharacterPart::BaseMesh)],
+        children![(CharacterPart::BodyMesh("male_generic"))],
     ));
 }
 

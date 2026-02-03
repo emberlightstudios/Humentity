@@ -14,7 +14,7 @@ fn main() {
         PhysicsDebugPlugin,
     ))
     .add_systems(Startup, (setup_env, floor))
-    .add_systems(OnExit(HumentityLoadState::LoadingCoreAssets), setup_prefabs)
+    .add_systems(Startup, setup_prefabs)
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
     .add_systems(Update, (cam_controls, add_material, toggle))
     .run();
@@ -42,7 +42,7 @@ fn add_human(mut commands: Commands) {
         CharacterShapeConfig::default(),
         InheritedVisibility::default(),
         CharacterRagdoll::new(false),
-        children![(CharacterPart::BaseMesh)],
+        children![(CharacterPart::BodyMesh("male_generic"))],
     ));
 }
 

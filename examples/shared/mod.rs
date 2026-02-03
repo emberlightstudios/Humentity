@@ -11,7 +11,7 @@ pub fn add_humentity_plugin(app: &mut App) {
     app.add_plugins(HumentityPlugin {
         paths,
         config: HumentityGlobalConfig {
-            debug_draw_bones: false,
+            debug_draw_bones: true,
             translation_tracks: TranslationTracks::None,
         },
     });
@@ -40,7 +40,7 @@ pub fn build_humentity_custom_source_paths(app: &mut App) -> HumentityPathsConfi
     // Set up paths to all asset types.  Assets in folders will be scanned and imported into the CharacterAssetRegistry
 
     // ProxyMeshes/body lod
-    let mut proxymesh_paths = AHashSet::default();
+    let mut body_mesh_paths = AHashSet::default();
     // Hair, eyes, eyebrows, etc
     let mut body_part_paths = AHashSet::default();
     // Clothes, armor, etc
@@ -51,7 +51,7 @@ pub fn build_humentity_custom_source_paths(app: &mut App) -> HumentityPathsConfi
     let mut target_paths = AHashSet::default();
 
     // These paths must be relative to the source root folder
-    proxymesh_paths.insert(HumentityAssetPath::new("./proxymeshes", &humentity_source));
+    body_mesh_paths.insert(HumentityAssetPath::new("./proxymeshes", &humentity_source));
     body_part_paths.insert(HumentityAssetPath::new("./body_parts", &humentity_source));
     equipment_paths.insert(HumentityAssetPath::new("./clothes", &humentity_source));
     skin_texture_paths.insert(HumentityAssetPath::new(
@@ -62,7 +62,7 @@ pub fn build_humentity_custom_source_paths(app: &mut App) -> HumentityPathsConfi
 
     HumentityPathsConfig::new(
         humentity_source.root_path.clone(),
-        proxymesh_paths,
+        body_mesh_paths,
         body_part_paths,
         equipment_paths,
         skin_texture_paths,

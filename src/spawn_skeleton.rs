@@ -100,7 +100,7 @@ pub(crate) fn fit_skeleton_to_shape(
         let mut skinned_mesh: Option<&SkinnedMesh> = None;
         let mut rig_entity = Entity::PLACEHOLDER;
 
-        // Cache current bone rotations and entities
+        // Cache current model space bone rotations and entities
         let mut bone_rotations = AHashMap::default();
         let mut bone_entities = AHashMap::default();
 
@@ -128,6 +128,7 @@ pub(crate) fn fit_skeleton_to_shape(
         if skinned_mesh.is_none() {
             return;
         }
+        // This has the refs to the joint entities, but we will have to recompute inverse bindposes
         let skinned_mesh = skinned_mesh.unwrap();
 
         // Re-fit skeleton to mesh shape.  This is based on fixed vertices in the base mesh.
@@ -143,14 +144,23 @@ pub(crate) fn fit_skeleton_to_shape(
         );
         let mut local_bone_transforms = AHashMap::default();
 
-        // The skeleton was adjusted so that the bones' rotations align head to tail.
+        // The skeleton has now been adjusted so that the bones' rotations align head to tail.
         // The skeleton now fits the mesh's shape but this can induce animation artifacts due to
-        // differences in proportions/bind poses. In order to prevent this we adjust the bone rotations
-        // so that they have the same positions, but rotations are adjusted to align exactly with
-        // the reference skeleton from the animation glb files. In other words, the bones may not be
-        // rotated such that they point to their child bone anymore, but they will match the reference rig rotations.
-        // This will require changing both rotations and translations. A child bone needs to translate
-        // back into it's correct model space position after its parent rotates.
+        // differences in proportions/bind poses. Different proportions lead to different rotations
+        // in the bind/rest pose, but animation clips only store rotation offsets so the final pose in
+        // any given frame will change with character proportions. Therefore different characer shapes
+        // can lead to very different poses in the same animation clip.
+        //
+        // In order to prevent this we adjust the bone bind pose transfoms so that they have the same
+        // positions in model space, but we force their rotations to align exactly with the reference 
+        // skeleton from which the animation clips were authored in the glb files. In other words, we
+        // rotate the bones such that they may not point to their child bone anymore. Instead they will
+        // match the reference rig bind pose rotations exactly, so that rotation offsets from the
+        // AninationClips look as consistent as possible. This will require changing not just rotations
+        // but also translations in general, as changing the rotation on a bone will alter the model
+        // space translation of all children in the hierarchy, so we alter the translations to get
+        // the bone back into the correct position after rotating it's parents. 
+
         let bone_config = &rig_data.configs[&prefab.rig.rig_type];
         for &bone in &cache.bone_order {
             if let Some(bone_data) = bone_config.get(bone) {
@@ -202,9 +212,11 @@ pub(crate) fn fit_skeleton_to_shape(
             }
 
             // We re-aligned the bone rotations to match the reference skeleton exactly, but this
-            // came at the cost of adding in some translation offsets.  When retargeting translation
-            // tracks we need to correct for this.  Here we cache a small rotation which we can
-            // apply to re-align translation directions later.
+            // came at the cost of adding in some translation offsets. This introduces another 
+            // complexity if we are retargeting translation tracks, since the translations are in 
+            // local bone space, which is not rotated.  We need to correct for this.  Here we cache
+            // a small rotation which we can apply to re-align translation directions during
+            // animation postprocessing for translation tracks.
             if matches!(global_config.translation_tracks, TranslationTracks::Full) {
                 let mut bone_rotation_deltas: AHashMap<&'static str, Quat> = AHashMap::default();
                 for &name in cache.bone_order.iter() {
@@ -229,13 +241,14 @@ pub(crate) fn fit_skeleton_to_shape(
             }
         }
 
-        // Create new skinned_mesh, put it on root
-        // Root doesn't have a mesh3d but it makes it easier to clone for added components.
+        // Create new skinned_mesh, put it on the character root.
+        // Root doesn't have a mesh3d but it makes it easier to clone for children with CharacterPart.
         let mut inv_bindposes = vec![];
         for &bone in cache.bone_order.iter() {
             inv_bindposes.push(global_bone_transforms[bone].to_matrix().inverse());
         }
 
+        // Cache commonly used joint entities for easy access, e.g. IK
         let root_bone = bone_entities[cache.bone_order[0]];
         let mut head = Entity::PLACEHOLDER;
         let mut right_hand = Entity::PLACEHOLDER;

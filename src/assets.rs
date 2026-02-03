@@ -224,7 +224,10 @@ impl CharacterAssetData {
         basemesh: &BaseMesh,
         rig_weights: &Arc<RigWeights>,
         sk_cache: &Arc<SkeletonCache>,
-    ) -> (Mesh, Vec<String>, MorphTargetImage) {
+    ) -> (Mesh, Vec<String>, MorphTargetImage, Vec<f32>) {
+
+        // forget height.  i can just use eye bones to determine eye level or something
+        let mut shape_heights = vec![];
 
         // Load raw mesh and build vertex lookup between mh indices and bevy indices (vert duplicates in bevy)
         let mh_vertices = parse_obj_vertices(self.obj_file.full_path());
@@ -241,9 +244,10 @@ impl CharacterAssetData {
             let helpers = adjust_helpers_to_morphs(&shape.morphs, &mh_morphs, &basemesh);
             let mesh = self.shape_mesh_from_helpers(&input_mesh, &helpers, &mhid_lookup);
             meshes.push(mesh);
-            //// How to handle heights
-            //shape.height =
-            //    f32::max(shape.height, helpers.iter().map(|v| v.y).reduce(f32::max)?);
+
+            let height =helpers.iter().map(|v| v.y).reduce(f32::max)
+                .expect("Failed to get mesh height");
+            shape_heights.push(height);
         }
 
         // Build morphs from shapes
@@ -288,7 +292,7 @@ impl CharacterAssetData {
         let mut mesh = set_asset_rig_arrays(input_mesh, rig_weights,
             &mhid_lookup, &self.helper_map, &prefab.rig, &sk_cache);
         fix_normals(&mut mesh, &mhid_lookup);
-        (mesh, morph_names, image)
+        (mesh, morph_names, image, shape_heights)
     }
 
     pub(crate) fn get_offset_scale(&self, helpers: &[Vec3]) -> Vec3 {
@@ -521,7 +525,7 @@ impl FromWorld for CharacterAssetRegistry {
         }
 
         // Proxy Meshes
-        for dir in &config.proxymesh_paths {
+        for dir in &config.body_mesh_paths {
             let prefix = &dir.source_id.root_path;
             for entry in WalkDir::new(prefix.join(&dir.path))
                 .into_iter()

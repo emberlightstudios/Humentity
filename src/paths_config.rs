@@ -60,8 +60,8 @@ impl HumentityAssetSourceId {
 pub struct HumentityPathsConfig {
     /// The path to the folder where base.obj exists.  Should be in assets/ inside this crate
     pub(crate) core_assets_path: PathBuf,
-    /// Paths from which proxy meshes should be loaded
-    pub(crate) proxymesh_paths: AHashSet<HumentityAssetPath>,
+    /// Paths from which body meshes (aka proxy meshes) should be loaded
+    pub(crate) body_mesh_paths: AHashSet<HumentityAssetPath>,
     /// Paths from which body parts should be loaded
     pub(crate) body_part_paths: AHashSet<HumentityAssetPath>,
     /// Paths from which equipment/clothes should be loaded
@@ -75,7 +75,7 @@ pub struct HumentityPathsConfig {
 impl HumentityPathsConfig {
     pub fn new(
         core_assets_path: PathBuf,
-        proxymesh_paths: impl IntoIterator<Item = HumentityAssetPath>,
+        body_mesh_paths: impl IntoIterator<Item = HumentityAssetPath>,
         body_part_paths: impl IntoIterator<Item = HumentityAssetPath>,
         equipment_paths: impl IntoIterator<Item = HumentityAssetPath>,
         skin_texture_paths: impl IntoIterator<Item = HumentityAssetPath>,
@@ -83,7 +83,7 @@ impl HumentityPathsConfig {
     ) -> Self {
         Self {
             core_assets_path: get_abs_path(core_assets_path),
-            proxymesh_paths: proxymesh_paths.into_iter().collect(),
+            body_mesh_paths: body_mesh_paths.into_iter().collect(),
             body_part_paths: body_part_paths.into_iter().collect(),
             equipment_paths: equipment_paths.into_iter().collect(),
             skin_texture_paths: skin_texture_paths.into_iter().collect(),
