@@ -18,8 +18,7 @@ use ::std::{
 };
 use ahash::{AHashMap, AHashSet};
 use bevy::{
-    ecs::intern::Internable,
-    mesh::morph::{MorphAttributes, MorphTargetImage},
+    ecs::intern::Internable, image::ImageLoaderSettings, mesh::morph::{MorphAttributes, MorphTargetImage}
 };
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::{path::Path, sync::Arc};
@@ -170,7 +169,14 @@ impl CharacterAsset {
             CharacterAssetTextureType::RoughnessMetallic => &self.paths.ao_maps,
         };
         if let Some(path) = paths.get(texture_name.as_ref()) {
-            path.load_asset(asset_server)
+            if matches!(texture_type, CharacterAssetTextureType::Normal) {
+                path.load_asset_with_settings(
+                    asset_server,
+                    |s: &mut ImageLoaderSettings| s.is_srgb = false,
+                )
+            } else {
+                path.load_asset(asset_server)
+            }
         } else {
             error!(
                 "No such texture {} for {:#?}",

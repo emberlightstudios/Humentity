@@ -1,5 +1,5 @@
 use ahash::AHashSet;
-use bevy::prelude::*;
+use bevy::{asset::meta::Settings, prelude::*};
 use std::{
     fs::canonicalize,
     path::{Path, PathBuf},
@@ -35,6 +35,21 @@ impl HumentityAssetPath {
         let path = self.path.to_str().expect("Unparseable path");
         let path = format!("{prefix}{}", path);
         asset_server.load(path)
+    }
+
+    pub fn load_asset_with_settings<T: Asset, S: Settings>(
+        &self,
+        asset_server: &AssetServer,
+        settings: impl Fn(&mut S) + Send + Sync + 'static
+    ) -> Handle<T> {
+        let prefix = if let Some(source_name) = self.source_id.id {
+            &format!("{}://", source_name)
+        } else {
+            ""
+        };
+        let path = self.path.to_str().expect("Unparseable path");
+        let path = format!("{prefix}{}", path);
+        asset_server.load_with_settings(path, settings)
     }
 }
 
