@@ -6,7 +6,7 @@ use std::{
 };
 
 /// Stored the path to an asset relative to the asset source root, as well as source data
-#[derive(Clone, Hash, Eq, PartialEq, Debug)]
+#[derive(Clone, Hash, Eq, PartialEq, Debug, Default)]
 pub struct HumentityAssetPath {
     /// The path to the folder (relative to the source asset directory e.g. ./assets)
     pub(crate) path: PathBuf,
