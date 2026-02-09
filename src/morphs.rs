@@ -181,6 +181,14 @@ impl MakeHumanMorphs {
     pub fn compute_target_weights(&self, morph_targets: &MorphTargets) -> MorphTargets {
         let mut result = MorphTargets::default();
 
+        if morph_targets
+            .keys()
+            .all(|&t| self.targets.contains_key(t))
+        {
+            return morph_targets.clone();
+        }
+
+
         // --- 1️⃣ Separate race sliders ---
         let race_sliders: AHashMap<_, _> = morph_targets
             .iter()
