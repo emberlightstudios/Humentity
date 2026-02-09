@@ -122,7 +122,7 @@ impl<'de> Deserialize<'de> for CharacterPart {
 }
 
 /// The texture types which can be loaded for materials which go on [`CharacterAsset`] meshes
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum CharacterAssetTextureType {
     Albedo,
     Normal,
@@ -209,10 +209,6 @@ impl CharacterAsset {
             CharacterAssetTextureType::ClearcoatNormal => &self.paths.clearcoat_normal_maps,
             CharacterAssetTextureType::Anisotropy => &self.paths.anisotropy_maps,
         };
-        let Some(paths) = paths else {
-            error!("No textures of type {:#?} for asset {:#?}", texture_type, self.part);
-            return Handle::default();
-        };
         if let Some(path) = paths.get(texture_name.as_ref()) {
             if matches!(texture_type, CharacterAssetTextureType::Normal) {
                 path.load_asset_with_settings(
@@ -247,22 +243,22 @@ impl CharacterAsset {
 /// File paths for assets to be loaded for assets
 #[derive(Default, Clone)]
 pub struct CharacterMeshAssetFilePaths {
-    pub(crate) mh_file:             HumentityAssetPath,
-    pub albedo_maps:                Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub normal_maps:                Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub ao_maps:                    Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub metallic_roughness_maps:    Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub parallax_depth_maps:        Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub emissive_maps:              Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub diffuse_transmission_maps:  Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub specular_transmission_maps: Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub thickness_maps:             Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub specular_reflection_maps:   Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub specular_tint_maps:         Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub clearcoat_maps:             Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub clearcoat_roughness_maps:   Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub clearcoat_normal_maps:      Option<AHashMap<&'static str, HumentityAssetPath>>,
-    pub anisotropy_maps:            Option<AHashMap<&'static str, HumentityAssetPath>>,
+    pub(crate) mh_file: HumentityAssetPath,
+    pub albedo_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub normal_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub ao_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub metallic_roughness_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub parallax_depth_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub emissive_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub diffuse_transmission_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub specular_transmission_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub thickness_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub specular_reflection_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub specular_tint_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub clearcoat_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub clearcoat_roughness_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub clearcoat_normal_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub anisotropy_maps: AHashMap<&'static str, HumentityAssetPath>,
 }
 
 /// The cached data for the asset, includes handles to relevant assets and
@@ -524,22 +520,27 @@ impl FromWorld for CharacterAssetRegistry {
             }
         }
 
-
         // skin maps are shared across proxy/body meshes
         let mut paths = CharacterMeshAssetFilePaths::default();
-        paths.albedo_maps = Some(AHashMap::default());
-        paths.normal_maps = Some(AHashMap::default());
-
         for dir in &config.skin_texture_paths {
             let prefix = &dir.source_id.root_path;
             let path = prefix.join(&dir.path);
             let this_paths = get_all_texture_paths(paths.mh_file.clone(), &path, &dir.source_id);
-            if let Some(albedo) = this_paths.albedo_maps {
-                paths.albedo_maps.as_mut().unwrap().extend(albedo);
-            }
-            if let Some(normal) = this_paths.normal_maps {
-                paths.normal_maps.as_mut().unwrap().extend(normal);
-            }
+            paths.albedo_maps.extend(this_paths.albedo_maps);
+            paths.normal_maps.extend(this_paths.normal_maps);
+            paths.ao_maps.extend(this_paths.ao_maps);
+            paths.metallic_roughness_maps.extend(this_paths.metallic_roughness_maps);
+            paths.thickness_maps.extend(this_paths.thickness_maps);
+            paths.anisotropy_maps.extend(this_paths.anisotropy_maps);
+            paths.diffuse_transmission_maps.extend(this_paths.diffuse_transmission_maps);
+            paths.specular_transmission_maps.extend(this_paths.specular_transmission_maps);
+            paths.specular_reflection_maps.extend(this_paths.specular_reflection_maps);
+            paths.specular_tint_maps.extend(this_paths.specular_tint_maps);
+            paths.clearcoat_maps.extend(this_paths.clearcoat_maps);
+            paths.clearcoat_normal_maps.extend(this_paths.clearcoat_normal_maps);
+            paths.clearcoat_roughness_maps.extend(this_paths.clearcoat_roughness_maps);
+            paths.emissive_maps.extend(this_paths.emissive_maps);
+            paths.parallax_depth_maps.extend(this_paths.parallax_depth_maps);
         }
 
         // Proxy Meshes
@@ -641,7 +642,7 @@ fn get_texture_paths(
     path: &Path,
     texture_type: CharacterAssetTextureType,
     source_id: &HumentityAssetSourceId,
-) -> Option<AHashMap<&'static str, HumentityAssetPath>> {
+) -> AHashMap<&'static str, HumentityAssetPath> {
     let subfolders = match texture_type {
         CharacterAssetTextureType::Albedo => &ALBEDO_SUBFOLDERS.to_vec(),
         CharacterAssetTextureType::Normal => &NORMAL_SUBFOLDERS.to_vec(),
@@ -686,11 +687,7 @@ fn get_texture_paths(
             }
         }
     }
-    if textures.is_empty() {
-        None
-    } else {
-        Some(textures)
-    }
+    textures
 }
 
 pub(crate) fn parse_character_asset(
