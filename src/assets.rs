@@ -318,16 +318,11 @@ impl CharacterAssetData {
                 .expect("Shape meshes should always have tangents");
 
             for vtx in 0..base_positions.len() {
-                if (shape_positions[vtx] - base_positions[vtx]).length_squared() > 1e-6
-                    || (shape_normals[vtx] - base_normals[vtx]).length_squared() > 1e-6
-                    || (shape_tangents[vtx] - base_tangents[vtx]).length_squared() > 1e-6
-                {
-                    morph.push(MorphAttributes::from([
-                        shape_positions[vtx] - base_positions[vtx],
-                        shape_normals[vtx] - base_normals[vtx],
-                        shape_tangents[vtx] - base_tangents[vtx],
-                    ]));
-                }
+                morph.push(MorphAttributes::from([
+                    shape_positions[vtx] - base_positions[vtx],
+                    shape_normals[vtx] - base_normals[vtx],
+                    shape_tangents[vtx] - base_tangents[vtx],
+                ]));
             }
 
             morph_names.push(prefab.shapes[is].name.clone());
