@@ -38,14 +38,12 @@ fn add_humans(mut commands: Commands) {
 
     // Base mesh will be lod0
     let lod0 = "basemesh";
+    let lod2 = "proxy1605";
+    let lod3 = "proxy741";
 
     // I generated this from basemesh with a decimate modifier 
     // in collapse mode, topology is a bit chaotic
-    let lod1 = "proxy6025";
-
-    // These were built in
-    let lod2 = "proxy1605";
-    let lod3 = "proxy741";
+    let lod1 = "proxy4817";
 
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., -1.)),
@@ -98,7 +96,7 @@ fn add_humans(mut commands: Commands) {
         children![(CharacterPart::BodyMesh(lod0))],
     ));
 
-    // mid poly 6025 verts
+    // mid poly 4817 verts
     // Topology is not ideal.  I made it with decimate modifier on basemesh in blender
     commands.spawn((
         Transform::from_translation(Vec3::new(-0.5, 0., 0.)),
