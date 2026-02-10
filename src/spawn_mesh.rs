@@ -121,6 +121,7 @@ fn add_mesh_component(
     }
 }
 
+/// This system runs in phases, so it gets triggered multiple times to load a mesh
 pub(crate) fn trigger_mesh_build(
     trigger: On<BuildMesh>,
     mut prefabs: ResMut<CharacterArchetypePrefabs>,
@@ -187,8 +188,8 @@ pub(crate) fn trigger_mesh_build(
     }
 
     if asset.loading != AssetLoadState::BuildingMesh &&
-            let Some(data) = &mut asset.data {
-
+        let Some(data) = &mut asset.data
+    {
         // Load obj if not loaded
         if asset.raw_mesh_handle.is_none() {
             let handle: Handle<Mesh> = data.obj_file.load_asset(&asset_server);

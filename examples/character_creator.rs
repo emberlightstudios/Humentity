@@ -144,7 +144,7 @@ fn update_mesh_handle(
     mut human: Query<(&mut Mesh3d, &ChildOf), With<CharacterPart>>,
     shape_cfg: Query<&CharacterShapeConfig>,
 ) {
-    let asset = asset_registry.get(&CharacterPart::BodyMesh("male_generic")).unwrap();
+    let asset = asset_registry.get(&CharacterPart::BodyMesh("basemesh")).unwrap();
     if let Ok((mut mesh3d, parent)) = human.single_mut() {
         let shape = shape_cfg.get(parent.parent()).unwrap();
         let prefab = shape.prefab;
@@ -176,7 +176,8 @@ fn on_slider_value_changed(
         }
     }
 
-    // ALWAYS convert macro/composite sliders to makehuman morph targets 
+    // convert macro/composite sliders to makehuman morph targets 
+    // This is required if you use any macro sliders 
     morphs = mh_morphs.compute_target_weights(&morphs);
 
     // Update morphs on the prefab shape (only 1 shape on 1 prefab here)
@@ -198,12 +199,12 @@ fn rebuild(
     mut commands: Commands,
 ) {
     // Delete the cached mesh handle
-    let asset = asset_registry.get_mut(&CharacterPart::BodyMesh("male_generic")).unwrap();
+    let asset = asset_registry.get_mut(&CharacterPart::BodyMesh("basemesh")).unwrap();
     asset.mesh_handles.remove(PREFAB);
 
     // This will trigger a rebuild
     commands.trigger(BuildMesh {
-        prefab: PREFAB, part: CharacterPart::BodyMesh("male_generic")
+        prefab: PREFAB, part: CharacterPart::BodyMesh("basemesh")
     });
 }
 
@@ -253,7 +254,7 @@ fn add_human(commands: &mut Commands) {
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
-        children![(CharacterPart::BodyMesh("male_generic"))],
+        children![(CharacterPart::BodyMesh("basemesh"))],
     ));
 }
 

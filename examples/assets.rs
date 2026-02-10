@@ -146,7 +146,7 @@ fn add_human(mut commands: Commands) {
         Visibility::Visible,
         children![
             (
-                CharacterPart::BodyMesh("female_muscle_13442"),
+                CharacterPart::BodyMesh("basemesh"),
                 InheritedVisibility::default(),
             ),
             (

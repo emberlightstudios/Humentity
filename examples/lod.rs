@@ -9,6 +9,8 @@ use humentity::prelude::*;
 use shared::{add_humentity_plugin, cam_controls, setup_env};
 
 const PREFAB: &str = "ExamplePrefab";
+// I'm testing the topology I swear
+const SHAPE_NAME: &str = "bigboobs";
 
 fn main() {
     let mut app = App::new();
@@ -29,14 +31,20 @@ struct LevelOfDetail;
 fn add_humans(mut commands: Commands) {
     // Previously defined shapes will now appear as morph targets on the prefab's mesh
     // The HumanConfig type controls prefab access and applies our morph targets.
-    let bodybuilder = "bodybuilder";
+
+    // I'm testing the topology I swear
     let mut morphs = MorphTargets::default();
-    morphs.insert(bodybuilder, 1.);
+    morphs.insert(SHAPE_NAME, 1.);
 
     // Base mesh will be lod0
-    let lod0 = "male_muscle_13290";
-    let lod1 = "male_generic";
-    let lod2 = "male1591";
+    let lod0 = "basemesh";
+
+    // I generated this from basemesh with a decimate modifier 
+    // in collapse mode, topology is a bit chaotic
+    let lod1 = "proxy6025";
+
+    // These were built in
+    let lod2 = "proxy1605";
     let lod3 = "proxy741";
 
     commands.spawn((
@@ -49,31 +57,31 @@ fn add_humans(mut commands: Commands) {
                 CharacterPart::BodyMesh(lod0),
                 VisibilityRange {
                     start_margin: 0.0..0.0,
-                    end_margin: 2.0..2.0,
+                    end_margin: 2.0..3.0,
                     use_aabb: false,
                 }
             ),
             (
                 CharacterPart::BodyMesh(lod1),
                 VisibilityRange {
-                    start_margin: 2.0..2.0,
-                    end_margin: 4.0..4.0,
+                    start_margin: 2.0..3.0,
+                    end_margin: 7.0..8.0,
                     use_aabb: false,
                 }
             ),
             (
                 CharacterPart::BodyMesh(lod2),
                 VisibilityRange {
-                    start_margin: 4.0..4.,
-                    end_margin: 6.0..6.,
+                    start_margin: 7.0..8.,
+                    end_margin: 14.0..15.0,
                     use_aabb: false,
                 }
             ),
             (
                 CharacterPart::BodyMesh(lod3),
                 VisibilityRange {
-                    start_margin: 6.0..6.0,
-                    end_margin: 8.0..10.0,
+                    start_margin: 14.0..15.0,
+                    end_margin: 20.0..30.0,
                     use_aabb: false,
                 }
             )
@@ -82,7 +90,7 @@ fn add_humans(mut commands: Commands) {
 
     // Just for comparison we'll spawn the proxies used here
 
-    // The muscle mesh is not higher vertex density than male_generic, just better topology for muscles
+    // Basemesh ~13k verts
     commands.spawn((
         Transform::from_translation(Vec3::new(-1.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
@@ -90,7 +98,8 @@ fn add_humans(mut commands: Commands) {
         children![(CharacterPart::BodyMesh(lod0))],
     ));
 
-    // male_generic (high poly-count 13k tris)
+    // mid poly 6025 verts
+    // Topology is not ideal.  I made it with decimate modifier on basemesh in blender
     commands.spawn((
         Transform::from_translation(Vec3::new(-0.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
@@ -98,7 +107,7 @@ fn add_humans(mut commands: Commands) {
         children![(CharacterPart::BodyMesh(lod1))],
     ));
 
-    //  male1591 (low poly-count)
+    //  low poly-count 1605 verts
     commands.spawn((
         Transform::from_translation(Vec3::new(0.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
@@ -106,7 +115,7 @@ fn add_humans(mut commands: Commands) {
         children![(CharacterPart::BodyMesh(lod2))],
     ));
 
-    // proxy741 (very low poly-count)
+    // very low poly-count 741 verts
     commands.spawn((
         Transform::from_translation(Vec3::new(1.5, 0., 0.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
@@ -114,7 +123,6 @@ fn add_humans(mut commands: Commands) {
         children![(CharacterPart::BodyMesh(lod3))],
     ));
 
-    // There are also female specific proxies which may have better topology for breasts
 }
 
 // Adds a simple black material to humans
@@ -137,19 +145,25 @@ fn add_material(
 
 fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
-    morph_targets.insert("asian", 1.);
-    morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
-    let bodybuilder_shape = CharacterShapeArchetype::new(
-        "bodybuilder".to_string(),
-        morphs.compute_target_weights(&morph_targets),
+    morph_targets.insert("gender", 0.);
+    morph_targets.insert("cupsize", 1.);
+    morph_targets.insert("firmness", 1.);
+
+    // Deconstruct compound sliders
+    let morphs = morphs.compute_target_weights(&morph_targets);
+    info!("{:#?}", morphs);
+
+    let shape = CharacterShapeArchetype::new(
+        SHAPE_NAME.to_string(),
+        morphs
     );
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
         PREFAB,
         CharacterArchetypePrefab::new(
-            vec![bodybuilder_shape],
+            vec![shape],
             CharacterAnimationArchetype::default(), // No animation in this example
         ),
     );

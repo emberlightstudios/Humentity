@@ -96,7 +96,7 @@ fn add_humans(
     let baby_parts: CharacterParts = toml::from_str(
         r#"
         [[parts]]
-        part = "BaseMesh"
+        part = "BodyMesh:basemesh"
     "#,
     )
     .unwrap();
@@ -104,7 +104,7 @@ fn add_humans(
     let woman_parts: CharacterParts = toml::from_str(
         r#"
         [[parts]]
-        part = "ProxyMesh:proxy741"
+        part = "BodyMesh:proxy741"
         albedo_map = "young_asian_male"
 
         [[parts]]

@@ -17,11 +17,10 @@ uuid e7cb8171-845e-42b0-a109-e6e8c8a61f9d
 basemesh hm08
 tag MakeHuman™
 
-tag female
 tag lowpoly
 description Proxy optimized for a very low poly female character (1605 vertices, 1584 Faces)
-name female1605
-obj_file female1605.obj
+name proxy1605
+obj_file proxy1605.obj
 x_scale 5399 11998 1.3980
 z_scale 962 5320 1.8461
 y_scale 791 881 2.2048

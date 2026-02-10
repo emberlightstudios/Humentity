@@ -229,6 +229,15 @@ impl MakeHumanMorphs {
         if !macro_inputs.contains_key("age") {
             macro_inputs.insert("age", 0.5); // Young
         }
+        if !macro_inputs.contains_key("weight") {
+            macro_inputs.insert("weight", 0.5); 
+        }
+        if !macro_inputs.contains_key("muscle") {
+            macro_inputs.insert("muscle", 0.5); 
+        }
+        if !macro_inputs.contains_key("proportions") {
+            macro_inputs.insert("proportions", 0.5); 
+        }
 
         // --- 3️⃣ Compute macro morphs ---
         let macro_morphs = Self::compute_macro_weights(&self.macro_morphs, &macro_inputs);
@@ -241,7 +250,7 @@ impl MakeHumanMorphs {
         macro_combos.insert("weight", &["minweight", "averageweight", "maxweight"]);
         macro_combos.insert("proportions", &["uncommonproportions", "idealproportions"]);
         macro_combos.insert("height", &["minheight", "maxheight"]);
-        macro_combos.insert("cupsize", &["averagecup", "maxcup"]);
+        macro_combos.insert("cupsize", &["mincup", "averagecup", "maxcup"]);
         macro_combos.insert(
             "firmness",
             &["minfirmness", "averagefirmness", "maxfirmness"],

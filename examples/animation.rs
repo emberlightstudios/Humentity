@@ -138,7 +138,7 @@ fn add_human(mut commands: Commands) {
         Transform::from_translation(Vec3::new(1., 0., 1.)),
         CharacterShapeConfig::new("ExampleHumanPrefab", morphs),
         children![(
-            CharacterPart::BodyMesh("male_generic"),
+            CharacterPart::BodyMesh("basemesh"),
         )],
     ));
 }
