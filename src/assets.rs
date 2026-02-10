@@ -325,7 +325,7 @@ impl CharacterAssetData {
                 ]));
             }
 
-            morph_names.push(prefab.shapes[is].name.clone());
+            morph_names.push(prefab.shapes[is].name.to_string());
             morphs.push(morph.into_iter());
         }
         let image = MorphTargetImage::new(

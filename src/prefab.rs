@@ -8,38 +8,111 @@ use crate::{
 };
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
+use serde::{Deserializer, Serializer};
 
 /// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh
 /// cached from a given set of MorphTargets.  Archetypes are added as new distinct shapekeys to the base
 /// mesh, and the rest of the makehuman shapekeys are removed.  Use this for distinct faces or body types.
 /// You can also blend between them, since they are just shapekeys.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug)]
 pub struct CharacterShapeArchetype {
-    pub name: String,
+    pub name: &'static str,
     pub morphs: MorphTargets,
 }
 
 impl CharacterShapeArchetype {
-    pub const fn new(name: String, morphs: MorphTargets) -> Self {
+    pub fn new(name: impl AsRef<str>, morphs: MorphTargets) -> Self {
         Self {
-            name,
+            name: NAME_INTERNER.intern(name.as_ref()).leak(),
             morphs,
         }
     }
 }
 
+impl Serialize for CharacterShapeArchetype {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Serialize as a map with "name" and "morphs"
+        let mut state: <S as Serializer>::SerializeStruct = serializer.serialize_struct("CharacterShapeArchetype", 2)?;
+        state.serialize_field("name", self.name)?;
+        state.serialize_field("morphs", &self.morphs)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for CharacterShapeArchetype {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Tmp {
+            name: String,
+            morphs: MorphTargets,
+        }
+
+        let tmp = Tmp::deserialize(deserializer)?;
+
+        // Convert name to &'static str via leak (safe if fixed names)
+        let name: &'static str = NAME_INTERNER.intern(&tmp.name).leak();
+        Ok(CharacterShapeArchetype { name, morphs: tmp.morphs })
+    }
+}
+
 /// Encapsulates animation properties associated with an archetype/prefab.
-#[derive(Default, Serialize, Deserialize, Clone)]
+#[derive(Default, Clone)]
 pub struct CharacterAnimationArchetype {
-    pub animation_glbs: Vec<String>,
+    pub animation_glbs: Vec<&'static str>,
     pub rig_type: RigType,
 }
 
+
+impl Serialize for CharacterAnimationArchetype {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Serialize as a map with "name" and "morphs"
+        let mut state: <S as Serializer>::SerializeStruct = serializer
+            .serialize_struct("CharacterAnimationArchetype", 2)?;
+        state.serialize_field("animation_glbs", &self.animation_glbs)?;
+        state.serialize_field("rig_type", &self.rig_type)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for CharacterAnimationArchetype {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Tmp {
+            animation_glbs: Vec<String>,
+            rig_type: RigType,
+        }
+
+        let tmp = Tmp::deserialize(deserializer)?;
+
+        // Convert name to &'static str via leak (safe if fixed names)
+        let glbs: Vec<&'static str> = tmp.animation_glbs
+            .iter()
+            .map(|s| NAME_INTERNER.intern(&s).leak())
+            .collect();
+        Ok(CharacterAnimationArchetype { animation_glbs: glbs, rig_type: tmp.rig_type })
+    }
+}
+
 impl CharacterAnimationArchetype {
-    pub fn new(rig_type: RigType, animation_glbs: impl IntoIterator<Item = String>) -> Self {
+    pub fn new(rig_type: RigType, animation_glbs: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
         Self {
-            animation_glbs: animation_glbs.into_iter().collect::<Vec<_>>(),
+            animation_glbs: animation_glbs
+                .into_iter()
+                .map(|s| NAME_INTERNER.intern(s.as_ref()).leak())
+                .collect::<Vec<_>>(),
             rig_type,
         }
     }

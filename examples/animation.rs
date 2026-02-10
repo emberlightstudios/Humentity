@@ -87,7 +87,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     morph_targets.insert("age", 0.);
 
     let baby = CharacterShapeArchetype::new(
-        "baby".to_string(),
+        "baby",
         morphs.compute_target_weights(&morph_targets),
     );
 
@@ -98,7 +98,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
             vec![baby],
             CharacterAnimationArchetype::new(
                 RigType::Default,
-                ["assets/animation/idle.glb".to_string()],
+                ["assets/animation/idle.glb"],
             ),
         ),
     );

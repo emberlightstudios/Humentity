@@ -152,7 +152,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let morphs = morphs.compute_target_weights(&morph_targets);
 
     let shape = CharacterShapeArchetype::new(
-        SHAPE_NAME.to_string(),
+        SHAPE_NAME,
         morphs
     );
 

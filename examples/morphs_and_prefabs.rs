@@ -50,7 +50,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
 
     // We'll give our prefab 2 shapes, a baby archetype and a bodybuilder archetype
     let baby_shape = CharacterShapeArchetype::new(
-        "baby".to_string(),
+        "baby",
         // This fn call is necessary to deconstruct compound "morph" values
         // down to the level of individual makehuman morph targets.
         // Many of the available morphs (see line 83) actually drive multiple
@@ -63,7 +63,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
     let bodybuilder_shape = CharacterShapeArchetype::new(
-        "bodybuilder".to_string(),
+        "bodybuilder",
         morphs.compute_target_weights(&morph_targets),
     );
 

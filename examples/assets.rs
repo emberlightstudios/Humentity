@@ -181,7 +181,7 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.);
     let base_shape = CharacterShapeArchetype::new(
-        "female".to_string(),
+        "female",
         morphs.compute_target_weights(&morph_targets),
     );
     let mut prefabs = AHashMap::default();
