@@ -152,7 +152,6 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
 
     // Deconstruct compound sliders
     let morphs = morphs.compute_target_weights(&morph_targets);
-    info!("{:#?}", morphs);
 
     let shape = CharacterShapeArchetype::new(
         SHAPE_NAME.to_string(),
