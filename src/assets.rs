@@ -121,6 +121,11 @@ impl<'de> Deserialize<'de> for CharacterPart {
     }
 }
 
+/// Collection of parts that should be stitched together.  This will
+/// spawn siblings for each part then despawn this entity.
+#[derive(Component, Clone, Deref, DerefMut, Serialize, Deserialize)]
+pub struct StitchedParts(pub Vec<CharacterPart>);
+
 /// The texture types which can be loaded for materials which go on [`CharacterAsset`] meshes
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum CharacterAssetTextureType {
@@ -552,7 +557,7 @@ impl FromWorld for CharacterAssetRegistry {
                 let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
                     continue;
                 };
-                if extension == "proxy" {
+                if extension == "proxy" || extension == "mhclo" {
                     let name = path
                         .file_stem()
                         .and_then(|s| s.to_str())

@@ -116,6 +116,73 @@ pub fn fix_normals(mesh: &mut Mesh, groups: &AHashMap<u16, Vec<u16>>) {
     mesh.generate_tangents().ok();
 }
 
+pub fn fix_normals_multiple(meshes: &mut [&mut Mesh]) {
+    #[derive(Clone)]
+    struct VertexRef {
+        mesh_idx: usize,
+        vert_idx: usize,
+    }
+
+    // Collect positions and normals for all meshes
+    let mut all_vertices: Vec<(Vec3, VertexRef)> = Vec::new();
+    let mut normals_per_mesh: Vec<Vec<Vec3>> = Vec::with_capacity(meshes.len());
+
+    for (mesh_idx, mesh) in meshes.iter().enumerate() {
+        let positions = get_vertex_positions(mesh);
+        let normals = get_vertex_normals(mesh);
+
+        normals_per_mesh.push(normals);
+
+        for (vert_idx, &pos) in positions.iter().enumerate() {
+            all_vertices.push((pos, VertexRef { mesh_idx, vert_idx }));
+        }
+    }
+
+    // Brute-force grouping: merge normals for vertices at exact same position
+    let mut visited = vec![false; all_vertices.len()];
+
+    for i in 0..all_vertices.len() {
+        if visited[i] { continue; }
+
+        let (pos_i, ref_i) = &all_vertices[i];
+        let mut group = vec![ref_i.clone()];
+        visited[i] = true;
+
+        for j in (i+1)..all_vertices.len() {
+            if visited[j] { continue; }
+            let (pos_j, ref_j) = &all_vertices[j];
+            if *pos_i == *pos_j {
+                group.push(ref_j.clone());
+                visited[j] = true;
+            }
+        }
+
+        // Average normals for this group
+        if group.len() > 1 {
+            let mut sum = Vec3::ZERO;
+            for v in &group {
+                sum += normals_per_mesh[v.mesh_idx][v.vert_idx];
+            }
+            let avg = sum.normalize_or_zero();
+
+            for v in &group {
+                normals_per_mesh[v.mesh_idx][v.vert_idx] = avg;
+            }
+        }
+    }
+
+    // Write back to meshes
+    for (mesh_idx, mesh) in meshes.iter_mut().enumerate() {
+        let normals = normals_per_mesh[mesh_idx]
+            .iter()
+            .map(|n| [n.x, n.y, n.z])
+            .collect::<Vec<[f32; 3]>>();
+
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+        mesh.generate_tangents().ok();
+    }
+}
+
 // Maps mh vertex ids to vec of bevy ids
 pub fn generate_vertex_map(
     mh_vertices: &[Vec3],

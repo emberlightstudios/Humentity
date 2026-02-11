@@ -22,9 +22,7 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 pub mod prelude {
     pub use crate::{
         animation::CharacterAnimationClips,
-        assets::{
-            CharacterAsset, CharacterAssetRegistry, CharacterAssetTextureType, CharacterPart,
-        },
+        assets::{CharacterAsset, CharacterAssetRegistry, CharacterAssetTextureType, CharacterPart, StitchedParts},
         basemesh::BaseMesh,
         morphs::{MakeHumanMorphs, MorphTargets},
         paths_config::{HumentityAssetPath, HumentityAssetSourceId, HumentityPathsConfig},
@@ -126,6 +124,7 @@ impl Plugin for HumentityPlugin {
                         spawn_skeleton::spawn_rig_scene,
                         spawn_skeleton::fit_skeleton_to_shape,
                         spawn_mesh::handle_mesh_load_tasks,
+                        spawn_mesh::handle_stitched_mesh_load_tasks,
                         physics::control_ragdoll,
                         //prefab::update_asset_shapes.run_if(resource_exists::<ArchetypeShapeUpdate>),
                     )

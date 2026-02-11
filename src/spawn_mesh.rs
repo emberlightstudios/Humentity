@@ -1,6 +1,6 @@
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, mesh::{morph::{MeshMorphWeights, MorphTargetImage}, skinning::SkinnedMesh}, prelude::*, tasks::AsyncComputeTaskPool};
-use crate::{NAME_INTERNER, assets::{AssetLoadState, CharacterAssetData, CharacterAssetRegistry, CharacterPart, parse_character_asset}, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs}, prelude::BaseMesh, rigs::{BoneTranslationData, RigData, SkeletonCaches}};
+use crate::{NAME_INTERNER, assets::{AssetLoadState, CharacterAssetData, CharacterAssetRegistry, CharacterPart, StitchedParts, parse_character_asset}, mesh_ops::fix_normals_multiple, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs}, prelude::BaseMesh, rigs::{BoneTranslationData, RigData, SkeletonCaches}};
 use serde::{Deserialize, Deserializer, Serialize};
 
 
@@ -69,12 +69,14 @@ pub(crate) fn handle_mesh_load_tasks(
     character_root: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
     prefabs: Res<CharacterArchetypePrefabs>,
     mut asset_registry: ResMut<CharacterAssetRegistry>,
+    meshes: Res<Assets<Mesh>>,
     mut commands: Commands,
 ) {
     if parts.count() == 0 { return; }
 
     for (entity, part, parent) in parts {
-        let Ok((config, skinned_mesh)) = character_root.get(parent.parent())
+        let Ok((config, skinned_mesh)) =
+                    character_root.get(parent.parent())
             // SkinnedMesh component will be added to the character root only
             // after the skeleton is fit. Wait for this before inserting the mesh
             // which requires this component
@@ -88,11 +90,75 @@ pub(crate) fn handle_mesh_load_tasks(
 
         if let Some(handle) = asset.mesh_handles.get(config.prefab) {
             let prefab = &prefabs[config.prefab];
-            add_mesh_component(entity, handle.clone(), config, skinned_mesh, prefab, &mut commands);
+            add_mesh_component(entity, handle.clone(), config, skinned_mesh, prefab, &meshes, &mut commands);
         } else {
             commands.trigger(BuildMesh {
                 part: part.clone(), prefab: config.prefab
             });
+        }
+    }
+}
+
+pub(crate) fn handle_stitched_mesh_load_tasks(
+    parts_lists: Query<(Entity, &StitchedParts, &ChildOf)>,
+    character_root: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
+    prefabs: Res<CharacterArchetypePrefabs>,
+    mut asset_registry: ResMut<CharacterAssetRegistry>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    if parts_lists.count() == 0 { return; }
+
+    'outer: for (entity, collection, parent) in parts_lists {
+        let Ok((config, skinned_mesh)) =
+                    character_root.get(parent.parent())
+            // SkinnedMesh component will be added to the character root only
+            // after the skeleton is fit. Wait for this before inserting the mesh
+            // which requires this component
+            else { continue };
+
+        let mut done = true;
+        for part in collection.iter() {
+            let Some(asset) = asset_registry.get_mut(part) else {
+                error!("No such asset: {:#?} - Cannot load", part);
+                commands.entity(entity).despawn();
+                continue 'outer;
+            };
+
+            if let None = asset.mesh_handles.get(config.prefab) {
+                done = false;
+                commands.trigger(BuildMesh {
+                    part: part.clone(), prefab: config.prefab
+                });
+            }
+        }
+
+        if done {
+            let prefab = &prefabs[config.prefab];
+            let root = parent.parent();
+
+            // First fix normals, borrow checker makes this painful
+            let mut mesh_vec = vec![];
+            for part in collection.iter() {
+                let Some(asset) = asset_registry.get_mut(part) else { continue };
+                let Some(handle) = asset.mesh_handles.get(config.prefab) else { continue };
+                let Some(mesh) = meshes.get(handle) else { continue };
+                mesh_vec.push(mesh.clone());
+            }
+
+            let mut tmp_vec = mesh_vec.iter_mut().collect::<Vec<_>>();
+            fix_normals_multiple(&mut tmp_vec);
+
+            for (idx, mesh) in mesh_vec.into_iter().enumerate() {
+                let child = commands.spawn_empty().id();
+                commands.entity(root).add_child(child);
+                let part = &collection[idx];
+                let Some(asset) = asset_registry.get_mut(part) else { continue };
+                let handle = meshes.add(mesh);
+                asset.mesh_handles.insert(config.prefab, handle.clone());
+                add_mesh_component(child, handle, config, skinned_mesh, prefab, &meshes, &mut commands);
+            }
+            commands.entity(entity).despawn();
         }
     }
 }
@@ -103,18 +169,18 @@ fn add_mesh_component(
     config: &CharacterShapeConfig,
     skinned_mesh: &SkinnedMesh,
     prefab: &CharacterArchetypePrefab,
+    meshes: &Assets<Mesh>,
     commands: &mut Commands,
 ) {
     commands.entity(entity).insert((
-        Mesh3d(mesh_handle),
+        Mesh3d(mesh_handle.clone()),
         skinned_mesh.clone(),
     ));
-    if !config.prefab_morph_targets.is_empty() {
+    if let Some(mesh) = meshes.get(&mesh_handle) && mesh.has_morph_targets(){
         let morph_weights = prefab
             .shapes
             .iter()
-            .map(|s| NAME_INTERNER.intern(&s.name).leak())
-            .map(|s| *config.prefab_morph_targets.get(s).unwrap_or(&0.))
+            .map(|s| *config.prefab_morph_targets.get(s.name).unwrap_or(&0.))
             .collect::<Vec<_>>();
         let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
         commands.entity(entity).insert(morph_weights);
@@ -143,7 +209,7 @@ pub(crate) fn trigger_mesh_build(
         return;
     };
 
-    // Check if mesh construction just finished, add mesh3d component
+    // Check if mesh construction just finished
     for MeshConstructedMsg { final_mesh, morph_names, morph_image }
             in asset.mesh_building_msg_receiver.try_iter()
     {
