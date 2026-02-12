@@ -196,16 +196,18 @@ fn on_slider_value_changed(
 // directly, avoiding morphs, skinning, etc. until the end.
 fn rebuild(
     mut asset_registry: ResMut<CharacterAssetRegistry>,
-    mut commands: Commands,
+    mut mediator: ResMut<AssetLoadingMediators>,
 ) {
     // Delete the cached mesh handle
     let asset = asset_registry.get_mut(&CharacterPart::BodyMesh("basemesh")).unwrap();
     asset.mesh_handles.remove(PREFAB);
 
     // This will trigger a rebuild
-    commands.trigger(BuildMesh {
-        prefab: PREFAB, part: CharacterPart::BodyMesh("basemesh")
-    });
+    mediator.trigger(
+        LoadAssetMeshJob::Single {
+            prefab_name: PREFAB, part: CharacterPart::BodyMesh("basemesh"),
+        }
+    );
 }
 
 fn setup_env(
@@ -238,7 +240,7 @@ fn setup_env(
     // A camera:
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(2.0, 1., 3.5).looking_at(Vec3::Y * 1., Vec3::Y),
+        Transform::from_xyz(-1.0, 1., -2.5).looking_at(Vec3::Y * 1., Vec3::Y),
     ));
 
     let ui = commands.register_system(init_ui);
@@ -251,7 +253,7 @@ fn add_human(commands: &mut Commands) {
     morphs.insert(SHAPE_NAME, 1.0);
 
     commands.spawn((
-        Transform::from_translation(Vec3::new(1., 0., 0.)),
+        Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
         children![(CharacterPart::BodyMesh("basemesh"))],

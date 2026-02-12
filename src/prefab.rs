@@ -100,7 +100,7 @@ impl<'de> Deserialize<'de> for CharacterAnimationArchetype {
         // Convert name to &'static str via leak (safe if fixed names)
         let glbs: Vec<&'static str> = tmp.animation_glbs
             .iter()
-            .map(|s| NAME_INTERNER.intern(&s).leak())
+            .map(|s| NAME_INTERNER.intern(s).leak())
             .collect();
         Ok(CharacterAnimationArchetype { animation_glbs: glbs, rig_type: tmp.rig_type })
     }
@@ -145,7 +145,7 @@ impl CharacterArchetypePrefab {
     ) -> Vec<Vec3> {
         let mut mh_morphs = MorphTargets::default();
         for shape in self.shapes.iter() {
-            let name: &str = NAME_INTERNER.intern(&shape.name).leak();
+            let name: &str = NAME_INTERNER.intern(shape.name).leak();
             let Some(weight) = morph_values.get(name) else {
                 continue;
             };
@@ -154,7 +154,19 @@ impl CharacterArchetypePrefab {
                 *entry += *v * weight;
             }
         }
-        adjust_helpers_to_morphs(&mh_morphs, &morph_targets.targets, &basemesh)
+        adjust_helpers_to_morphs(&mh_morphs, &morph_targets.targets, basemesh)
+    }
+}
+
+/// Overrides the prefab shapes for a part
+#[derive(Component, Deref, Serialize, Clone, Eq, PartialEq, Hash)]
+pub struct PrefabOverride(pub &'static str);
+
+impl<'de> Deserialize<'de> for PrefabOverride {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where D: Deserializer<'de> {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self(NAME_INTERNER.intern(&s).leak()))
     }
 }
 

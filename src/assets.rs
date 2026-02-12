@@ -1,11 +1,7 @@
 use crate::{
     mesh_ops::{
-        fix_normals, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices
-    },
-    morphs::{MHMorphs, adjust_helpers_to_morphs},
-    paths_config::{HumentityAssetPath, HumentityAssetSourceId},
-    prelude::*,
-    rigs::{RigWeights, SkeletonCache, set_asset_rig_arrays}, spawn_mesh::{AssetLoadedMsg, MeshConstructedMsg},
+        fix_normals, fix_normals_multiple, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices
+    }, morphs::{MHMorphs, adjust_helpers_to_morphs}, paths_config::{HumentityAssetPath, HumentityAssetSourceId}, prefab::PrefabOverride, prelude::*, rigs::{RigWeights, SkeletonCache, set_asset_rig_arrays}, 
 };
 use ::bevy::{
     asset::RenderAssetUsages,
@@ -23,7 +19,6 @@ use bevy::{
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::{path::Path, sync::Arc};
 use walkdir::WalkDir;
-use crossbeam_channel::{Sender, Receiver};
 
 /// Sub-folder definitions for textures types.  Texture maps for assets (and skin) 
 /// should be put in subfolders with one of theses names so that the paths will
@@ -51,7 +46,7 @@ const CLEARCOAT_NORMAL_SUBFOLDERS: [&str; 1] = ["clearcoat_normal"];
 
 /// The types of asset types which can be added to humans.
 /// Does not include base mesh which is special
-#[derive(Component, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Component, Clone, Copy, Eq, PartialEq, Hash, Debug)]
 #[require(Visibility)]
 pub enum CharacterPart {
     BodyMesh(&'static str),
@@ -123,8 +118,27 @@ impl<'de> Deserialize<'de> for CharacterPart {
 
 /// Collection of parts that should be stitched together.  This will
 /// spawn siblings for each part then despawn this entity.
-#[derive(Component, Clone, Deref, DerefMut, Serialize, Deserialize)]
-pub struct StitchedParts(pub Vec<CharacterPart>);
+#[derive(Component, Clone, Deref, DerefMut, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct StitchedParts(pub Vec<StitchedPart>);
+
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct StitchedPart {
+    pub(crate) part: CharacterPart,
+    pub(crate) prefab_override: Option<PrefabOverride>,
+}
+
+impl From<CharacterPart> for StitchedPart {
+    fn from(value: CharacterPart) -> Self {
+        Self{ part: value, prefab_override: None }
+    }
+}
+
+impl StitchedPart {
+    pub const fn with_override(mut self, prefab: &'static str) -> Self {
+        self.prefab_override = Some(PrefabOverride(prefab));
+        self
+    }
+}
 
 /// The texture types which can be loaded for materials which go on [`CharacterAsset`] meshes
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
@@ -146,39 +160,21 @@ pub enum CharacterAssetTextureType {
     Anisotropy,
 }
 
-#[derive(PartialEq, Eq, Debug, Default)]
-pub(crate) enum AssetLoadState {
-    #[default]
-    None,
-    LoadingData,
-    BuildingMesh,
-}
-
 /// Represents a part of a human, either a body part, equipment, or a proxy mesh.
 /// This is a wrapper around a mesh which is morphable by the makehuman morph targets.
 /// Does not represent the base mesh which is special
 pub struct CharacterAsset {
     pub(crate) part: CharacterPart,
-    pub(crate) loading: AssetLoadState,
     pub paths: CharacterMeshAssetFilePaths,
     pub data: Option<CharacterAssetData>,
     pub raw_mesh_handle: Option<Handle<Mesh>>,
     pub mesh_handles: AHashMap<&'static str, Handle<Mesh>>,
-    pub(crate) mesh_building_msg_sender: Sender<MeshConstructedMsg>,
-    pub(crate) mesh_building_msg_receiver: Receiver<MeshConstructedMsg>,
-    pub(crate) asset_loading_msg_sender: Sender<AssetLoadedMsg>,
-    pub(crate) asset_loading_msg_receiver: Receiver<AssetLoadedMsg>,
 }
 
 impl CharacterAsset {
     pub fn new(part: CharacterPart, paths: CharacterMeshAssetFilePaths) -> Self {
-        let ( asset_loading_msg_sender, asset_loading_msg_receiver ) = crossbeam_channel::unbounded();
-        let ( mesh_building_msg_sender, mesh_building_msg_receiver ) = crossbeam_channel::unbounded();
         Self {
-            part, paths, data: None,
-            loading: AssetLoadState::None, raw_mesh_handle: None, mesh_handles: AHashMap::default(),
-            mesh_building_msg_sender, mesh_building_msg_receiver,
-            asset_loading_msg_sender, asset_loading_msg_receiver,
+            part, paths, data: None, raw_mesh_handle: None, mesh_handles: AHashMap::default(),
          }
     }
 
@@ -240,7 +236,6 @@ impl CharacterAsset {
             self.data = None;
             self.raw_mesh_handle = None;
             self.mesh_handles.clear();
-            self.loading = AssetLoadState::None;
         }
     }
 }
@@ -280,6 +275,114 @@ pub struct CharacterAssetData {
 }
 
 impl CharacterAssetData {
+    pub(crate) fn build_final_meshes(
+        assets: &[Self],
+        input_meshes: &mut [Mesh],
+        prefabs: &[CharacterArchetypePrefab],
+        mh_morphs: &Arc<MHMorphs>,
+        basemesh: &BaseMesh,
+        rig_weights: &Arc<RigWeights>,
+        sk_cache: &Arc<SkeletonCache>,
+    ) -> (Vec<Mesh>, Vec<Vec<String>>, Vec<MorphTargetImage>) {
+
+        // Load raw mesh and build vertex lookup between mh indices and bevy indices (vert duplicates in bevy)
+        let mut mhid_lookup = vec![];
+        let mut vertex_map = vec![];
+        let mut output_meshes = vec![];
+
+        for (i, mesh) in input_meshes.iter().enumerate() {
+            let mh_vertices = parse_obj_vertices(assets[i].obj_file.full_path());
+            let verts = get_vertex_positions(mesh);
+            vertex_map.push(generate_vertex_map(&mh_vertices, &verts));
+            mhid_lookup.push(generate_mhid_lookup(&vertex_map[i]));
+            // Recaculate mesh from helpers, fixes scale, redoes normals and tangents
+            output_meshes[i] = assets[i].shape_mesh_from_helpers(mesh, &basemesh.0, &mhid_lookup[i], &vertex_map[i]);
+        }
+
+        // Find all shapes over all prefabs
+        // There is an implicit assumption that names uniquely identify the shapes
+        // since we cannot/do not want to hash the morphs AHashMap.
+        let shapes: AHashSet<_> = prefabs
+            .iter()
+            .flat_map(|p| &p.shapes)
+            .map(|s| s.name)
+            .collect();
+
+        // Build shaped meshes
+        let mut shape_meshes = AHashMap::default();
+        for &shape in shapes.iter() {
+            let mut meshes = vec![];
+            for (i_mesh, mesh) in output_meshes.iter().enumerate() {
+                let prefab = &prefabs[i_mesh];
+                for mesh_shape in prefab.shapes.iter() {
+                    if shape == mesh_shape.name {
+                        let helpers = adjust_helpers_to_morphs(&mesh_shape.morphs, mh_morphs, basemesh);
+                        meshes.push(assets[i_mesh].shape_mesh_from_helpers(mesh, &helpers, &mhid_lookup[i_mesh], &vertex_map[i_mesh]));
+                    }
+                }
+            } 
+
+            // something is WRONG
+            // what happens if diff number of shapes per mesh?
+            // check!
+            
+            let mut tmp_mesh_vec = meshes.iter_mut().collect::<Vec<_>>();
+            // Stitch mesh normals together
+            fix_normals_multiple(&mut tmp_mesh_vec);
+            shape_meshes.insert(shape, meshes);
+        }
+
+        // Build morphs and rig from shapes
+        let mut morph_imgs = vec![];
+        let mut morph_names = vec![];
+
+        for (i_mesh, mesh) in input_meshes.iter().enumerate() {
+            let base_positions = get_vertex_positions(mesh);
+            let base_normals = get_vertex_normals(mesh);
+            let base_tangents = get_vertex_tangents(mesh)
+                .expect("Failed to get tangents");
+            let mut names = vec![];
+            let mut morph_attrs = vec![];
+            let prefab = &prefabs[i_mesh];
+
+            for shape in prefab.shapes.iter() {
+                let shape_mesh = &shape_meshes[shape.name][i_mesh];
+                let mut morph = Vec::<MorphAttributes>::new();
+
+                let shape_positions = get_vertex_positions(shape_mesh);
+                let shape_normals = get_vertex_normals(shape_mesh);
+                let shape_tangents = get_vertex_tangents(shape_mesh)
+                    .expect("Shape meshes should always have tangents");
+
+                for vtx in 0..base_positions.len() {
+                    morph.push(MorphAttributes::from([
+                        shape_positions[vtx] - base_positions[vtx],
+                        shape_normals[vtx] - base_normals[vtx],
+                        shape_tangents[vtx] - base_tangents[vtx],
+                    ]));
+                }
+
+                names.push(shape.name.to_string());
+                morph_attrs.push(morph.into_iter());
+            }
+            let image = MorphTargetImage::new(
+                morph_attrs.into_iter(),
+                base_positions.len(),
+                RenderAssetUsages::default(),
+            )
+                .expect("failed to create morph target image");
+            morph_imgs.push(image);
+            morph_names.push(names);
+        
+            // Rig the mesh
+            set_asset_rig_arrays(&mut output_meshes[i_mesh], rig_weights,
+                &mhid_lookup[i_mesh], &assets[i_mesh].helper_map, &prefab.rig, sk_cache);
+
+        }
+
+        (output_meshes, morph_names, morph_imgs)
+    }
+
     pub(crate) fn build_final_mesh(
         &self,
         input_mesh: &Mesh,
@@ -292,17 +395,17 @@ impl CharacterAssetData {
 
         // Load raw mesh and build vertex lookup between mh indices and bevy indices (vert duplicates in bevy)
         let mh_vertices = parse_obj_vertices(self.obj_file.full_path());
-        let verts = get_vertex_positions(&input_mesh);
+        let verts = get_vertex_positions(input_mesh);
         let vertex_map = generate_vertex_map(&mh_vertices, &verts);
         let mhid_lookup = generate_mhid_lookup(&vertex_map);
 
         // Recaculate mesh from helpers, fixes scale, redoes normals and tangents
-        let input_mesh = self.shape_mesh_from_helpers(&input_mesh, &basemesh.0, &mhid_lookup, &vertex_map);
+        let mut input_mesh = self.shape_mesh_from_helpers(input_mesh, &basemesh.0, &mhid_lookup, &vertex_map);
 
         // Build shaped meshes
         let mut meshes = vec![];
         for shape in prefab.shapes.iter() {
-            let helpers = adjust_helpers_to_morphs(&shape.morphs, &mh_morphs, &basemesh);
+            let helpers = adjust_helpers_to_morphs(&shape.morphs, mh_morphs, basemesh);
             let mesh = self.shape_mesh_from_helpers(&input_mesh, &helpers, &mhid_lookup, &vertex_map);
             meshes.push(mesh);
         }
@@ -341,10 +444,10 @@ impl CharacterAssetData {
         .expect("failed to create morph target image");
 
         // Rig the mesh
-        let mesh = set_asset_rig_arrays(input_mesh, rig_weights,
-            &mhid_lookup, &self.helper_map, &prefab.rig, &sk_cache);
+        set_asset_rig_arrays(&mut input_mesh, rig_weights,
+            &mhid_lookup, &self.helper_map, &prefab.rig, sk_cache);
 
-        (mesh, morph_names, image)
+        (input_mesh, morph_names, image)
     }
 
     pub(crate) fn get_offset_scale(&self, helpers: &[Vec3]) -> Vec3 {
@@ -395,7 +498,7 @@ impl CharacterAssetData {
                 RenderAssetUsages::default(),
             )
             .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(&mesh))
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(mesh))
             .with_inserted_indices(mesh.indices().unwrap().clone())
             .with_computed_area_weighted_normals()
             .with_generated_tangents()
@@ -477,8 +580,8 @@ impl FromWorld for CharacterAssetRegistry {
                     };
                     let part = CharacterPart::BodyPart(name);
                     let paths = get_all_texture_paths(mh_file, &folder, &dir.source_id);
-                    let asset = CharacterAsset::new(part.clone(), paths);
-                    assets.insert(part.clone(), asset);
+                    let asset = CharacterAsset::new(part, paths);
+                    assets.insert(part, asset);
                 }
             }
         }
@@ -514,7 +617,7 @@ impl FromWorld for CharacterAssetRegistry {
                     };
                     let part = CharacterPart::Equipment(name);
                     let paths = get_all_texture_paths(mh_file, &folder, &dir.source_id);
-                    let asset = CharacterAsset::new(part.clone(), paths);
+                    let asset = CharacterAsset::new(part, paths);
                     assets.insert(part, asset);
                 }
             }
@@ -572,7 +675,7 @@ impl FromWorld for CharacterAssetRegistry {
                     let mut paths = paths.clone();
                     paths.mh_file = mh_file;
                     let part = CharacterPart::BodyMesh(name);
-                    let asset = CharacterAsset::new(part.clone(), paths);
+                    let asset = CharacterAsset::new(part, paths);
                     assets.insert(part, asset);
                 }
             }
@@ -584,7 +687,7 @@ impl FromWorld for CharacterAssetRegistry {
 
 fn get_all_texture_paths(
     mh_file: HumentityAssetPath,
-    folder: &PathBuf,
+    folder: &Path,
     source_id: &HumentityAssetSourceId,
 ) -> CharacterMeshAssetFilePaths {
     let albedo_maps =
@@ -670,20 +773,18 @@ fn get_texture_paths(
             let Ok(entry) = entry else { continue };
             let path = entry.path();
 
-            if path.is_file() {
-                if let Some(stem) = path.file_stem() {
-                    let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
-                    let prefix = &source_id.root_path;
-                    let Ok(path) = path.strip_prefix(prefix) else {
-                        continue;
-                    };
-                    let path = path.to_path_buf();
-                    let asset_path = HumentityAssetPath {
-                        path,
-                        source_id: source_id.clone(),
-                    };
-                    textures.insert(stem, asset_path);
-                }
+            if path.is_file() && let Some(stem) = path.file_stem() {
+                let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
+                let prefix = &source_id.root_path;
+                let Ok(path) = path.strip_prefix(prefix) else {
+                    continue;
+                };
+                let path = path.to_path_buf();
+                let asset_path = HumentityAssetPath {
+                    path,
+                    source_id: source_id.clone(),
+                };
+                textures.insert(stem, asset_path);
             }
         }
     }

@@ -11,7 +11,6 @@ mod spawn_skeleton;
 mod spawn_mesh;
 
 use bevy::app::AnimationSystems;
-use bevy::asset::io::AssetSourceBuilder;
 use bevy::ecs::intern::Interner;
 use bevy::prelude::*;
 use bevy_obj::ObjPlugin;
@@ -22,17 +21,20 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 pub mod prelude {
     pub use crate::{
         animation::CharacterAnimationClips,
-        assets::{CharacterAsset, CharacterAssetRegistry, CharacterAssetTextureType, CharacterPart, StitchedParts},
+        assets::{
+            CharacterAsset, CharacterAssetRegistry, CharacterAssetTextureType, CharacterPart,
+            StitchedParts, StitchedPart
+        },
         basemesh::BaseMesh,
         morphs::{MakeHumanMorphs, MorphTargets},
         paths_config::{HumentityAssetPath, HumentityAssetSourceId, HumentityPathsConfig},
         physics::CharacterRagdoll,
         prefab::{
             CharacterAnimationArchetype, CharacterArchetypePrefab, CharacterArchetypePrefabs,
-            CharacterShapeArchetype, 
+            CharacterShapeArchetype, PrefabOverride,
         },
         rigs::{ParentBone, RigType, RootMotion},
-        spawn_mesh::{CharacterPartMeshSpawned, CharacterShapeConfig, BuildMesh},
+        spawn_mesh::{CharacterPartMeshSpawned, CharacterShapeConfig, AssetLoadingMediators, LoadAssetMeshJob},
         spawn_skeleton::{FitSkeleton, RelatedEntities},
         HumentityGlobalConfig,
         HumentityLoadState,
@@ -96,19 +98,9 @@ impl Plugin for HumentityPlugin {
         }
 
         app.insert_resource(self.paths.clone())
-            .insert_resource(self.config.clone())
             .add_message::<CharacterPartMeshSpawned>()
-            .register_asset_source(
-                "humentity",
-                AssetSourceBuilder::platform_default(
-                    self.paths
-                        .core_assets_path
-                        .to_str()
-                        .expect("Failed to get path str"),
-                    None,
-                ),
-            )
-            .add_observer(spawn_mesh::trigger_mesh_build)
+            .insert_resource(self.config.clone())
+            .insert_resource(spawn_mesh::AssetLoadingMediators::default())
             .add_systems(
                 Update,
                 (
@@ -121,10 +113,14 @@ impl Plugin for HumentityPlugin {
                         .run_if(in_state(HumentityLoadState::AnimationProcessing)),
                     // PHASE 3 : READY TO BUILD HUMANS
                     (
-                        spawn_skeleton::spawn_rig_scene,
-                        spawn_skeleton::fit_skeleton_to_shape,
-                        spawn_mesh::handle_mesh_load_tasks,
-                        spawn_mesh::handle_stitched_mesh_load_tasks,
+                        (
+                            spawn_skeleton::spawn_rig_scene,
+                            spawn_skeleton::fit_skeleton_to_shape,
+                            spawn_mesh::mesh_build,
+                            spawn_mesh::handle_mesh_load_tasks,
+                            spawn_mesh::handle_stitched_mesh_load_tasks,
+                            spawn_mesh::mediators_clean_up,
+                        ).chain(),
                         physics::control_ragdoll,
                         //prefab::update_asset_shapes.run_if(resource_exists::<ArchetypeShapeUpdate>),
                     )

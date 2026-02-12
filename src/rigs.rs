@@ -232,13 +232,13 @@ pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static st
 }
 
 pub(crate) fn set_asset_rig_arrays(
-    mut mesh: Mesh,
+    mesh: &mut Mesh,
     rig_weights: &Arc<RigWeights>,
     mhid_lookup: &[u16],
     helper_map: &[HelperMap],
     rig: &CharacterAnimationArchetype,
     cache: &SkeletonCache,
-) -> Mesh {
+) {
     let weights_res = rig_weights
         .get(&rig.rig_type)
         .expect("No weights for rig?");
@@ -342,7 +342,6 @@ pub(crate) fn set_asset_rig_arrays(
         Mesh::ATTRIBUTE_JOINT_WEIGHT,
         VertexAttributeValues::Float32x4(weights),
     );
-    mesh
 }
 
 /// Spawns bone entities and sets up the hierarchy
@@ -408,24 +407,19 @@ pub(crate) fn build_human_rig_scene(
     // Wire up parent-child relationships
     for &name in bone_order.iter() {
         let &child = bone_entities.get(&name).unwrap();
-        if let Some(parent_name) = mh_config.get(&name).map(|b| b.parent.to_string()) {
-            if !parent_name.is_empty() {
-                if let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak())
-                {
-                    scene_world.entity_mut(child).insert(ChildOf(parent));
-                }
-            }
+        if let Some(parent_name) = mh_config.get(&name).map(|b| b.parent.to_string()) 
+            && !parent_name.is_empty() && let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak())
+        {
+            scene_world.entity_mut(child).insert(ChildOf(parent));
         }
     }
 
     // Attach root(s) to rig entity
     for &name in bone_order.iter() {
-        if let Some(bone) = mh_config.get(&name) {
-            if bone.parent.is_empty() {
-                scene_world
-                    .entity_mut(bone_entities[&name])
-                    .insert(ChildOf(rig_entity));
-            }
+        if let Some(bone) = mh_config.get(&name) && bone.parent.is_empty() {
+            scene_world
+                .entity_mut(bone_entities[&name])
+                .insert(ChildOf(rig_entity));
         }
     }
 

@@ -501,7 +501,6 @@ fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
     // Roots are joints that were never seen as children
     joints
         .into_iter()
-        .filter(|j| !seen_as_child.contains(&j.index()))
-        .next_back()
+        .rfind(|j| !seen_as_child.contains(&j.index()))
         .expect("Unable to find root node")
 }

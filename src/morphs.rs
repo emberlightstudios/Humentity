@@ -48,6 +48,7 @@ pub struct MakeHumanMorphs {
     composite_categories: AHashMap<&'static str, Vec<&'static str>>,
     composite_morphs: AHashMap<&'static str, CompositeMorph>,
     pub targets: Arc<MHMorphs>,
+    pub expressions: Arc<Vec<&'static str>>,
 }
 
 impl FromWorld for MakeHumanMorphs {
@@ -60,10 +61,11 @@ impl FromWorld for MakeHumanMorphs {
         let core_path: PathBuf = config.core_assets_path.clone();
         let target_paths = config.target_paths.clone();
         let mut targets = AHashMap::<&'static str, AHashMap<u16, Vec3>>::default();
+        let mut expression_morphs = vec![];
+
         for target_path in target_paths.iter() {
             for entry in WalkDir::new(target_path).into_iter().filter_map(Result::ok) {
                 let path = entry.path();
-                let mut offsets = AHashMap::<u16, Vec3>::default();
                 if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("target") {
                     let Some(filename) = path.file_name().unwrap().to_str() else {
                         continue;
@@ -73,6 +75,8 @@ impl FromWorld for MakeHumanMorphs {
                     };
                     let file = File::open(path)
                         .unwrap_or_else(|_| panic!("Couldn't open target file {}", filename));
+                    let mut offsets = AHashMap::<u16, Vec3>::default();
+
                     for line_result in BufReader::new(file).lines() {
                         let Ok(line) = line_result else { break };
                         let mut line_elements = line.split_whitespace();
@@ -86,7 +90,12 @@ impl FromWorld for MakeHumanMorphs {
                             line_elements.filter_map(|x| x.parse().ok()).collect();
                         offsets.insert(vert, Vec3::from_slice(&coords[..]) * BODY_SCALE);
                     }
-                    targets.insert(NAME_INTERNER.intern(stem).leak(), offsets.clone());
+                    let name = NAME_INTERNER.intern(stem).leak();
+                    targets.insert(name, offsets.clone());
+                    if path.as_os_str().to_str().unwrap().contains("expressions") {
+                        expression_morphs.push(name);
+                    }
+
                 }
             }
         }
@@ -128,6 +137,7 @@ impl FromWorld for MakeHumanMorphs {
         }
         MakeHumanMorphs {
             targets: Arc::new(targets),
+            expressions: Arc::new(expression_morphs),
             composite_categories,
             composite_morphs,
             macro_morphs: macro_sliders,
@@ -192,7 +202,7 @@ impl MakeHumanMorphs {
         // --- 1️⃣ Separate race sliders ---
         let race_sliders: AHashMap<_, _> = morph_targets
             .iter()
-            .filter(|(k, _)| ["african", "asian", "caucasian"].contains(&k))
+            .filter(|(k, _)| ["african", "asian", "caucasian"].contains(k))
             .map(|(&k, v)| (k, *v))
             .collect();
 
