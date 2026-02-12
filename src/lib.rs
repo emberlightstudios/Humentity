@@ -34,7 +34,7 @@ pub mod prelude {
             CharacterShapeArchetype, PrefabOverride,
         },
         rigs::{ParentBone, RigType, RootMotion},
-        spawn_mesh::{CharacterPartMeshSpawned, CharacterShapeConfig, AssetLoadingMediators, LoadAssetMeshJob},
+        spawn_mesh::{CharacterShapeConfig, AssetLoadingMediators, LoadAssetMeshJob},
         spawn_skeleton::{FitSkeleton, RelatedEntities},
         HumentityGlobalConfig,
         HumentityLoadState,
@@ -98,7 +98,6 @@ impl Plugin for HumentityPlugin {
         }
 
         app.insert_resource(self.paths.clone())
-            .add_message::<CharacterPartMeshSpawned>()
             .insert_resource(self.config.clone())
             .insert_resource(spawn_mesh::AssetLoadingMediators::default())
             .add_systems(

@@ -48,6 +48,7 @@ impl CharacterShapeConfig {
     }
 }
 
+/// The state of a mesh load process for character parts
 #[derive(PartialEq, Eq, Debug, Default, Clone)]
 pub enum AssetLoadState {
     #[default]
@@ -58,9 +59,11 @@ pub enum AssetLoadState {
     Finished
 }
 
+/// A resource for communicating with background threads for mesh loading
 #[derive(Resource, Deref, Default)]
 pub struct AssetLoadingMediators(AHashMap<LoadAssetMeshJob, (LoadingMediator, AssetLoadState)>);
 
+/// The type of a mesh load job, single CharacterPart or multiple parts in a StitchedMesh
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub enum LoadAssetMeshJob {
     Single{ part: CharacterPart, prefab_name: &'static str },
@@ -68,17 +71,20 @@ pub enum LoadAssetMeshJob {
 }
 
 impl AssetLoadingMediators {
+    /// Trigger a rebuild of a mesh or group of stitched meshes
     pub fn trigger(&mut self, key: LoadAssetMeshJob) {
         if !self.0.contains_key(&key) {
             self.0.insert(key, (LoadingMediator::default(), AssetLoadState::None));
         }
     }
     
+    /// Removes the key when finished
     fn finish(&mut self, key: &LoadAssetMeshJob) {
         self.0.remove(key);
     }
 }
 
+/// A wrapper around crossbeam channels for communicating with the background threads
 #[derive(Clone)]
 pub struct LoadingMediator {
     pub(crate) mesh_building_msg_sender: Sender<MeshConstructedMsg>,
@@ -95,19 +101,20 @@ impl Default for LoadingMediator {
     }
 }
 
-#[derive(Message, Deref)]
-pub struct CharacterPartMeshSpawned(Entity);
-
+/// A message sent from the bg thread when the mhclo file has finished loading
 pub(crate) struct AssetLoadedMsg {
     part: CharacterPart,
     data: CharacterAssetData,
 }
+
+/// A message sent from the bg thread when the mesh or meshes are ready
 pub(crate) struct MeshConstructedMsg {
     pub(crate) final_meshes: Vec<Mesh>,
     pub(crate) morph_names: Vec<Vec<String>>,
     pub(crate) morph_images: Vec<MorphTargetImage>, 
 }
 
+/// Handles parsing .mhclo, loading obj, fixing normals and cachine mesh handles for CharacterPart
 pub(crate) fn handle_single_mesh_load_tasks(
     parts: Query<(Entity, &CharacterPart, &ChildOf, Option<&PrefabOverride>), Without<Mesh3d>>,
     character_root: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
@@ -155,6 +162,7 @@ pub(crate) fn handle_single_mesh_load_tasks(
     }
 }
 
+/// Handles parsing .mhclo, loading obj, fixing normals and cachine mesh handles for StitchedPart
 pub(crate) fn handle_stitched_mesh_load_tasks(
     parts_lists: Query<(Entity, &StitchedParts, &ChildOf)>,
     character_root: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
@@ -229,6 +237,7 @@ pub(crate) fn handle_stitched_mesh_load_tasks(
 }
 
 /// This system runs in phases, so it gets triggered multiple times to load a mesh
+/// State is tracked by [`AssetLoadState`]
 pub(crate) fn mesh_build(
     prefabs: ResMut<CharacterArchetypePrefabs>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -290,6 +299,7 @@ pub(crate) fn mesh_build(
     }
 }
 
+/// Handles the message for a completed single mesh and builds the final mesh
 pub(crate) fn handle_single_mesh_complete(
     msg: MeshConstructedMsg,
     prefab: &CharacterArchetypePrefab,
@@ -309,6 +319,7 @@ pub(crate) fn handle_single_mesh_complete(
     mesh
 }
 
+/// Handles the message for a completed stitched mesh and builds the final meshes
 pub(crate) fn handle_stitched_mesh_complete(
     msg: MeshConstructedMsg,
     prefabs: &[&CharacterArchetypePrefab],
@@ -336,6 +347,7 @@ pub(crate) fn handle_stitched_mesh_complete(
     meshes
 }
 
+/// Handles the actual steps involved in constructing a single mesh
 pub(crate) fn build_single_mesh_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
@@ -415,6 +427,7 @@ pub(crate) fn build_single_mesh_process(
     }
 }
 
+/// Handles the actual steps involved in constructing a stitched mesh
 fn build_stitched_meshes_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
@@ -455,13 +468,13 @@ fn build_stitched_meshes_process(
         asset.data = Some(data);
     }
 
-    let loading = parts
+    let still_loading = parts
         .iter()
         .map(|p| p.part)
         .filter_map(|p| asset_registry.get(&p))
         .any(|p| p.data.is_none());
 
-    if loading { return }
+    if still_loading { return }
 
     if *load_state == AssetLoadState::LoadingData {
         *load_state = AssetLoadState::LoadingObj;
@@ -483,16 +496,24 @@ fn build_stitched_meshes_process(
             .map(|p| asset_registry.get(p).unwrap())
             .collect::<Vec<_>>();
 
-        let asset_data = assets
-            .iter()
-            .filter_map(|a| a.data.clone())
-            .collect::<Vec<_>>();
-
-        let mut meshes = assets
+        let meshes = assets
             .iter()
             .filter(|a| a.raw_mesh_handle.is_some())
             .filter_map(|a| meshes.get(a.raw_mesh_handle.as_ref().unwrap()))
+            .collect::<Vec<_>>();
+
+        if meshes.len() != parts.len() { return }
+
+        *load_state = AssetLoadState::BuildingMesh;
+
+        let mut meshes = meshes
+            .into_iter()
             .cloned()
+            .collect::<Vec<_>>();
+
+        let asset_data = assets
+            .iter()
+            .filter_map(|a| a.data.clone())
             .collect::<Vec<_>>();
 
         let prefab_names = parts
@@ -508,9 +529,6 @@ fn build_stitched_meshes_process(
             .map(|p| &prefabs[p])
             .cloned()
             .collect::<Vec<_>>();
-
-        if meshes.len() != parts.len() { return }
-        *load_state = AssetLoadState::BuildingMesh;
 
         let mh_morphs = morphs.targets.clone();
         let basemesh = basemesh.clone();
@@ -532,6 +550,7 @@ fn build_stitched_meshes_process(
     }
 }
 
+/// Monitors for finished jobs and removes their mediators
 pub(crate) fn mediators_clean_up(mut mediators: ResMut<AssetLoadingMediators>) {
     let n = mediators.len();
     if n > 0 {
