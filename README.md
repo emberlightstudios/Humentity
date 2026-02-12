@@ -27,7 +27,7 @@ You can find working examples in the examples folder.
 The prefab you build contains a rig spec for animation.
 You can provide .glb files with animation clips.
 It is assumed the clips will be authored for the character in the base mesh with no shape keys applied, so remove all shapekeys in blender before making clips.
-Clips should be retargetable to any character using the same prefab.
+Clips should be retargetable to any character using the same rig.
 By default translation tracks are dropped.
 Support for translation tracks is very experimental still and requires an animation post-processing system so there is an extra cost.
 The .glb files you supply are pre-processed outside the Bevy Asset system, so the paths you supply should be readable from your cwd, not relative to the assets folder in the usual way.
