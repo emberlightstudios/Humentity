@@ -116,9 +116,11 @@ impl Plugin for HumentityPlugin {
                         (
                             spawn_skeleton::spawn_rig_scene,
                             spawn_skeleton::fit_skeleton_to_shape,
+                            (
+                                spawn_mesh::handle_single_mesh_load_tasks,
+                                spawn_mesh::handle_stitched_mesh_load_tasks,
+                            ),
                             spawn_mesh::mesh_build,
-                            spawn_mesh::handle_mesh_load_tasks,
-                            spawn_mesh::handle_stitched_mesh_load_tasks,
                             spawn_mesh::mediators_clean_up,
                         ).chain(),
                         physics::control_ragdoll,

@@ -118,10 +118,10 @@ impl<'de> Deserialize<'de> for CharacterPart {
 
 /// Collection of parts that should be stitched together.  This will
 /// spawn siblings for each part then despawn this entity.
-#[derive(Component, Clone, Deref, DerefMut, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Component, Clone, Deref, DerefMut, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct StitchedParts(pub Vec<StitchedPart>);
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct StitchedPart {
     pub(crate) part: CharacterPart,
     pub(crate) prefab_override: Option<PrefabOverride>,
@@ -134,7 +134,7 @@ impl From<CharacterPart> for StitchedPart {
 }
 
 impl StitchedPart {
-    pub const fn with_override(mut self, prefab: &'static str) -> Self {
+    pub const fn with_prefab_override(mut self, prefab: &'static str) -> Self {
         self.prefab_override = Some(PrefabOverride(prefab));
         self
     }
@@ -288,15 +288,16 @@ impl CharacterAssetData {
         // Load raw mesh and build vertex lookup between mh indices and bevy indices (vert duplicates in bevy)
         let mut mhid_lookup = vec![];
         let mut vertex_map = vec![];
-        let mut output_meshes = vec![];
 
-        for (i, mesh) in input_meshes.iter().enumerate() {
+        let n_meshes = input_meshes.len();
+        for i in 0..n_meshes {
+            let mesh = &input_meshes[i];
             let mh_vertices = parse_obj_vertices(assets[i].obj_file.full_path());
             let verts = get_vertex_positions(mesh);
             vertex_map.push(generate_vertex_map(&mh_vertices, &verts));
             mhid_lookup.push(generate_mhid_lookup(&vertex_map[i]));
             // Recaculate mesh from helpers, fixes scale, redoes normals and tangents
-            output_meshes[i] = assets[i].shape_mesh_from_helpers(mesh, &basemesh.0, &mhid_lookup[i], &vertex_map[i]);
+            input_meshes[i] = assets[i].shape_mesh_from_helpers(mesh, &basemesh.0, &mhid_lookup[i], &vertex_map[i]);
         }
 
         // Find all shapes over all prefabs
@@ -312,21 +313,22 @@ impl CharacterAssetData {
         let mut shape_meshes = AHashMap::default();
         for &shape in shapes.iter() {
             let mut meshes = vec![];
-            for (i_mesh, mesh) in output_meshes.iter().enumerate() {
+            for (i_mesh, mesh) in input_meshes.iter().enumerate() {
                 let prefab = &prefabs[i_mesh];
+                let mut matched = false;
                 for mesh_shape in prefab.shapes.iter() {
                     if shape == mesh_shape.name {
                         let helpers = adjust_helpers_to_morphs(&mesh_shape.morphs, mh_morphs, basemesh);
-                        meshes.push(assets[i_mesh].shape_mesh_from_helpers(mesh, &helpers, &mhid_lookup[i_mesh], &vertex_map[i_mesh]));
+                        meshes.push(Some(assets[i_mesh].shape_mesh_from_helpers(mesh, &helpers, &mhid_lookup[i_mesh], &vertex_map[i_mesh])));
+                        matched = true;
                     }
+                }
+                if !matched {
+                    meshes.push(None);
                 }
             } 
 
-            // something is WRONG
-            // what happens if diff number of shapes per mesh?
-            // check!
-            
-            let mut tmp_mesh_vec = meshes.iter_mut().collect::<Vec<_>>();
+            let mut tmp_mesh_vec = meshes.iter_mut().filter_map(|m| m.as_mut()).collect::<Vec<_>>();
             // Stitch mesh normals together
             fix_normals_multiple(&mut tmp_mesh_vec);
             shape_meshes.insert(shape, meshes);
@@ -336,7 +338,8 @@ impl CharacterAssetData {
         let mut morph_imgs = vec![];
         let mut morph_names = vec![];
 
-        for (i_mesh, mesh) in input_meshes.iter().enumerate() {
+        for i_mesh in 0..n_meshes {
+            let mesh = &input_meshes[i_mesh];
             let base_positions = get_vertex_positions(mesh);
             let base_normals = get_vertex_normals(mesh);
             let base_tangents = get_vertex_tangents(mesh)
@@ -346,7 +349,7 @@ impl CharacterAssetData {
             let prefab = &prefabs[i_mesh];
 
             for shape in prefab.shapes.iter() {
-                let shape_mesh = &shape_meshes[shape.name][i_mesh];
+                let Some(shape_mesh) = &shape_meshes[shape.name][i_mesh] else { continue };
                 let mut morph = Vec::<MorphAttributes>::new();
 
                 let shape_positions = get_vertex_positions(shape_mesh);
@@ -375,12 +378,12 @@ impl CharacterAssetData {
             morph_names.push(names);
         
             // Rig the mesh
-            set_asset_rig_arrays(&mut output_meshes[i_mesh], rig_weights,
+            set_asset_rig_arrays(&mut input_meshes[i_mesh], rig_weights,
                 &mhid_lookup[i_mesh], &assets[i_mesh].helper_map, &prefab.rig, sk_cache);
 
         }
 
-        (output_meshes, morph_names, morph_imgs)
+        (input_meshes.to_vec(), morph_names, morph_imgs)
     }
 
     pub(crate) fn build_final_mesh(

@@ -61,7 +61,7 @@ pub enum AssetLoadState {
 #[derive(Resource, Deref, Default)]
 pub struct AssetLoadingMediators(AHashMap<LoadAssetMeshJob, (LoadingMediator, AssetLoadState)>);
 
-#[derive(Eq, PartialEq, Hash, Clone)]
+#[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub enum LoadAssetMeshJob {
     Single{ part: CharacterPart, prefab_name: &'static str },
     Stitched{ parts: StitchedParts, prefab_name: &'static str },
@@ -102,14 +102,13 @@ pub(crate) struct AssetLoadedMsg {
     part: CharacterPart,
     data: CharacterAssetData,
 }
-
 pub(crate) struct MeshConstructedMsg {
     pub(crate) final_meshes: Vec<Mesh>,
     pub(crate) morph_names: Vec<Vec<String>>,
     pub(crate) morph_images: Vec<MorphTargetImage>, 
 }
 
-pub(crate) fn handle_mesh_load_tasks(
+pub(crate) fn handle_single_mesh_load_tasks(
     parts: Query<(Entity, &CharacterPart, &ChildOf, Option<&PrefabOverride>), Without<Mesh3d>>,
     character_root: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
     prefabs: Res<CharacterArchetypePrefabs>,
@@ -128,7 +127,7 @@ pub(crate) fn handle_mesh_load_tasks(
             // which requires this component
             else { continue };
 
-        let prefab = if let Some(prefab) = prefab_override { **prefab } else { config.prefab };
+        let prefab_name = if let Some(p) = prefab_override { p.0 } else { config.prefab };
 
         let Some(asset) = asset_registry.get_mut(&part) else {
             error!("No such asset: {:#?} - Cannot load", part);
@@ -136,15 +135,22 @@ pub(crate) fn handle_mesh_load_tasks(
             continue;
         };
 
-        if let Some(handle) = asset.mesh_handles.get(prefab) {
-            add_morphs(entity, handle.clone(), config,
-                        &prefabs[prefab], &meshes, &mut commands);
+        if let Some(handle) = asset.mesh_handles.get(prefab_name) {
+            if let Some(mesh) = meshes.get(handle) && mesh.has_morph_targets(){
+                let morph_weights = prefabs[prefab_name]
+                    .shapes
+                    .iter()
+                    .map(|s| *config.prefab_morph_targets.get(s.name).unwrap_or(&0.))
+                    .collect::<Vec<_>>();
+                let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
+                commands.entity(entity).insert(morph_weights);
+            }
             commands.entity(entity).insert((
                 Mesh3d(handle.clone()),
                 skinned_mesh.clone(),
             ));
         } else {
-            mediators.trigger(LoadAssetMeshJob::Single { part, prefab_name: prefab });
+            mediators.trigger(LoadAssetMeshJob::Single { part, prefab_name });
         }
     }
 }
@@ -222,41 +228,6 @@ pub(crate) fn handle_stitched_mesh_load_tasks(
     }
 }
 
-fn add_morphs(
-    entity: Entity,
-    mesh_handle: Handle<Mesh>,
-    config: &CharacterShapeConfig,
-    prefab: &CharacterArchetypePrefab,
-    meshes: &Assets<Mesh>,
-    commands: &mut Commands,
-) {
-    if let Some(mesh) = meshes.get(&mesh_handle) && mesh.has_morph_targets(){
-        let morph_weights = prefab
-            .shapes
-            .iter()
-            .map(|s| *config.prefab_morph_targets.get(s.name).unwrap_or(&0.))
-            .collect::<Vec<_>>();
-        let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
-        commands.entity(entity).insert(morph_weights);
-    }
-}
-
-pub(crate) fn mediators_clean_up(mut mediators: ResMut<AssetLoadingMediators>) {
-    let n = mediators.len();
-    if n > 0 {
-        let mut remove = vec![];
-        for (key, (_, state)) in mediators.iter() {
-            if *state == AssetLoadState::Finished {
-                remove.push(key.clone());
-            }
-        }
-
-        for key in remove {
-            mediators.finish(&key);
-        }
-    }
-}
-
 /// This system runs in phases, so it gets triggered multiple times to load a mesh
 pub(crate) fn mesh_build(
     prefabs: ResMut<CharacterArchetypePrefabs>,
@@ -273,29 +244,105 @@ pub(crate) fn mesh_build(
     for (key, (mediator, load_state)) in mediators.0.iter_mut() {
         match key {
             LoadAssetMeshJob::Single { part, prefab_name } => {
-                build_single_mesh(
-                    mediator, load_state, *part, prefab_name, &prefabs, &mut meshes, &mut images,
-                    &mut asset_registry, &morphs, &basemesh, &rig_data, &asset_server, &sk_cache,
+                build_single_mesh_process(
+                    mediator, load_state, *part, prefab_name, &prefabs, &mut meshes, &mut asset_registry,
+                    &morphs, &basemesh, &rig_data, &asset_server, &sk_cache,
                 );
+
+                for msg in mediator.mesh_building_msg_receiver.try_iter() {
+                    let mesh = handle_single_mesh_complete(msg, &prefabs[prefab_name], &mut images);
+                    let handle = meshes.add(mesh);
+                    let Some(asset) = asset_registry.get_mut(part) else { continue };
+                    asset.mesh_handles.insert(prefab_name, handle.clone());
+                    asset.raw_mesh_handle = None;
+                    *load_state = AssetLoadState::Finished;
+                }
             }
             LoadAssetMeshJob::Stitched{ parts, prefab_name } => {
-                build_stitched_meshes(
-                    mediator, load_state, parts, prefab_name, &prefabs, &mut meshes, &mut images,
-                    &mut asset_registry, &morphs, &basemesh, &rig_data, &asset_server, &sk_cache, 
+                build_stitched_meshes_process(
+                    mediator, load_state, parts, prefab_name, &prefabs, &mut meshes, &mut asset_registry,
+                    &morphs, &basemesh, &rig_data, &asset_server, &sk_cache, 
                 );
+
+                for msg in mediator.mesh_building_msg_receiver.try_iter() {
+                    let prefab_names = parts
+                        .iter()
+                        .map(|p| p.prefab_override.as_ref().map_or(*prefab_name, |ov| ov.0))
+                        .collect::<Vec<_>>();
+                    
+                    let prefabs = prefab_names
+                        .iter()
+                        .map(|p| &prefabs[p])
+                        .collect::<Vec<_>>();
+
+                    let new_meshes = handle_stitched_mesh_complete(msg, &prefabs, &mut images);
+
+                    for (i_mesh, mesh) in new_meshes.into_iter().enumerate() {
+                        let handle = meshes.add(mesh);
+                        let Some(asset) = asset_registry.get_mut(&parts[i_mesh].part) else { continue };
+                        asset.mesh_handles.insert(prefab_names[i_mesh], handle.clone());
+                        asset.raw_mesh_handle = None;
+                    }
+                    *load_state = AssetLoadState::Finished;
+                }
             }
         }
     }
 }
 
-pub(crate) fn build_single_mesh(
+pub(crate) fn handle_single_mesh_complete(
+    msg: MeshConstructedMsg,
+    prefab: &CharacterArchetypePrefab,
+    images: &mut Assets<Image>,
+) -> Mesh {
+    let MeshConstructedMsg { final_meshes, morph_names, morph_images } = msg;
+    let mut mesh = final_meshes.into_iter().next().unwrap();
+
+    if !prefab.shapes.is_empty() {
+        let morph_names = morph_names.into_iter().next().unwrap();
+        let morph_image = morph_images.into_iter().next().unwrap();
+        let image = images.add(morph_image.0);
+        mesh = mesh
+            .with_morph_target_names(morph_names)
+            .with_morph_targets(image);
+    }
+    mesh
+}
+
+pub(crate) fn handle_stitched_mesh_complete(
+    msg: MeshConstructedMsg,
+    prefabs: &[&CharacterArchetypePrefab],
+    images: &mut Assets<Image>,
+) -> Vec<Mesh> {
+    let MeshConstructedMsg { final_meshes, morph_names, morph_images } = msg;
+    let mut meshes = vec![];
+
+    for (i_mesh, ((mut mesh, image), names)) in final_meshes
+            .into_iter()
+            .zip(morph_images)
+            .zip(morph_names)
+            .enumerate()
+    {
+        let prefab = prefabs[i_mesh];
+        if !prefab.shapes.is_empty() {
+            let morph_names = names;
+            let image = images.add(image.0);
+            mesh = mesh
+                .with_morph_target_names(morph_names)
+                .with_morph_targets(image);
+            meshes.push(mesh)
+        }
+    }
+    meshes
+}
+
+pub(crate) fn build_single_mesh_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
     part: CharacterPart,
     prefab_name: &'static str,
     prefabs: &CharacterArchetypePrefabs,
     meshes: &mut Assets<Mesh>,
-    images: &mut Assets<Image>,
     asset_registry: &mut CharacterAssetRegistry,
     morphs: &MakeHumanMorphs,
     basemesh: &BaseMesh,
@@ -307,25 +354,6 @@ pub(crate) fn build_single_mesh(
     let Some(asset) = asset_registry.get_mut(&part) else { return };
     let prefab = prefabs.get(prefab_name).expect("No such prefab");
 
-    for MeshConstructedMsg { final_meshes, morph_names, morph_images }
-                            in mediator.mesh_building_msg_receiver.try_iter()
-    {
-        let mut mesh = final_meshes[0].clone();
-
-        if !prefab.shapes.is_empty() {
-            let morph_names = morph_names[0].clone();
-            let morph_image = &morph_images[0];
-            let image = images.add(morph_image.0.clone());
-            mesh = mesh
-                .with_morph_target_names(morph_names)
-                .with_morph_targets(image);
-        }
-
-        let handle = meshes.add(mesh);
-        asset.mesh_handles.insert(prefab_name, handle.clone());
-        asset.raw_mesh_handle = None;
-        *load_state = AssetLoadState::Finished;
-    }
 
     // Start loading data if we haven't already
     if asset.data.is_none() && *load_state == AssetLoadState::None {
@@ -347,7 +375,7 @@ pub(crate) fn build_single_mesh(
         asset.data = Some(data);
     }
 
-    if *load_state != AssetLoadState::LoadingData &&
+    if *load_state == AssetLoadState::LoadingData &&
         let Some(data) = &mut asset.data
     {
         // Load obj if not loaded
@@ -387,14 +415,13 @@ pub(crate) fn build_single_mesh(
     }
 }
 
-fn build_stitched_meshes(
+fn build_stitched_meshes_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
     parts: &StitchedParts,
     prefab_name: &'static str,
     prefabs: &CharacterArchetypePrefabs,
     meshes: &mut Assets<Mesh>,
-    images: &mut Assets<Image>,
     asset_registry: &mut CharacterAssetRegistry,
     morphs: &MakeHumanMorphs,
     basemesh: &BaseMesh,
@@ -403,30 +430,6 @@ fn build_stitched_meshes(
     sk_cache: &SkeletonCaches,
 ) {
     let pool = AsyncComputeTaskPool::get();
-
-    for MeshConstructedMsg { final_meshes, morph_names, morph_images }
-                            in mediator.mesh_building_msg_receiver.try_iter()
-    {
-        for (idx, StitchedPart { part, .. }) in parts.iter().enumerate() {
-            let Some(asset) = asset_registry.get_mut(part) else { continue };
-            let prefab = prefabs.get(prefab_name).expect("No such prefab");
-            let mut mesh = final_meshes[idx].clone();
-
-            if !prefab.shapes.is_empty() {
-                let morph_names = morph_names[idx].clone();
-                let morph_image = morph_images[idx].0.clone();
-                let image = images.add(morph_image);
-                mesh = mesh
-                    .with_morph_target_names(morph_names)
-                    .with_morph_targets(image);
-            }
-
-            let handle = meshes.add(mesh);
-            asset.mesh_handles.insert(prefab_name, handle);
-            asset.raw_mesh_handle = None;
-            *load_state = AssetLoadState::Finished;
-        }
-    }
                 
     // Start loading data if we haven't already
     if *load_state == AssetLoadState::None {
@@ -526,5 +529,21 @@ fn build_stitched_meshes(
                 morph_images,
             })
         }).detach();
+    }
+}
+
+pub(crate) fn mediators_clean_up(mut mediators: ResMut<AssetLoadingMediators>) {
+    let n = mediators.len();
+    if n > 0 {
+        let mut remove = vec![];
+        for (key, (_, state)) in mediators.iter() {
+            if *state == AssetLoadState::Finished {
+                remove.push(key.clone());
+            }
+        }
+
+        for key in remove {
+            mediators.finish(&key);
+        }
     }
 }

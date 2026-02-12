@@ -63,7 +63,7 @@ impl<'de> Deserialize<'de> for CharacterShapeArchetype {
 }
 
 /// Encapsulates animation properties associated with an archetype/prefab.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct CharacterAnimationArchetype {
     pub animation_glbs: Vec<&'static str>,
     pub rig_type: RigType,
@@ -120,7 +120,7 @@ impl CharacterAnimationArchetype {
 
 /// A collection of base shapes and animation properties.  The shapes will be baked into a
 /// new Mesh as morph targets.
-#[derive(Default, Serialize, Deserialize, Clone)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct CharacterArchetypePrefab {
     pub shapes: Vec<CharacterShapeArchetype>,
     pub rig: CharacterAnimationArchetype,
@@ -159,7 +159,7 @@ impl CharacterArchetypePrefab {
 }
 
 /// Overrides the prefab shapes for a part
-#[derive(Component, Deref, Serialize, Clone, Eq, PartialEq, Hash)]
+#[derive(Component, Deref, Serialize, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct PrefabOverride(pub &'static str);
 
 impl<'de> Deserialize<'de> for PrefabOverride {

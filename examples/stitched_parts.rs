@@ -1,6 +1,29 @@
-//! Makehuman comes with several lower poly proxy meshes.  These
-//! can be used for lods with the VisibilityRanges component
-//! In this example we switch lods early just for clarity.
+/// Mesh stitching allows you to create CharacterParts which are themselves composed of smaller parts.
+/// This could be used as in this example to put facial expression shapes only on the face mesh.
+/// You could also set up a dismemberment system. I'm sure there are other use cases.
+/// 
+/// The problem with splitting meshes into multiple pieces is that when you cut a mesh at an edge loop,
+/// most 3d modelling software will autmoatically recompute normals at the loop and create a discontinuity
+/// of mesh normals across the seam.  The normals will no longer be smooth and lighting will make a line
+/// obvious where you cut.  This is the main problem intended to be solved by mesh stitching.
+/// 
+/// Here I will show how mesh stitching works by comparing the same mesh parts with and without
+/// stitching.  There is a head only part and a headless body part that together form the basemesh.
+/// I will use separate prefabs for stitched and unstitched versions because mesh handles are cached
+/// per prefab and I don't want any interference between them.  The stitched and unstitched meshes
+/// may share vertices but they are not the same mesh.  Only the stitched meshes have continuous
+/// normals across the seams betewen the pieces.
+/// 
+/// Note that the normal smoothing algorithm requires that the vert positions are bitwise identical on both 
+/// sides of your edge loop cuts.
+
+
+// 4 prefabs in total, 2 pieces * (stitched + non-stitched)
+ 
+const STITCHED_BODY: &str = "stitched_body";
+const STITCHED_FACE: &str = "stitched_face";
+const UNSTITCHED_BODY: &str = "unstitched_body";
+const UNSTITCHED_FACE: &str = "unstitched_face";
 
 mod shared;
 
@@ -9,8 +32,6 @@ use bevy::prelude::*;
 use humentity::prelude::*;
 use shared::{add_humentity_plugin, cam_controls, setup_env};
 
-const BODY_PREFAB: &str = "Body";
-const FACE_PREFAB: &str = "Face";
 
 fn main() {
     let mut app = App::new();
@@ -37,44 +58,6 @@ fn add_mat(
     }
 }
 
-fn add_humans(
-    mut commands: Commands,
-) {
-    let mut morphs = MorphTargets::default();
-    morphs.insert("man", 1.);
-    morphs.insert("mouthOpen", 1.);
-
-    // Here we don't stitch.  Look closely at the neckline and you will see problems with normals.
-    commands.spawn((
-        Transform::from_translation(Vec3::new(-1., 0., -1.)),
-        CharacterShapeConfig::new(BODY_PREFAB, morphs.clone()),
-        children![(
-            CharacterPart::BodyMesh("basemesh_headless"),
-        ), (
-            CharacterPart::BodyMesh("basemesh_head"),
-            PrefabOverride(FACE_PREFAB),
-        )],
-    ));
-
-    // Here we use stitched parts to fix the normals.
-    // We can only fix normals at the seams if the verts on the seams at each mesh
-    // have EXACTLY the same positions on each mesh
-    morphs.clear();
-    morphs.insert("woman", 1.);
-    morphs.insert("smiling", 1.);
-    commands.spawn((
-        Transform::from_translation(Vec3::new(1., 0., -1.)),
-        CharacterShapeConfig::new(BODY_PREFAB, morphs),
-        children![(
-            StitchedParts(vec![
-                StitchedPart::from(CharacterPart::BodyMesh("basemesh_headless")),
-                StitchedPart::from(CharacterPart::BodyMesh("basemesh_head"))
-                    .with_override(FACE_PREFAB),
-            ]),
-        )],
-    ));
-}
-
 fn setup_prefabs(mut commands: Commands, mh_morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     let mut shapes = vec![];
@@ -94,37 +77,93 @@ fn setup_prefabs(mut commands: Commands, mh_morphs: Res<MakeHumanMorphs>) {
 
     let mut prefabs = AHashMap::default();
     prefabs.insert(
-        BODY_PREFAB,
+        UNSTITCHED_BODY,
+        CharacterArchetypePrefab::new(
+            shapes.clone(),
+            CharacterAnimationArchetype::default(), 
+        ),
+    );
+    prefabs.insert(
+        STITCHED_BODY,
         CharacterArchetypePrefab::new(
             shapes.clone(),
             CharacterAnimationArchetype::default(), 
         ),
     );
 
-    // We keep the gender shapes on the face also to align it with the body
-    // We add more shapes for expressions
+    // We keep the gender shapes on the face also to align it with the body. We add more shapes for expressions
+    // But the expression morphs can be face only, hence 2 different prefabs, one for body another for face.
     morph_targets.clear();
-    // But the expression morphs are face only.
     // These are not composite/macro morphs so we don't need to compute_target_weights on them.
     morph_targets.insert("jawOpen", 1.0);
+    morph_targets.insert("mouthFrownLeft", 1.0);
+    morph_targets.insert("mouthFrownRight", 1.0);
     shapes.push(CharacterShapeArchetype::new(
-        "mouthOpen", morph_targets.clone()
+        "scream", morph_targets.clone()
     ));
 
     morph_targets.clear();
     morph_targets.insert("mouthSmileLeft", 1.0);
     morph_targets.insert("mouthSmileRight", 1.0);
+    morph_targets.insert("jawOpen", 0.3);
     shapes.push(CharacterShapeArchetype::new(
-        "smiling", morph_targets.clone()
+        "smile", morph_targets.clone()
     ));
 
     prefabs.insert(
-        FACE_PREFAB,
+        UNSTITCHED_FACE,
         CharacterArchetypePrefab::new(
-            shapes,
+            shapes.clone(),
+            CharacterAnimationArchetype::default(), 
+        ),
+    );
+    prefabs.insert(
+        STITCHED_FACE,
+        CharacterArchetypePrefab::new(
+            shapes.clone(),
             CharacterAnimationArchetype::default(), 
         ),
     );
 
     commands.insert_resource(CharacterArchetypePrefabs::new(prefabs));
+}
+
+fn add_humans(
+    mut commands: Commands,
+) {
+    let mut morphs = MorphTargets::default();
+    morphs.insert("man", 1.);
+    morphs.insert("scream", 1.);
+
+    // Here we don't stitch.  If you look closely at the man's neckline you will see
+    // the discontinuity in mesh normals, hence the facial expression.
+    commands.spawn((
+        Transform::from_translation(Vec3::new(-1., 0., -1.)),
+        // This stores the "default" prefab for the character.  Parts will use this unless overridden.
+        CharacterShapeConfig::new(UNSTITCHED_BODY, morphs.clone()),
+        children![(
+            CharacterPart::BodyMesh("basemesh_headless"),
+        ), (
+            CharacterPart::BodyMesh("basemesh_head"),
+            // We need to override the prefab used by the head part because only this contains 
+            // the facial expression shapekeys
+            PrefabOverride(UNSTITCHED_FACE),
+        )],
+    ));
+
+    // Here we use stitched parts to fix the normals.  This makes the woman happy and smiling.
+    morphs.clear();
+    morphs.insert("woman", 1.);
+    morphs.insert("smile", 1.);
+    commands.spawn((
+        Transform::from_translation(Vec3::new(1., 0., -1.)),
+        CharacterShapeConfig::new(STITCHED_BODY, morphs),
+        children![(
+            StitchedParts(vec![
+                StitchedPart::from(CharacterPart::BodyMesh("basemesh_headless")),
+                StitchedPart::from(CharacterPart::BodyMesh("basemesh_head"))
+                    .with_prefab_override(STITCHED_FACE),  // Again we need to override for the face
+            ]),
+        )],
+    ));
 }

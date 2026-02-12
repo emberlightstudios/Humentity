@@ -88,7 +88,10 @@ impl FromWorld for MakeHumanMorphs {
                         };
                         let coords: Vec<f32> =
                             line_elements.filter_map(|x| x.parse().ok()).collect();
-                        offsets.insert(vert, Vec3::from_slice(&coords[..]) * BODY_SCALE);
+                        let disp = Vec3::from_slice(&coords[..]) * BODY_SCALE;
+                        if disp.length_squared() > 1e-6 {
+                            offsets.insert(vert, disp);
+                        }
                     }
                     let name = NAME_INTERNER.intern(stem).leak();
                     targets.insert(name, offsets.clone());
