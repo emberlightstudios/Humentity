@@ -274,6 +274,18 @@ pub(crate) fn fit_skeleton_to_shape(
                 right_shoulder = bone_entities[bone];
             }
         }
+        let related = RelatedEntities {
+            rig: rig_entity,
+            root_bone,
+            head,
+            left_foot,
+            left_hand,
+            right_foot,
+            right_hand,
+            right_shoulder,
+            left_shoulder,
+        };
+
         commands
             .entity(root)
             .insert((
@@ -281,17 +293,7 @@ pub(crate) fn fit_skeleton_to_shape(
                     joints: skinned_mesh.joints.clone(),
                     inverse_bindposes: inv_bindpose_assets.add(inv_bindposes),
                 },
-                RelatedEntities {
-                    rig: rig_entity,
-                    root_bone,
-                    head,
-                    left_foot,
-                    left_hand,
-                    right_foot,
-                    right_hand,
-                    right_shoulder,
-                    left_shoulder,
-                },
+                related,
             ))
             .remove::<FitSkeleton>();
 
@@ -302,15 +304,6 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // Set up root bone transform tracking
         if let Some(_root_motion) = root_motion {
-
-            // what is going on here?
-            //let root_name = cache.bone_order[0];
-            //let transform = local_bone_transforms[root_name];
-            //let mut translation = transform.translation;
-            //if !root_motion.y_translate {
-            //    translation.y = 0.;
-            //}
-
             commands
                 .entity(root_bone)
                 .insert(RootBonePrevious::default());
@@ -318,6 +311,7 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // Set up ragdoll if added
         if let Some(mut ragdoll) = ragdoll {
+            #[cfg(feature = "ragdolls")]
             ragdoll.spawn_ragdoll(
                 &mut commands,
                 &helpers,
@@ -327,6 +321,8 @@ pub(crate) fn fit_skeleton_to_shape(
                 &rig_data,
                 rig_entity,
             );
+            #[cfg(not(feature = "ragdolls"))]
+            error!("Ragdoll functionality requires the \"ragdolls\" freature");
         }
     }
 }
