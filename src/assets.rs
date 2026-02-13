@@ -193,24 +193,8 @@ impl CharacterAsset {
         texture_type: CharacterAssetTextureType,
         asset_server: &AssetServer,
     ) -> Handle<Image> {
-        let paths = match texture_type {
-            CharacterAssetTextureType::Albedo => &self.paths.albedo_maps,
-            CharacterAssetTextureType::Normal => &self.paths.normal_maps,
-            CharacterAssetTextureType::AmbientOcclusion => &self.paths.ao_maps,
-            CharacterAssetTextureType::MetallicRoughness => &self.paths.ao_maps,
-            CharacterAssetTextureType::ParallaxDepth => &self.paths.parallax_depth_maps,
-            CharacterAssetTextureType::Emissive => &self.paths.emissive_maps,
-            CharacterAssetTextureType::DiffuseTransmission => &self.paths.diffuse_transmission_maps,
-            CharacterAssetTextureType::SpecularTransmission => &self.paths.specular_transmission_maps,
-            CharacterAssetTextureType::Thickness => &self.paths.thickness_maps,
-            CharacterAssetTextureType::SpecularReflection => &self.paths.specular_reflection_maps,
-            CharacterAssetTextureType::SpecularTint => &self.paths.specular_tint_maps,
-            CharacterAssetTextureType::Clearcoat => &self.paths.clearcoat_maps,
-            CharacterAssetTextureType::ClearcoatRoughness => &self.paths.clearcoat_roughness_maps,
-            CharacterAssetTextureType::ClearcoatNormal => &self.paths.clearcoat_normal_maps,
-            CharacterAssetTextureType::Anisotropy => &self.paths.anisotropy_maps,
-        };
-        if let Some(path) = paths.get(texture_name.as_ref()) {
+        let paths = &self.paths.texture_maps;
+        if let Some(path) = paths.get(&(texture_type, texture_name.as_ref())) {
             if matches!(texture_type, CharacterAssetTextureType::Normal) {
                 path.load_asset_with_settings(
                     asset_server,
@@ -244,21 +228,7 @@ impl CharacterAsset {
 #[derive(Default, Clone)]
 pub struct CharacterMeshAssetFilePaths {
     pub(crate) mh_file: HumentityAssetPath,
-    pub albedo_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub normal_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub ao_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub metallic_roughness_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub parallax_depth_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub emissive_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub diffuse_transmission_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub specular_transmission_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub thickness_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub specular_reflection_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub specular_tint_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub clearcoat_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub clearcoat_roughness_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub clearcoat_normal_maps: AHashMap<&'static str, HumentityAssetPath>,
-    pub anisotropy_maps: AHashMap<&'static str, HumentityAssetPath>,
+    pub texture_maps: AHashMap<(CharacterAssetTextureType, &'static str), HumentityAssetPath>,
 }
 
 /// The cached data for the asset, includes handles to relevant assets and
@@ -632,21 +602,7 @@ impl FromWorld for CharacterAssetRegistry {
             let prefix = &dir.source_id.root_path;
             let path = prefix.join(&dir.path);
             let this_paths = get_all_texture_paths(paths.mh_file.clone(), &path, &dir.source_id);
-            paths.albedo_maps.extend(this_paths.albedo_maps);
-            paths.normal_maps.extend(this_paths.normal_maps);
-            paths.ao_maps.extend(this_paths.ao_maps);
-            paths.metallic_roughness_maps.extend(this_paths.metallic_roughness_maps);
-            paths.thickness_maps.extend(this_paths.thickness_maps);
-            paths.anisotropy_maps.extend(this_paths.anisotropy_maps);
-            paths.diffuse_transmission_maps.extend(this_paths.diffuse_transmission_maps);
-            paths.specular_transmission_maps.extend(this_paths.specular_transmission_maps);
-            paths.specular_reflection_maps.extend(this_paths.specular_reflection_maps);
-            paths.specular_tint_maps.extend(this_paths.specular_tint_maps);
-            paths.clearcoat_maps.extend(this_paths.clearcoat_maps);
-            paths.clearcoat_normal_maps.extend(this_paths.clearcoat_normal_maps);
-            paths.clearcoat_roughness_maps.extend(this_paths.clearcoat_roughness_maps);
-            paths.emissive_maps.extend(this_paths.emissive_maps);
-            paths.parallax_depth_maps.extend(this_paths.parallax_depth_maps);
+            paths.texture_maps.extend(this_paths.texture_maps);
         }
 
         // Proxy Meshes
@@ -693,54 +649,43 @@ fn get_all_texture_paths(
     folder: &Path,
     source_id: &HumentityAssetSourceId,
 ) -> CharacterMeshAssetFilePaths {
-    let albedo_maps =
-        get_texture_paths(folder, CharacterAssetTextureType::Albedo, source_id);
-    let normal_maps =
-        get_texture_paths(folder, CharacterAssetTextureType::Normal, source_id);
-    let ao_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::AmbientOcclusion, source_id);
-    let metallic_roughness_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::MetallicRoughness, source_id);
-    let parallax_depth_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::ParallaxDepth, source_id);
-    let emissive_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::Emissive, source_id);
-    let diffuse_transmission_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::DiffuseTransmission, source_id);
-    let specular_transmission_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::SpecularTransmission, source_id);
-    let thickness_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::Thickness, source_id);
-    let specular_reflection_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::SpecularReflection, source_id);
-    let specular_tint_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::SpecularTint, source_id);
-    let clearcoat_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::Clearcoat, source_id);
-    let clearcoat_roughness_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::ClearcoatRoughness, source_id);
-    let clearcoat_normal_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::ClearcoatNormal, source_id);
-    let anisotropy_maps = 
-        get_texture_paths(folder, CharacterAssetTextureType::Anisotropy, source_id);
+
+    let mut texture_maps = AHashMap::default();
+
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::Albedo, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::Normal, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::AmbientOcclusion, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::MetallicRoughness, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::ParallaxDepth, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::Emissive, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::DiffuseTransmission, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::SpecularTransmission, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::Thickness, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::SpecularReflection, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::SpecularTint, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::Clearcoat, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::ClearcoatRoughness, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::ClearcoatNormal, source_id));
+    texture_maps.extend(get_texture_paths(
+        folder, CharacterAssetTextureType::Anisotropy, source_id));
 
     CharacterMeshAssetFilePaths {
         mh_file,
-        albedo_maps,
-        normal_maps,
-        ao_maps,
-        metallic_roughness_maps,
-        parallax_depth_maps,
-        emissive_maps,
-        diffuse_transmission_maps,
-        specular_transmission_maps,
-        thickness_maps,
-        specular_reflection_maps,
-        specular_tint_maps,
-        clearcoat_maps,
-        clearcoat_roughness_maps,
-        clearcoat_normal_maps,
-        anisotropy_maps,
+        texture_maps,
     }
 }
 
@@ -748,7 +693,7 @@ fn get_texture_paths(
     path: &Path,
     texture_type: CharacterAssetTextureType,
     source_id: &HumentityAssetSourceId,
-) -> AHashMap<&'static str, HumentityAssetPath> {
+) -> AHashMap<(CharacterAssetTextureType, &'static str), HumentityAssetPath> {
     let subfolders = match texture_type {
         CharacterAssetTextureType::Albedo => &ALBEDO_SUBFOLDERS.to_vec(),
         CharacterAssetTextureType::Normal => &NORMAL_SUBFOLDERS.to_vec(),
@@ -787,7 +732,7 @@ fn get_texture_paths(
                     path,
                     source_id: source_id.clone(),
                 };
-                textures.insert(stem, asset_path);
+                textures.insert((texture_type, stem), asset_path);
             }
         }
     }
