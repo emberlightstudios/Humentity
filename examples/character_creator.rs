@@ -12,6 +12,7 @@ use bevy::feathers::dark_theme::create_dark_theme;
 use bevy::feathers::theme::ThemedText;
 use bevy::feathers::theme::UiTheme;
 use bevy::feathers::FeathersPlugins;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::ui_widgets::observe;
@@ -193,10 +194,12 @@ fn on_slider_value_changed(
 // This runs every 50 milliseconds and always triggers full rebuild from the current prefab. 
 // It does introduce a bit of a lag unfortunately, but this is inevitable due to the time
 // it takes to rebuild the mesh anyway.  It could be made faster by building the mesh
-// directly, avoiding morphs, skinning, etc. until the end.
+// directly, avoiding morphs, skinning, etc. until the end.  This is my lazy way of doing it.
 fn rebuild(
     mut asset_registry: ResMut<CharacterAssetRegistry>,
     mut mediator: ResMut<AssetLoadingMediators>,
+    human: Single<(Entity, &RelatedEntities), With<CharacterShapeConfig>>,
+    mut commands: Commands,
 ) {
     // Delete the cached mesh handle
     let asset = asset_registry.get_mut(&CharacterPart::BodyMesh("basemesh")).unwrap();
@@ -208,6 +211,11 @@ fn rebuild(
             prefab_name: PREFAB, part: CharacterPart::BodyMesh("basemesh"),
         }
     );
+
+    // This will trigger a re-fit of the skeleton to the new mesh shape.  
+    let (entity, related) = *human;
+    commands.entity(related.rig).despawn();
+    commands.entity(entity).remove::<SkinnedMesh>();
 }
 
 fn setup_env(
