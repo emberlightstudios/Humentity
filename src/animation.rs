@@ -12,6 +12,7 @@ use std::{
 
 use crate::{
     prelude::*,
+    spawn_skeleton::FitSkeleton,
     rigs::{BoneTranslationData, RigType, RootBone, RootBonePrevious, SkeletonCaches},
     spawn_skeleton::RelatedEntities,
     HumentityGlobalConfig,
