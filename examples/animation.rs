@@ -2,6 +2,13 @@
 //! The base makehuman mesh with helpers has an idle loop animation
 //! Humentity rewrites the animation to try to make it compatible with
 //! different sized humans, e.g. the baby mesh.  
+//! 
+//! Important notes: 
+//!  - AnimationTargetId matching requires you to leave the base object name as its 
+//!    default from blender.  This is "Human.rig" after you add a rig.  Do not change it.
+//!  - Retargeting assumes that all animation clips are authored on a humanoid with the 
+//!    shape of the base mesh with no morphs applied.  Remove all morphs from your human
+//!    before authoring animation clips.
 
 mod shared;
 use ahash::AHashMap;
