@@ -211,12 +211,7 @@ pub(crate) fn create_character_prefab_rig_scenes(world: &mut World) {
         let base_mesh = world.get_resource::<BaseMesh>().unwrap();
         let helpers = &base_mesh.0.clone();
         let scene = crate::rigs::build_human_rig_scene(
-            helpers,
-            rig_type,
-            &bone_rotations,
-            &bone_order,
-            world,
-        );
+            helpers, rig_type, &bone_rotations, &bone_order, world);
 
         let mut prefabs = world.resource_mut::<CharacterArchetypePrefabs>();
         let prefab = prefabs.get_mut(&name).unwrap();
