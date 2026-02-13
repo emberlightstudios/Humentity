@@ -368,18 +368,19 @@ pub(crate) fn build_single_mesh_process(
 
 
     // Start loading data if we haven't already
-    if asset.data.is_none() && *load_state == AssetLoadState::None {
+    if *load_state == AssetLoadState::None {
         *load_state = AssetLoadState::LoadingData;
+        if asset.data.is_none()  {
+            let path = asset.paths.mh_file.clone();
+            let sender = mediator.asset_loading_msg_sender.clone();
 
-        let path = asset.paths.mh_file.clone();
-        let sender = mediator.asset_loading_msg_sender.clone();
-
-        pool.spawn(async move {
-            let data = parse_character_asset(&path);
-            sender.send(AssetLoadedMsg { data, part })
-        })
-        .detach();
-        return;
+            pool.spawn(async move {
+                let data = parse_character_asset(&path);
+                sender.send(AssetLoadedMsg { data, part })
+            })
+            .detach();
+            return;
+        }
     }
 
     // Check if asset data just loaded, set data
