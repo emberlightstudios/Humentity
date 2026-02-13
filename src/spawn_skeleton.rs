@@ -40,7 +40,7 @@ pub struct RelatedEntities {
 }
 
 pub(crate) fn spawn_rig_scene(
-    new_humans: Query<(Entity, &CharacterShapeConfig), Added<CharacterShapeConfig>>,
+    new_humans: Query<(Entity, &CharacterShapeConfig), (Without<SkinnedMesh>, Without<FitSkeleton>)>,
     prefabs: Res<CharacterArchetypePrefabs>,
     skeleton_caches: Res<SkeletonCaches>,
     mut commands: Commands,
@@ -91,7 +91,7 @@ pub(crate) fn fit_skeleton_to_shape(
     rig_data: Res<RigData>,
     global_config: Res<HumentityGlobalConfig>,
 ) {
-    for (root, mut config, model_transform, ragdoll, root_motion) in configs.iter_mut() {
+    for (character_entity, mut config, model_transform, ragdoll, root_motion) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
         let rig_type = prefab.rig.rig_type;
         let cache = &skeleton_caches[&rig_type];
@@ -104,7 +104,7 @@ pub(crate) fn fit_skeleton_to_shape(
         let mut bone_rotations = AHashMap::default();
         let mut bone_entities = AHashMap::default();
 
-        for child in children.iter_descendants(root) {
+        for child in children.iter_descendants(character_entity) {
             if let Ok((entity, skm)) = rigs.get(child) {
                 skinned_mesh = Some(skm);
                 rig_entity = entity;
@@ -287,7 +287,7 @@ pub(crate) fn fit_skeleton_to_shape(
         };
 
         commands
-            .entity(root)
+            .entity(character_entity)
             .insert((
                 SkinnedMesh {
                     joints: skinned_mesh.joints.clone(),
@@ -314,6 +314,7 @@ pub(crate) fn fit_skeleton_to_shape(
             #[cfg(feature = "ragdolls")]
             ragdoll.spawn_ragdoll(
                 &mut commands,
+                character_entity,
                 &helpers,
                 prefab.rig.rig_type,
                 &bone_entities,
