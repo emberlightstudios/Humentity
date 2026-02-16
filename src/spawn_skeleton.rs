@@ -22,7 +22,7 @@ use bevy::{
 /// This component will trigger the re-fitting of the skeleton to the character's morphs.
 /// Add it after changing morphs.
 #[derive(Component)]
-pub struct FitSkeleton;
+pub(crate) struct FitSkeleton;
 
 /// For storing refs to commonly needed entities so that you don't have to iter_descendants to find them.
 #[derive(Component)]
@@ -75,7 +75,6 @@ pub(crate) fn fit_skeleton_to_shape(
             Entity,
             &mut CharacterShapeConfig,
             &Transform,
-            Option<&mut CharacterRagdoll>,
             Option<&RootMotion>,
         ),
         With<FitSkeleton>,
@@ -91,7 +90,7 @@ pub(crate) fn fit_skeleton_to_shape(
     rig_data: Res<RigData>,
     global_config: Res<HumentityGlobalConfig>,
 ) {
-    for (character_entity, mut config, model_transform, ragdoll, root_motion) in configs.iter_mut() {
+    for (character_entity, mut config, model_transform, root_motion) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
         let rig_type = prefab.rig.rig_type;
         let cache = &skeleton_caches[&rig_type];
@@ -134,14 +133,8 @@ pub(crate) fn fit_skeleton_to_shape(
         // Re-fit skeleton to mesh shape.  This is based on fixed vertices in the base mesh.
         // This will move and rotate the bones to align with those verts.
         let helpers = prefab.get_helpers(&config.prefab_morph_targets, &basemesh, &morph_targets);
-        let mut global_bone_transforms = get_model_space_skeleton_transforms(
-            &cache.bone_order,
-            &helpers,
-            rig_type,
-            &bone_rotations,
-            &vg,
-            &rig_data,
-        );
+        let mut model_space_bindposes = get_model_space_skeleton_transforms(
+            &cache.bone_order, &helpers, rig_type, &bone_rotations, &vg, &rig_data);
         let mut local_bone_transforms = AHashMap::default();
 
         // The skeleton has now been adjusted so that the bones' rotations align head to tail.
@@ -164,11 +157,11 @@ pub(crate) fn fit_skeleton_to_shape(
         let bone_config = &rig_data.configs[&prefab.rig.rig_type];
         for &bone in &cache.bone_order {
             if let Some(bone_data) = bone_config.get(bone) {
-                let parent_transform = match global_bone_transforms.get(bone_data.parent) {
+                let parent_transform = match model_space_bindposes.get(bone_data.parent) {
                     Some(xform) => *xform,
                     None => Transform::IDENTITY,
                 };
-                let old_global = global_bone_transforms[bone];
+                let old_global = model_space_bindposes[bone];
 
                 // Use reference rotation, preserve global position
                 let reference_rot = cache.bone_model_space_rots[bone];
@@ -184,7 +177,7 @@ pub(crate) fn fit_skeleton_to_shape(
                 let new_local = Transform::from_matrix(parent_matrix.inverse() * child_matrix);
 
                 local_bone_transforms.insert(bone, new_local);
-                global_bone_transforms.insert(bone, new_global);
+                model_space_bindposes.insert(bone, new_global);
 
                 // Update the joint entity transforms
                 let joint = bone_entities[bone];
@@ -230,11 +223,11 @@ pub(crate) fn fit_skeleton_to_shape(
                         .unwrap();
                     let ref_dir: Vec3 =
                         (ref_bone.translation() - ref_parent.translation()).normalize();
-                    let shape_dir = (global_bone_transforms[name].translation
-                        - global_bone_transforms[bone_data.parent].translation)
+                    let shape_dir = (model_space_bindposes[name].translation
+                        - model_space_bindposes[bone_data.parent].translation)
                         .normalize();
                     let delta = Quat::from_rotation_arc(ref_dir, shape_dir);
-                    let parent_rot = global_bone_transforms[bone_data.parent].rotation;
+                    let parent_rot = model_space_bindposes[bone_data.parent].rotation;
                     bone_rotation_deltas.insert(name, parent_rot.inverse() * delta * parent_rot);
                 }
                 config.bone_delta_rotations = bone_rotation_deltas;
@@ -243,9 +236,14 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // Create new skinned_mesh, put it on the character root.
         // Root doesn't have a mesh3d but it makes it easier to clone for children with CharacterPart.
+        let model_space_inv_bindposes = model_space_bindposes
+            .iter()
+            .map(|(&bone, transform)| (bone, Transform::from_matrix(transform.to_matrix().inverse())))
+            .collect::<AHashMap<_, _>>();
+
         let mut inv_bindposes = vec![];
         for &bone in cache.bone_order.iter() {
-            inv_bindposes.push(global_bone_transforms[bone].to_matrix().inverse());
+            inv_bindposes.push(model_space_inv_bindposes[bone].to_matrix());
         }
 
         // Cache commonly used joint entities for easy access, e.g. IK
@@ -309,21 +307,5 @@ pub(crate) fn fit_skeleton_to_shape(
                 .insert(RootBonePrevious::default());
         }
 
-        // Set up ragdoll if added
-        if let Some(mut ragdoll) = ragdoll {
-            #[cfg(feature = "ragdolls")]
-            ragdoll.spawn_ragdoll(
-                &mut commands,
-                character_entity,
-                &helpers,
-                prefab.rig.rig_type,
-                &bone_entities,
-                &global_transforms,
-                &rig_data,
-                rig_entity,
-            );
-            #[cfg(not(feature = "ragdolls"))]
-            error!("Ragdoll functionality requires the \"ragdolls\" freature");
-        }
     }
 }
