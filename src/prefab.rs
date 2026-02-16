@@ -141,20 +141,19 @@ impl CharacterArchetypePrefab {
         &self,
         morph_values: &MorphTargets,
         basemesh: &BaseMesh,
-        morph_targets: &MakeHumanMorphs,
+        mh_morphs: &MakeHumanMorphs,
     ) -> Vec<Vec3> {
-        let mut mh_morphs = MorphTargets::default();
+        let mut mh_morph_values = MorphTargets::default();
         for shape in self.shapes.iter() {
-            let name: &str = NAME_INTERNER.intern(shape.name).leak();
-            let Some(weight) = morph_values.get(name) else {
+            let Some(weight) = morph_values.get(shape.name) else {
                 continue;
             };
             for (&k, v) in shape.morphs.iter() {
-                let entry = mh_morphs.entry(k).or_insert(0.);
+                let entry = mh_morph_values.entry(k).or_insert(0.);
                 *entry += *v * weight;
             }
         }
-        adjust_helpers_to_morphs(&mh_morphs, &morph_targets.targets, basemesh)
+        adjust_helpers_to_morphs(&mh_morph_values, &mh_morphs.targets, basemesh)
     }
 }
 
