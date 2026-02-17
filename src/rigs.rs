@@ -32,9 +32,9 @@ pub(crate) enum BoneTranslationData {
     Full(AHashMap<&'static str, Vec3>),
 }
 
-#[derive(Component, Deref, Reflect)]
+#[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct ParentBone(#[entities] pub Option<Entity>);
+pub struct SkeletalBone;
 
 /// Adds root motion to XZ-components on translation.  I would add Y but the default rig has a
 /// root bone at the hips.  If animation translation tracks are not enabled this will have no effect.
@@ -389,21 +389,13 @@ pub(crate) fn build_human_rig_scene(
                 Name::new(name),
                 AnimationTargetId::from_names(path.iter().rev()),
                 AnimatedBy(rig_entity),
+                SkeletalBone,
             ))
             .id();
 
         if i == 0 {
             scene_world.entity_mut(entity).insert(RootBone);
         }
-
-        let parent = mh_config[name].parent;
-        if !parent.is_empty() {
-            let parent = bone_entities[parent];
-            scene_world.entity_mut(entity).insert(ParentBone(Some(parent)));
-        } else {
-            scene_world.entity_mut(entity).insert(ParentBone(None));
-        }
-
         bone_entities.insert(name, entity);
     }
 

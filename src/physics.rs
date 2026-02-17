@@ -2,7 +2,14 @@ use ahash::AHashMap;
 use bevy_mod_physx::{physx_sys::PxArticulationJointType, prelude::{self as bpx, *}};
 use bevy::{ecs::intern::Internable, mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, prelude::*};
 
-use crate::{MODEL_ROTATION_FIX, NAME_INTERNER, morphs::MakeHumanMorphs, prefab::CharacterArchetypePrefabs, prelude::{BaseMesh, CharacterShapeConfig, RelatedEntities}, rigs::{ParentBone, RigData, RigType}, spawn_skeleton::FitSkeleton};
+use crate::{
+    MODEL_ROTATION_FIX,
+    NAME_INTERNER,
+    morphs::MakeHumanMorphs, prefab::CharacterArchetypePrefabs,
+    prelude::{BaseMesh, CharacterShapeConfig, RelatedEntities},
+    rigs::{SkeletalBone, RigType},
+    spawn_skeleton::FitSkeleton
+};
 
 
 /// Use to find radius and center of sphere
@@ -162,7 +169,7 @@ pub(crate) fn mark_entity_needs_colliders(
 pub(crate) fn spawn_colliders(
     mut needs_colliders: Query<
         (Entity, &CharacterShapeConfig, &RelatedEntities, &mut CharacterColliders, &SkinnedMesh),
-        (Without<FitSkeleton>, Without<ParentBone>, With<NeedsColliders>)
+        (Without<FitSkeleton>, Without<SkeletalBone>, With<NeedsColliders>)
     >,
     global_transforms: Query<&GlobalTransform>,
     prefabs: Res<CharacterArchetypePrefabs>,
@@ -170,7 +177,7 @@ pub(crate) fn spawn_colliders(
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
     children: Query<&Children>,
-    names: Query<&Name, With<ParentBone>>,
+    names: Query<&Name, With<SkeletalBone>>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut geometries: ResMut<Assets<Geometry>>,
     mut commands: Commands,
@@ -272,8 +279,8 @@ pub(crate) fn spawn_colliders(
 
 pub(crate) fn sync_colliders(
     characters: Query<(&CharacterColliders, Option<&CharacterRagdoll>)>,
-    global_transforms: Query<&GlobalTransform, Or<(With<ParentBone>, Without<CharacterColliderBone>)>>,
-    mut collider_transforms: Query<(&mut Kinematic, &GlobalTransform, &PoseOffset), (Without<ParentBone>, With<CharacterColliderBone>)>,
+    global_transforms: Query<&GlobalTransform, Or<(With<SkeletalBone>, Without<CharacterColliderBone>)>>,
+    mut collider_transforms: Query<(&mut Kinematic, &GlobalTransform, &PoseOffset), (Without<SkeletalBone>, With<CharacterColliderBone>)>,
 ) {
     for (colliders, ragdoll) in characters {
         if !colliders.sync_to_bones { continue };
@@ -350,7 +357,7 @@ pub(crate) fn on_ragdoll(
                 }
             },
             CharacterRagdoll::None => {},
-            CharacterRagdoll::Partial(character_collider_bones) => {}
+            CharacterRagdoll::Partial(_character_collider_bones) => {}
         }
     }
 }

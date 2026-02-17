@@ -89,7 +89,7 @@ impl FromWorld for MakeHumanMorphs {
                         let coords: Vec<f32> =
                             line_elements.filter_map(|x| x.parse().ok()).collect();
                         let disp = Vec3::from_slice(&coords[..]) * BODY_SCALE;
-                        if disp.length_squared() > 1e-6 {
+                        if disp.length_squared() > 5e-7 {
                             offsets.insert(vert, disp);
                         }
                     }

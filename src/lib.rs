@@ -33,7 +33,7 @@ pub mod prelude {
             CharacterAnimationArchetype, CharacterArchetypePrefab, CharacterArchetypePrefabs,
             CharacterShapeArchetype, PrefabOverride,
         },
-        rigs::{ParentBone, RigType, RootMotion},
+        rigs::{SkeletalBone, RigType, RootMotion},
         spawn_mesh::{CharacterShapeConfig, AssetLoadingMediators, LoadAssetMeshJob},
         spawn_skeleton::RelatedEntities,
         HumentityGlobalConfig,
@@ -138,17 +138,22 @@ impl Plugin for HumentityPlugin {
         
         #[cfg(feature = "physics")]
         {
+            use bevy_mod_physx::prelude::Physics;
             app.add_systems(
                     Startup,
                     physics::create_collider_physics_material
+                            .run_if(resource_exists::<Physics>),
                 )
                 .add_systems(
                     Update,
                     (
-                        physics::spawn_colliders,
+                        physics::spawn_colliders
+                            .run_if(resource_exists::<physics::ColliderMaterial>)
+                            .run_if(resource_exists::<Physics>),
                         physics::sync_colliders,
                         physics::on_ragdoll,
                     )
+                        .run_if(in_state(HumentityLoadState::Ready))
                 )
                 .add_observer(physics::mark_entity_needs_colliders);
         }
@@ -193,10 +198,11 @@ impl Plugin for HumentityPlugin {
             app.add_plugins(ObjPlugin);
         }
         // Most of the core assets are loaded in the FromWorld impl for these resources
-        app.init_resource::<basemesh::BaseMesh>()
-            .init_resource::<rigs::SkeletonCaches>()
+        app
+            .init_resource::<basemesh::BaseMesh>()
             .init_resource::<assets::CharacterAssetRegistry>()
             .init_resource::<morphs::MakeHumanMorphs>()
+            .init_resource::<rigs::SkeletonCaches>()
             .init_resource::<rigs::RigData>();
     }
 }
