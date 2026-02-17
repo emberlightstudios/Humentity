@@ -50,6 +50,7 @@ pub struct RootMotion {
 #[reflect(Component)]
 pub(crate) struct RootBone;
 
+/// Caches previous transform data for root bone, used in root motion
 #[derive(Component, Default)]
 pub(crate) struct RootBonePrevious {
     pub(crate) translation: Vec3,

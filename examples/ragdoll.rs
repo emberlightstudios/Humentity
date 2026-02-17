@@ -1,6 +1,6 @@
 mod shared;
-use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_mod_physx::{physx_sys::PxSolverType, prelude::{self as bpx, *}};
 use humentity::prelude::*;
 use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
 
@@ -10,9 +10,17 @@ fn main() {
 
     app.add_plugins((
         DefaultPlugins,
-        PhysicsPlugins::default(),
-        PhysicsDebugPlugin,
+        PhysicsPlugins.set(
+            PhysicsCore {
+                scene: bpx::SceneDescriptor {
+                    solver_type: PxSolverType::Tgs,
+                    ..default()
+                },
+                ..default()
+            }.with_pvd(),
+        ),
     ))
+    .insert_resource(DebugRenderSettings::enable())
     .add_systems(Startup, (setup_env, floor))
     .add_systems(Startup, setup_prefabs)
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
@@ -20,29 +28,43 @@ fn main() {
     .run();
 }
 
-fn toggle(input: Res<ButtonInput<KeyCode>>, mut ragdolls: Query<&mut CharacterRagdoll>) {
+fn toggle(
+    input: Res<ButtonInput<KeyCode>>,
+    mut ragdoll: Single<&mut CharacterRagdoll, With<CharacterColliders>>,
+) {
     if input.just_pressed(KeyCode::Space) {
-        if let Ok(mut ragdoll) = ragdolls.single_mut() {
-            ragdoll.active = !ragdoll.active;
-        }
+        if **ragdoll == CharacterRagdoll::None {
+            **ragdoll = CharacterRagdoll::Full;
+        } else {
+            **ragdoll = CharacterRagdoll::None;
+        };
     }
 }
 
-fn floor(mut commands: Commands) {
+fn floor(
+    mut commands: Commands,
+    mut geometries: ResMut<Assets<Geometry>>,
+    mut materials: ResMut<Assets<bpx::Material>>,
+    mut physics: ResMut<Physics>,
+) {
     commands.spawn((
-        Collider::cuboid(6., 1., 6.),
+        Shape{
+            geometry: geometries.add(Plane3d::default()),
+            material: materials.add(bpx::Material::new(&mut physics, 0.5, 0.5, 0.5)),
+            ..Default::default()
+        },
         RigidBody::Static,
-        Transform::from_translation(Vec3::Y * -0.5),
+        Transform::IDENTITY,
     ));
 }
 
 fn add_human(mut commands: Commands) {
     commands.spawn((
-        Transform::from_translation(Vec3::new(0., 0.2, 0.)),
+        Transform::from_translation(Vec3::new(1., 0.2, 0.)),
         CharacterShapeConfig::default(),
-        InheritedVisibility::default(),
-        CharacterRagdoll::new(false),
-        children![(CharacterPart::BodyMesh("male_generic"))],
+        CharacterColliders::new(true, ShapeFilterData::default()),
+        CharacterRagdoll::None,
+        //children![(CharacterPart::BodyMesh("basemesh"))],
     ));
 }
 

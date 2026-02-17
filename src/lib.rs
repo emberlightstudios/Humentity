@@ -4,11 +4,12 @@ mod basemesh;
 mod mesh_ops;
 mod morphs;
 mod paths_config;
-mod physics;
 mod prefab;
 mod rigs;
 mod spawn_skeleton;
 mod spawn_mesh;
+#[cfg(feature = "physics")]
+mod physics;
 
 use bevy::app::AnimationSystems;
 use bevy::ecs::intern::Interner;
@@ -28,21 +29,25 @@ pub mod prelude {
         basemesh::BaseMesh,
         morphs::{MakeHumanMorphs, MorphTargets},
         paths_config::{HumentityAssetPath, HumentityAssetSourceId, HumentityPathsConfig},
-        physics::CharacterRagdoll,
         prefab::{
             CharacterAnimationArchetype, CharacterArchetypePrefab, CharacterArchetypePrefabs,
             CharacterShapeArchetype, PrefabOverride,
         },
         rigs::{ParentBone, RigType, RootMotion},
         spawn_mesh::{CharacterShapeConfig, AssetLoadingMediators, LoadAssetMeshJob},
-        spawn_skeleton::{FitSkeleton, RelatedEntities},
+        spawn_skeleton::RelatedEntities,
         HumentityGlobalConfig,
         HumentityLoadState,
         HumentityPlugin,
         TranslationTracks,
         NAME_INTERNER,
     };
+    #[cfg(feature = "physics")]
+    pub use crate::physics::{CharacterColliders, CharacterRagdoll};
 }
+
+/// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
+pub(crate) const MODEL_ROTATION_FIX: Quat = Quat::from_xyzw(0., 1., 0., 0.);
 
 /// Which translation tracks should be kept on animation clips
 #[derive(Copy, Clone, Default, Debug)]
@@ -112,9 +117,11 @@ impl Plugin for HumentityPlugin {
                         .run_if(in_state(HumentityLoadState::AnimationProcessing)),
                     // PHASE 3 : READY TO BUILD HUMANS
                     (
-                        (
+                        (   
                             spawn_skeleton::spawn_rig_scene,
                             spawn_skeleton::fit_skeleton_to_shape,
+                        ).chain(),
+                        (
                             (
                                 spawn_mesh::handle_single_mesh_load_tasks,
                                 spawn_mesh::handle_stitched_mesh_load_tasks,
@@ -122,14 +129,29 @@ impl Plugin for HumentityPlugin {
                             spawn_mesh::mesh_build,
                             spawn_mesh::mediators_clean_up,
                         ).chain(),
-                        physics::control_ragdoll,
-                        //prefab::update_asset_shapes.run_if(resource_exists::<ArchetypeShapeUpdate>),
                     )
                         .chain()
                         .run_if(in_state(HumentityLoadState::Ready))
                         .run_if(resource_exists::<CharacterAssetRegistry>),
                 ),
             );
+        
+        #[cfg(feature = "physics")]
+        {
+            app.add_systems(
+                    Startup,
+                    physics::create_collider_physics_material
+                )
+                .add_systems(
+                    Update,
+                    (
+                        physics::spawn_colliders,
+                        physics::sync_colliders,
+                        physics::on_ragdoll,
+                    )
+                )
+                .add_observer(physics::mark_entity_needs_colliders);
+        }
 
         if self.config.debug_draw_bones {
             app.add_systems(Update, rigs::bone_debug_draw);

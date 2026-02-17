@@ -1,13 +1,7 @@
-use std::f32::consts::PI;
-
 use crate::{
-    basemesh::VertexGroups,
-    prelude::*,
-    rigs::{
-        get_model_space_skeleton_transforms, BoneTranslationData, RigData, RootBonePrevious,
-        SkeletonCaches,
-    },
-    HumentityGlobalConfig, TranslationTracks,
+    HumentityGlobalConfig, TranslationTracks, basemesh::VertexGroups, prelude::*, rigs::{
+        BoneTranslationData, RigData, RootBonePrevious, SkeletonCaches, get_model_space_skeleton_transforms
+    }
 };
 use ahash::AHashMap;
 use bevy::{
@@ -68,7 +62,7 @@ pub(crate) fn spawn_rig_scene(
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
     prefabs: Res<CharacterArchetypePrefabs>,
-    rigs: Query<(Entity, &SkinnedMesh), Without<Mesh3d>>,
+    rigs: Query<(Entity, &SkinnedMesh), (Without<Mesh3d>, With<ChildOf>)>,
     children: Query<&Children>,
     mut configs: Query<
         (
@@ -79,8 +73,8 @@ pub(crate) fn fit_skeleton_to_shape(
         ),
         With<FitSkeleton>,
     >,
-    names: Query<&Name>,
-    global_transforms: Query<&GlobalTransform>,
+    names: Query<&Name, With<ParentBone>>,
+    global_transforms: Query<&GlobalTransform, With<ParentBone>>,
     mut local_transforms: Query<&mut Transform, Without<CharacterShapeConfig>>,
     mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     basemesh: Res<BaseMesh>,
@@ -141,10 +135,10 @@ pub(crate) fn fit_skeleton_to_shape(
         // The skeleton now fits the mesh's shape but this can induce animation artifacts due to
         // differences in proportions/bind poses. Different proportions lead to different rotations
         // in the bind/rest pose, but animation clips only store rotation offsets so the final pose in
-        // any given frame will change with character proportions. Therefore different characer shapes
+        // any given frame will change with character proportions. Therefore different character shapes
         // can lead to very different poses in the same animation clip.
         //
-        // In order to prevent this we adjust the bone bind pose transfoms so that they have the same
+        // In order to prevent this we adjust the bone bind pose transforms so that they have the same
         // positions in model space, but we force their rotations to align exactly with the reference 
         // skeleton from which the animation clips were authored in the glb files. In other words, we
         // rotate the bones such that they may not point to their child bone anymore. Instead they will
@@ -152,7 +146,7 @@ pub(crate) fn fit_skeleton_to_shape(
         // AninationClips look as consistent as possible. This will require changing not just rotations
         // but also translations in general, as changing the rotation on a bone will alter the model
         // space translation of all children in the hierarchy, so we alter the translations to get
-        // the bone back into the correct position after rotating it's parents. 
+        // the bone back into the correct position after rotating its parents. 
 
         let bone_config = &rig_data.configs[&prefab.rig.rig_type];
         for &bone in &cache.bone_order {
@@ -298,7 +292,7 @@ pub(crate) fn fit_skeleton_to_shape(
         // Remove skinned mesh from rig_entity, and rotate to face the correct forward direction
         commands.entity(rig_entity)
             .remove::<SkinnedMesh>()
-            .insert(Transform::from_rotation(Quat::from_rotation_y(PI)));
+            .insert(Transform::from_rotation(crate::MODEL_ROTATION_FIX));
 
         // Set up root bone transform tracking
         if let Some(_root_motion) = root_motion {

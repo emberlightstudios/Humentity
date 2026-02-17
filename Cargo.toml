@@ -3,25 +3,34 @@ name = "humentity"
 version = "0.1.0"
 edition = "2024"
 
-[dev-dependencies]
-rand = "0.8.5"
-toml = "0.9.11"
-
 [dependencies]
 ahash = { version = ">=0.8.12", features = ["serde"] }
 bevy = ">=0.18.0"
 serde = ">=1.0.228"
 walkdir = ">=2.5.0"
-avian3d = { version = ">=0.5.0", optional = true }
+#ahash.workspace = true
+#bevy.workspace = true
+#serde.workspace = true
+#walkdir.workspace = true
+bevy_mod_physx = { optional = true, workspace = true }
 serde_json = ">=1.0.145"
 bytemuck = ">=1.24.0"
 gltf = ">=1.4.1"
 bevy_obj = ">=0.17.1"
-crossbeam-channel = "0.5.15"
+crossbeam-channel = ">=0.5.15"
+
+[dev-dependencies]
+bevy = { version = ">=0.18.0", features = ["experimental_bevy_feathers"] }
+toml = ">=0.9.11"
+
+[[example]]
+name = "character_creator"
+required-features = ["experimental_bevy_feathers"]
 
 [features]
-default = []
-ragdolls = ["dep:avian3d"]
+default = ["physics"]
+physics = ["dep:bevy_mod_physx"]
+experimental_bevy_feathers = ["bevy/experimental_bevy_feathers"]
 
 [profile.dev]
 opt-level = 1
