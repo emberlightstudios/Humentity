@@ -150,6 +150,7 @@ pub enum CharacterRagdoll {
 #[derive(Resource)]
 pub(crate) struct ColliderMaterial(Handle<bpx::Material>);
 
+/*--- Systems ---*/
 pub(crate) fn create_collider_physics_material(
     mut commands: Commands,
     mut materials: ResMut<Assets<bpx::Material>>,
@@ -309,60 +310,112 @@ pub(crate) fn sync_colliders(
 
 pub(crate) fn on_ragdoll(
     ragdolls: Query<(&CharacterColliders, &CharacterRagdoll), (Changed<CharacterRagdoll>, Without<NeedsColliders>)>,
-    transforms: Query<&Transform, With<CharacterColliderBone>>,
+    transforms: Query<&GlobalTransform, With<CharacterColliderBone>>,
     mut commands: Commands,
 ) {
     for (colliders, ragdoll) in ragdolls.iter() {
         match ragdoll {
             CharacterRagdoll::Full => {
-                info!("ragdoll!!!!");
+                info!("ragdoll");
                 for collider in COLLIDERS.iter() {
                     let Some(&entity) = colliders.collider_entities.get(collider) else { continue };
-                    commands.entity(entity).remove::<Kinematic>();
-                    commands.entity(entity).remove::<RigidBody>();
-                    commands.entity(entity).insert((
-                        RigidBody::ArticulationLink,
-                        MassProperties::density(1000.),
-                        Damping {
-                            linear: 0.1,
-                            angular: 0.1,
-                        },
-                        MaxVelocity {
-                            linear: 100.,
-                            angular: 30.,
-                        },
-                    ));
-
-                    if *collider != CharacterColliderBone::Pelvis {
-                        let Ok(child_pose) = transforms.get(entity) else { continue };
-                        let parent_entity = colliders.collider_entities[&get_collider_parent(*collider).unwrap()];
-                        let Ok(parent_pose) = transforms.get(parent_entity) else { continue };
-                        let parent_to_child = Transform::from_matrix(parent_pose.to_matrix().inverse()) * *child_pose;
-                        commands.entity(entity).insert((
-                            ArticulationJoint {
-                                parent: parent_entity,
-                                parent_pose: parent_to_child,
-                                child_pose: Transform::IDENTITY,
-                                joint_type: PxArticulationJointType::Spherical,
-                                motion_swing1: ArticulationJointMotion::Free,
-                                motion_swing2: ArticulationJointMotion::Free,
-                                motion_twist: ArticulationJointMotion::Free,
-                                friction_coefficient: 1.0,
-                                ..default()
-                            },
-                        ));
-                    } else {
-                        commands.entity(entity).insert(ArticulationRoot::default());
-                    }
+                    set_articulation_link(entity, *collider, &mut commands, colliders, &transforms, &[CharacterColliderBone::Pelvis]);
                 }
             },
-            CharacterRagdoll::None => {},
-            CharacterRagdoll::Partial(_character_collider_bones) => {}
+            CharacterRagdoll::None => {
+                for collider in COLLIDERS.iter() {
+                    let Some(&entity) = colliders.collider_entities.get(collider) else { continue };
+                    set_kinematic(entity, &mut commands, &transforms);
+                }
+            },
+            CharacterRagdoll::Partial(character_collider_bones) => {
+                let roots: Vec<_> = character_collider_bones
+                    .iter()
+                    .filter(|&c| {
+                        let parent = get_collider_parent(*c);
+                        parent.is_none() || !character_collider_bones.contains(&parent.unwrap())
+                    })
+                    .cloned() 
+                    .collect();
+
+                for collider in COLLIDERS.iter() {
+                    let Some(&entity) = colliders.collider_entities.get(collider) else { continue };
+                    set_articulation_link(entity, *collider, &mut commands, colliders, &transforms, &roots);
+                }
+            }
         }
     }
 }
 
-// Build collider functions
+/*--- Utility functions ---*/
+fn set_articulation_link(
+    entity: Entity,
+    collider: CharacterColliderBone,
+    commands: &mut Commands,
+    colliders: &CharacterColliders,
+    transforms: &Query<&GlobalTransform, With<CharacterColliderBone>>,
+    roots: &[CharacterColliderBone],
+) {
+    commands.entity(entity).insert((
+        RigidBody::ArticulationLink,
+        MassProperties::density(1000.),
+        Damping {
+            linear: 0.1,
+            angular: 0.1,
+        },
+        MaxVelocity {
+            linear: 100.,
+            angular: 30.,
+        },
+    ));
+
+    if roots.contains(&collider) {
+        commands.entity(entity).insert(ArticulationRoot::default());
+    } else {
+        let bone = colliders.bone_entities[&collider];
+        let Ok(bone_transform) = transforms.get(bone) else { return };
+        let world_to_bone = Transform::from_matrix(bone_transform.to_matrix().inverse());
+
+        let Ok(child_to_world) = transforms.get(entity) else { return };
+        let child_to_world = Transform::from(child_to_world.clone());
+
+        let parent_entity = colliders.collider_entities[&get_collider_parent(collider).unwrap()];
+        let Ok(parent_to_world) = transforms.get(parent_entity) else { return };
+        let parent_to_world = Transform::from(parent_to_world.clone());
+
+        let parent_pose = world_to_bone * parent_to_world;
+        let child_pose = world_to_bone * child_to_world;
+
+        commands.entity(entity).insert((
+            ArticulationJoint {
+                parent: parent_entity,
+                parent_pose,
+                child_pose,
+                joint_type: PxArticulationJointType::Spherical,
+                motion_swing1: ArticulationJointMotion::Free,
+                motion_swing2: ArticulationJointMotion::Free,
+                motion_twist: ArticulationJointMotion::Free,
+                friction_coefficient: 1.0,
+                ..default()
+            },
+        ));
+    }
+}
+
+fn set_kinematic(
+    entity: Entity,
+    commands: &mut Commands,
+    transforms: &Query<&GlobalTransform, With<CharacterColliderBone>>,
+) {
+    let Ok(transform) = transforms.get(entity) else { return };
+    commands.entity(entity).remove::<ArticulationJoint>();
+    commands.entity(entity).remove::<ArticulationRoot>();
+    commands.entity(entity).insert((
+        RigidBody::Dynamic,
+        Kinematic::new(Transform::from(transform.clone())),
+    ));
+}
+
 fn get_head_collider(helpers: &[Vec3], geometry: &mut Assets<Geometry>) -> (Handle<Geometry>, Transform) {
     let center = (helpers[HEAD_VERTICES[0]] + helpers[HEAD_VERTICES[1]]) * 0.5;
     let radius = (helpers[HEAD_VERTICES[0]] - center).length();
@@ -466,7 +519,7 @@ fn get_limb_collider(
 
     (
         // Subtract just a small amount of capsule length
-        geometry.add(Capsule3d::new(r, (p1 - p2).length() - r)),
+        geometry.add(Capsule3d::new(r, (p1 - p2).length())),
         // we have to account for the mesh facing wrong direction
         Transform::from_translation(MODEL_ROTATION_FIX * c)
             .with_rotation(

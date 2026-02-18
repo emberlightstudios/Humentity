@@ -60,7 +60,7 @@ fn floor(
 
 fn add_human(mut commands: Commands) {
     commands.spawn((
-        Transform::from_translation(Vec3::new(1., 0.2, 0.)),
+        Transform::IDENTITY,
         CharacterShapeConfig::default(),
         CharacterColliders::new(true, ShapeFilterData::default()),
         CharacterRagdoll::None,
