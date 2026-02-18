@@ -29,9 +29,11 @@ const LOWER_ARM_VERTICES: [usize; 4] = [3412, 3877, 3552, 3906];
 const HAND_VERTICES: [usize; 6] = [2776, 3189, 2119, 3909, 3247, 3650];
 const FOOT_VERTICES: [usize; 6] = [6251, 6705, 4972, 5845, 6214, 6298];
 
+/// Stores transform for collider in bone space
 #[derive(Component, Clone, Deref)]
 pub(crate) struct PoseOffset(Transform);
 
+/// The set of colliders on a character
 #[derive(Component, Hash, Copy, Clone, Eq, PartialEq, Debug)]
 pub enum CharacterColliderBone {
     Head,
@@ -51,6 +53,7 @@ pub enum CharacterColliderBone {
     RightFoot,
 }
 
+/// An hierarchical ordering for colliders, does not flow back up the tree
 const COLLIDERS: [CharacterColliderBone; 15] = [
     CharacterColliderBone::Pelvis,
     CharacterColliderBone::Chest,
@@ -90,6 +93,7 @@ const DEFAULT_RIG_COLLIDER_BONE_NAMES: [&'static str; 15] = [
     "head",
 ];
 
+/// Get a collider's parent in the hierarchy
 fn get_collider_parent(bone: CharacterColliderBone) -> Option<CharacterColliderBone> {
     match bone {
         CharacterColliderBone::Head => Some(CharacterColliderBone::Chest),
@@ -132,7 +136,7 @@ impl CharacterColliders {
     }
 }
 
-// Temp mareker component
+// Temp marker component
 #[derive(Component)]
 pub(crate) struct NeedsColliders;
 
@@ -167,6 +171,7 @@ pub(crate) fn mark_entity_needs_colliders(
     commands.entity(trigger.entity).insert(NeedsColliders);
 }
 
+/// Create colliders from character shape
 pub(crate) fn spawn_colliders(
     mut needs_colliders: Query<
         (Entity, &CharacterShapeConfig, &RelatedEntities, &mut CharacterColliders, &SkinnedMesh),
@@ -278,6 +283,7 @@ pub(crate) fn spawn_colliders(
     }
 }
 
+/// Syncs colliders to bone transforms during animation (i.e. not simulating physics)
 pub(crate) fn sync_colliders(
     characters: Query<(&CharacterColliders, Option<&CharacterRagdoll>)>,
     global_transforms: Query<&GlobalTransform, Or<(With<SkeletalBone>, Without<CharacterColliderBone>)>>,
@@ -308,6 +314,7 @@ pub(crate) fn sync_colliders(
     }
 }
 
+/// Manage physics state for ragdolls.
 pub(crate) fn on_ragdoll(
     ragdolls: Query<(&CharacterColliders, &CharacterRagdoll), (Changed<CharacterRagdoll>, Without<NeedsColliders>)>,
     transforms: Query<&GlobalTransform, Or<(With<CharacterColliderBone>, With<SkeletalBone>)>>,
