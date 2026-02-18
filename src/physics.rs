@@ -310,13 +310,12 @@ pub(crate) fn sync_colliders(
 
 pub(crate) fn on_ragdoll(
     ragdolls: Query<(&CharacterColliders, &CharacterRagdoll), (Changed<CharacterRagdoll>, Without<NeedsColliders>)>,
-    transforms: Query<&GlobalTransform, With<CharacterColliderBone>>,
+    transforms: Query<&GlobalTransform, Or<(With<CharacterColliderBone>, With<SkeletalBone>)>>,
     mut commands: Commands,
 ) {
     for (colliders, ragdoll) in ragdolls.iter() {
         match ragdoll {
             CharacterRagdoll::Full => {
-                info!("ragdoll");
                 for collider in COLLIDERS.iter() {
                     let Some(&entity) = colliders.collider_entities.get(collider) else { continue };
                     set_articulation_link(entity, *collider, &mut commands, colliders, &transforms, &[CharacterColliderBone::Pelvis]);
@@ -353,7 +352,7 @@ fn set_articulation_link(
     collider: CharacterColliderBone,
     commands: &mut Commands,
     colliders: &CharacterColliders,
-    transforms: &Query<&GlobalTransform, With<CharacterColliderBone>>,
+    transforms: &Query<&GlobalTransform, Or<(With<CharacterColliderBone>, With<SkeletalBone>)>>,
     roots: &[CharacterColliderBone],
 ) {
     commands.entity(entity).insert((
@@ -405,7 +404,7 @@ fn set_articulation_link(
 fn set_kinematic(
     entity: Entity,
     commands: &mut Commands,
-    transforms: &Query<&GlobalTransform, With<CharacterColliderBone>>,
+    transforms: &Query<&GlobalTransform, Or<(With<CharacterColliderBone>, With<SkeletalBone>)>>,
 ) {
     let Ok(transform) = transforms.get(entity) else { return };
     commands.entity(entity).remove::<ArticulationJoint>();
