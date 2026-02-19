@@ -244,106 +244,107 @@ pub(crate) fn set_asset_rig_arrays(
         .get(&rig.rig_type)
         .expect("No weights for rig?");
 
-    // Build hashmaps to store bone info for each obj vertex id
-    let mut indices: Vec<[u16; 4]> = vec![[0; 4]; mhid_lookup.len()];
-    let mut weights: Vec<[f32; 4]> = vec![[0.; 4]; mhid_lookup.len()];
+    let vertex_count = mhid_lookup.len();
 
-    // loop over obj vertices
-    for (vert, mhv) in mhid_lookup.iter().enumerate() {
-        // Create vec in the map for bone indices and weights
-        let mut indices_vec = Vec::<usize>::new();
-        let mut weights_vec = Vec::<f32>::new();
+    // Final fixed-size output arrays
+    let mut indices: Vec<[u16; 4]> = vec![[0; 4]; vertex_count];
+    let mut weights: Vec<[f32; 4]> = vec![[0.0; 4]; vertex_count];
 
-        // Get helper map for this obj_id
-        let helper_map = &helper_map[*mhv as usize];
+    // Cache per mhid so duplicates are consistent and O(n)
+    let mut mhid_cache: AHashMap<u16, ([u16; 4], [f32; 4])> = AHashMap::default();
 
-        // loop over bones and find any matching helper indices
+    for (vert, &mhid) in mhid_lookup.iter().enumerate() {
+
+        // If we've already computed this mhid, reuse it
+        if let Some(&(cached_indices, cached_weights)) = mhid_cache.get(&mhid) {
+            indices[vert] = cached_indices;
+            weights[vert] = cached_weights;
+            continue;
+        }
+
+        let helper = &helper_map[mhid as usize];
+
+        // Aggregate bone weights deterministically
+        let mut aggregate: AHashMap<u16, f32> = AHashMap::default();
+
         for (bone_index, bone_name) in cache.bone_order.iter().enumerate() {
             let Some(bone_weights) = weights_res.get(bone_name) else {
                 continue;
             };
 
-            if let Some(v) = helper_map.single_vertex {
-                // For single vertex mapping just apply data for that vertex
-                let Some(helper_wt) = bone_weights.get(&v) else {
-                    continue;
-                };
-                if *helper_wt <= 0.0 {
-                    continue;
-                };
-                indices_vec.push(bone_index);
-                weights_vec.push(*helper_wt);
-            } else {
-                // Triangle.  Have to weight the base vertices
-                let triangle = helper_map.triangle.as_ref().unwrap();
+            if let Some(v) = helper.single_vertex {
+                if let Some(&helper_wt) = bone_weights.get(&v) {
+                    if helper_wt > 0.0 {
+                        *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt;
+                    }
+                }
+            } else if let Some(triangle) = &helper.triangle {
                 for (i, mh_id) in triangle.helper_verts.iter().enumerate() {
-                    let Some(helper_wt) = bone_weights.get(mh_id) else {
-                        continue;
-                    };
-                    if *helper_wt <= 0.0 {
-                        continue;
-                    };
-
-                    // Will aggregate below.  For now just allow duplicate entries
-                    // e.g. same bone can have weights on all 3 verts of triangle
-                    indices_vec.push(bone_index);
-                    weights_vec.push(*helper_wt * triangle.helper_weights[i]);
+                    if let Some(&helper_wt) = bone_weights.get(mh_id) {
+                        if helper_wt > 0.0 {
+                            *aggregate.entry(bone_index as u16).or_insert(0.0) +=
+                                helper_wt * triangle.helper_weights[i];
+                        }
+                    }
                 }
             }
         }
 
-        // Deduplicate vertices by summing weights
-        let mut aggregate = AHashMap::<u16, f32>::default();
-        for (&ind, &wt) in indices_vec.iter().zip(weights_vec.iter()) {
-            let wtsum = aggregate.entry(ind as u16).or_insert(0.0);
-            *wtsum += wt;
-        }
-        let (mut vtx_indices, mut vtx_weights): (Vec<u16>, Vec<f32>) =
-            aggregate.into_iter().unzip();
+        // Convert to vec and sort deterministically
+        let mut pairs: Vec<(u16, f32)> = aggregate.into_iter().collect();
 
-        // 4 bone limit for bevy animation. Take top 4 weights
-        if vtx_indices.len() > 4 {
-            // Sort vec indices based on the weights
-            let mut ordering: Vec<usize> = (0..vtx_weights.len()).collect();
-            ordering.sort_by(|&i, &j| vtx_weights[j].partial_cmp(&vtx_weights[i]).unwrap());
+        pairs.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1).unwrap()
+                .then_with(|| a.0.cmp(&b.0)) // tie-break by bone index
+        });
 
-            // Get vec indices of top 4 weights
-            let top_weights: Vec<usize> = ordering.iter().take(4).copied().collect();
+        // Take top 4
+        pairs.truncate(4);
 
-            // set back into the original vecs
-            let new_vtx_weights: Vec<f32> = top_weights.iter().map(|&i| vtx_weights[i]).collect();
-            let new_vtx_indices: Vec<u16> = top_weights.iter().map(|&i| vtx_indices[i]).collect();
-            vtx_indices = new_vtx_indices;
-            vtx_weights = new_vtx_weights;
+        // If empty, just leave zeros
+        if pairs.is_empty() {
+            continue;
         }
 
-        for i in vtx_indices.len()..4 {
-            vtx_indices.push(vtx_indices[i % vtx_indices.len()]);
-        }
-        for i in vtx_weights.len()..4 {
-            vtx_weights.push(vtx_weights[i % vtx_weights.len()]);
+        // Pad to 4 entries if needed
+        while pairs.len() < 4 {
+            pairs.push(pairs[0]);
         }
 
-        indices[vert] = vtx_indices[..4].try_into().unwrap();
-        let mut raw_weights: [f32; 4];
-        raw_weights = vtx_weights[..4].try_into().unwrap();
+        let mut raw_indices = [0u16; 4];
+        let mut raw_weights = [0.0f32; 4];
 
-        let sum: f32 = vtx_weights.iter().sum();
-        for (i, &val) in vtx_weights.iter().enumerate() {
-            raw_weights[i] = val / sum;
+        for i in 0..4 {
+            raw_indices[i] = pairs[i].0;
+            raw_weights[i] = pairs[i].1;
         }
+
+        // Normalize weights
+        let sum: f32 = raw_weights.iter().sum();
+        if sum > 0.0 {
+            for w in &mut raw_weights {
+                *w /= sum;
+            }
+        }
+
+        indices[vert] = raw_indices;
         weights[vert] = raw_weights;
+
+        // Store in cache for duplicate mhids
+        mhid_cache.insert(mhid, (raw_indices, raw_weights));
     }
 
     mesh.insert_attribute(
         Mesh::ATTRIBUTE_JOINT_INDEX,
         VertexAttributeValues::Uint16x4(indices),
     );
+
     mesh.insert_attribute(
         Mesh::ATTRIBUTE_JOINT_WEIGHT,
         VertexAttributeValues::Float32x4(weights),
     );
 }
+
 
 /// Spawns bone entities and sets up the hierarchy
 pub(crate) fn build_human_rig_scene(
@@ -368,6 +369,7 @@ pub(crate) fn build_human_rig_scene(
             AnimationPlayer::default(),
             Name::new("Human.rig"),
             Transform::IDENTITY,
+            SkeletalBone,
         ))
         .id();
 
