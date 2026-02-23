@@ -1,5 +1,5 @@
 mod shared;
-use bevy::prelude::*;
+use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
 use bevy_mod_physx::{physx_sys::PxSolverType, prelude::{self as bpx, *}};
 use humentity::prelude::*;
 use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
@@ -24,7 +24,16 @@ fn main() {
     .add_systems(Startup, (setup_env, floor))
     .add_systems(Startup, setup_prefabs)
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
-    .add_systems(Update, (cam_controls, add_material, toggle))
+    .add_systems(
+        Update,
+        (
+            cam_controls,
+            add_material,
+            toggle,
+            setup_graph,
+            start_clip,
+        )
+    )
     .run();
 }
 
@@ -71,5 +80,41 @@ fn add_human(mut commands: Commands) {
 fn setup_prefabs(mut commands: Commands) {
     // No shape morphs, just the basemesh
     // Just for the examples.
-    commands.insert_resource(CharacterArchetypePrefabs::basemesh());
+    commands.insert_resource(CharacterArchetypePrefabs::new(
+        [("", CharacterArchetypePrefab::new(
+            [],
+            CharacterAnimationArchetype::new(
+                RigType::Default,
+                ["assets/animation/idle.glb"]
+            )
+        ))]
+    ));
+}
+
+#[derive(Component)]
+struct AnimationController(AnimationNodeIndex);
+
+fn setup_graph(
+    player: Query<Entity, With<AnimationPlayer>>,
+    human: Single<&RelatedEntities, Added<SkinnedMesh>>,
+    animations: Res<CharacterAnimationClips>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    mut commands: Commands,
+) {
+    let Ok(anim_player) = player.get(human.rig) else { return };
+    let animations = &animations[&RigType::Default];
+    let clip = &animations["Idle-loop"];
+    let (graph, index) = AnimationGraph::from_clip(clip.clone());
+    let graph_handle = graphs.add(graph.clone());
+    commands.entity(anim_player).insert((
+        AnimationController(index),
+        AnimationGraphHandle(graph_handle.clone()),
+    ));
+}
+
+fn start_clip(
+    mut anim: Single<(&mut AnimationPlayer, &AnimationController)>,
+) {
+    let idx = anim.1.0.clone();
+    //anim.0.play(idx);
 }

@@ -7,7 +7,7 @@ use crate::{
     NAME_INTERNER,
     morphs::MakeHumanMorphs, prefab::CharacterArchetypePrefabs,
     prelude::{BaseMesh, CharacterShapeConfig, RelatedEntities},
-    rigs::{SkeletalBone, RigType},
+    rigs::{SkeletalBone, RigType, SkeletonCaches},
     spawn_skeleton::FitSkeleton
 };
 
@@ -185,6 +185,7 @@ pub(crate) fn spawn_colliders(
     children: Query<&Children>,
     names: Query<&Name, With<SkeletalBone>>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
+    skeleton_caches: Res<SkeletonCaches>,
     mut geometries: ResMut<Assets<Geometry>>,
     mut commands: Commands,
 ) {
@@ -199,28 +200,23 @@ pub(crate) fn spawn_colliders(
         let prefab = &prefabs[&shape_config.prefab];
         let helpers = prefab.get_helpers(&shape_config.prefab_morph_targets, &basemesh, &mh_morphs);
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else { return };
+        let sk_cache = &skeleton_caches[&prefab.rig.rig_type];
 
-        let mut bone_entities = AHashMap::default();
-        for child in children.iter_descendants(related.rig) {
-            let name = names.get(child).unwrap();
-            let name = NAME_INTERNER.intern(name.as_str()).leak();
-            bone_entities.insert(name, child);
-        }
+        let bone_entities = sk_cache.bone_order.iter().cloned()
+            .zip(skm.joints.iter().cloned())
+            .collect::<AHashMap<&str, Entity>>();
 
-        for (i_bone, collider) in COLLIDERS.iter().enumerate() {
-
-            let inv_bindpose_rot = |collider: CharacterColliderBone| {
-                let collider_idx = COLLIDERS
+        let inv_bindposes = sk_cache.bone_order.iter().cloned()
+            .zip(
+                inv_bindposes
                     .iter()
-                    .position(|&x| x == collider)
-                    .unwrap();
-                let bone_name = collider_bone_map[collider_idx];
-                let skm_idx = skm.joints
-                    .iter()
-                    .position(|&x| x == bone_entities[bone_name])
-                    .unwrap();
-                Transform::from_matrix(inv_bindposes[skm_idx]).rotation
-            };
+                    .map(|m| Transform::from_matrix(*m))
+            )
+            .collect::<AHashMap<&str, Transform>>();
+
+        let mut collider_to_world_transforms = AHashMap::default();
+        
+        for (i_collider, collider) in COLLIDERS.iter().enumerate() {
 
             let (geometry, collider_to_model) = match collider {
                 CharacterColliderBone::Head => {
@@ -228,7 +224,9 @@ pub(crate) fn spawn_colliders(
                 },
                 CharacterColliderBone::Chest |
                 CharacterColliderBone::Pelvis => {
-                    get_midsection_collider(&helpers, *collider, &mut geometries, inv_bindpose_rot(*collider))
+                    let bone_name = collider_bone_map[i_collider];
+                    let inv_bindpose_rot = inv_bindposes[bone_name].rotation;
+                    get_midsection_collider(&helpers, *collider, &mut geometries, inv_bindpose_rot)
                 },
                 CharacterColliderBone::UpperRightArm |
                 CharacterColliderBone::UpperLeftArm |
@@ -248,7 +246,7 @@ pub(crate) fn spawn_colliders(
                 },
             };
 
-            let bone_name = collider_bone_map[i_bone];
+            let bone_name = collider_bone_map[i_collider];
             let Ok(bone_to_world) = global_transforms.get(bone_entities[bone_name]) else { continue };
             let Ok(model_to_world) = global_transforms.get(related.rig) else { continue };
             let model_to_world = Transform::from(model_to_world.clone());
@@ -256,13 +254,12 @@ pub(crate) fn spawn_colliders(
 
             // local transform
             let collider_to_world = model_to_world * Transform::from_rotation(MODEL_ROTATION_FIX) * collider_to_model;
+            collider_to_world_transforms.insert(*collider, collider_to_world);
             // offset for placement from bone global
             let collider_to_bone = world_to_bone * collider_to_world;
 
-
             let collider_entity = commands.spawn((
-                RigidBody::Dynamic,
-                Kinematic::new(collider_to_world),
+                RigidBody::ArticulationLink,
                 collider_to_world,
                 *collider,
                 Visibility::default(),
@@ -277,6 +274,30 @@ pub(crate) fn spawn_colliders(
 
             colliders.collider_entities.insert(*collider, collider_entity);
             colliders.bone_entities.insert(*collider, bone_entities[bone_name]);
+
+            if *collider == CharacterColliderBone::Pelvis {
+                commands.entity(collider_entity).insert(ArticulationRoot::default());
+            } else {
+                let parent_collider = get_collider_parent(*collider).unwrap();
+                let parent_collider_to_world = collider_to_world_transforms[&parent_collider];
+                let parent_pose = world_to_bone * parent_collider_to_world;
+                let parent = colliders.collider_entities[&parent_collider];
+                let child_pose = collider_to_bone;
+
+                let child_pose = Transform::from_matrix(child_pose.to_matrix().inverse());
+                let parent_pose = Transform::from_matrix(parent_pose.to_matrix().inverse());
+
+                commands.entity(collider_entity).insert(
+                    ArticulationJoint {
+                        parent,
+                        parent_pose,
+                        child_pose,
+                        joint_type: PxArticulationJointType::Fix,
+                        ..default()
+                    }
+                );
+            }
+
         }
 
         commands.entity(character_entity).remove::<NeedsColliders>();
