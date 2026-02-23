@@ -162,7 +162,6 @@ pub enum CharacterAssetTextureType {
 
 /// Represents a part of a human, either a body part, equipment, or a proxy mesh.
 /// This is a wrapper around a mesh which is morphable by the makehuman morph targets.
-/// Does not represent the base mesh which is special
 pub struct CharacterAsset {
     pub(crate) part: CharacterPart,
     pub paths: CharacterMeshAssetFilePaths,
@@ -466,6 +465,7 @@ impl CharacterAssetData {
                 vertices[vert] = position + offset;
             }
         }
+
         let mut mesh = Mesh::new(
                 bevy::mesh::PrimitiveTopology::TriangleList,
                 RenderAssetUsages::default(),
