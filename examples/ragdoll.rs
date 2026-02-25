@@ -8,19 +8,22 @@ fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
+    let mut settings = DebugRenderSettings::enable();
+    settings.joint_local_frames = 0.05;
+
     app.add_plugins((
         DefaultPlugins,
         PhysicsPlugins.set(
             PhysicsCore {
-                scene: bpx::SceneDescriptor {
-                    solver_type: PxSolverType::Tgs,
-                    ..default()
-                },
+                //scene: bpx::SceneDescriptor {
+                //    solver_type: PxSolverType::Tgs,
+                //    ..default()
+                //},
                 ..default()
             }.with_pvd(),
         ),
     ))
-    .insert_resource(DebugRenderSettings::enable())
+    .insert_resource(settings)
     .add_systems(Startup, (setup_env, floor))
     .add_systems(Startup, setup_prefabs)
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
@@ -32,9 +35,24 @@ fn main() {
             toggle,
             setup_graph,
             start_clip,
+            oscillate,
         )
     )
     .run();
+}
+
+fn oscillate(
+    mut transforms: Query<&mut Transform, With<CharacterColliders>>,
+    mut articulation_root: Query<&mut Transform, (With<ArticulationRoot>, Without<CharacterColliders>)>,
+    time: Res<Time>
+) {
+    return;
+    for mut transform in &mut transforms {
+        transform.translation.x = time.elapsed_secs().sin() * 0.5;
+    }
+    for mut transform in &mut articulation_root {
+        transform.translation.x = time.elapsed_secs().sin() * 0.5;
+    }
 }
 
 fn toggle(

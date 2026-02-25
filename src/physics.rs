@@ -1,10 +1,11 @@
+use std::f32::consts::PI;
+
 use ahash::AHashMap;
 use bevy_mod_physx::{physx_sys::PxArticulationJointType, prelude::{self as bpx, *}};
-use bevy::{ecs::intern::Internable, mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, prelude::*};
+use bevy::{mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, prelude::*};
 
 use crate::{
     MODEL_ROTATION_FIX,
-    NAME_INTERNER,
     morphs::MakeHumanMorphs, prefab::CharacterArchetypePrefabs,
     prelude::{BaseMesh, CharacterShapeConfig, RelatedEntities},
     rigs::{SkeletalBone, RigType, SkeletonCaches},
@@ -182,8 +183,6 @@ pub(crate) fn spawn_colliders(
     basemesh: Res<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
-    children: Query<&Children>,
-    names: Query<&Name, With<SkeletalBone>>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     skeleton_caches: Res<SkeletonCaches>,
     mut geometries: ResMut<Assets<Geometry>>,
@@ -253,13 +252,13 @@ pub(crate) fn spawn_colliders(
             let world_to_bone = Transform::from_matrix(bone_to_world.to_matrix().inverse());
 
             // local transform
-            let collider_to_world = model_to_world * Transform::from_rotation(MODEL_ROTATION_FIX) * collider_to_model;
+            let collider_to_world = model_to_world * Transform::from_rotation(MODEL_ROTATION_FIX.inverse()) * collider_to_model;
             collider_to_world_transforms.insert(*collider, collider_to_world);
             // offset for placement from bone global
             let collider_to_bone = world_to_bone * collider_to_world;
 
             let collider_entity = commands.spawn((
-                RigidBody::ArticulationLink,
+                RigidBody::Static,
                 collider_to_world,
                 *collider,
                 Visibility::default(),
@@ -270,13 +269,18 @@ pub(crate) fn spawn_colliders(
                 },
                 PoseOffset(collider_to_bone),
                 colliders.filter.clone(),
+                MassProperties::density(1000.)
             )).id();
 
             colliders.collider_entities.insert(*collider, collider_entity);
             colliders.bone_entities.insert(*collider, bone_entities[bone_name]);
 
             if *collider == CharacterColliderBone::Pelvis {
-                commands.entity(collider_entity).insert(ArticulationRoot::default());
+                commands.entity(collider_entity).insert(ArticulationRoot {
+                    fix_base: true,
+                    drive_limits_are_forces: true,
+                    ..Default::default()
+                });
             } else {
                 let parent_collider = get_collider_parent(*collider).unwrap();
                 let parent_collider_to_world = collider_to_world_transforms[&parent_collider];
@@ -287,15 +291,7 @@ pub(crate) fn spawn_colliders(
                 let child_pose = Transform::from_matrix(child_pose.to_matrix().inverse());
                 let parent_pose = Transform::from_matrix(parent_pose.to_matrix().inverse());
 
-                commands.entity(collider_entity).insert(
-                    ArticulationJoint {
-                        parent,
-                        parent_pose,
-                        child_pose,
-                        joint_type: PxArticulationJointType::Fix,
-                        ..default()
-                    }
-                );
+                commands.entity(collider_entity).insert(get_articulation_joint(*collider, parent, parent_pose, child_pose));
             }
 
         }
@@ -304,12 +300,49 @@ pub(crate) fn spawn_colliders(
     }
 }
 
+fn get_articulation_joint(
+    collider: CharacterColliderBone,
+    parent: Entity,
+    parent_pose: Transform,
+    child_pose: Transform,
+) -> ArticulationJoint {
+    match collider {
+        //CharacterColliderBone::Head => {
+        _ => {
+            ArticulationJoint {
+                parent,
+                parent_pose,
+                child_pose,
+                joint_type: PxArticulationJointType::Spherical,
+                motion_swing1: ArticulationJointMotion::Free,
+                motion_swing2: ArticulationJointMotion::Free,
+                motion_twist: ArticulationJointMotion::Free,
+                motion_x: ArticulationJointMotion::Locked,
+                motion_y: ArticulationJointMotion::Locked,
+                motion_z: ArticulationJointMotion::Locked,
+                friction_coefficient: 1.1,
+                ..default()
+            }
+        }
+        //_ => {
+        //    ArticulationJoint {
+        //        parent,
+        //        parent_pose,
+        //        child_pose,
+        //        joint_type: PxArticulationJointType::Fix,
+        //        ..default()
+        //    }
+        //}
+    }
+}
+
 /// Syncs colliders to bone transforms during animation (i.e. not simulating physics)
 pub(crate) fn sync_colliders(
     characters: Query<(&CharacterColliders, Option<&CharacterRagdoll>)>,
     global_transforms: Query<&GlobalTransform, Or<(With<SkeletalBone>, Without<CharacterColliderBone>)>>,
-    mut collider_transforms: Query<(&mut Kinematic, &GlobalTransform, &PoseOffset), (Without<SkeletalBone>, With<CharacterColliderBone>)>,
+    mut collider_transforms: Query<(&mut Transform, &GlobalTransform, &PoseOffset), (Without<SkeletalBone>, With<CharacterColliderBone>)>,
 ) {
+    return;
     for (colliders, ragdoll) in characters {
         if !colliders.sync_to_bones { continue };
         if colliders.collider_entities.is_empty() { continue };
@@ -329,7 +362,7 @@ pub(crate) fn sync_colliders(
             let collider_to_bone = **offset;
             let collider_to_world = Transform::from(bone_to_world.clone()) * collider_to_bone;
 
-            collider_transform.target = collider_to_world;
+            *collider_transform = collider_to_world;
         }
         
     }
@@ -341,18 +374,17 @@ pub(crate) fn on_ragdoll(
     transforms: Query<&GlobalTransform, Or<(With<CharacterColliderBone>, With<SkeletalBone>)>>,
     mut commands: Commands,
 ) {
+    return;
     for (colliders, ragdoll) in ragdolls.iter() {
         match ragdoll {
             CharacterRagdoll::Full => {
                 for collider in COLLIDERS.iter() {
                     let Some(&entity) = colliders.collider_entities.get(collider) else { continue };
-                    set_articulation_link(entity, *collider, &mut commands, colliders, &transforms, &[CharacterColliderBone::Pelvis]);
                 }
             },
             CharacterRagdoll::None => {
                 for collider in COLLIDERS.iter() {
                     let Some(&entity) = colliders.collider_entities.get(collider) else { continue };
-                    set_kinematic(entity, &mut commands, &transforms);
                 }
             },
             CharacterRagdoll::Partial(character_collider_bones) => {
@@ -367,7 +399,6 @@ pub(crate) fn on_ragdoll(
 
                 for collider in COLLIDERS.iter() {
                     let Some(&entity) = colliders.collider_entities.get(collider) else { continue };
-                    set_articulation_link(entity, *collider, &mut commands, colliders, &transforms, &roots);
                 }
             }
         }
@@ -375,74 +406,6 @@ pub(crate) fn on_ragdoll(
 }
 
 /*--- Utility functions ---*/
-fn set_articulation_link(
-    entity: Entity,
-    collider: CharacterColliderBone,
-    commands: &mut Commands,
-    colliders: &CharacterColliders,
-    transforms: &Query<&GlobalTransform, Or<(With<CharacterColliderBone>, With<SkeletalBone>)>>,
-    roots: &[CharacterColliderBone],
-) {
-    commands.entity(entity).insert((
-        RigidBody::ArticulationLink,
-        MassProperties::density(1000.),
-        Damping {
-            linear: 0.1,
-            angular: 0.1,
-        },
-        MaxVelocity {
-            linear: 100.,
-            angular: 30.,
-        },
-    ));
-
-    if roots.contains(&collider) {
-        commands.entity(entity).insert(ArticulationRoot::default());
-    } else {
-        let bone = colliders.bone_entities[&collider];
-        let Ok(bone_transform) = transforms.get(bone) else { return };
-        let world_to_bone = Transform::from_matrix(bone_transform.to_matrix().inverse());
-
-        let Ok(child_to_world) = transforms.get(entity) else { return };
-        let child_to_world = Transform::from(child_to_world.clone());
-
-        let parent_entity = colliders.collider_entities[&get_collider_parent(collider).unwrap()];
-        let Ok(parent_to_world) = transforms.get(parent_entity) else { return };
-        let parent_to_world = Transform::from(parent_to_world.clone());
-
-        let parent_pose = world_to_bone * parent_to_world;
-        let child_pose = world_to_bone * child_to_world;
-
-        commands.entity(entity).insert((
-            ArticulationJoint {
-                parent: parent_entity,
-                parent_pose,
-                child_pose,
-                joint_type: PxArticulationJointType::Spherical,
-                motion_swing1: ArticulationJointMotion::Free,
-                motion_swing2: ArticulationJointMotion::Free,
-                motion_twist: ArticulationJointMotion::Free,
-                friction_coefficient: 1.0,
-                ..default()
-            },
-        ));
-    }
-}
-
-fn set_kinematic(
-    entity: Entity,
-    commands: &mut Commands,
-    transforms: &Query<&GlobalTransform, Or<(With<CharacterColliderBone>, With<SkeletalBone>)>>,
-) {
-    let Ok(transform) = transforms.get(entity) else { return };
-    commands.entity(entity).remove::<ArticulationJoint>();
-    commands.entity(entity).remove::<ArticulationRoot>();
-    commands.entity(entity).insert((
-        RigidBody::Dynamic,
-        Kinematic::new(Transform::from(transform.clone())),
-    ));
-}
-
 fn get_head_collider(helpers: &[Vec3], geometry: &mut Assets<Geometry>) -> (Handle<Geometry>, Transform) {
     let center = (helpers[HEAD_VERTICES[0]] + helpers[HEAD_VERTICES[1]]) * 0.5;
     let radius = (helpers[HEAD_VERTICES[0]] - center).length();
