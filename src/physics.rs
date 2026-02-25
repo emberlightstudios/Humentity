@@ -258,7 +258,7 @@ pub(crate) fn spawn_colliders(
             let collider_to_bone = world_to_bone * collider_to_world;
 
             let collider_entity = commands.spawn((
-                RigidBody::Static,
+                RigidBody::ArticulationLink,
                 collider_to_world,
                 *collider,
                 Visibility::default(),
@@ -320,7 +320,7 @@ fn get_articulation_joint(
                 motion_x: ArticulationJointMotion::Locked,
                 motion_y: ArticulationJointMotion::Locked,
                 motion_z: ArticulationJointMotion::Locked,
-                friction_coefficient: 1.1,
+                friction_coefficient: 1.0,
                 ..default()
             }
         }
