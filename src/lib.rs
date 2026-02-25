@@ -138,7 +138,6 @@ impl Plugin for HumentityPlugin {
         
         #[cfg(feature = "physics")]
         {
-            use bevy_mod_physx::prelude::Physics;
             app.add_systems(
                     Startup,
                     physics::create_collider_physics_material
@@ -152,6 +151,7 @@ impl Plugin for HumentityPlugin {
                             .run_if(resource_exists::<Physics>),
                         physics::sync_colliders,
                         physics::on_ragdoll,
+                        physics::debug_ragdoll_positions,
                     )
                         .run_if(in_state(HumentityLoadState::Ready))
                 )

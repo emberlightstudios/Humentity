@@ -1,6 +1,6 @@
 mod shared;
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
-use bevy_mod_physx::{physx_sys::PxSolverType, prelude::{self as bpx, *}};
+use avian3d::prelude::*;
 use humentity::prelude::*;
 use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
 
@@ -8,20 +8,10 @@ fn main() {
     let mut app = App::new();
     add_humentity_plugin(&mut app);
 
-    let mut settings = DebugRenderSettings::enable();
-    settings.joint_local_frames = 0.05;
-
     app.add_plugins((
         DefaultPlugins,
-        PhysicsPlugins.set(
-            PhysicsCore {
-                //scene: bpx::SceneDescriptor {
-                //    solver_type: PxSolverType::Tgs,
-                //    ..default()
-                //},
-                ..default()
-            }.with_pvd(),
-        ),
+        PhysicsPlugin::default(),
+        PhysicsDebugRenderPlugin::default(),
     ))
     .insert_resource(settings)
     .add_systems(Startup, (setup_env, floor))
