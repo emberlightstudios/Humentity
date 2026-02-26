@@ -1,6 +1,11 @@
 mod shared;
+use std::f32::consts::PI;
+
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
-use bevy_mod_physx::{physx_sys::PxSolverType, prelude::{self as bpx, *}};
+use bevy_mod_physx::{
+    physx_sys::PxSolverType,
+    prelude::{self as bpx, *},
+};
 use humentity::prelude::*;
 use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
 
@@ -20,7 +25,8 @@ fn main() {
                 //    ..default()
                 //},
                 ..default()
-            }.with_pvd(),
+            }
+            .with_pvd(),
         ),
     ))
     .insert_resource(settings)
@@ -35,36 +41,29 @@ fn main() {
             toggle,
             setup_graph,
             start_clip,
-            oscillate,
-        )
+        ),
     )
     .run();
 }
 
-fn oscillate(
-    mut transforms: Query<&mut Transform, With<CharacterColliders>>,
-    mut articulation_root: Query<&mut Transform, (With<ArticulationRoot>, Without<CharacterColliders>)>,
-    time: Res<Time>
-) {
-    return;
-    for mut transform in &mut transforms {
-        transform.translation.x = time.elapsed_secs().sin() * 0.5;
-    }
-    for mut transform in &mut articulation_root {
-        transform.translation.x = time.elapsed_secs().sin() * 0.5;
-    }
-}
-
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
-    mut ragdoll: Single<&mut CharacterRagdoll, With<CharacterColliders>>,
+    mut hitbox: Single<&mut CharacterColliders<HitboxCollider>>,
+    mut ragdoll: Single<&mut CharacterColliders<RagdollCollider>>,
 ) {
     if input.just_pressed(KeyCode::Space) {
-        if **ragdoll == CharacterRagdoll::None {
-            **ragdoll = CharacterRagdoll::Full;
+        // Toggle between ragdoll active and hitbox active
+        let ragdoll_active = !ragdoll.bones_subset.as_ref().map_or(true, |v| v.is_empty());
+
+        if ragdoll_active {
+            // Switch to hitbox: ragdoll gets empty, hitbox gets all bones
+            ragdoll.bones_subset = Some(vec![]);
+            hitbox.bones_subset = None;
         } else {
-            **ragdoll = CharacterRagdoll::None;
-        };
+            // Switch to ragdoll: hitbox gets empty, ragdoll gets all bones
+            hitbox.bones_subset = Some(vec![]);
+            ragdoll.bones_subset = None;
+        }
     }
 }
 
@@ -75,7 +74,7 @@ fn floor(
     mut physics: ResMut<Physics>,
 ) {
     commands.spawn((
-        Shape{
+        Shape {
             geometry: geometries.add(Plane3d::default()),
             material: materials.add(bpx::Material::new(&mut physics, 0.5, 0.5, 0.5)),
             ..Default::default()
@@ -86,27 +85,38 @@ fn floor(
 }
 
 fn add_human(mut commands: Commands) {
+    // Different filter layers so hitbox and ragdoll don't collide with each other
+    // Using PhysX filter: group in word0, mask in word1
+    // Hitbox: group=1, mask=1 (only collides with hitbox)
+    // Ragdoll: group=2, mask=2 (only collides with ragdoll)
+    let hitbox_filter = ShapeFilterData {
+        simulation_filter_data: [1, 1, 0, 0],
+        ..default()
+    };
+    let ragdoll_filter = ShapeFilterData {
+        simulation_filter_data: [2, 2, 0, 0],
+        ..default()
+    };
+
     commands.spawn((
-        Transform::IDENTITY,
+        Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
         CharacterShapeConfig::default(),
-        CharacterColliders::new(true, ShapeFilterData::default()),
-        CharacterRagdoll::None,
-        //children![(CharacterPart::BodyMesh("basemesh"))],
+        // Start with hitbox colliders (all bones), ragdoll has no bones
+        CharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
+        //CharacterColliders::<RagdollCollider>::new(ragdoll_filter, Some(vec![])),
     ));
 }
 
 fn setup_prefabs(mut commands: Commands) {
     // No shape morphs, just the basemesh
     // Just for the examples.
-    commands.insert_resource(CharacterArchetypePrefabs::new(
-        [("", CharacterArchetypePrefab::new(
+    commands.insert_resource(CharacterArchetypePrefabs::new([(
+        "",
+        CharacterArchetypePrefab::new(
             [],
-            CharacterAnimationArchetype::new(
-                RigType::Default,
-                ["assets/animation/idle.glb"]
-            )
-        ))]
-    ));
+            CharacterAnimationArchetype::new(RigType::Default, ["assets/animation/idle.glb"]),
+        ),
+    )]));
 }
 
 #[derive(Component)]
@@ -119,7 +129,9 @@ fn setup_graph(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut commands: Commands,
 ) {
-    let Ok(anim_player) = player.get(human.rig) else { return };
+    let Ok(anim_player) = player.get(human.rig) else {
+        return;
+    };
     let animations = &animations[&RigType::Default];
     let clip = &animations["Idle-loop"];
     let (graph, index) = AnimationGraph::from_clip(clip.clone());
@@ -130,9 +142,7 @@ fn setup_graph(
     ));
 }
 
-fn start_clip(
-    mut anim: Single<(&mut AnimationPlayer, &AnimationController)>,
-) {
-    let idx = anim.1.0.clone();
-    //anim.0.play(idx);
+fn start_clip(mut anim: Single<(&mut AnimationPlayer, &AnimationController)>) {
+    let idx = anim.1 .0.clone();
+    anim.0.play(idx);
 }

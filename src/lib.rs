@@ -43,7 +43,7 @@ pub mod prelude {
         NAME_INTERNER,
     };
     #[cfg(feature = "physics")]
-    pub use crate::physics::{CharacterColliders, CharacterRagdoll};
+    pub use crate::physics::{CharacterColliders, CharacterColliderBone, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider};
 }
 
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
@@ -147,15 +147,27 @@ impl Plugin for HumentityPlugin {
                 .add_systems(
                     Update,
                     (
-                        physics::spawn_colliders
+                        physics::spawn_kinematic_colliders::<HitboxCollider>
                             .run_if(resource_exists::<physics::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>),
-                        physics::sync_colliders,
+                        physics::spawn_kinematic_colliders::<HurtboxCollider>
+                            .run_if(resource_exists::<physics::ColliderMaterial>)
+                            .run_if(resource_exists::<Physics>),
+                        physics::spawn_ragdoll_colliders
+                            .run_if(resource_exists::<physics::ColliderMaterial>)
+                            .run_if(resource_exists::<Physics>),
+                        physics::sync_colliders::<HitboxCollider>,
+                        physics::sync_colliders::<HurtboxCollider>,
                         physics::on_ragdoll,
+                        physics::on_colliders_changed::<HitboxCollider>,
+                        physics::on_colliders_changed::<HurtboxCollider>,
+                        physics::on_colliders_changed::<RagdollCollider>,
                     )
                         .run_if(in_state(HumentityLoadState::Ready))
                 )
-                .add_observer(physics::mark_entity_needs_colliders);
+                .add_observer(physics::mark_entity_needs_colliders::<HitboxCollider>)
+                .add_observer(physics::mark_entity_needs_colliders::<HurtboxCollider>)
+                .add_observer(physics::mark_entity_needs_colliders::<RagdollCollider>);
         }
 
         if self.config.debug_draw_bones {
