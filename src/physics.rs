@@ -461,7 +461,7 @@ pub(crate) fn spawn_ragdoll_colliders(
             .zip(inv_bindposes.iter().map(|m| Transform::from_matrix(*m)))
             .collect::<AHashMap<&str, Transform>>();
 
-        let mut collider_to_model_transforms = AHashMap::default();
+        let mut collider_to_world_transforms = AHashMap::default();
 
         let target_bones: Vec<CharacterColliderBone> = match &colliders.bones_subset {
             Some(bones) if !bones.is_empty() => bones.clone(),
@@ -490,7 +490,7 @@ pub(crate) fn spawn_ragdoll_colliders(
             }
             let i_collider = COLLIDERS.iter().position(|&c| c == *collider).unwrap();
 
-            let (geometry, collider_to_model) = get_collider_geometry(
+            let (geometry, collider_bind_to_model) = get_collider_geometry(
                 *collider,
                 &helpers,
                 i_collider,
@@ -507,21 +507,23 @@ pub(crate) fn spawn_ragdoll_colliders(
             let rot_fix = Transform::from_rotation(MODEL_ROTATION_FIX);
             let model_to_world = rot_fix * model_to_world;
 
-            let collider_to_world = model_to_world * collider_to_model;
-            let model_to_joint = inv_bindposes_map[bone_name] * rot_fix;
-            let collider_to_joint = model_to_joint * collider_to_model;
+            let model_to_joint_bind = inv_bindposes_map[bone_name] * rot_fix;
+            let collider_to_joint = model_to_joint_bind * collider_bind_to_model;
 
             let world_to_model = Transform::from_matrix(model_to_world.to_matrix().inverse());
-            collider_to_model_transforms.insert(*collider, world_to_model * collider_to_world );
-            let Ok(current_joint_to_world) = global_transforms.get(bone_entities[bone_name]) else {
+            let Ok(joint_to_world) = global_transforms.get(bone_entities[bone_name]) else {
                 continue;
             };
-            let transform = Transform::from(current_joint_to_world.clone()) * collider_to_joint;
+            let joint_to_world = Transform::from(joint_to_world.clone());
+            let world_to_joint = Transform::from_matrix(joint_to_world.to_matrix().inverse());
+            let collider_to_world = joint_to_world * collider_to_joint;
+
+            collider_to_world_transforms.insert(*collider, collider_to_world );
 
             let collider_entity = commands
                 .spawn((
                     RigidBody::ArticulationLink,
-                    transform,
+                    collider_to_world,
                     *collider,
                     Shape {
                         geometry,
@@ -547,8 +549,8 @@ pub(crate) fn spawn_ragdoll_colliders(
                 });
             } else {
                 let parent_collider = get_collider_parent(*collider).unwrap();
-                let parent_collider_to_model = collider_to_model_transforms[&parent_collider];
-                let parent_collider_to_joint = model_to_joint * parent_collider_to_model;
+                let parent_collider_to_model = collider_to_world_transforms[&parent_collider];
+                let parent_collider_to_joint = world_to_joint * parent_collider_to_model;
 
                 let parent = colliders.collider_entities[&parent_collider];
                 let child_pose = collider_to_joint;
