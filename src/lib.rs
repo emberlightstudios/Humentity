@@ -140,15 +140,13 @@ impl Plugin for HumentityPlugin {
         {
             app.add_systems(
                     Startup,
-                    physics::create_collider_physics_material
-                            .run_if(resource_exists::<Physics>),
+                    physics::create_collider_physics_material,
                 )
                 .add_systems(
                     Update,
                     (
                         physics::spawn_colliders
-                            .run_if(resource_exists::<physics::ColliderMaterial>)
-                            .run_if(resource_exists::<Physics>),
+                            .run_if(resource_exists::<physics::ColliderMaterial>),
                         physics::sync_colliders,
                         physics::on_ragdoll,
                         physics::debug_ragdoll_positions,

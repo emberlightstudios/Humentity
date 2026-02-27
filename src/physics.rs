@@ -148,12 +148,32 @@ pub enum CharacterRagdoll {
     Partial(Vec<CharacterColliderBone>),
 }
 
+/// Collider physics material resource
+#[derive(Resource)]
+pub(crate) struct ColliderMaterial {
+    pub friction: Friction,
+    pub restitution: Restitution,
+}
+
+impl Default for ColliderMaterial {
+    fn default() -> Self {
+        Self {
+            friction: Friction::new(0.0),
+            restitution: Restitution::new(0.0),
+        }
+    }
+}
+
 /*--- Systems ---*/
 pub(crate) fn mark_entity_needs_colliders(
     trigger: On<Add, CharacterColliders>,
     mut commands: Commands,
 ) {
     commands.entity(trigger.entity).insert(NeedsColliders);
+}
+
+pub(crate) fn create_collider_physics_material(mut commands: Commands) {
+    commands.insert_resource(ColliderMaterial::default());
 }
 
 /// Create colliders from character shape
@@ -179,7 +199,6 @@ pub(crate) fn spawn_colliders(
     collider_mat: Res<ColliderMaterial>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     skeleton_caches: Res<SkeletonCaches>,
-    mut geometries: ResMut<Assets<Geometry>>,
     mut commands: Commands,
 ) {
     for (character_entity, shape_config, related, mut colliders, skm) in needs_colliders.iter_mut()
@@ -215,12 +234,12 @@ pub(crate) fn spawn_colliders(
         let mut collider_to_world_transforms = AHashMap::default();
 
         for (i_collider, collider) in COLLIDERS.iter().enumerate() {
-            let (geometry, collider_to_backwards_model) = match collider {
-                CharacterColliderBone::Head => get_head_collider(&helpers, &mut geometries),
+            let (collider_shape, collider_to_backwards_model) = match collider {
+                CharacterColliderBone::Head => get_head_collider(&helpers),
                 CharacterColliderBone::Chest | CharacterColliderBone::Pelvis => {
                     let bone_name = collider_bone_map[i_collider];
                     let inv_bindpose_rot = inv_bindposes[bone_name].rotation;
-                    get_midsection_collider(&helpers, *collider, &mut geometries, inv_bindpose_rot)
+                    get_midsection_collider(&helpers, *collider, inv_bindpose_rot)
                 }
                 CharacterColliderBone::UpperRightArm
                 | CharacterColliderBone::UpperLeftArm
@@ -229,15 +248,11 @@ pub(crate) fn spawn_colliders(
                 | CharacterColliderBone::UpperRightLeg
                 | CharacterColliderBone::UpperLeftLeg
                 | CharacterColliderBone::LowerRightLeg
-                | CharacterColliderBone::LowerLeftLeg => {
-                    get_limb_collider(&helpers, *collider, &mut geometries)
-                }
+                | CharacterColliderBone::LowerLeftLeg => get_limb_collider(&helpers, *collider),
                 CharacterColliderBone::LeftHand
                 | CharacterColliderBone::RightHand
                 | CharacterColliderBone::LeftFoot
-                | CharacterColliderBone::RightFoot => {
-                    get_extremity_collider(&helpers, *collider, &mut geometries)
-                }
+                | CharacterColliderBone::RightFoot => get_extremity_collider(&helpers, *collider),
             };
 
             let bone_name = collider_bone_map[i_collider];
@@ -258,20 +273,24 @@ pub(crate) fn spawn_colliders(
             // offset for placement from bone global
             let collider_to_bone = world_to_bone * collider_to_world;
 
+            // Pelvis is the root - make it kinematic to anchor the ragdoll
+            let rigid_body = if *collider == CharacterColliderBone::Pelvis {
+                RigidBody::Kinematic
+            } else {
+                RigidBody::Dynamic
+            };
+
             let collider_entity = commands
                 .spawn((
-                    RigidBody::Dynamic,
+                    rigid_body,
                     collider_to_world,
                     *collider,
                     Visibility::default(),
-                    Shape {
-                        geometry,
-                        material: collider_mat.0.clone(),
-                        ..Default::default()
-                    },
+                    collider_shape,
+                    collider_mat.friction,
+                    collider_mat.restitution,
                     PoseOffset(collider_to_bone),
-                    colliders.filter.clone(),
-                    MassProperties::density(1000.),
+                    Mass(1000.0),
                 ))
                 .id();
 
@@ -281,89 +300,84 @@ pub(crate) fn spawn_colliders(
             colliders
                 .bone_entities
                 .insert(*collider, bone_entities[bone_name]);
+        }
 
+        // Spawn joints as separate entities in Avian
+        for (i_collider, collider) in COLLIDERS.iter().enumerate() {
             if *collider == CharacterColliderBone::Pelvis {
-                commands.entity(collider_entity).insert(ArticulationRoot {
-                    fix_base: true,
-                    drive_limits_are_forces: true,
-                    ..Default::default()
-                });
-                info!(
-                    "[RAGDOLL] {:?} is ArticulationRoot at {:?}",
-                    collider, collider_to_world.translation
-                );
-            } else {
-                let parent_collider = get_collider_parent(*collider).unwrap();
-                let parent_collider_to_world = collider_to_world_transforms[&parent_collider];
-                let parent_pose = world_to_bone * parent_collider_to_world;
-                let parent = colliders.collider_entities[&parent_collider];
-                let child_pose = collider_to_bone;
-
-                let child_pose_inv = Transform::from_matrix(child_pose.to_matrix().inverse());
-                let parent_pose_inv = Transform::from_matrix(parent_pose.to_matrix().inverse());
-
-                info!(
-                    "[RAGDOLL] {:?} child_pose (collider->bone): trans={:?} rot={:?}",
-                    collider, child_pose.translation, child_pose.rotation
-                );
-                info!(
-                    "[RAGDOLL] {:?} child_pose_inv (bone->collider): trans={:?} rot={:?}",
-                    collider, child_pose_inv.translation, child_pose_inv.rotation
-                );
-                info!(
-                    "[RAGDOLL] {:?} parent_pose (parent_collider->bone): trans={:?} rot={:?}",
-                    collider, parent_pose.translation, parent_pose.rotation
-                );
-                info!(
-                    "[RAGDOLL] {:?} parent_pose_inv: trans={:?} rot={:?}",
-                    collider, parent_pose_inv.translation, parent_pose_inv.rotation
-                );
-
-                commands
-                    .entity(collider_entity)
-                    .insert(get_articulation_joint(
-                        *collider,
-                        parent,
-                        parent_pose_inv,
-                        child_pose_inv,
-                    ));
+                continue;
             }
+
+            let parent_collider = get_collider_parent(*collider).unwrap();
+            let child_entity = colliders.collider_entities[collider];
+            let parent_entity = colliders.collider_entities[&parent_collider];
+
+            // Get actual collider positions (not bone positions)
+            let child_collider_transform = collider_to_world_transforms[collider];
+            let parent_collider_transform = collider_to_world_transforms[&parent_collider];
+
+            // Anchor at midpoint between parent and child colliders
+            let anchor = (parent_collider_transform.translation
+                + child_collider_transform.translation)
+                / 2.0;
+
+            spawn_ragdoll_joint(
+                &mut commands,
+                *collider,
+                parent_entity,
+                child_entity,
+                anchor,
+            );
+
+            info!(
+                "[RAGDOLL] {:?} joint: parent={:?}, child={:?}, anchor={:?}",
+                collider, parent_entity, child_entity, anchor
+            );
         }
 
         commands.entity(character_entity).remove::<NeedsColliders>();
     }
 }
 
-fn get_articulation_joint(
+#[derive(Component)]
+struct RagdollJoint(CharacterColliderBone);
+
+fn spawn_ragdoll_joint(
+    commands: &mut Commands,
     collider: CharacterColliderBone,
     parent: Entity,
-    parent_pose: Transform,
-    child_pose: Transform,
-) -> ArticulationJoint {
+    child: Entity,
+    anchor: Vec3,
+) {
     match collider {
-        //CharacterColliderBone::Head => {
-        _ => ArticulationJoint {
-            parent,
-            parent_pose,
-            child_pose,
-            joint_type: PxArticulationJointType::Spherical,
-            motion_swing1: ArticulationJointMotion::Free,
-            motion_swing2: ArticulationJointMotion::Free,
-            motion_twist: ArticulationJointMotion::Free,
-            motion_x: ArticulationJointMotion::Locked,
-            motion_y: ArticulationJointMotion::Locked,
-            motion_z: ArticulationJointMotion::Locked,
-            friction_coefficient: 1.1,
-            ..default()
-        }, //_ => {
-           //    ArticulationJoint {
-           //        parent,
-           //        parent_pose,
-           //        child_pose,
-           //        joint_type: PxArticulationJointType::Fix,
-           //        ..default()
-           //    }
-           //}
+        // Elbows - Revolute (hinge)
+        CharacterColliderBone::LowerRightArm | CharacterColliderBone::LowerLeftArm => {
+            commands.spawn((
+                RevoluteJoint::new(parent, child)
+                    .with_anchor(anchor)
+                    .with_hinge_axis(Vec3::NEG_Z),
+                JointCollisionDisabled,
+                RagdollJoint(collider),
+            ));
+        }
+        // Knees - Revolute (hinge)
+        CharacterColliderBone::LowerRightLeg | CharacterColliderBone::LowerLeftLeg => {
+            commands.spawn((
+                RevoluteJoint::new(parent, child)
+                    .with_anchor(anchor)
+                    .with_hinge_axis(Vec3::Z),
+                JointCollisionDisabled,
+                RagdollJoint(collider),
+            ));
+        }
+        // Everything else - Spherical (ball socket)
+        _ => {
+            commands.spawn((
+                SphericalJoint::new(parent, child).with_anchor(anchor),
+                JointCollisionDisabled,
+                RagdollJoint(collider),
+            ));
+        }
     }
 }
 
@@ -467,14 +481,11 @@ pub(crate) fn on_ragdoll(
 }
 
 /*--- Utility functions ---*/
-fn get_head_collider(
-    helpers: &[Vec3],
-    geometry: &mut Assets<Geometry>,
-) -> (Handle<Geometry>, Transform) {
+fn get_head_collider(helpers: &[Vec3]) -> (Collider, Transform) {
     let center = (helpers[HEAD_VERTICES[0]] + helpers[HEAD_VERTICES[1]]) * 0.5;
     let radius = (helpers[HEAD_VERTICES[0]] - center).length();
     (
-        geometry.add(Sphere::new(radius)),
+        Collider::sphere(radius),
         Transform::from_translation(MODEL_ROTATION_FIX * center),
     )
 }
@@ -482,9 +493,8 @@ fn get_head_collider(
 fn get_midsection_collider(
     helpers: &[Vec3],
     joint: CharacterColliderBone,
-    geometry: &mut Assets<Geometry>,
     inv_bindpose_rot: Quat,
-) -> (Handle<Geometry>, Transform) {
+) -> (Collider, Transform) {
     let ref_verts = match joint {
         CharacterColliderBone::Chest => TORSO_VERTICES,
         CharacterColliderBone::Pelvis => PELVIS_VERTICES,
@@ -529,7 +539,11 @@ fn get_midsection_collider(
         .max_by(|a, b| a.partial_cmp(b).unwrap())
         .unwrap();
     (
-        geometry.add(Cuboid::new(xmax - xmin, ymax - ymin, zmax - zmin)),
+        Collider::cuboid(
+            (xmax - xmin) / 2.0,
+            (ymax - ymin) / 2.0,
+            (zmax - zmin) / 2.0,
+        ),
         Transform::from_translation(MODEL_ROTATION_FIX * center).with_rotation(
             MODEL_ROTATION_FIX *
                 inv_bindpose_rot * //.inverse() *   // Why inverse bindpose, not bindpose? idk
@@ -538,11 +552,7 @@ fn get_midsection_collider(
     )
 }
 
-fn get_limb_collider(
-    helpers: &[Vec3],
-    joint: CharacterColliderBone,
-    geometry: &mut Assets<Geometry>,
-) -> (Handle<Geometry>, Transform) {
+fn get_limb_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collider, Transform) {
     let ref_verts = match joint {
         CharacterColliderBone::LowerLeftArm | CharacterColliderBone::LowerRightArm => {
             LOWER_ARM_VERTICES
@@ -573,15 +583,14 @@ fn get_limb_collider(
     let p1 = (verts[0] + verts[1]) * 0.5;
     let p2 = (verts[2] + verts[3]) * 0.5;
     let r = (verts[0] - verts[1]).length() * 0.5;
+    let length = (p1 - p2).length() - r * 2.0;
     let c = 0.5 * (p1 + p2);
     let dir = (p1 - p2).normalize();
     let up = dir.cross(Vec3::NEG_Z).normalize();
     let fwd = dir.cross(up);
 
     (
-        // Subtract just a small amount of capsule length
-        geometry.add(Capsule3d::new(r, (p1 - p2).length())),
-        // we have to account for the mesh facing wrong direction
+        Collider::capsule(r, length),
         Transform::from_translation(MODEL_ROTATION_FIX * c).with_rotation(
             MODEL_ROTATION_FIX
                 * Quat::from_mat3(&Mat3::from_cols(dir, up, fwd))
@@ -590,11 +599,7 @@ fn get_limb_collider(
     )
 }
 
-fn get_extremity_collider(
-    helpers: &[Vec3],
-    joint: CharacterColliderBone,
-    geometry: &mut Assets<Geometry>,
-) -> (Handle<Geometry>, Transform) {
+fn get_extremity_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collider, Transform) {
     let ref_verts = match joint {
         CharacterColliderBone::LeftHand | CharacterColliderBone::RightHand => HAND_VERTICES,
         CharacterColliderBone::LeftFoot | CharacterColliderBone::RightFoot => FOOT_VERTICES,
@@ -613,20 +618,19 @@ fn get_extremity_collider(
     let x = (verts[0] - verts[1]).length();
     let y = (verts[2] - verts[3]).length();
     let z = (verts[4] - verts[5]).length();
-    let cube = Cuboid::new(x, y, z);
 
     let center = verts.iter().sum::<Vec3>() / verts.len() as f32;
 
-    let x = verts[1] - verts[0];
-    let y = (verts[3] - verts[2]).normalize();
-    let z = x.cross(y).normalize();
-    let x = y.cross(z);
+    let x_axis = verts[1] - verts[0];
+    let y_axis = (verts[3] - verts[2]).normalize();
+    let z_axis = x_axis.cross(y_axis).normalize();
+    let x_axis = y_axis.cross(z_axis);
 
     (
-        geometry.add(cube),
+        Collider::cuboid(x / 2.0, y / 2.0, z / 2.0),
         Transform::from_translation(MODEL_ROTATION_FIX * center).with_rotation(
             MODEL_ROTATION_FIX
-                * Quat::from_mat3(&Mat3::from_cols(x, y, z))
+                * Quat::from_mat3(&Mat3::from_cols(x_axis, y_axis, z_axis))
                 * MODEL_ROTATION_FIX.inverse(),
         ),
     )

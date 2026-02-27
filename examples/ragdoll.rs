@@ -1,6 +1,6 @@
 mod shared;
-use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
 use avian3d::prelude::*;
+use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
 use humentity::prelude::*;
 use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
 
@@ -10,10 +10,9 @@ fn main() {
 
     app.add_plugins((
         DefaultPlugins,
-        PhysicsPlugin::default(),
-        PhysicsDebugRenderPlugin::default(),
+        PhysicsPlugins::default(),
+        PhysicsDebugPlugin::default(),
     ))
-    .insert_resource(settings)
     .add_systems(Startup, (setup_env, floor))
     .add_systems(Startup, setup_prefabs)
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
@@ -26,21 +25,14 @@ fn main() {
             setup_graph,
             start_clip,
             oscillate,
-        )
+        ),
     )
     .run();
 }
 
-fn oscillate(
-    mut transforms: Query<&mut Transform, With<CharacterColliders>>,
-    mut articulation_root: Query<&mut Transform, (With<ArticulationRoot>, Without<CharacterColliders>)>,
-    time: Res<Time>
-) {
+fn oscillate(mut transforms: Query<&mut Transform, With<CharacterColliders>>, time: Res<Time>) {
     return;
     for mut transform in &mut transforms {
-        transform.translation.x = time.elapsed_secs().sin() * 0.5;
-    }
-    for mut transform in &mut articulation_root {
         transform.translation.x = time.elapsed_secs().sin() * 0.5;
     }
 }
@@ -58,18 +50,11 @@ fn toggle(
     }
 }
 
-fn floor(
-    mut commands: Commands,
-    mut geometries: ResMut<Assets<Geometry>>,
-    mut materials: ResMut<Assets<bpx::Material>>,
-    mut physics: ResMut<Physics>,
-) {
+fn floor(mut commands: Commands) {
     commands.spawn((
-        Shape{
-            geometry: geometries.add(Plane3d::default()),
-            material: materials.add(bpx::Material::new(&mut physics, 0.5, 0.5, 0.5)),
-            ..Default::default()
-        },
+        Collider::cuboid(100.0, 0.1, 100.0),
+        Friction::new(0.5),
+        Restitution::new(0.5),
         RigidBody::Static,
         Transform::IDENTITY,
     ));
@@ -79,7 +64,7 @@ fn add_human(mut commands: Commands) {
     commands.spawn((
         Transform::IDENTITY,
         CharacterShapeConfig::default(),
-        CharacterColliders::new(true, ShapeFilterData::default()),
+        CharacterColliders::new(true),
         CharacterRagdoll::None,
         //children![(CharacterPart::BodyMesh("basemesh"))],
     ));
@@ -88,15 +73,13 @@ fn add_human(mut commands: Commands) {
 fn setup_prefabs(mut commands: Commands) {
     // No shape morphs, just the basemesh
     // Just for the examples.
-    commands.insert_resource(CharacterArchetypePrefabs::new(
-        [("", CharacterArchetypePrefab::new(
+    commands.insert_resource(CharacterArchetypePrefabs::new([(
+        "",
+        CharacterArchetypePrefab::new(
             [],
-            CharacterAnimationArchetype::new(
-                RigType::Default,
-                ["assets/animation/idle.glb"]
-            )
-        ))]
-    ));
+            CharacterAnimationArchetype::new(RigType::Default, ["assets/animation/idle.glb"]),
+        ),
+    )]));
 }
 
 #[derive(Component)]
@@ -109,7 +92,9 @@ fn setup_graph(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut commands: Commands,
 ) {
-    let Ok(anim_player) = player.get(human.rig) else { return };
+    let Ok(anim_player) = player.get(human.rig) else {
+        return;
+    };
     let animations = &animations[&RigType::Default];
     let clip = &animations["Idle-loop"];
     let (graph, index) = AnimationGraph::from_clip(clip.clone());
@@ -120,9 +105,7 @@ fn setup_graph(
     ));
 }
 
-fn start_clip(
-    mut anim: Single<(&mut AnimationPlayer, &AnimationController)>,
-) {
-    let idx = anim.1.0.clone();
+fn start_clip(mut anim: Single<(&mut AnimationPlayer, &AnimationController)>) {
+    let idx = anim.1 .0.clone();
     //anim.0.play(idx);
 }
