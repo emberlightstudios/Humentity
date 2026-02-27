@@ -211,10 +211,10 @@ pub(crate) fn mark_entity_needs_colliders<C: ColliderType + Send + Sync + 'stati
 }
 
 pub(crate) fn on_colliders_changed<C: ColliderType + Send + Sync + 'static>(
-    mut colliders: Query<(Entity, &CharacterColliders<C>), Changed<CharacterColliders<C>>>,
+    mut colliders: Query<(Entity, &mut CharacterColliders<C>), Changed<CharacterColliders<C>>>,
     mut commands: Commands,
 ) {
-    for (entity, collider) in colliders.iter_mut() {
+    for (entity, mut collider) in colliders.iter_mut() {
         let target_bones: Vec<_> = match &collider.bones_subset {
             Some(bones) if !bones.is_empty() => bones.clone(),
             Some(_) => vec![],
@@ -228,6 +228,13 @@ pub(crate) fn on_colliders_changed<C: ColliderType + Send + Sync + 'static>(
         if existing_set == target_set {
             continue;
         }
+
+        for (_, child_entity) in collider.collider_entities.drain() {
+            commands.entity(child_entity).remove::<RigidBody>();
+            commands.entity(child_entity).remove::<Kinematic>();
+            commands.entity(child_entity).despawn();
+        }
+        collider.bone_entities.clear();
 
         commands
             .entity(entity)
@@ -518,7 +525,7 @@ pub(crate) fn spawn_ragdoll_colliders(
             let world_to_joint = Transform::from_matrix(joint_to_world.to_matrix().inverse());
             let collider_to_world = joint_to_world * collider_to_joint;
 
-            collider_to_world_transforms.insert(*collider, collider_to_world );
+            collider_to_world_transforms.insert(*collider, collider_to_world);
 
             let collider_entity = commands
                 .spawn((
@@ -556,7 +563,8 @@ pub(crate) fn spawn_ragdoll_colliders(
                 let child_pose = collider_to_joint;
 
                 let child_pose = Transform::from_matrix(child_pose.to_matrix().inverse());
-                let parent_pose = Transform::from_matrix(parent_collider_to_joint.to_matrix().inverse());
+                let parent_pose =
+                    Transform::from_matrix(parent_collider_to_joint.to_matrix().inverse());
 
                 commands
                     .entity(collider_entity)

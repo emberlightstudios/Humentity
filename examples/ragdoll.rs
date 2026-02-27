@@ -35,13 +35,7 @@ fn main() {
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
     .add_systems(
         Update,
-        (
-            cam_controls,
-            add_material,
-            toggle,
-            setup_graph,
-            start_clip,
-        ),
+        (cam_controls, add_material, toggle, setup_graph, start_clip),
     )
     .run();
 }
@@ -53,7 +47,10 @@ fn toggle(
 ) {
     if input.just_pressed(KeyCode::Space) {
         // Toggle between ragdoll active and hitbox active
-        let ragdoll_active = !ragdoll.bones_subset.as_ref().map_or(true, |v| v.is_empty());
+        let ragdoll_active = !ragdoll
+            .bones_subset
+            .as_ref()
+            .map_or(false, |v| v.is_empty());
 
         if ragdoll_active {
             // Switch to hitbox: ragdoll gets empty, hitbox gets all bones
