@@ -103,7 +103,7 @@ fn add_human(mut commands: Commands) {
         CharacterShapeConfig::default(),
         // Start with hitbox colliders (all bones), ragdoll has no bones
         CharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
-        //CharacterColliders::<RagdollCollider>::new(ragdoll_filter, Some(vec![])),
+        CharacterColliders::<RagdollCollider>::new(ragdoll_filter, Some(vec![])),
     ));
 }
 
@@ -144,5 +144,5 @@ fn setup_graph(
 
 fn start_clip(mut anim: Single<(&mut AnimationPlayer, &AnimationController)>) {
     let idx = anim.1 .0.clone();
-    anim.0.play(idx);
+    anim.0.play(idx).repeat();
 }

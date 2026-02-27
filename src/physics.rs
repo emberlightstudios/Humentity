@@ -215,9 +215,20 @@ pub(crate) fn on_colliders_changed<C: ColliderType + Send + Sync + 'static>(
     mut commands: Commands,
 ) {
     for (entity, collider) in colliders.iter_mut() {
-        // Only trigger rebuild if bones_subset changed
-        // We can't easily compare old vs new here, so we'll let the spawn function handle it
-        // Instead, just insert NeedsColliders - the spawn function will check if rebuild is needed
+        let target_bones: Vec<_> = match &collider.bones_subset {
+            Some(bones) if !bones.is_empty() => bones.clone(),
+            Some(_) => vec![],
+            None => COLLIDERS.to_vec(),
+        };
+
+        let existing: Vec<_> = collider.collider_entities.keys().cloned().collect();
+        let target_set: std::collections::HashSet<_> = target_bones.iter().collect();
+        let existing_set: std::collections::HashSet<_> = existing.iter().collect();
+
+        if existing_set == target_set {
+            continue;
+        }
+
         commands
             .entity(entity)
             .insert(NeedsColliders::<C>(PhantomData));
@@ -370,7 +381,6 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
                     Kinematic::new(collider_to_world),
                     Transform::IDENTITY,
                     *collider,
-                    Visibility::default(),
                     Shape {
                         geometry,
                         material: collider_mat.0.clone(),
@@ -378,7 +388,6 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
                     },
                     PoseOffset(collider_to_joint),
                     colliders.filter.clone(),
-                    MassProperties::density(1000.),
                 ))
                 .id();
 
@@ -428,7 +437,7 @@ pub(crate) fn spawn_ragdoll_colliders(
 
         let collider_bone_map = match rig_type {
             RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
-            _ => return,
+            _ => todo!("impl more rigs"),
         };
 
         let prefab = &prefabs[&shape_config.prefab];
@@ -452,26 +461,13 @@ pub(crate) fn spawn_ragdoll_colliders(
             .zip(inv_bindposes.iter().map(|m| Transform::from_matrix(*m)))
             .collect::<AHashMap<&str, Transform>>();
 
-        let mut collider_to_world_transforms = AHashMap::default();
+        let mut collider_to_model_transforms = AHashMap::default();
 
         let target_bones: Vec<CharacterColliderBone> = match &colliders.bones_subset {
             Some(bones) if !bones.is_empty() => bones.clone(),
             Some(_) => vec![],
             None => COLLIDERS.to_vec(),
         };
-
-        // Check if we already have the correct colliders
-        let existing_bones: Vec<CharacterColliderBone> =
-            colliders.collider_entities.keys().cloned().collect();
-        let existing_set: std::collections::HashSet<_> = existing_bones.iter().collect();
-        let target_set: std::collections::HashSet<_> = target_bones.iter().collect();
-
-        if existing_set == target_set && !existing_set.is_empty() {
-            commands
-                .entity(character_entity)
-                .remove::<NeedsColliders<RagdollCollider>>();
-            return;
-        }
 
         // Despawn any existing colliders first
         for (_, entity) in colliders.collider_entities.drain() {
@@ -494,7 +490,7 @@ pub(crate) fn spawn_ragdoll_colliders(
             }
             let i_collider = COLLIDERS.iter().position(|&c| c == *collider).unwrap();
 
-            let (geometry, _) = get_collider_geometry(
+            let (geometry, collider_to_model) = get_collider_geometry(
                 *collider,
                 &helpers,
                 i_collider,
@@ -508,30 +504,31 @@ pub(crate) fn spawn_ragdoll_colliders(
                 continue;
             };
             let model_to_world = Transform::from(model_to_world.clone());
+            let rot_fix = Transform::from_rotation(MODEL_ROTATION_FIX);
+            let model_to_world = rot_fix * model_to_world;
 
-            let inv_bindpose = inv_bindposes_map[bone_name];
-            let bone_bind_pose = model_to_world
-                * Transform::from_rotation(MODEL_ROTATION_FIX.inverse())
-                * inv_bindpose;
+            let collider_to_world = model_to_world * collider_to_model;
+            let model_to_joint = inv_bindposes_map[bone_name] * rot_fix;
+            let collider_to_joint = model_to_joint * collider_to_model;
 
-            let world_to_bone_bind = Transform::from_matrix(bone_bind_pose.to_matrix().inverse());
-            let collider_to_world = bone_bind_pose;
-            let collider_to_bone = world_to_bone_bind * collider_to_world;
-
-            collider_to_world_transforms.insert(*collider, collider_to_world);
+            let world_to_model = Transform::from_matrix(model_to_world.to_matrix().inverse());
+            collider_to_model_transforms.insert(*collider, world_to_model * collider_to_world );
+            let Ok(current_joint_to_world) = global_transforms.get(bone_entities[bone_name]) else {
+                continue;
+            };
+            let transform = Transform::from(current_joint_to_world.clone()) * collider_to_joint;
 
             let collider_entity = commands
                 .spawn((
                     RigidBody::ArticulationLink,
-                    collider_to_world,
+                    transform,
                     *collider,
-                    Visibility::default(),
                     Shape {
                         geometry,
                         material: collider_mat.0.clone(),
                         ..Default::default()
                     },
-                    PoseOffset(collider_to_bone),
+                    PoseOffset(collider_to_joint),
                     colliders.filter.clone(),
                     MassProperties::density(1000.),
                 ))
@@ -550,13 +547,14 @@ pub(crate) fn spawn_ragdoll_colliders(
                 });
             } else {
                 let parent_collider = get_collider_parent(*collider).unwrap();
-                let parent_collider_to_world = collider_to_world_transforms[&parent_collider];
-                let parent_pose = world_to_bone_bind * parent_collider_to_world;
+                let parent_collider_to_model = collider_to_model_transforms[&parent_collider];
+                let parent_collider_to_joint = model_to_joint * parent_collider_to_model;
+
                 let parent = colliders.collider_entities[&parent_collider];
-                let child_pose = collider_to_bone;
+                let child_pose = collider_to_joint;
 
                 let child_pose = Transform::from_matrix(child_pose.to_matrix().inverse());
-                let parent_pose = Transform::from_matrix(parent_pose.to_matrix().inverse());
+                let parent_pose = Transform::from_matrix(parent_collider_to_joint.to_matrix().inverse());
 
                 commands
                     .entity(collider_entity)
@@ -786,49 +784,6 @@ pub(crate) fn sync_colliders<C: ColliderType + Send + Sync + 'static>(
             let collider_to_world = Transform::from(joint_to_world.clone()) * collider_to_joint;
 
             collider_transform.target = collider_to_world;
-        }
-    }
-}
-
-/// Manage physics state for ragdolls.
-pub(crate) fn on_ragdoll(
-    ragdolls: Query<
-        &CharacterColliders<RagdollCollider>,
-        (
-            Changed<CharacterColliders<RagdollCollider>>,
-            Without<NeedsColliders<RagdollCollider>>,
-        ),
-    >,
-    transforms: Query<&GlobalTransform, Or<(With<CharacterColliderBone>, With<SkeletalBone>)>>,
-    mut commands: Commands,
-) {
-    for colliders in ragdolls.iter() {
-        let ragdoll_bones: Vec<CharacterColliderBone> = match &colliders.bones_subset {
-            Some(bones) if !bones.is_empty() => bones.clone(),
-            Some(_) => vec![],
-            None => COLLIDERS.to_vec(),
-        };
-
-        let roots: Vec<_> = ragdoll_bones
-            .iter()
-            .filter(|&c| {
-                let parent = get_collider_parent(*c);
-                parent.is_none() || !ragdoll_bones.contains(&parent.unwrap())
-            })
-            .cloned()
-            .collect();
-
-        for collider in ragdoll_bones.iter() {
-            let Some(&entity) = colliders.collider_entities.get(collider) else {
-                continue;
-            };
-            let Some(&bone_entity) = colliders.bone_entities.get(collider) else {
-                continue;
-            };
-            let Ok(transform) = transforms.get(bone_entity) else {
-                continue;
-            };
-            commands.entity(entity).insert(Transform::from(*transform));
         }
     }
 }

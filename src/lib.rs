@@ -158,7 +158,6 @@ impl Plugin for HumentityPlugin {
                             .run_if(resource_exists::<Physics>),
                         physics::sync_colliders::<HitboxCollider>,
                         physics::sync_colliders::<HurtboxCollider>,
-                        physics::on_ragdoll,
                         physics::on_colliders_changed::<HitboxCollider>,
                         physics::on_colliders_changed::<HurtboxCollider>,
                         physics::on_colliders_changed::<RagdollCollider>,
