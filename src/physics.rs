@@ -328,11 +328,6 @@ pub(crate) fn spawn_colliders(
                 child_entity,
                 anchor,
             );
-
-            info!(
-                "[RAGDOLL] {:?} joint: parent={:?}, child={:?}, anchor={:?}",
-                collider, parent_entity, child_entity, anchor
-            );
         }
 
         commands.entity(character_entity).remove::<NeedsColliders>();
@@ -539,11 +534,7 @@ fn get_midsection_collider(
         .max_by(|a, b| a.partial_cmp(b).unwrap())
         .unwrap();
     (
-        Collider::cuboid(
-            (xmax - xmin) / 2.0,
-            (ymax - ymin) / 2.0,
-            (zmax - zmin) / 2.0,
-        ),
+        Collider::cuboid((xmax - xmin), (ymax - ymin), (zmax - zmin)),
         Transform::from_translation(MODEL_ROTATION_FIX * center).with_rotation(
             MODEL_ROTATION_FIX *
                 inv_bindpose_rot * //.inverse() *   // Why inverse bindpose, not bindpose? idk
@@ -583,17 +574,19 @@ fn get_limb_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collide
     let p1 = (verts[0] + verts[1]) * 0.5;
     let p2 = (verts[2] + verts[3]) * 0.5;
     let r = (verts[0] - verts[1]).length() * 0.5;
-    let length = (p1 - p2).length() - r * 2.0;
+    let length = (p1 - p2).length();
     let c = 0.5 * (p1 + p2);
-    let dir = (p1 - p2).normalize();
-    let up = dir.cross(Vec3::NEG_Z).normalize();
-    let fwd = dir.cross(up);
+
+    // Align capsule Y-axis along bone direction (p1 to p2)
+    let dir = (p2 - p1).normalize();
+    let right = dir.cross(Vec3::Y).normalize();
+    let up = right.cross(dir).normalize();
 
     (
         Collider::capsule(r, length),
         Transform::from_translation(MODEL_ROTATION_FIX * c).with_rotation(
             MODEL_ROTATION_FIX
-                * Quat::from_mat3(&Mat3::from_cols(dir, up, fwd))
+                * Quat::from_mat3(&Mat3::from_cols(right, dir, up))
                 * MODEL_ROTATION_FIX.inverse(),
         ),
     )
@@ -627,7 +620,7 @@ fn get_extremity_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Co
     let x_axis = y_axis.cross(z_axis);
 
     (
-        Collider::cuboid(x / 2.0, y / 2.0, z / 2.0),
+        Collider::cuboid(x, y, z),
         Transform::from_translation(MODEL_ROTATION_FIX * center).with_rotation(
             MODEL_ROTATION_FIX
                 * Quat::from_mat3(&Mat3::from_cols(x_axis, y_axis, z_axis))
@@ -670,21 +663,11 @@ pub(crate) fn debug_ragdoll_positions(
         }
     }
 
-    if let (Some(chest), Some(pelvis)) = (chest, pelvis) {
-        info!("[RAGDOLL DEBUG] Pelvis: {:.3}, Chest: {:.3}", pelvis, chest);
-    }
+    if let (Some(chest), Some(pelvis)) = (chest, pelvis) {}
     if let (Some(upper_arm_l), Some(lower_arm_l), Some(hand_l)) = (upper_arm_l, lower_arm_l, hand_l)
     {
-        info!(
-            "[RAGDOLL DEBUG] L Arm: Upper={:.3}, Lower={:.3}, Hand={:.3}",
-            upper_arm_l, lower_arm_l, hand_l
-        );
     }
     if let (Some(upper_arm_r), Some(lower_arm_r), Some(hand_r)) = (upper_arm_r, lower_arm_r, hand_r)
     {
-        info!(
-            "[RAGDOLL DEBUG] R Arm: Upper={:.3}, Lower={:.3}, Hand={:.3}",
-            upper_arm_r, lower_arm_r, hand_r
-        );
     }
 }
