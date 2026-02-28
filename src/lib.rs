@@ -148,6 +148,7 @@ impl Plugin for HumentityPlugin {
                         physics::spawn_colliders
                             .run_if(resource_exists::<physics::ColliderMaterial>),
                         physics::sync_colliders,
+                        physics::sync_bones_to_colliders,
                         physics::on_ragdoll,
                         physics::debug_ragdoll_positions,
                     )

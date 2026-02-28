@@ -2,6 +2,7 @@
 use std::path::PathBuf;
 
 use ahash::AHashSet;
+use avian3d::math::PI;
 use bevy::{asset::io::AssetSourceBuilder, input::mouse::MouseMotion, prelude::*};
 use humentity::prelude::*;
 
@@ -80,7 +81,8 @@ pub fn cam_controls(
 ) {
     if !*init {
         *init = true;
-        *yaw = std::f32::consts::PI;
+        *pitch = -0.15;
+        *yaw = 3.3;
     }
     const MS: f32 = 1e-2;
     const LS: f32 = 5e-3;
@@ -156,8 +158,5 @@ pub fn setup_env(
     ));
 
     // A camera:
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(-1.0, 2.0, -4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
-    ));
+    commands.spawn((Camera3d::default(), Transform::from_xyz(-1.0, 2.0, -4.0)));
 }

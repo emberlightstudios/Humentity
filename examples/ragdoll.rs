@@ -18,23 +18,9 @@ fn main() {
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
     .add_systems(
         Update,
-        (
-            cam_controls,
-            add_material,
-            toggle,
-            setup_graph,
-            start_clip,
-            oscillate,
-        ),
+        (cam_controls, add_material, toggle, setup_graph, start_clip),
     )
     .run();
-}
-
-fn oscillate(mut transforms: Query<&mut Transform, With<CharacterColliders>>, time: Res<Time>) {
-    return;
-    for mut transform in &mut transforms {
-        transform.translation.x = time.elapsed_secs().sin() * 0.5;
-    }
 }
 
 fn toggle(
@@ -61,13 +47,17 @@ fn floor(mut commands: Commands) {
 }
 
 fn add_human(mut commands: Commands) {
-    commands.spawn((
-        Transform::IDENTITY,
-        CharacterShapeConfig::default(),
-        CharacterColliders::new(true),
-        CharacterRagdoll::None,
-        //children![(CharacterPart::BodyMesh("basemesh"))],
-    ));
+    let entity = commands
+        .spawn((
+            Transform::IDENTITY,
+            CharacterShapeConfig::default(),
+            CharacterRagdoll::None,
+            //children![(CharacterPart::BodyMesh("basemesh"))],
+        ))
+        .id();
+    commands
+        .entity(entity)
+        .insert(CharacterColliders::new(entity, true));
 }
 
 fn setup_prefabs(mut commands: Commands) {
