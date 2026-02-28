@@ -14,6 +14,16 @@ use crate::{
     MODEL_ROTATION_FIX,
 };
 
+/// Relationship from collider/joint back to character
+#[derive(Component)]
+#[relationship(relationship_target = CharacterPhysicsParts)]
+struct CharacterPhysicsPart(Entity);
+
+/// Relationship target on character - automatically maintained list of all physics parts
+#[derive(Component, Default)]
+#[relationship_target(relationship = CharacterPhysicsPart)]
+struct CharacterPhysicsParts(Vec<Entity>);
+
 /// Use to find radius and center of sphere
 const HEAD_VERTICES: [usize; 2] = [5063, 5389];
 /// These are for the right side fo the body only.
@@ -288,6 +298,7 @@ pub(crate) fn spawn_colliders(
                     PoseOffset(collider_to_bone),
                     Mass(1000.0),
                 ))
+                .insert(CharacterPhysicsPart(character_entity))
                 .id();
 
             colliders
@@ -297,6 +308,11 @@ pub(crate) fn spawn_colliders(
                 .bone_entities
                 .insert(*collider, bone_entities[bone_name]);
         }
+
+        // Initialize relationship target on character
+        commands
+            .entity(character_entity)
+            .insert(CharacterPhysicsParts::default());
 
         // Spawn joints as separate entities in Avian
         for (i_collider, collider) in COLLIDERS.iter().enumerate() {
@@ -319,6 +335,7 @@ pub(crate) fn spawn_colliders(
 
             spawn_ragdoll_joint(
                 &mut commands,
+                character_entity,
                 *collider,
                 parent_entity,
                 child_entity,
@@ -335,6 +352,7 @@ struct RagdollJoint(CharacterColliderBone);
 
 fn spawn_ragdoll_joint(
     commands: &mut Commands,
+    character_entity: Entity,
     collider: CharacterColliderBone,
     parent: Entity,
     child: Entity,
@@ -349,6 +367,7 @@ fn spawn_ragdoll_joint(
                     .with_hinge_axis(Vec3::NEG_Z),
                 JointCollisionDisabled,
                 RagdollJoint(collider),
+                CharacterPhysicsPart(character_entity),
             ));
         }
         // Knees - Revolute (hinge)
@@ -359,6 +378,7 @@ fn spawn_ragdoll_joint(
                     .with_hinge_axis(Vec3::Z),
                 JointCollisionDisabled,
                 RagdollJoint(collider),
+                CharacterPhysicsPart(character_entity),
             ));
         }
         // Everything else - Spherical (ball socket)
@@ -367,6 +387,7 @@ fn spawn_ragdoll_joint(
                 SphericalJoint::new(parent, child).with_anchor(anchor),
                 JointCollisionDisabled,
                 RagdollJoint(collider),
+                CharacterPhysicsPart(character_entity),
             ));
         }
     }
