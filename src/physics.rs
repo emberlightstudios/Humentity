@@ -273,12 +273,8 @@ pub(crate) fn spawn_colliders(
             // offset for placement from bone global
             let collider_to_bone = world_to_bone * collider_to_world;
 
-            // Pelvis is the root - make it kinematic to anchor the ragdoll
-            let rigid_body = if *collider == CharacterColliderBone::Pelvis {
-                RigidBody::Kinematic
-            } else {
-                RigidBody::Dynamic
-            };
+            // All kinematic for hitbox/hurtbox mode - will switch to dynamic when ragdolling
+            let rigid_body = RigidBody::Kinematic;
 
             let collider_entity = commands
                 .spawn((
@@ -388,7 +384,6 @@ pub(crate) fn sync_colliders(
         (Without<SkeletalBone>, With<CharacterColliderBone>),
     >,
 ) {
-    return;
     for (colliders, ragdoll) in characters {
         if !colliders.sync_to_bones {
             continue;
@@ -429,46 +424,48 @@ pub(crate) fn sync_colliders(
     }
 }
 
-/// Manage physics state for ragdolls.
+/// Manage physics state for ragdolls - switch between kinematic (animated) and dynamic (physics) modes
 pub(crate) fn on_ragdoll(
-    ragdolls: Query<
-        (&CharacterColliders, &CharacterRagdoll),
-        (Changed<CharacterRagdoll>, Without<NeedsColliders>),
-    >,
-    transforms: Query<&GlobalTransform, Or<(With<CharacterColliderBone>, With<SkeletalBone>)>>,
+    ragdolls: Query<(&CharacterColliders, &CharacterRagdoll), Changed<CharacterRagdoll>>,
     mut commands: Commands,
 ) {
-    return;
     for (colliders, ragdoll) in ragdolls.iter() {
         match ragdoll {
             CharacterRagdoll::Full => {
+                // Switch to dynamic for physics simulation
                 for collider in COLLIDERS.iter() {
                     let Some(&entity) = colliders.collider_entities.get(collider) else {
                         continue;
                     };
+                    // All colliders become dynamic including pelvis
+                    commands.entity(entity).insert(RigidBody::Dynamic);
                 }
+                // TODO: Spawn joints when enabling ragdoll
             }
             CharacterRagdoll::None => {
+                // Switch back to kinematic for animation
                 for collider in COLLIDERS.iter() {
                     let Some(&entity) = colliders.collider_entities.get(collider) else {
                         continue;
                     };
+                    commands.entity(entity).insert(RigidBody::Kinematic);
                 }
+                // TODO: Despawn joints when disabling ragdoll
             }
             CharacterRagdoll::Partial(character_collider_bones) => {
-                let roots: Vec<_> = character_collider_bones
-                    .iter()
-                    .filter(|&c| {
-                        let parent = get_collider_parent(*c);
-                        parent.is_none() || !character_collider_bones.contains(&parent.unwrap())
-                    })
-                    .cloned()
-                    .collect();
-
+                // For partial: dynamic for specified bones, kinematic for others
                 for collider in COLLIDERS.iter() {
                     let Some(&entity) = colliders.collider_entities.get(collider) else {
                         continue;
                     };
+                    let rigid_body = if *collider == CharacterColliderBone::Pelvis {
+                        RigidBody::Kinematic
+                    } else if character_collider_bones.contains(collider) {
+                        RigidBody::Dynamic
+                    } else {
+                        RigidBody::Kinematic
+                    };
+                    commands.entity(entity).insert(rigid_body);
                 }
             }
         }
