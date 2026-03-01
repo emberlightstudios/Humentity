@@ -1,6 +1,8 @@
 mod shared;
+use std::time::Duration;
+
 use avian3d::prelude::*;
-use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
+use bevy::{mesh::skinning::SkinnedMesh, prelude::*, time::common_conditions::on_timer};
 use humentity::prelude::*;
 use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
 
@@ -18,22 +20,26 @@ fn main() {
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
     .add_systems(
         Update,
-        (cam_controls, add_material, toggle, setup_graph, start_clip),
+        (
+            cam_controls,
+            add_material,
+            toggle.run_if(on_timer(Duration::from_secs(1))),
+            setup_graph,
+            start_clip
+        ),
     )
     .run();
 }
 
 fn toggle(
-    input: Res<ButtonInput<KeyCode>>,
     mut ragdoll: Single<&mut CharacterRagdoll, With<CharacterColliders>>,
 ) {
-    if input.just_pressed(KeyCode::Space) {
-        if **ragdoll == CharacterRagdoll::None {
-            **ragdoll = CharacterRagdoll::Full;
-        } else {
-            **ragdoll = CharacterRagdoll::None;
-        };
-    }
+    return;
+    if **ragdoll == CharacterRagdoll::None {
+        **ragdoll = CharacterRagdoll::Full;
+    } else {
+        **ragdoll = CharacterRagdoll::None;
+    };
 }
 
 fn floor(mut commands: Commands) {
@@ -97,5 +103,5 @@ fn setup_graph(
 
 fn start_clip(mut anim: Single<(&mut AnimationPlayer, &AnimationController)>) {
     let idx = anim.1 .0.clone();
-    //anim.0.play(idx);
+    anim.0.play(idx);
 }
