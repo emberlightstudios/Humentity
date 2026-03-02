@@ -2,7 +2,12 @@ mod shared;
 use std::time::Duration;
 
 use avian3d::prelude::*;
-use bevy::{mesh::skinning::SkinnedMesh, prelude::*, time::common_conditions::on_timer};
+use bevy::{
+    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    mesh::skinning::SkinnedMesh,
+    prelude::*,
+    time::common_conditions::on_timer,
+};
 use humentity::prelude::*;
 use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
 
@@ -14,6 +19,8 @@ fn main() {
         DefaultPlugins,
         PhysicsPlugins::default(),
         PhysicsDebugPlugin::default(),
+        FrameTimeDiagnosticsPlugin::default(),
+        LogDiagnosticsPlugin::default(),
     ))
     .add_systems(Startup, (setup_env, floor))
     .add_systems(Startup, setup_prefabs)
@@ -23,17 +30,15 @@ fn main() {
         (
             cam_controls,
             add_material,
-            toggle.run_if(on_timer(Duration::from_secs(1))),
+            toggle.run_if(on_timer(Duration::from_secs(3))),
             setup_graph,
-            start_clip
+            start_clip,
         ),
     )
     .run();
 }
 
-fn toggle(
-    mut ragdoll: Single<&mut CharacterRagdoll, With<CharacterColliders>>,
-) {
+fn toggle(mut ragdoll: Single<&mut CharacterRagdoll, With<CharacterColliders>>) {
     return;
     if **ragdoll == CharacterRagdoll::None {
         **ragdoll = CharacterRagdoll::Full;

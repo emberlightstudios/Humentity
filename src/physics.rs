@@ -292,11 +292,9 @@ pub(crate) fn spawn_colliders(
             let Ok(model_to_world) = global_transforms.get(related.rig) else {
                 continue;
             };
-            let model_to_world = Transform::from(model_to_world.clone());
             let model_to_joint = inv_bindposes[bone_name];
 
-            // local transform
-            // The colliders from mesh vertsa are backwards facing but so are the bindposes so it cancels out.
+            // The colliders from mesh verts are backwards facing but so are the bindposes so it cancels out.
             // Model space (i.e. rig entity) is rotated by PI around y-axis)
             let collider_to_joint_offset = model_to_joint * collider_bind_to_model;
 
@@ -306,15 +304,16 @@ pub(crate) fn spawn_colliders(
             let collider_entity = commands
                 .spawn((
                     rigid_body,
-                    //Transform::IDENTITY,
-                    model_to_world * collider_bind_to_model,
+                    Transform::IDENTITY,
                     *collider,
                     Visibility::default(),
                     collider_shape,
                     collider_mat.friction,
                     collider_mat.restitution,
+                    Sensor,
+                    CollisionEventsEnabled,
+                    SleepingDisabled,
                     PoseOffset(collider_to_joint_offset),
-                    Mass(1000.0),
                 ))
                 .insert(CharacterPhysicsPart(character_entity))
                 .id();
@@ -411,11 +410,11 @@ pub(crate) fn sync_colliders(
                 continue;
             };
 
-            //if let Some(CharacterRagdoll::Partial(collider_bones)) = ragdoll {
-            //    if collider_bones.contains(collider) {
-            //        continue;
-            //    }
-            //}
+            if let Some(CharacterRagdoll::Partial(collider_bones)) = ragdoll {
+                if collider_bones.contains(collider) {
+                    continue;
+                }
+            }
 
             let Ok((mut collider_transform, _, offset)) =
                 collider_transforms.get_mut(collider_entity)
@@ -519,6 +518,8 @@ pub(crate) fn on_ragdoll(
                     };
                     if is_dynamic {
                         commands.entity(entity).insert(RigidBody::Dynamic);
+                        commands.entity(entity).remove::<Sensor>();
+                        commands.entity(entity).remove::<SleepingDisabled>();
                     } else {
                         commands.entity(entity).insert(RigidBody::Kinematic);
                     }
@@ -535,20 +536,30 @@ pub(crate) fn on_ragdoll(
                         continue;
                     }
 
-                    // For Partial, only spawn joints for ragdolling bones
-                    if let CharacterRagdoll::Partial(ragdoll_bones) = ragdoll {
-                        if !ragdoll_bones.contains(collider) {
-                            continue;
-                        }
+                    // Check if this bone should be dynamic
+                    let is_child_dynamic = match ragdoll {
+                        CharacterRagdoll::Full => true,
+                        CharacterRagdoll::Partial(bones) => bones.contains(collider),
+                        _ => false,
+                    };
+
+                    // Skip if child is not dynamic (no joint needed for kinematic bodies)
+                    if !is_child_dynamic {
+                        continue;
                     }
 
                     let parent_collider = get_collider_parent(*collider).unwrap();
 
-                    // For Partial, skip if parent isn't ragdolling
-                    if let CharacterRagdoll::Partial(ragdoll_bones) = ragdoll {
-                        if !ragdoll_bones.contains(&parent_collider) {
-                            continue;
-                        }
+                    // Check if parent should be dynamic
+                    let is_parent_dynamic = match ragdoll {
+                        CharacterRagdoll::Full => true,
+                        CharacterRagdoll::Partial(bones) => bones.contains(&parent_collider),
+                        _ => false,
+                    };
+
+                    // Skip if parent is not dynamic
+                    if !is_parent_dynamic {
+                        continue;
                     }
 
                     let child_entity = colliders.collider_entities[collider];
@@ -578,6 +589,8 @@ pub(crate) fn on_ragdoll(
                         continue;
                     };
                     commands.entity(entity).insert(RigidBody::Kinematic);
+                    commands.entity(entity).insert(Sensor);
+                    commands.entity(entity).insert(SleepingDisabled);
                 }
 
                 // Despawn all joints for this character
@@ -648,7 +661,7 @@ fn get_midsection_collider(
         .max_by(|a, b| a.partial_cmp(b).unwrap())
         .unwrap();
     (
-        Collider::cuboid((xmax - xmin), (ymax - ymin), (zmax - zmin)),
+        Collider::cuboid(xmax - xmin, ymax - ymin, zmax - zmin),
         Transform::from_translation(center).with_rotation(
             inv_bindpose_rot, //.inverse() *   // Why inverse bindpose, not bindpose? idk
         ),
