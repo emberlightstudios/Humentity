@@ -33,13 +33,19 @@ const TORSO_VERTICES: [usize; 4] = [1553, 3753, 4097, 4049];
 const PELVIS_VERTICES: [usize; 4] = [4174, 4243, 4353, 4170];
 // Use first 2 to find center and radius of capsule top
 // Use last 2 to find center and radius of capsule bottom
-const UPPER_LEG_VERTICES: [usize; 4] = [4407, 4268, 4567, 4565];
-const LOWER_LEG_VERTICES: [usize; 4] = [4662, 4664, 6385, 6375];
-const UPPER_ARM_VERTICES: [usize; 4] = [1630, 1432, 3330, 3323];
-const LOWER_ARM_VERTICES: [usize; 4] = [3412, 3877, 3552, 3906];
+const UPPER_RIGHT_LEG_VERTICES: [usize; 4] = [4407, 4268, 4567, 4565];
+const LOWER_RIGHT_LEG_VERTICES: [usize; 4] = [4662, 4664, 6385, 6375];
+const UPPER_RIGHT_ARM_VERTICES: [usize; 4] = [1630, 1432, 3330, 3323];
+const LOWER_RIGHT_ARM_VERTICES: [usize; 4] = [3412, 3877, 3552, 3906];
+const UPPER_LEFT_ARM_VERTICES: [usize; 4] = [8302, 8120, 9998, 9991];
+const LOWER_LEFT_ARM_VERTICES: [usize; 4] = [10080, 10542, 10220, 10571];
+const UPPER_LEFT_LEG_VERTICES: [usize; 4] = [11025, 10898, 11185, 11183];
+const LOWER_LEFT_LEG_VERTICES: [usize; 4] = [11280, 11282, 12982, 12972];
 /// Use cuboids. Get dimensions from  2x, 2y, 2z
-const HAND_VERTICES: [usize; 6] = [2776, 3189, 2119, 3909, 3247, 3650];
-const FOOT_VERTICES: [usize; 6] = [6251, 6705, 4972, 5845, 6214, 6298];
+const RIGHT_HAND_VERTICES: [usize; 6] = [2776, 3189, 2119, 3909, 3247, 3650];
+const RIGHT_FOOT_VERTICES: [usize; 6] = [6251, 6705, 4972, 5845, 6214, 6298];
+const LEFT_HAND_VERTICES: [usize; 6] = [9444, 9857, 8787, 10574, 9915, 10318];
+const LEFT_FOOT_VERTICES: [usize; 6] = [12848, 13301, 11590, 12442, 12811, 12895];
 
 /// Stores transform for collider in bone space
 #[derive(Component, Clone, Deref)]
@@ -644,38 +650,24 @@ fn get_midsection_collider(
     (
         Collider::cuboid((xmax - xmin), (ymax - ymin), (zmax - zmin)),
         Transform::from_translation(center).with_rotation(
-            inv_bindpose_rot //.inverse() *   // Why inverse bindpose, not bindpose? idk
+            inv_bindpose_rot, //.inverse() *   // Why inverse bindpose, not bindpose? idk
         ),
     )
 }
 
 fn get_limb_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collider, Transform) {
     let ref_verts = match joint {
-        CharacterColliderBone::LowerLeftArm | CharacterColliderBone::LowerRightArm => {
-            LOWER_ARM_VERTICES
-        }
-        CharacterColliderBone::UpperLeftArm | CharacterColliderBone::UpperRightArm => {
-            UPPER_ARM_VERTICES
-        }
-        CharacterColliderBone::LowerLeftLeg | CharacterColliderBone::LowerRightLeg => {
-            LOWER_LEG_VERTICES
-        }
-        CharacterColliderBone::UpperLeftLeg | CharacterColliderBone::UpperRightLeg => {
-            UPPER_LEG_VERTICES
-        }
+        CharacterColliderBone::LowerLeftArm => LOWER_LEFT_ARM_VERTICES,
+        CharacterColliderBone::LowerRightArm => LOWER_RIGHT_ARM_VERTICES,
+        CharacterColliderBone::UpperLeftArm => UPPER_LEFT_ARM_VERTICES,
+        CharacterColliderBone::UpperRightArm => UPPER_RIGHT_ARM_VERTICES,
+        CharacterColliderBone::LowerLeftLeg => LOWER_LEFT_LEG_VERTICES,
+        CharacterColliderBone::LowerRightLeg => LOWER_RIGHT_LEG_VERTICES,
+        CharacterColliderBone::UpperLeftLeg => UPPER_LEFT_LEG_VERTICES,
+        CharacterColliderBone::UpperRightLeg => UPPER_RIGHT_LEG_VERTICES,
         _ => unimplemented!("wrong joint input"),
     };
-    let mut verts = [Vec3::ZERO; 4];
-    for (i, &mhv) in ref_verts.iter().enumerate() {
-        verts[i] = helpers[mhv];
-        if matches!(joint, CharacterColliderBone::LowerRightArm)
-            || matches!(joint, CharacterColliderBone::UpperRightArm)
-            || matches!(joint, CharacterColliderBone::LowerRightLeg)
-            || matches!(joint, CharacterColliderBone::UpperRightLeg)
-        {
-            verts[i].x = -verts[i].x;
-        }
-    }
+    let verts = ref_verts.iter().map(|&i| helpers[i]).collect::<Vec<_>>();
 
     let p1 = (verts[0] + verts[1]) * 0.5;
     let p2 = (verts[2] + verts[3]) * 0.5;
@@ -690,27 +682,20 @@ fn get_limb_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collide
 
     (
         Collider::capsule(r, length),
-        Transform::from_translation(c).with_rotation(
-            Quat::from_mat3(&Mat3::from_cols(right, dir, up))
-        ),
+        Transform::from_translation(c)
+            .with_rotation(Quat::from_mat3(&Mat3::from_cols(right, dir, up))),
     )
 }
 
 fn get_extremity_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collider, Transform) {
     let ref_verts = match joint {
-        CharacterColliderBone::LeftHand | CharacterColliderBone::RightHand => HAND_VERTICES,
-        CharacterColliderBone::LeftFoot | CharacterColliderBone::RightFoot => FOOT_VERTICES,
+        CharacterColliderBone::LeftHand => LEFT_HAND_VERTICES,
+        CharacterColliderBone::RightHand => RIGHT_HAND_VERTICES,
+        CharacterColliderBone::LeftFoot => LEFT_FOOT_VERTICES,
+        CharacterColliderBone::RightFoot => RIGHT_FOOT_VERTICES,
         _ => unimplemented!("wrong joint input"),
     };
-    let mut verts = [Vec3::ZERO; 6];
-    for (i, &mhv) in ref_verts.iter().enumerate() {
-        verts[i] = helpers[mhv];
-        if matches!(joint, CharacterColliderBone::RightHand)
-            || matches!(joint, CharacterColliderBone::RightFoot)
-        {
-            verts[i].x = -verts[i].x;
-        }
-    }
+    let verts = ref_verts.iter().map(|&i| helpers[i]).collect::<Vec<_>>();
 
     let x = (verts[0] - verts[1]).length();
     let y = (verts[2] - verts[3]).length();
@@ -725,8 +710,7 @@ fn get_extremity_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Co
 
     (
         Collider::cuboid(x, y, z),
-        Transform::from_translation(center).with_rotation(
-            Quat::from_mat3(&Mat3::from_cols(x_axis, y_axis, z_axis))
-        ),
+        Transform::from_translation(center)
+            .with_rotation(Quat::from_mat3(&Mat3::from_cols(x_axis, y_axis, z_axis))),
     )
 }
