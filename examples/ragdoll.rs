@@ -103,5 +103,5 @@ fn setup_graph(
 
 fn start_clip(mut anim: Single<(&mut AnimationPlayer, &AnimationController)>) {
     let idx = anim.1 .0.clone();
-    anim.0.play(idx);
+    anim.0.play(idx).repeat();
 }

@@ -261,7 +261,7 @@ pub(crate) fn spawn_colliders(
             .collect::<AHashMap<&str, Transform>>();
 
         for (i_collider, collider) in COLLIDERS.iter().enumerate() {
-            let (collider_shape, collider_to_backwards_model) = match collider {
+            let (collider_shape, collider_bind_to_model) = match collider {
                 CharacterColliderBone::Head => get_head_collider(&helpers),
                 CharacterColliderBone::Chest | CharacterColliderBone::Pelvis => {
                     let bone_name = collider_bone_map[i_collider];
@@ -283,21 +283,16 @@ pub(crate) fn spawn_colliders(
             };
 
             let bone_name = collider_bone_map[i_collider];
-            let Ok(bone_to_world) = global_transforms.get(bone_entities[bone_name]) else {
-                continue;
-            };
             let Ok(model_to_world) = global_transforms.get(related.rig) else {
                 continue;
             };
             let model_to_world = Transform::from(model_to_world.clone());
-            let world_to_bone = Transform::from_matrix(bone_to_world.to_matrix().inverse());
+            let model_to_joint = inv_bindposes[bone_name];
 
             // local transform
-            let collider_to_world = model_to_world
-                * Transform::from_rotation(MODEL_ROTATION_FIX.inverse())
-                * collider_to_backwards_model;
-            // offset for placement from bone global
-            let collider_to_bone = world_to_bone * collider_to_world;
+            // The colliders from mesh vertsa are backwards facing but so are the bindposes so it cancels out.
+            // Model space (i.e. rig entity) is rotated by PI around y-axis)
+            let collider_to_joint_offset = model_to_joint * collider_bind_to_model;
 
             // All kinematic for hitbox/hurtbox mode - will switch to dynamic when ragdolling
             let rigid_body = RigidBody::Kinematic;
@@ -305,13 +300,14 @@ pub(crate) fn spawn_colliders(
             let collider_entity = commands
                 .spawn((
                     rigid_body,
-                    collider_to_world,
+                    //Transform::IDENTITY,
+                    model_to_world * collider_bind_to_model,
                     *collider,
                     Visibility::default(),
                     collider_shape,
                     collider_mat.friction,
                     collider_mat.restitution,
-                    PoseOffset(collider_to_bone),
+                    PoseOffset(collider_to_joint_offset),
                     Mass(1000.0),
                 ))
                 .insert(CharacterPhysicsPart(character_entity))
@@ -409,11 +405,11 @@ pub(crate) fn sync_colliders(
                 continue;
             };
 
-            if let Some(CharacterRagdoll::Partial(collider_bones)) = ragdoll {
-                if collider_bones.contains(collider) {
-                    continue;
-                }
-            }
+            //if let Some(CharacterRagdoll::Partial(collider_bones)) = ragdoll {
+            //    if collider_bones.contains(collider) {
+            //        continue;
+            //    }
+            //}
 
             let Ok((mut collider_transform, _, offset)) =
                 collider_transforms.get_mut(collider_entity)
@@ -593,7 +589,7 @@ fn get_head_collider(helpers: &[Vec3]) -> (Collider, Transform) {
     let radius = (helpers[HEAD_VERTICES[0]] - center).length();
     (
         Collider::sphere(radius),
-        Transform::from_translation(MODEL_ROTATION_FIX * center),
+        Transform::from_translation(center),
     )
 }
 
@@ -647,10 +643,8 @@ fn get_midsection_collider(
         .unwrap();
     (
         Collider::cuboid((xmax - xmin), (ymax - ymin), (zmax - zmin)),
-        Transform::from_translation(MODEL_ROTATION_FIX * center).with_rotation(
-            MODEL_ROTATION_FIX *
-                inv_bindpose_rot * //.inverse() *   // Why inverse bindpose, not bindpose? idk
-                MODEL_ROTATION_FIX.inverse(),
+        Transform::from_translation(center).with_rotation(
+            inv_bindpose_rot //.inverse() *   // Why inverse bindpose, not bindpose? idk
         ),
     )
 }
@@ -696,10 +690,8 @@ fn get_limb_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collide
 
     (
         Collider::capsule(r, length),
-        Transform::from_translation(MODEL_ROTATION_FIX * c).with_rotation(
-            MODEL_ROTATION_FIX
-                * Quat::from_mat3(&Mat3::from_cols(right, dir, up))
-                * MODEL_ROTATION_FIX.inverse(),
+        Transform::from_translation(c).with_rotation(
+            Quat::from_mat3(&Mat3::from_cols(right, dir, up))
         ),
     )
 }
@@ -733,53 +725,8 @@ fn get_extremity_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Co
 
     (
         Collider::cuboid(x, y, z),
-        Transform::from_translation(MODEL_ROTATION_FIX * center).with_rotation(
-            MODEL_ROTATION_FIX
-                * Quat::from_mat3(&Mat3::from_cols(x_axis, y_axis, z_axis))
-                * MODEL_ROTATION_FIX.inverse(),
+        Transform::from_translation(center).with_rotation(
+            Quat::from_mat3(&Mat3::from_cols(x_axis, y_axis, z_axis))
         ),
     )
-}
-
-pub(crate) fn debug_ragdoll_positions(
-    characters: Query<&CharacterColliders>,
-    transforms: Query<&GlobalTransform, With<CharacterColliderBone>>,
-) {
-    use bevy::prelude::*;
-
-    let mut hand_l: Option<Vec3> = None;
-    let mut hand_r: Option<Vec3> = None;
-    let mut lower_arm_l: Option<Vec3> = None;
-    let mut lower_arm_r: Option<Vec3> = None;
-    let mut upper_arm_l: Option<Vec3> = None;
-    let mut upper_arm_r: Option<Vec3> = None;
-    let mut chest: Option<Vec3> = None;
-    let mut pelvis: Option<Vec3> = None;
-
-    for colliders in &characters {
-        for (bone, entity) in colliders.collider_entities.iter() {
-            if let Ok(transform) = transforms.get(*entity) {
-                let pos = transform.translation();
-                match bone {
-                    CharacterColliderBone::LeftHand => hand_l = Some(pos),
-                    CharacterColliderBone::RightHand => hand_r = Some(pos),
-                    CharacterColliderBone::LowerLeftArm => lower_arm_l = Some(pos),
-                    CharacterColliderBone::LowerRightArm => lower_arm_r = Some(pos),
-                    CharacterColliderBone::UpperLeftArm => upper_arm_l = Some(pos),
-                    CharacterColliderBone::UpperRightArm => upper_arm_r = Some(pos),
-                    CharacterColliderBone::Chest => chest = Some(pos),
-                    CharacterColliderBone::Pelvis => pelvis = Some(pos),
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    if let (Some(chest), Some(pelvis)) = (chest, pelvis) {}
-    if let (Some(upper_arm_l), Some(lower_arm_l), Some(hand_l)) = (upper_arm_l, lower_arm_l, hand_l)
-    {
-    }
-    if let (Some(upper_arm_r), Some(lower_arm_r), Some(hand_r)) = (upper_arm_r, lower_arm_r, hand_r)
-    {
-    }
 }
