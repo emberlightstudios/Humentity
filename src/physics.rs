@@ -16,7 +16,6 @@ use crate::{
     prelude::{BaseMesh, CharacterShapeConfig, RelatedEntities},
     rigs::{RigType, SkeletalBone, SkeletonCaches},
     spawn_skeleton::FitSkeleton,
-    MODEL_ROTATION_FIX,
 };
 
 /// Use to find radius and center of sphere
@@ -317,9 +316,6 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
                 .expect("Related rig should have a GlobalTransform")
                 .clone(),
         );
-        let rot_fix = Transform::from_rotation(MODEL_ROTATION_FIX);
-        let model_to_world = rot_fix * model_to_world;
-
         let collider_bone_map = match rig_type {
             RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
             _ => continue,
@@ -388,7 +384,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
             );
 
             let joint_name = collider_bone_map[i_collider];
-            let model_to_joint = inv_bindposes_map[joint_name] * rot_fix;
+            let model_to_joint = inv_bindposes_map[joint_name];
             let collider_to_joint = model_to_joint * collider_to_model;
             let collider_to_world = model_to_world * collider_to_model;
 
@@ -518,17 +514,9 @@ pub(crate) fn spawn_ragdoll_colliders(
             );
 
             let bone_name = collider_bone_map[i_collider];
-            let Ok(model_to_world) = global_transforms.get(related.rig) else {
-                continue;
-            };
-            let model_to_world = Transform::from(model_to_world.clone());
-            let rot_fix = Transform::from_rotation(MODEL_ROTATION_FIX);
-            let model_to_world = rot_fix * model_to_world;
-
-            let model_to_joint_bind = inv_bindposes_map[bone_name] * rot_fix;
+            let model_to_joint_bind = inv_bindposes_map[bone_name];
             let collider_to_joint = model_to_joint_bind * collider_bind_to_model;
 
-            let world_to_model = Transform::from_matrix(model_to_world.to_matrix().inverse());
             let Ok(joint_to_world) = global_transforms.get(bone_entities[bone_name]) else {
                 continue;
             };
@@ -819,7 +807,7 @@ fn get_head_collider(
     let radius = (helpers[HEAD_VERTICES[0]] - center).length();
     (
         geometry.add(Sphere::new(radius)),
-        Transform::from_translation(MODEL_ROTATION_FIX * center),
+        Transform::from_translation(center),
     )
 }
 
@@ -874,10 +862,8 @@ fn get_midsection_collider(
         .unwrap();
     (
         geometry.add(Cuboid::new(xmax - xmin, ymax - ymin, zmax - zmin)),
-        Transform::from_translation(MODEL_ROTATION_FIX * center).with_rotation(
-            MODEL_ROTATION_FIX *
-                inv_bindpose_rot * //.inverse() *   // Why inverse bindpose, not bindpose? idk
-                MODEL_ROTATION_FIX.inverse(),
+        Transform::from_translation(center).with_rotation(
+            inv_bindpose_rot //.inverse() *   // Why inverse bindpose, not bindpose? idk
         ),
     )
 }
@@ -912,10 +898,8 @@ fn get_limb_collider(
         // Subtract just a small amount of capsule length
         geometry.add(Capsule3d::new(r, (p1 - p2).length())),
         // we have to account for the mesh facing wrong direction
-        Transform::from_translation(MODEL_ROTATION_FIX * c).with_rotation(
-            MODEL_ROTATION_FIX
-                * Quat::from_mat3(&Mat3::from_cols(dir, up, fwd))
-                * MODEL_ROTATION_FIX.inverse(),
+        Transform::from_translation(c).with_rotation(
+            Quat::from_mat3(&Mat3::from_cols(dir, up, fwd))
         ),
     )
 }
@@ -948,10 +932,8 @@ fn get_extremity_collider(
 
     (
         geometry.add(cube),
-        Transform::from_translation(MODEL_ROTATION_FIX * center).with_rotation(
-            MODEL_ROTATION_FIX
-                * Quat::from_mat3(&Mat3::from_cols(x, y, z))
-                * MODEL_ROTATION_FIX.inverse(),
+        Transform::from_translation(center).with_rotation(
+            Quat::from_mat3(&Mat3::from_cols(x, y, z))
         ),
     )
 }
