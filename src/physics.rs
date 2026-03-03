@@ -99,6 +99,16 @@ pub enum CharacterColliderBone {
     RightFoot,
 }
 
+/// Tracks which character a physx entity belongs to
+#[derive(Component)]
+#[relationship(relationship_target = ColliderList)]
+struct ColliderForCharacter(Entity);
+
+/// Tracks which colliders belong to this character
+#[derive(Component)]
+#[relationship_target(relationship = ColliderForCharacter)]
+struct ColliderList(Vec<Entity>);
+
 /// An hierarchical ordering for colliders, does not flow back up the tree
 const COLLIDERS: [CharacterColliderBone; 15] = [
     CharacterColliderBone::Pelvis,
@@ -395,6 +405,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
                     },
                     PoseOffset(collider_to_joint),
                     colliders.filter.clone(),
+                    ColliderForCharacter(character_entity),
                 ))
                 .id();
 
@@ -540,6 +551,7 @@ pub(crate) fn spawn_ragdoll_colliders(
                     PoseOffset(collider_to_joint),
                     colliders.filter.clone(),
                     MassProperties::density(1000.),
+                    ColliderForCharacter(character_entity),
                 ))
                 .id();
 

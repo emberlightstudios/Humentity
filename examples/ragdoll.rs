@@ -1,7 +1,7 @@
 mod shared;
-use std::f32::consts::PI;
+use std::{f32::consts::PI, time::Duration};
 
-use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
+use bevy::{mesh::skinning::SkinnedMesh, prelude::*, time::common_conditions::on_timer};
 use bevy_mod_physx::{
     physx_sys::PxSolverType,
     prelude::{self as bpx, *},
@@ -20,6 +20,8 @@ fn main() {
         DefaultPlugins,
         PhysicsPlugins.set(
             PhysicsCore {
+                // This is what the bevy_mod_physx articulation example uses
+                // but it seems to make the ragdoll unstable
                 //scene: bpx::SceneDescriptor {
                 //    solver_type: PxSolverType::Tgs,
                 //    ..default()
@@ -35,7 +37,13 @@ fn main() {
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
     .add_systems(
         Update,
-        (cam_controls, add_material, toggle, setup_graph, start_clip),
+        (
+            cam_controls,
+            add_material,
+            toggle,//.run_if(on_timer(Duration::from_secs(1))),
+            setup_graph,
+            start_clip
+        ),
     )
     .run();
 }
