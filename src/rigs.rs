@@ -103,16 +103,34 @@ pub(crate) struct BoneData {
 }
 
 #[derive(Resource, Default, Deref, DerefMut)]
-pub(crate) struct SkeletonCaches(AHashMap<RigType, Arc<SkeletonCache>>);
+pub struct SkeletonCaches(AHashMap<RigType, Arc<SkeletonCache>>);
 
-pub(crate) struct SkeletonCache {
+pub struct SkeletonCache {
+    /// Bone order from root to tip, used for consistent indexing
     pub(crate) bone_order: Vec<&'static str>,
-    /// Model Space
+    /// For looking up bone index by name when building rig arrays
+    pub(crate) bone_name_to_index: AHashMap<&'static str, usize>,
+    /// Model space bind pose rotations for each bone, used in rig array construction
     pub(crate) bone_model_space_rots: AHashMap<&'static str, Quat>,
-    /// Bone Local Space
+    /// Model space bind pose translations for each bone, used in rig array construction and root motion
     pub(crate) bone_local_translations: AHashMap<&'static str, Vec3>,
     /// A scene for the skeleton
     pub(crate) scene: Handle<DynamicScene>,
+}
+
+impl SkeletonCache {
+    pub fn bone_index(&self, bone_name: &str) -> Option<usize> {
+        self.bone_name_to_index.get(bone_name).copied()
+    }
+
+    pub fn bone_entity(&self, skinned_mesh: &SkinnedMesh, bone_name: &str) -> Option<Entity> {
+        let index = self.bone_index(bone_name)?;
+        skinned_mesh.joints.get(index).copied()
+    }
+
+    pub fn bone_bindpose_translation(&self, bone_name: &str) -> Option<Vec3> {
+        self.bone_local_translations.get(bone_name).copied()
+    }
 }
 
 impl From<BoneJson> for BoneData {
