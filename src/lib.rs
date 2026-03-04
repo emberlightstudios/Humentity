@@ -33,7 +33,7 @@ pub mod prelude {
             CharacterAnimationArchetype, CharacterArchetypePrefab, CharacterArchetypePrefabs,
             CharacterShapeArchetype, PrefabOverride,
         },
-        rigs::{SkeletalBone, RigType, RootMotion},
+        rigs::{SkeletalBone, RigType, RootMotion, SkeletonCache, SkeletonCaches},
         spawn_mesh::{CharacterShapeConfig, AssetLoadingMediators, LoadAssetMeshJob},
         spawn_skeleton::RelatedEntities,
         HumentityGlobalConfig,
@@ -163,6 +163,12 @@ impl Plugin for HumentityPlugin {
                         physics::on_colliders_changed::<RagdollCollider>,
                     )
                         .run_if(in_state(HumentityLoadState::Ready))
+                )
+                .add_systems(
+                    PostUpdate,
+                    physics::sync_skeleton_to_ragdoll
+                        .after(AnimationSystems)
+                        .run_if(in_state(HumentityLoadState::Ready)),
                 )
                 .add_observer(physics::mark_entity_needs_colliders::<HitboxCollider>)
                 .add_observer(physics::mark_entity_needs_colliders::<HurtboxCollider>)
