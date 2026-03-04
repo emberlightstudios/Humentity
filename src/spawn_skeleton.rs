@@ -24,13 +24,6 @@ pub struct RelatedEntities {
     #[allow(dead_code)]
     pub rig: Entity, // Skeleton Root/AnimationPlayer
     pub root_bone: Entity,
-    pub head: Entity,
-    pub right_hand: Entity,
-    pub left_hand: Entity,
-    pub right_foot: Entity,
-    pub left_foot: Entity,
-    pub right_shoulder: Entity,
-    pub left_shoulder: Entity,
 }
 
 pub(crate) fn spawn_rig_scene(
@@ -242,41 +235,7 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // Cache commonly used joint entities for easy access, e.g. IK
         let root_bone = bone_entities[cache.bone_order[0]];
-        let mut head = Entity::PLACEHOLDER;
-        let mut right_hand = Entity::PLACEHOLDER;
-        let mut left_hand = Entity::PLACEHOLDER;
-        let mut right_foot = Entity::PLACEHOLDER;
-        let mut left_foot = Entity::PLACEHOLDER;
-        let mut right_shoulder = Entity::PLACEHOLDER;
-        let mut left_shoulder = Entity::PLACEHOLDER;
-        for &bone in cache.bone_order.iter() {
-            if ["head"].contains(&bone) {
-                head = bone_entities[bone];
-            } else if ["wrist.L"].contains(&bone) {
-                left_hand = bone_entities[bone];
-            } else if ["wrist.R"].contains(&bone) {
-                right_hand = bone_entities[bone];
-            } else if ["foot.L"].contains(&bone) {
-                left_foot = bone_entities[bone];
-            } else if ["foot.R"].contains(&bone) {
-                right_foot = bone_entities[bone];
-            } else if ["shoulder01.L"].contains(&bone) {
-                left_shoulder = bone_entities[bone];
-            } else if ["shoulder01.R"].contains(&bone) {
-                right_shoulder = bone_entities[bone];
-            }
-        }
-        let related = RelatedEntities {
-            rig: rig_entity,
-            root_bone,
-            head,
-            left_foot,
-            left_hand,
-            right_foot,
-            right_hand,
-            right_shoulder,
-            left_shoulder,
-        };
+        let related = RelatedEntities { rig: rig_entity, root_bone };
 
         commands
             .entity(character_entity)
