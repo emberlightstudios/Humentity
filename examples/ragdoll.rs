@@ -1,7 +1,7 @@
 mod shared;
 use std::{f32::consts::PI, time::Duration};
 
-use bevy::{mesh::skinning::SkinnedMesh, prelude::*, time::common_conditions::on_timer};
+use bevy::{mesh::skinning::SkinnedMesh, prelude::*, render::render_resource::Texture, time::common_conditions::on_timer};
 use bevy_mod_physx::{
     physx_sys::PxSolverType,
     prelude::{self as bpx, *},
@@ -39,7 +39,6 @@ fn main() {
         Update,
         (
             cam_controls,
-            add_material,
             toggle,//.run_if(on_timer(Duration::from_secs(1))),
             setup_graph,
             start_clip
@@ -103,7 +102,12 @@ fn floor(
     ));
 }
 
-fn add_human(mut commands: Commands) {
+fn add_human(
+    mut commands: Commands,
+    mut asset_server: ResMut<AssetServer>,
+    asset_registry: Res<CharacterAssetRegistry>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     // Different filter layers so hitbox and ragdoll don't collide with each other
     // Using PhysX filter: group in word0, mask in word1
     // Hitbox: group=1, mask=1 (only collides with hitbox)
@@ -117,13 +121,27 @@ fn add_human(mut commands: Commands) {
         ..default()
     };
 
+    let texture = CharacterPart::BodyMesh("basemesh").get_texture_handle(
+        "young_caucasian_male",
+        CharacterAssetTextureType::Albedo,
+        &mut asset_server,
+        &asset_registry
+    );
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(texture),
+        ..default()
+    });
+
     commands.spawn((
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
         CharacterShapeConfig::default(),
         // Start with hitbox colliders (all bones), ragdoll has no bones
         CharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
         CharacterColliders::<RagdollCollider>::new(ragdoll_filter, Some(vec![])),
-        children![(CharacterPart::BodyMesh("basemesh"))]
+        children![(
+            CharacterPart::BodyMesh("basemesh"),
+            MeshMaterial3d(mat),
+        )]
     ));
 }
 
