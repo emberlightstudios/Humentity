@@ -8,7 +8,7 @@ use crate::{
 };
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
-use serde::{Deserialize, Serialize, ser::SerializeStruct};
+use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use serde::{Deserializer, Serializer};
 
 /// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh
@@ -36,7 +36,8 @@ impl Serialize for CharacterShapeArchetype {
         S: Serializer,
     {
         // Serialize as a map with "name" and "morphs"
-        let mut state: <S as Serializer>::SerializeStruct = serializer.serialize_struct("CharacterShapeArchetype", 2)?;
+        let mut state: <S as Serializer>::SerializeStruct =
+            serializer.serialize_struct("CharacterShapeArchetype", 2)?;
         state.serialize_field("name", self.name)?;
         state.serialize_field("morphs", &self.morphs)?;
         state.end()
@@ -58,7 +59,10 @@ impl<'de> Deserialize<'de> for CharacterShapeArchetype {
 
         // Convert name to &'static str via leak (safe if fixed names)
         let name: &'static str = NAME_INTERNER.intern(&tmp.name).leak();
-        Ok(CharacterShapeArchetype { name, morphs: tmp.morphs })
+        Ok(CharacterShapeArchetype {
+            name,
+            morphs: tmp.morphs,
+        })
     }
 }
 
@@ -69,15 +73,14 @@ pub struct CharacterAnimationArchetype {
     pub rig_type: RigType,
 }
 
-
 impl Serialize for CharacterAnimationArchetype {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         // Serialize as a map with "name" and "morphs"
-        let mut state: <S as Serializer>::SerializeStruct = serializer
-            .serialize_struct("CharacterAnimationArchetype", 2)?;
+        let mut state: <S as Serializer>::SerializeStruct =
+            serializer.serialize_struct("CharacterAnimationArchetype", 2)?;
         state.serialize_field("animation_glbs", &self.animation_glbs)?;
         state.serialize_field("rig_type", &self.rig_type)?;
         state.end()
@@ -98,16 +101,23 @@ impl<'de> Deserialize<'de> for CharacterAnimationArchetype {
         let tmp = Tmp::deserialize(deserializer)?;
 
         // Convert name to &'static str via leak (safe if fixed names)
-        let glbs: Vec<&'static str> = tmp.animation_glbs
+        let glbs: Vec<&'static str> = tmp
+            .animation_glbs
             .iter()
             .map(|s| NAME_INTERNER.intern(s).leak())
             .collect();
-        Ok(CharacterAnimationArchetype { animation_glbs: glbs, rig_type: tmp.rig_type })
+        Ok(CharacterAnimationArchetype {
+            animation_glbs: glbs,
+            rig_type: tmp.rig_type,
+        })
     }
 }
 
 impl CharacterAnimationArchetype {
-    pub fn new(rig_type: RigType, animation_glbs: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+    pub fn new(
+        rig_type: RigType,
+        animation_glbs: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Self {
         Self {
             animation_glbs: animation_glbs
                 .into_iter()
@@ -163,7 +173,9 @@ pub struct PrefabOverride(pub &'static str);
 
 impl<'de> Deserialize<'de> for PrefabOverride {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where D: Deserializer<'de> {
+    where
+        D: Deserializer<'de>,
+    {
         let s = String::deserialize(deserializer)?;
         Ok(Self(NAME_INTERNER.intern(&s).leak()))
     }
@@ -210,7 +222,12 @@ pub(crate) fn create_character_prefab_rig_scenes(world: &mut World) {
         let base_mesh = world.get_resource::<BaseMesh>().unwrap();
         let helpers = &base_mesh.0.clone();
         let scene = crate::rigs::build_human_rig_scene(
-            helpers, rig_type, &bone_rotations, &bone_order, world);
+            helpers,
+            rig_type,
+            &bone_rotations,
+            &bone_order,
+            world,
+        );
 
         let mut prefabs = world.resource_mut::<CharacterArchetypePrefabs>();
         let prefab = prefabs.get_mut(&name).unwrap();
@@ -218,10 +235,16 @@ pub(crate) fn create_character_prefab_rig_scenes(world: &mut World) {
 
         let mut skeleton_caches = world.resource_mut::<SkeletonCaches>();
         if !skeleton_caches.contains_key(&rig_type) {
+            let bone_name_to_index = bone_order
+                .iter()
+                .enumerate()
+                .map(|(i, &bone_name)| (bone_name, i))
+                .collect::<AHashMap<_, _>>();
             skeleton_caches.insert(
                 rig_type,
                 Arc::new(SkeletonCache {
                     bone_order: bone_order.clone(),
+                    bone_name_to_index,
                     bone_model_space_rots: bone_rotations,
                     bone_local_translations: bone_translations,
                     scene,
