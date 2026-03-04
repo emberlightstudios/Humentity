@@ -52,6 +52,10 @@ fn toggle(
     input: Res<ButtonInput<KeyCode>>,
     mut hitbox: Single<&mut CharacterColliders<HitboxCollider>>,
     mut ragdoll: Single<&mut CharacterColliders<RagdollCollider>>,
+    human: Single<(&CharacterShapeConfig, &SkinnedMesh)>,
+    prefabs: Res<CharacterArchetypePrefabs>,
+    sk_caches: Res<SkeletonCaches>,
+    mut bones: Query<&mut Transform, With<SkeletalBone>>,
 ) {
     if input.just_pressed(KeyCode::Space) {
         // Toggle between ragdoll active and hitbox active
@@ -64,6 +68,16 @@ fn toggle(
             // Switch to hitbox: ragdoll gets empty, hitbox gets all bones
             ragdoll.bones_subset = Some(vec![]);
             hitbox.bones_subset = None;
+
+            let (shape_config, skinned_mesh) = *human;
+            let rig_type = prefabs[&shape_config.prefab].rig.rig_type;
+            let cache = &sk_caches[&rig_type];
+            if let Some(pelvis_entity) = cache.bone_entity(skinned_mesh, "root")
+                && let Some(pelvis_bindpose) = cache.bone_bindpose_translation("root")
+                && let Ok(mut pelvis) = bones.get_mut(pelvis_entity)
+            {
+                pelvis.translation = pelvis_bindpose;
+            }
         } else {
             // Switch to ragdoll: hitbox gets empty, ragdoll gets all bones
             hitbox.bones_subset = Some(vec![]);
@@ -109,6 +123,7 @@ fn add_human(mut commands: Commands) {
         // Start with hitbox colliders (all bones), ragdoll has no bones
         CharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
         CharacterColliders::<RagdollCollider>::new(ragdoll_filter, Some(vec![])),
+        children![(CharacterPart::BodyMesh("basemesh"))]
     ));
 }
 
