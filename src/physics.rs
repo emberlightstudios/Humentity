@@ -798,6 +798,76 @@ pub(crate) fn sync_colliders<C: ColliderType + Send + Sync + 'static>(
     }
 }
 
+/// Syncs skeletal bones to ragdoll collider transforms when ragdoll is active.
+pub(crate) fn sync_skeleton_to_ragdoll(
+    characters: Query<&CharacterColliders<RagdollCollider>>,
+    collider_transforms: Query<
+        (&Transform, &PoseOffset),
+        (With<CharacterColliderBone>, Without<SkeletalBone>),
+    >,
+    mut bones: Query<
+        (&mut Transform, Option<&ChildOf>),
+        (With<SkeletalBone>, Without<CharacterColliderBone>),
+    >,
+    global_transforms: Query<&GlobalTransform>,
+) {
+    for colliders in characters.iter() {
+        if colliders.collider_entities.is_empty() {
+            continue;
+        }
+
+        let ragdoll_active = !matches!(
+            &colliders.bones_subset,
+            Some(active_bones) if active_bones.is_empty()
+        );
+        if !ragdoll_active {
+            continue;
+        }
+
+        let mut desired_joint_world = AHashMap::<CharacterColliderBone, Transform>::default();
+        for (collider_bone, collider_entity) in colliders.collider_entities.iter() {
+            let Ok((collider_to_world, collider_to_joint)) =
+                collider_transforms.get(*collider_entity)
+            else {
+                continue;
+            };
+
+            let joint_to_world = *collider_to_world
+                * Transform::from_matrix(collider_to_joint.to_matrix().inverse());
+            desired_joint_world.insert(*collider_bone, joint_to_world);
+        }
+
+        let mut applied_joint_world = AHashMap::<Entity, Transform>::default();
+        for collider_bone in COLLIDERS {
+            let Some(&joint_to_world) = desired_joint_world.get(&collider_bone) else {
+                continue;
+            };
+            let Some(&bone_entity) = colliders.bone_entities.get(&collider_bone) else {
+                continue;
+            };
+
+            let Ok((mut local_transform, parent)) = bones.get_mut(bone_entity) else {
+                continue;
+            };
+
+            let local = if let Some(parent) = parent {
+                if let Some(parent_to_world) = applied_joint_world.get(&parent.parent()) {
+                    Transform::from_matrix(parent_to_world.to_matrix().inverse()) * joint_to_world
+                } else if let Ok(parent_to_world) = global_transforms.get(parent.parent()) {
+                    Transform::from_matrix(parent_to_world.to_matrix().inverse()) * joint_to_world
+                } else {
+                    joint_to_world
+                }
+            } else {
+                joint_to_world
+            };
+
+            *local_transform = local;
+            applied_joint_world.insert(bone_entity, joint_to_world);
+        }
+    }
+}
+
 /*--- Utility functions ---*/
 fn get_head_collider(
     helpers: &[Vec3],
@@ -863,7 +933,7 @@ fn get_midsection_collider(
     (
         geometry.add(Cuboid::new(xmax - xmin, ymax - ymin, zmax - zmin)),
         Transform::from_translation(center).with_rotation(
-            inv_bindpose_rot //.inverse() *   // Why inverse bindpose, not bindpose? idk
+            inv_bindpose_rot, //.inverse() *   // Why inverse bindpose, not bindpose? idk
         ),
     )
 }
@@ -898,9 +968,8 @@ fn get_limb_collider(
         // Subtract just a small amount of capsule length
         geometry.add(Capsule3d::new(r, (p1 - p2).length())),
         // we have to account for the mesh facing wrong direction
-        Transform::from_translation(c).with_rotation(
-            Quat::from_mat3(&Mat3::from_cols(dir, up, fwd))
-        ),
+        Transform::from_translation(c)
+            .with_rotation(Quat::from_mat3(&Mat3::from_cols(dir, up, fwd))),
     )
 }
 
@@ -932,8 +1001,7 @@ fn get_extremity_collider(
 
     (
         geometry.add(cube),
-        Transform::from_translation(center).with_rotation(
-            Quat::from_mat3(&Mat3::from_cols(x, y, z))
-        ),
+        Transform::from_translation(center)
+            .with_rotation(Quat::from_mat3(&Mat3::from_cols(x, y, z))),
     )
 }
