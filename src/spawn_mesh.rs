@@ -1,9 +1,9 @@
+use std::sync::Arc;
+
 use ahash::AHashMap;
-use bevy::{ecs::intern::Internable, mesh::{morph::{MeshMorphWeights, MorphTargetImage}, skinning::SkinnedMesh}, prelude::*, tasks::AsyncComputeTaskPool};
-use crossbeam_channel::{Sender, Receiver};
-use crate::{NAME_INTERNER, assets::{CharacterAssetData, CharacterAssetRegistry, CharacterPart, StitchedPart, StitchedParts, parse_character_asset},
-    morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs, PrefabOverride}, prelude::BaseMesh,
-    rigs::{BoneTranslationData, RigData, SkeletonCaches}};
+use bevy::{ecs::intern::Internable, mesh::{morph::{MorphTargetImage}}, prelude::*, tasks::AsyncComputeTaskPool};
+use crossbeam_channel::{Receiver, Sender};
+use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{BaseMeshAsset, MhcloAsset}, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs}, rigs::{BoneTranslationData, RigData, SkeletonCaches}};
 use serde::{Deserialize, Deserializer, Serialize};
 
 
@@ -53,24 +53,30 @@ impl CharacterShapeConfig {
 pub enum AssetLoadState {
     #[default]
     None,
-    LoadingData,
-    LoadingObj,
-    BuildingMesh,
+    LoadedObj,
+    BuildSubmitted,
     Finished
 }
 
+#[derive(Resource, Deref, DerefMut, Default)]
+pub struct CachedMhcloMeshHandles(AHashMap<(Handle<MhcloAsset>, &'static str), Handle<Mesh>>);
+
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct CachedMhcloRawMeshHandles(AHashMap<Handle<MhcloAsset>, Handle<Mesh>>);
+
+
 /// A resource for communicating with background threads for mesh loading
 #[derive(Resource, Deref, Default)]
-pub struct AssetLoadingMediators(AHashMap<LoadAssetMeshJob, (LoadingMediator, AssetLoadState)>);
+pub struct MhcloMeshBuilder(AHashMap<LoadAssetMeshJob, (LoadingMediator, AssetLoadState)>);
 
-/// The type of a mesh load job, single CharacterPart or multiple parts in a StitchedMesh
+/// The type of a mesh load job, single CharacterMesh or multiple parts in a StitchedMesh
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub enum LoadAssetMeshJob {
     Single{ part: CharacterPart, prefab_name: &'static str },
     Stitched{ parts: StitchedParts, prefab_name: &'static str },
 }
 
-impl AssetLoadingMediators {
+impl MhcloMeshBuilder {
     /// Trigger a rebuild of a mesh or group of stitched meshes
     pub fn trigger(&mut self, key: LoadAssetMeshJob) {
         if !self.0.contains_key(&key) {
@@ -89,22 +95,13 @@ impl AssetLoadingMediators {
 pub struct LoadingMediator {
     pub(crate) mesh_building_msg_sender: Sender<MeshConstructedMsg>,
     pub(crate) mesh_building_msg_receiver: Receiver<MeshConstructedMsg>,
-    pub(crate) asset_loading_msg_sender: Sender<AssetLoadedMsg>,
-    pub(crate) asset_loading_msg_receiver: Receiver<AssetLoadedMsg>,
 }
 
 impl Default for LoadingMediator {
     fn default() -> Self {
-        let ( asset_loading_msg_sender, asset_loading_msg_receiver ) = crossbeam_channel::unbounded();
         let ( mesh_building_msg_sender, mesh_building_msg_receiver ) = crossbeam_channel::unbounded();
-        Self { asset_loading_msg_receiver, asset_loading_msg_sender, mesh_building_msg_receiver, mesh_building_msg_sender }
+        Self { mesh_building_msg_receiver, mesh_building_msg_sender }
     }
-}
-
-/// A message sent from the bg thread when the mhclo file has finished loading
-pub(crate) struct AssetLoadedMsg {
-    part: CharacterPart,
-    data: CharacterAssetData,
 }
 
 /// A message sent from the bg thread when the mesh or meshes are ready
@@ -114,163 +111,42 @@ pub(crate) struct MeshConstructedMsg {
     pub(crate) morph_images: Vec<MorphTargetImage>, 
 }
 
-/// Handles parsing .mhclo, loading obj, fixing normals and cachine mesh handles for CharacterPart
-pub(crate) fn handle_single_mesh_load_tasks(
-    parts: Query<(Entity, &CharacterPart, &ChildOf, Option<&PrefabOverride>), Without<Mesh3d>>,
-    character_root: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
-    prefabs: Res<CharacterArchetypePrefabs>,
-    mut asset_registry: ResMut<CharacterAssetRegistry>,
-    meshes: Res<Assets<Mesh>>,
-    mut commands: Commands,
-    mut mediators: ResMut<AssetLoadingMediators>,
-) {
-    if parts.count() == 0 { return; }
-
-    for (entity, &part, parent, prefab_override) in parts {
-        let Ok((config, skinned_mesh)) =
-                    character_root.get(parent.parent())
-            // SkinnedMesh component will be added to the character root only
-            // after the skeleton is fit. Wait for this before inserting the mesh
-            // which requires this component
-            else { continue };
-
-        let prefab_name = if let Some(p) = prefab_override { p.0 } else { config.prefab };
-
-        let Some(asset) = asset_registry.get_mut(&part) else {
-            error!("No such asset: {:#?} - Cannot load", part);
-            commands.entity(entity).despawn();
-            continue;
-        };
-
-        if let Some(handle) = asset.mesh_handles.get(prefab_name) {
-            if let Some(mesh) = meshes.get(handle) && mesh.has_morph_targets(){
-                let morph_weights = prefabs[prefab_name]
-                    .shapes
-                    .iter()
-                    .map(|s| *config.prefab_morph_targets.get(s.name).unwrap_or(&0.))
-                    .collect::<Vec<_>>();
-                let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
-                commands.entity(entity).insert(morph_weights);
-            }
-            commands.entity(entity).insert((
-                Mesh3d(handle.clone()),
-                skinned_mesh.clone(),
-            ));
-        } else {
-            mediators.trigger(LoadAssetMeshJob::Single { part, prefab_name });
-        }
-    }
-}
-
-/// Handles parsing .mhclo, loading obj, fixing normals and cachine mesh handles for StitchedPart
-pub(crate) fn handle_stitched_mesh_load_tasks(
-    parts_lists: Query<(Entity, &StitchedParts, &ChildOf)>,
-    character_root: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
-    prefabs: Res<CharacterArchetypePrefabs>,
-    mut asset_registry: ResMut<CharacterAssetRegistry>,
-    mut commands: Commands,
-    meshes: ResMut<Assets<Mesh>>,
-    mut mediators: ResMut<AssetLoadingMediators>,
-) {
-    if parts_lists.count() == 0 { return; }
-
-    'outer: for (entity, collection, parent) in parts_lists {
-        let Ok((config, skinned_mesh)) =
-                    character_root.get(parent.parent())
-            // SkinnedMesh component will be added to the character root only
-            // after the skeleton is fit. Wait for this before inserting the mesh
-            // which requires this component
-            else { continue };
-        
-        let mut done = true;
-
-        for part in collection.iter() {
-            let StitchedPart { part, prefab_override } = part;
-
-            let Some(asset) = asset_registry.get_mut(part) else {
-                error!("No such asset: {:#?} - Cannot load", part);
-                commands.entity(entity).despawn();
-                continue 'outer;
-            };
-
-            let prefab = if let Some(ov) = prefab_override { ov.0 } else { config.prefab };
-            if asset.mesh_handles.get(prefab).is_none() {
-                done = false;
-            }
-        }
-
-        if done {
-            let root = parent.parent();
-
-            for part in collection.iter() {
-                let StitchedPart { part, prefab_override } = part;
-                let prefab_name = if let Some(ov) = prefab_override { ov.0 } else { config.prefab };
-                let Some(asset) = asset_registry.get_mut(part) else { continue };
-                let Some(handle) = asset.mesh_handles.get(prefab_name) else { continue };
-                let prefab = &prefabs[prefab_name];
-
-                let child = commands.spawn_empty().id();
-                commands.entity(root).add_child(child);
-
-                if let Some(mesh) = meshes.get(handle) && mesh.has_morph_targets(){
-                    let morph_weights = prefab
-                        .shapes
-                        .iter()
-                        .map(|s| *config.prefab_morph_targets.get(s.name).unwrap_or(&0.))
-                        .collect::<Vec<_>>();
-                    let morph_weights = MeshMorphWeights::new(morph_weights).unwrap();
-                    commands.entity(child).insert(morph_weights);
-                }
-                commands.entity(child).insert((
-                    *part,
-                    skinned_mesh.clone(),
-                    Mesh3d(handle.clone()),
-                ));
-            }
-            commands.entity(entity).despawn();
-
-        } else { // not done yet
-            mediators.trigger(LoadAssetMeshJob::Stitched{ parts: collection.clone(), prefab_name: config.prefab });
-        }
-
-    }
-}
-
 /// This system runs in phases, so it gets triggered multiple times to load a mesh
 /// State is tracked by [`AssetLoadState`]
 pub(crate) fn mesh_build(
     prefabs: ResMut<CharacterArchetypePrefabs>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mhclo_assets: Res<Assets<MhcloAsset>>,
     mut images: ResMut<Assets<Image>>,
-    mut asset_registry: ResMut<CharacterAssetRegistry>,
-    morphs: Res<MakeHumanMorphs>,
+    mut morphs: ResMut<MakeHumanMorphs>,
     basemesh: Res<BaseMesh>,
     rig_data: Res<RigData>,
     asset_server: Res<AssetServer>,
     sk_cache: Res<SkeletonCaches>,
-    mut mediators: ResMut<AssetLoadingMediators>,
+    mut cached_meshes: ResMut<CachedMhcloMeshHandles>,
+    mut cached_raw_meshes: ResMut<CachedMhcloRawMeshHandles>,
+    mut mediators: ResMut<MhcloMeshBuilder>,
 ) {
     for (key, (mediator, load_state)) in mediators.0.iter_mut() {
         match key {
             LoadAssetMeshJob::Single { part, prefab_name } => {
                 build_single_mesh_process(
-                    mediator, load_state, *part, prefab_name, &prefabs, &mut meshes, &mut asset_registry,
-                    &morphs, &basemesh, &rig_data, &asset_server, &sk_cache,
+                    mediator, load_state, part, prefab_name, &prefabs, &mut meshes, &mhclo_assets,
+                    &mut morphs, &basemesh.0, &rig_data, &asset_server, &sk_cache, &mut cached_raw_meshes,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
                     let mesh = handle_single_mesh_complete(msg, &prefabs[prefab_name], &mut images);
-                    let handle = meshes.add(mesh);
-                    let Some(asset) = asset_registry.get_mut(part) else { continue };
-                    asset.mesh_handles.insert(prefab_name, handle.clone());
-                    asset.raw_mesh_handle = None;
+                    let mesh_handle = meshes.add(mesh);
+                    cached_meshes.insert((part.0.clone(), prefab_name), mesh_handle.clone());
                     *load_state = AssetLoadState::Finished;
                 }
             }
             LoadAssetMeshJob::Stitched{ parts, prefab_name } => {
                 build_stitched_meshes_process(
-                    mediator, load_state, parts, prefab_name, &prefabs, &mut meshes, &mut asset_registry,
-                    &morphs, &basemesh, &rig_data, &asset_server, &sk_cache, 
+                    mediator, load_state, parts, prefab_name, &prefabs, &mut meshes,
+                    &mhclo_assets, &mut morphs, &basemesh.0, &rig_data, &asset_server, &sk_cache,
+                    &mut cached_raw_meshes,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
@@ -287,10 +163,9 @@ pub(crate) fn mesh_build(
                     let new_meshes = handle_stitched_mesh_complete(msg, &prefabs, &mut images);
 
                     for (i_mesh, mesh) in new_meshes.into_iter().enumerate() {
-                        let handle = meshes.add(mesh);
-                        let Some(asset) = asset_registry.get_mut(&parts[i_mesh].part) else { continue };
-                        asset.mesh_handles.insert(prefab_names[i_mesh], handle.clone());
-                        asset.raw_mesh_handle = None;
+                        let handle = parts[i_mesh].part.clone();
+                        let mesh_handle = meshes.add(mesh);
+                        cached_meshes.insert((handle, prefab_name), mesh_handle.clone());
                     }
                     *load_state = AssetLoadState::Finished;
                 }
@@ -341,8 +216,8 @@ pub(crate) fn handle_stitched_mesh_complete(
             mesh = mesh
                 .with_morph_target_names(morph_names)
                 .with_morph_targets(image);
-            meshes.push(mesh)
         }
+        meshes.push(mesh);
     }
     meshes
 }
@@ -351,73 +226,57 @@ pub(crate) fn handle_stitched_mesh_complete(
 pub(crate) fn build_single_mesh_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
-    part: CharacterPart,
+    part: &CharacterPart,
     prefab_name: &'static str,
     prefabs: &CharacterArchetypePrefabs,
     meshes: &mut Assets<Mesh>,
-    asset_registry: &mut CharacterAssetRegistry,
-    morphs: &MakeHumanMorphs,
-    basemesh: &BaseMesh,
+    mhclo_assets: &Assets<MhcloAsset>,
+    morphs: &mut MakeHumanMorphs,
+    basemesh: &Arc<Vec<Vec3>>,
     rig_data: &RigData,
     asset_server: &AssetServer,
     sk_cache: &SkeletonCaches,
+    cached_raw_meshes: &mut CachedMhcloRawMeshHandles,
 ) {
     let pool = AsyncComputeTaskPool::get();
-    let Some(asset) = asset_registry.get_mut(&part) else { return };
     let prefab = prefabs.get(prefab_name).expect("No such prefab");
 
+    let Some(mhclo) = mhclo_assets.get(&**part) else {
+        return;
+    };
 
-    // Start loading data if we haven't already
+    // Start loading mhclo if not already
     if *load_state == AssetLoadState::None {
-        *load_state = AssetLoadState::LoadingData;
-        if asset.data.is_none()  {
-            let path = asset.paths.mh_file.clone();
-            let sender = mediator.asset_loading_msg_sender.clone();
-
-            pool.spawn(async move {
-                let data = parse_character_asset(&path);
-                sender.send(AssetLoadedMsg { data, part })
-            })
-            .detach();
+        *load_state = AssetLoadState::LoadedObj;
+        if !cached_raw_meshes.contains_key(&**part) {
+            let handle = asset_server.load(mhclo.obj_file.clone());
+            cached_raw_meshes.insert(part.0.clone(), handle);
             return;
         }
     }
 
-    // Check if asset data just loaded, set data
-    for AssetLoadedMsg { data, .. } in mediator.asset_loading_msg_receiver.try_iter() {
-        asset.data = Some(data);
-    }
-
-    if *load_state == AssetLoadState::LoadingData &&
-        let Some(data) = &mut asset.data
+    if *load_state == AssetLoadState::LoadedObj
+            && let Some(handle) = cached_raw_meshes.get(&**part)
+            && let Some(input_mesh) = meshes.get(handle)
     {
-        // Load obj if not loaded
-        if asset.raw_mesh_handle.is_none() {
-            let handle: Handle<Mesh> = data.obj_file.load_asset(asset_server);
-            asset.raw_mesh_handle = Some(handle);
-            *load_state = AssetLoadState::LoadingObj
-        }
-    }
-
-    if *load_state == AssetLoadState::LoadingObj
-                && let Some(handle) = &asset.raw_mesh_handle
-                && let Some(input_mesh) = meshes.get(handle)
-    {
-        *load_state = AssetLoadState::BuildingMesh;
+        *load_state = AssetLoadState::BuildSubmitted;
 
         let input_mesh = input_mesh.clone();
-        let data = asset.data.as_ref().unwrap().clone();
         let prefab = prefab.clone();
         let mh_morphs = morphs.targets.clone();
-        let basemesh = basemesh.clone();
-        let rig_weights = rig_data.weights.clone();
-        let sk_cache = sk_cache[&prefab.rig.rig_type].clone();
+        let Some(rig_entry) = rig_data.get(&prefab.rig) else {
+            return;
+        };
+        let rig_weights = rig_entry.weights.clone();
+        let sk_cache = sk_cache[&prefab.rig].clone();
 
         let sender = mediator.mesh_building_msg_sender.clone();
+        let mhclo = mhclo.clone();
+        let basemesh = basemesh.clone();
 
         pool.spawn(async move {
-            let (mesh, morph_names, morph_image) = data.build_final_mesh(
-                &input_mesh, &prefab, &mh_morphs, &basemesh, &rig_weights, &sk_cache
+            let (mesh, morph_names, morph_image) = build_final_mesh_mhclo(
+                &mhclo, &input_mesh, &prefab, mh_morphs, basemesh, &rig_weights, &sk_cache
             );
             sender.send(MeshConstructedMsg {
                 final_meshes: vec![mesh],
@@ -436,111 +295,97 @@ fn build_stitched_meshes_process(
     prefab_name: &'static str,
     prefabs: &CharacterArchetypePrefabs,
     meshes: &mut Assets<Mesh>,
-    asset_registry: &mut CharacterAssetRegistry,
-    morphs: &MakeHumanMorphs,
-    basemesh: &BaseMesh,
+    mhclo_assets: &Assets<MhcloAsset>,
+    morphs: &mut MakeHumanMorphs,
+    basemesh: &Arc<Vec<Vec3>>,
     rig_data: &RigData,
     asset_server: &AssetServer,
     sk_cache: &SkeletonCaches,
+    cached_raw_meshes: &mut CachedMhcloRawMeshHandles,
 ) {
     let pool = AsyncComputeTaskPool::get();
-                
-    // Start loading data if we haven't already
-    if *load_state == AssetLoadState::None {
-        *load_state = AssetLoadState::LoadingData;
-        for StitchedPart { part, .. } in parts.iter() {
-            let part = *part;
-            let Some(asset) = asset_registry.get(&part) else { continue };
-            if asset.data.is_none() {
-                let path = asset.paths.mh_file.clone();
-                let sender = mediator.asset_loading_msg_sender.clone();
-                pool.spawn(async move {
-                    let data = parse_character_asset(&path);
-                    sender.send(AssetLoadedMsg { data, part })
-                })
-                .detach();
-            }
-        }
-    }
 
-    // Check if asset data just loaded, set data
-    for AssetLoadedMsg { data, part } in mediator.asset_loading_msg_receiver.try_iter() {
-        let Some(asset) = asset_registry.get_mut(&part) else { continue };
-        asset.data = Some(data);
-    }
-
-    let still_loading = parts
+    // Resolve all mhclo assets; bail if any part's asset isn't loaded yet
+    let mhclos_ready: Vec<_> = parts
         .iter()
-        .map(|p| p.part)
-        .filter_map(|p| asset_registry.get(&p))
-        .any(|p| p.data.is_none());
+        .map(|p| mhclo_assets.get(&p.part))
+        .collect();
 
-    if still_loading { return }
+    if mhclos_ready.iter().any(|o| o.is_none()) {
+        return;
+    }
 
-    if *load_state == AssetLoadState::LoadingData {
-        *load_state = AssetLoadState::LoadingObj;
-        // Load obj if not loaded
+    // Phase 1: ensure raw OBJ meshes are loading (same pattern as single-mesh path)
+    if *load_state == AssetLoadState::None {
+        *load_state = AssetLoadState::LoadedObj;
         for StitchedPart { part, .. } in parts.iter() {
-            let Some(asset) = asset_registry.get_mut(part) else { continue };
-            if let Some(data) = &asset.data && asset.raw_mesh_handle.is_none() {
-                let handle: Handle<Mesh> = data.obj_file.load_asset(asset_server);
-                asset.raw_mesh_handle = Some(handle);
+            if !cached_raw_meshes.contains_key(&*part) {
+                let mhclo = mhclo_assets.get(&*part).expect("mhclo already checked");
+                let handle = asset_server.load(mhclo.obj_file.clone());
+                cached_raw_meshes.insert(part.clone(), handle);
             }
         }
         return;
     }
 
-    if *load_state == AssetLoadState::LoadingObj {
-        let assets = parts
+    // Phase 2: when all raw meshes are in Assets<Mesh>, spawn the build task
+    if *load_state == AssetLoadState::LoadedObj {
+        let raw_handles: Vec<_> = parts
             .iter()
-            .map(|p| &p.part)
-            .map(|p| asset_registry.get(p).unwrap())
-            .collect::<Vec<_>>();
+            .map(|p| cached_raw_meshes.get(&p.part))
+            .collect();
 
-        let meshes = assets
+        let all_ready = raw_handles.iter().all(|h| h.is_some());
+        if !all_ready {
+            return;
+        }
+
+        let loaded_meshes: Vec<_> = raw_handles
             .iter()
-            .filter(|a| a.raw_mesh_handle.is_some())
-            .filter_map(|a| meshes.get(a.raw_mesh_handle.as_ref().unwrap()))
-            .collect::<Vec<_>>();
+            .filter_map(|h| h.and_then(|handle| meshes.get(handle)))
+            .collect();
 
-        if meshes.len() != parts.len() { return }
+        if loaded_meshes.len() != parts.len() {
+            return;
+        }
 
-        *load_state = AssetLoadState::BuildingMesh;
+        *load_state = AssetLoadState::BuildSubmitted;
 
-        let mut meshes = meshes
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
-
-        let asset_data = assets
+        let mut input_meshes: Vec<Mesh> = loaded_meshes.into_iter().cloned().collect();
+        let mhclos: Vec<_> = parts
             .iter()
-            .filter_map(|a| a.data.clone())
-            .collect::<Vec<_>>();
+            .map(|p| mhclo_assets.get(&p.part).unwrap().clone())
+            .collect();
 
-        let prefab_names = parts
+        let prefab_names: Vec<&'static str> = parts
             .iter()
-            .map(|p| &p.prefab_override)
-            .map(|o| { if let Some(p) = o { p.0 } else { prefab_name }})
-            .collect::<Vec<_>>();
+            .map(|p| p.prefab_override.as_ref().map_or(prefab_name, |ov| ov.0))
+            .collect();
 
-        let rig = prefabs[prefab_names[0]].rig.rig_type;
-
-        let prefabs = prefab_names
+        let rig = prefabs[prefab_names[0]].rig;
+        let prefabs_for_build: Vec<_> = prefab_names
             .iter()
-            .map(|p| &prefabs[p])
-            .cloned()
-            .collect::<Vec<_>>();
+            .map(|p| prefabs[*p].clone())
+            .collect();
 
         let mh_morphs = morphs.targets.clone();
         let basemesh = basemesh.clone();
-        let rig_weights = rig_data.weights.clone();
-        //  I guess we have to assume one rig, even with prefab overrides
+        let Some(rig_entry) = rig_data.get(&rig) else {
+            return;
+        };
+        let rig_weights = rig_entry.weights.clone();
         let sk_cache = sk_cache[&rig].clone();
 
         let sender = mediator.mesh_building_msg_sender.clone();
         pool.spawn(async move {
-            let (final_meshes, morph_names, morph_images) = CharacterAssetData::build_final_meshes(
-                &asset_data, &mut meshes, &prefabs, &mh_morphs, &basemesh, &rig_weights, &sk_cache
+            let (final_meshes, morph_names, morph_images) = build_final_meshes_mhclo(
+                &mhclos,
+                &mut input_meshes,
+                &prefabs_for_build,
+                mh_morphs,
+                basemesh,
+                &rig_weights,
+                &sk_cache,
             );
             sender.send(MeshConstructedMsg {
                 final_meshes,
@@ -552,7 +397,7 @@ fn build_stitched_meshes_process(
 }
 
 /// Monitors for finished jobs and removes their mediators
-pub(crate) fn mediators_clean_up(mut mediators: ResMut<AssetLoadingMediators>) {
+pub(crate) fn mediators_clean_up(mut mediators: ResMut<MhcloMeshBuilder>) {
     let n = mediators.len();
     if n > 0 {
         let mut remove = vec![];

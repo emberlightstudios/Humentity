@@ -1,14 +1,25 @@
-use crate::{basemesh::BODY_SCALE, prelude::*};
+use std::sync::{Arc, RwLock};
+
+use crate::{
+    loaders::{CompositeTargetsAsset, MacroDataAsset, TargetAsset},
+    prelude::*,
+};
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{
-    fs::File,
-    io::{BufRead, BufReader},
-    path::PathBuf, sync::Arc,
-};
-use walkdir::WalkDir;
+use thiserror::Error;
 
+#[derive(Error, Debug)]
+pub enum MorphError {
+    #[error("Macro data not loaded - cannot resolve macros")]
+    MacrosNotLoaded,
+    #[error("Composite morph data not loaded - cannot resolve")]
+    CompositeNotLoaded,
+    #[error("Morph target '{0}' not found in loaded targets")]
+    TargetNotFound(&'static str),
+}
+
+/// A type for storing generic morph target weights
 #[derive(Component, Deref, DerefMut, Clone, Default, Debug)]
 pub struct MorphTargets(AHashMap<&'static str, f32>);
 
@@ -40,112 +51,51 @@ impl<'de> Deserialize<'de> for MorphTargets {
     }
 }
 
-pub(crate) type MHMorphs = AHashMap<&'static str, AHashMap<u16, Vec3>>;
-
 #[derive(Resource)]
 pub struct MakeHumanMorphs {
-    macro_morphs: MacroData,
-    composite_categories: AHashMap<&'static str, Vec<&'static str>>,
-    composite_morphs: AHashMap<&'static str, CompositeMorph>,
-    pub targets: Arc<MHMorphs>,
-    pub expressions: Arc<Vec<&'static str>>,
+    pub targets: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
+    pub expressions: Vec<&'static str>,
+    macros: MacroDataAsset,
+    composites: CompositeTargetsAsset,
 }
 
-impl FromWorld for MakeHumanMorphs {
-    fn from_world(world: &mut World) -> Self {
-        // Create Morph Target Entities from all the .target files
+// Temp resource before assets are moved onto MakeHumanMorphs resource
+#[derive(Resource)]
+pub(crate) struct MorphHandles {
+    macro_handle: Handle<MacroDataAsset>,
+    composite_handle: Handle<CompositeTargetsAsset>,
+}
 
-        let config = world
-            .get_resource::<HumentityPathsConfig>()
-            .expect("No global Humentity config loaded");
-        let core_path: PathBuf = config.core_assets_path.clone();
-        let target_paths = config.target_paths.clone();
-        let mut targets = AHashMap::<&'static str, AHashMap<u16, Vec3>>::default();
-        let mut expression_morphs = vec![];
-
-        for target_path in target_paths.iter() {
-            for entry in WalkDir::new(target_path).into_iter().filter_map(Result::ok) {
-                let path = entry.path();
-                if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("target") {
-                    let Some(filename) = path.file_name().unwrap().to_str() else {
-                        continue;
-                    };
-                    let Some(stem) = path.file_stem().unwrap().to_str() else {
-                        continue;
-                    };
-                    let file = File::open(path)
-                        .unwrap_or_else(|_| panic!("Couldn't open target file {}", filename));
-                    let mut offsets = AHashMap::<u16, Vec3>::default();
-
-                    for line_result in BufReader::new(file).lines() {
-                        let Ok(line) = line_result else { break };
-                        let mut line_elements = line.split_whitespace();
-                        let Some(vert_str) = line_elements.next() else {
-                            continue;
-                        };
-                        let Ok(vert) = vert_str.parse::<u16>() else {
-                            continue;
-                        };
-                        let coords: Vec<f32> =
-                            line_elements.filter_map(|x| x.parse().ok()).collect();
-                        let disp = Vec3::from_slice(&coords[..]) * BODY_SCALE;
-                        if disp.length_squared() > 5e-7 {
-                            offsets.insert(vert, disp);
-                        }
-                    }
-                    let name = NAME_INTERNER.intern(stem).leak();
-                    targets.insert(name, offsets.clone());
-                    if path.as_os_str().to_str().unwrap().contains("expressions") {
-                        expression_morphs.push(name);
-                    }
-
-                }
-            }
-        }
-        let file = File::open(core_path.join("targets/macrodetails/macro.json"))
-            .expect("FAILED TO OPEN macro.json");
-        let reader = BufReader::new(file);
-        let macro_sliders: MacroData =
-            serde_json::from_reader(reader).expect("FAILED TO PARSE macro.json");
-
-        let file =
-            File::open(core_path.join("targets/target.json")).expect("FAILED TO OPEN target.json");
-        let reader = BufReader::new(file);
-        let mut composite_morph_categories: CompositeMorphs =
-            serde_json::from_reader(reader).expect("FAILED TO PARSE target.json");
-        for (_category, targets) in composite_morph_categories.0.iter_mut() {
-            for target in targets.morphs.iter_mut() {
-                if target.opposites.is_some() {
-                    target.targets = None;
-                } else {
-                    target.opposites = None;
-                    if target.targets.iter().len() > 1 {
-                        panic! {"Should not have more than 1 target without opposites"}
-                    }
-                }
-            }
-        }
-
-        let mut composite_categories = AHashMap::new();
-        let mut composite_morphs = AHashMap::new();
-        for category in composite_morph_categories.keys() {
-            let cat = composite_categories
-                .entry(NAME_INTERNER.intern(category).leak())
-                .or_insert(vec![]);
-            for morph in composite_morph_categories[category].morphs.iter() {
-                let morph_name = NAME_INTERNER.intern(&morph.name).leak();
-                composite_morphs.insert(morph_name, morph.clone());
-                cat.push(morph_name);
-            }
-        }
-        MakeHumanMorphs {
-            targets: Arc::new(targets),
-            expressions: Arc::new(expression_morphs),
-            composite_categories,
-            composite_morphs,
-            macro_morphs: macro_sliders,
-        }
+pub(crate) fn sync_loaded_morph_manifests(
+    macro_assets: Res<Assets<MacroDataAsset>>,
+    composite_assets: Res<Assets<CompositeTargetsAsset>>,
+    mut commands: Commands,
+) {
+    if let Some((_, macro_asset)) = macro_assets.iter().next() &&
+            let Some((_, composite_asset)) = composite_assets.iter().next() {
+        commands.insert_resource(MakeHumanMorphs {
+            targets: Arc::new(RwLock::new(AHashMap::default())),
+            expressions: Vec::new(),
+            macros: macro_asset.clone(),
+            composites: composite_asset.clone(),
+        });
+        commands.remove_resource::<MorphHandles>();
     }
+}
+
+pub(crate) fn sync_loaded_morph_targets(
+    morphs: Res<MakeHumanMorphs>,
+    target_assets: Res<Assets<TargetAsset>>,
+    mut target_events: MessageReader<AssetEvent<TargetAsset>>,
+) {
+    for ev in target_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev {
+            let asset = target_assets.get(*id).unwrap();
+            let name = asset.name;
+            let mut targets = morphs.targets.write().unwrap();
+            targets.insert(name, asset.clone());
+        }
+    }   
 }
 
 impl MakeHumanMorphs {
@@ -168,39 +118,53 @@ impl MakeHumanMorphs {
     pub fn get_morph_names(&self) -> AHashMap<&'static str, Vec<&'static str>> {
         let mut sliders = AHashMap::<&'static str, Vec<&'static str>>::default();
         let mut macro_sliders = vec!["caucasian", "asian", "african"];
-        macro_sliders.extend(
-            self.macro_morphs
-                .macrotargets
-                .keys()
-                .map(|n| NAME_INTERNER.intern(n).leak()),
-        );
+        macro_sliders.extend(self.macros.macrotargets.keys());
         sliders.insert("macro", macro_sliders);
-        sliders.extend(self.composite_categories.clone());
         sliders.insert("asymmetry", self.get_asymetry_target_names());
-
+        for (&category, morphs) in self.composites.iter() {
+            let morph_names = morphs.morphs.iter().map(|m| m.name).collect();
+            sliders.insert(category, morph_names);
+        }
         sliders
     }
 
     /// Get asymmetry targets, not composite.  Everything else should be macro or composite
     pub fn get_asymetry_target_names(&self) -> Vec<&'static str> {
-        self.targets
-            .iter()
-            .filter(|(name, _)| name.starts_with("asym"))
-            .map(|(&name, _)| name)
+        let targets = self.targets.read().unwrap();
+        targets
+            .keys()
+            .filter(|&name| name.starts_with("asym"))
+            .map(|&name| name)
             .collect::<Vec<_>>()
     }
 
     /// Given a single unified slider map, resolve all macro and composite morphs to final target weights.
-    pub fn compute_target_weights(&self, morph_targets: &MorphTargets) -> MorphTargets {
-        let mut result = MorphTargets::default();
+    pub fn compute_target_weights(&self, morph_targets: &MorphTargets) -> Result<MorphTargets, MorphError> {
 
-        if morph_targets
+        let targets = self.targets.read().unwrap();
+        // If already resolved to raw target asset names, we have nothing to do
+        if targets
             .keys()
-            .all(|&t| self.targets.contains_key(t))
+            .all(|&t| morph_targets.contains_key(t))
         {
-            return morph_targets.clone();
+            return Ok(morph_targets.clone());
         }
 
+        let mut result = MorphTargets::default();
+
+        // Check for macro inputs
+        if self.macros.macrotargets.is_empty() {
+            return Err(MorphError::MacrosNotLoaded);
+        }
+
+        // Check for composite inputs
+        if self.composites.is_empty() {
+            return Err(MorphError::CompositeNotLoaded);
+        }
+
+        if morph_targets.keys().all(|&t| targets.contains_key(t)) {
+            return Ok(morph_targets.clone());
+        }
 
         // --- 1️⃣ Separate race sliders ---
         let race_sliders: AHashMap<_, _> = morph_targets
@@ -227,9 +191,9 @@ impl MakeHumanMorphs {
 
         for (&k, v) in morph_targets.iter() {
             if self
-                .macro_morphs
+                .macros
                 .macrotargets
-                .contains_key(&String::from(k))
+                .contains_key(k)
             {
                 macro_inputs.insert(k, *v);
             }
@@ -243,17 +207,21 @@ impl MakeHumanMorphs {
             macro_inputs.insert("age", 0.5); // Young
         }
         if !macro_inputs.contains_key("weight") {
-            macro_inputs.insert("weight", 0.5); 
+            macro_inputs.insert("weight", 0.5);
         }
         if !macro_inputs.contains_key("muscle") {
-            macro_inputs.insert("muscle", 0.5); 
+            macro_inputs.insert("muscle", 0.5);
         }
         if !macro_inputs.contains_key("proportions") {
-            macro_inputs.insert("proportions", 0.5); 
+            macro_inputs.insert("proportions", 0.5);
         }
 
         // --- 3️⃣ Compute macro morphs ---
-        let macro_morphs = Self::compute_macro_weights(&self.macro_morphs, &macro_inputs);
+        let macro_morphs = morph_targets
+            .iter()
+            .filter(|(k, _)| self.macros.macrotargets.contains_key(*k))
+            .map(|(&k, v)| (k, *v))
+            .collect::<AHashMap<_, _>>();
 
         let mut macro_combos = AHashMap::<&str, &[&str]>::default();
         macro_combos.insert("race", &["caucasian", "asian", "african"]);
@@ -264,10 +232,7 @@ impl MakeHumanMorphs {
         macro_combos.insert("proportions", &["uncommonproportions", "idealproportions"]);
         macro_combos.insert("height", &["minheight", "maxheight"]);
         macro_combos.insert("cupsize", &["mincup", "averagecup", "maxcup"]);
-        macro_combos.insert(
-            "firmness",
-            &["minfirmness", "averagefirmness", "maxfirmness"],
-        );
+        macro_combos.insert("firmness", &["minfirmness", "averagefirmness", "maxfirmness"]);
 
         let gender_values = macro_morphs
             .iter()
@@ -310,6 +275,12 @@ impl MakeHumanMorphs {
             .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
             .collect::<AHashMap<&'static str, f32>>();
 
+        fn snap_edges(value: f32) -> f32 {
+            if value < 0.005 { 0.0 }
+            else if value > 0.995 { 1.0 }
+            else { value }
+        }
+
         // race-gender-age targets
         for (&race, race_value) in race_weights.iter() {
             for (&gender, gender_value) in gender_values.iter() {
@@ -318,7 +289,7 @@ impl MakeHumanMorphs {
                         .intern(&format!("{race}-{gender}-{age}"))
                         .leak();
                     let value = race_value * gender_value * age_value;
-                    result.insert(name, value);
+                    result.insert(name, snap_edges(value));
                 }
             }
         }
@@ -332,7 +303,7 @@ impl MakeHumanMorphs {
                             .intern(&format!("universal-{gender}-{age}-{muscle}-{weight}"))
                             .leak();
                         let value = gender_value * age_value * muscle_value * weight_value;
-                        result.insert(name, value);
+                        result.insert(name, snap_edges(value));
                     }
                 }
             }
@@ -352,7 +323,7 @@ impl MakeHumanMorphs {
                                 * muscle_value
                                 * weight_value
                                 * height_value;
-                            result.insert(name, value);
+                            result.insert(name, snap_edges(value));
                         }
                     }
                 }
@@ -376,7 +347,7 @@ impl MakeHumanMorphs {
                                 * muscle_value
                                 * weight_value
                                 * proportions_value;
-                            result.insert(name, value);
+                            result.insert(name, snap_edges(value));
                         }
                     }
                 }
@@ -410,7 +381,7 @@ impl MakeHumanMorphs {
                                     * weight_value
                                     * cupsize_value
                                     * firmness_value;
-                                result.insert(name, value);
+                                result.insert(name, snap_edges(value));
                             }
                         }
                     }
@@ -418,12 +389,23 @@ impl MakeHumanMorphs {
             }
         }
 
+        let morph_targets = morph_targets
+            .iter()
+            .filter(|(k, _)| !macro_morphs.contains_key(*k));
+
         // -----------------------------------
         // 2. Resolve composite morph sliders
         // -----------------------------------
-        for (&slider_name, value) in morph_targets.iter() {
+        let flattened_composite_morphs = self.composites
+            .iter()
+            .flat_map(|(_category_name, category)| {
+                category.morphs.iter().cloned().map(|m| (m.name, m))
+            })
+            .collect::<AHashMap<_, _>>();
+        
+        for (&slider_name, value) in morph_targets.clone() {
             // Find the composite morph definition that matches this slider
-            if let Some(morph) = self.composite_morphs.get(slider_name) {
+            if let Some(morph) = flattened_composite_morphs.get(slider_name) {
                 // Some morphs just directly reference targets
                 // Apply evenly or using sign if opposites are present
                 if let Some(opps) = &morph.opposites {
@@ -463,11 +445,22 @@ impl MakeHumanMorphs {
             }
         }
 
+        let morph_targets = morph_targets.clone()
+            .filter(|(k, _)| !flattened_composite_morphs.contains_key(*k));
+
+        let mut missing = morph_targets.clone()
+            .filter(|(k, _)| !targets.contains_key(*k) )
+            .map(|(&k, _)| k);
+
+        if let Some(t) = missing.next() {
+            return Err(MorphError::TargetNotFound(t));
+        }
+
         // --------------------------------------
         // 3. Resolve direct target morph sliders
         // --------------------------------------
-        for (slider_name, value) in morph_targets.iter() {
-            if self.targets.contains_key(slider_name) {
+        for (&slider_name, value) in morph_targets {
+            if targets.contains_key(slider_name) {
                 *result.entry(slider_name).or_insert(0.0) = *value;
             }
         }
@@ -482,122 +475,24 @@ impl MakeHumanMorphs {
             *val = val.clamp(-1.0, 1.0);
         }
 
-        result
+        Ok(result)
     }
 
-    /// Helper for step 3
-    fn compute_macro_weights(
-        macros: &MacroData,
-        slider_values: &AHashMap<&'static str, f32>,
-    ) -> AHashMap<&'static str, f32> {
-        let mut result = AHashMap::default();
-
-        for (&macro_name, value) in slider_values {
-            if let Some(bounds) = macros.macrotargets.get(macro_name) {
-                for part in &bounds.parts {
-                    if *value > part.lowest && *value <= part.highest {
-                        let range = part.highest - part.lowest;
-                        let mut t = if range > 0.0 {
-                            (value - part.lowest) / range
-                        } else {
-                            panic!("Invalid macro bounds");
-                        };
-                        if t < 0.005 {
-                            t = 0.
-                        }
-                        if t > 0.995 {
-                            t = 1.
-                        }
-
-                        match (&part.low[..], &part.high[..]) {
-                            ("", "") => {}
-                            (low, "") if !low.is_empty() => {
-                                *result.entry(low.to_string()).or_insert(0.0) += 1.0 - t;
-                            }
-                            ("", high) if !high.is_empty() => {
-                                *result.entry(high.to_string()).or_insert(0.0) += t;
-                            }
-                            (low, high) => {
-                                *result.entry(low.to_string()).or_insert(0.0) += 1.0 - t;
-                                *result.entry(high.to_string()).or_insert(0.0) += t;
-                            }
-                        }
-
-                        break;
-                    }
-                }
-            }
-        }
-
-        result
-            .into_iter()
-            .filter(|(_, v)| *v != 0.)
-            .map(|(k, v)| (NAME_INTERNER.intern(&k).leak(), v))
-            .collect::<AHashMap<&'static str, f32>>()
-    }
 }
 
 pub(crate) fn adjust_helpers_to_morphs(
     morph_values: &MorphTargets,
-    mh_morphs: &Arc<MHMorphs>,
-    basemesh: &BaseMesh,
-) -> Vec<Vec3> {
-    let mut helpers = (*basemesh.0).clone();
-    for (target_name, &value) in morph_values.iter() {
-        let target = mh_morphs
-            .get(target_name)
-            .unwrap_or_else(|| panic!("Failed to find morph {}", target_name));
-        for (&vertex, &offset) in target.iter() {
-            helpers[vertex as usize] += offset * value;
+    mh_morphs: &Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
+    basemesh_vertices: &[Vec3],
+) -> Result<Vec<Vec3>, MorphError> {
+    let mut helpers = basemesh_vertices.to_vec();
+    for (&target_name, &value) in morph_values.iter() {
+        let targets = mh_morphs.read().unwrap();
+        let target = targets.get(target_name)
+            .ok_or_else(|| MorphError::TargetNotFound(target_name))?;
+        for TargetDelta { vertex, offset } in target.deltas.iter() {
+            helpers[*vertex as usize] += offset * value;
         }
     }
-    helpers
-}
-
-#[derive(Deserialize, Debug)]
-struct MacroData {
-    macrotargets: AHashMap<String, MacroBounds>,
-}
-
-#[derive(Deserialize, Debug)]
-struct MacroBounds {
-    parts: Vec<MacroBound>,
-}
-
-#[derive(Deserialize, Debug)]
-struct MacroBound {
-    lowest: f32,
-    highest: f32,
-    low: String,
-    high: String,
-}
-
-#[derive(Deserialize, Debug, Deref)]
-struct CompositeMorphs(AHashMap<String, CategoryMorphs>);
-
-#[derive(Deserialize, Debug)]
-struct CategoryMorphs {
-    #[serde(rename = "categories")]
-    morphs: Vec<CompositeMorph>,
-}
-
-#[allow(dead_code)]
-#[derive(Deserialize, Debug, Clone)]
-struct CompositeMorph {
-    has_left_and_right: bool,
-    name: String,
-    opposites: Option<Opposites>,
-    targets: Option<Vec<String>>,
-}
-
-#[allow(dead_code)]
-#[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case")]
-struct Opposites {
-    negative_left: String,
-    negative_right: String,
-    negative_unsided: String,
-    positive_left: String,
-    positive_right: String,
-    positive_unsided: String,
+    Ok(helpers)
 }

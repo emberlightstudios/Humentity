@@ -1,17 +1,14 @@
 use crate::{
-    HumentityGlobalConfig, TranslationTracks, basemesh::VertexGroups, prelude::*, rigs::{
+    HumentityGlobalConfig, TranslationTracks, basemesh::{BaseMesh, VertexGroups}, prelude::*, rigs::{
         BoneTranslationData, RigData, RootBonePrevious, SkeletonCaches, get_model_space_skeleton_transforms
     }
 };
 use ahash::AHashMap;
 use bevy::{
     ecs::intern::Internable,
-    mesh::{
-        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
-    },
+    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
 };
-
 
 /// This component will trigger the re-fitting of the skeleton to the character's morphs.
 /// Add it after changing morphs.
@@ -27,16 +24,22 @@ pub struct RelatedEntities {
 }
 
 pub(crate) fn spawn_rig_scene(
-    new_humans: Query<(Entity, &CharacterShapeConfig), (Without<SkinnedMesh>, Without<FitSkeleton>)>,
+    new_humans: Query<
+        (Entity, &CharacterShapeConfig),
+        (Without<SkinnedMesh>, Without<FitSkeleton>),
+    >,
     prefabs: Res<CharacterArchetypePrefabs>,
     skeleton_caches: Res<SkeletonCaches>,
     mut commands: Commands,
 ) {
-    new_humans.iter().for_each(|(human, config)| {
+    for (human, config) in new_humans {
         // Spawn rig scene
         if let Some(prefab) = prefabs.get(&config.prefab) {
-            let rig_type = prefab.rig.rig_type;
-            let cached_scene = skeleton_caches[&rig_type].scene.clone();
+            let rig_type = prefab.rig;
+            let Some(cached_scene) = skeleton_caches.get(&rig_type) else { 
+                return
+            };
+            let cached_scene = cached_scene.scene.clone();
             let cached_scene = commands
                 .spawn((DynamicSceneRoot::from(cached_scene), Name::new("RigScene")))
                 .id();
@@ -48,7 +51,7 @@ pub(crate) fn spawn_rig_scene(
             error!("No such prefab named {}", config.prefab);
             commands.entity(human).despawn();
         }
-    })
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -61,7 +64,6 @@ pub(crate) fn fit_skeleton_to_shape(
         (
             Entity,
             &mut CharacterShapeConfig,
-            &Transform,
             Option<&RootMotion>,
         ),
         With<FitSkeleton>,
@@ -75,19 +77,17 @@ pub(crate) fn fit_skeleton_to_shape(
     skeleton_caches: Res<SkeletonCaches>,
     vg: Res<VertexGroups>,
     rig_data: Res<RigData>,
-    global_config: Res<HumentityGlobalConfig>,
+    //global_config: Res<HumentityGlobalConfig>,
 ) {
-    for (character_entity, mut config, model_transform, root_motion) in configs.iter_mut() {
+    for (character_entity, mut config, root_motion) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
-        let rig_type = prefab.rig.rig_type;
+        let rig_type = prefab.rig;
         let cache = &skeleton_caches[&rig_type];
 
         // Find the relevant entities below
         let mut skinned_mesh: Option<&SkinnedMesh> = None;
         let mut rig_entity = Entity::PLACEHOLDER;
 
-        // Cache current model space bone rotations and entities
-        let mut bone_rotations = AHashMap::default();
         let mut bone_entities = AHashMap::default();
 
         for child in children.iter_descendants(character_entity) {
@@ -95,22 +95,17 @@ pub(crate) fn fit_skeleton_to_shape(
                 skinned_mesh = Some(skm);
                 rig_entity = entity;
                 for child in children.iter_descendants(child) {
-                    if let Ok(transform) = global_transforms.get(child) {
-                        let name = names.get(child).unwrap();
+                    if let Ok(name) = names.get(child) {
                         let name = NAME_INTERNER.intern(name.as_str()).leak();
                         bone_entities.insert(name, child);
-                        bone_rotations.insert(
-                            name,
-                            Transform::from_matrix(
-                                model_transform.to_matrix().inverse() * transform.to_matrix(),
-                            )
-                            .rotation,
-                        );
                     }
                 }
                 break;
             }
         }
+
+        // Character not ready yet, skip for now. This system will run again next frame and hopefully
+        // the rig will be loaded by then.
         if skinned_mesh.is_none() {
             return;
         }
@@ -118,10 +113,15 @@ pub(crate) fn fit_skeleton_to_shape(
         let skinned_mesh = skinned_mesh.unwrap();
 
         // Re-fit skeleton to mesh shape.  This is based on fixed vertices in the base mesh.
-        // This will move and rotate the bones to align with those verts.
-        let helpers = prefab.get_helpers(&config.prefab_morph_targets, &basemesh, &morph_targets);
+        // This will move and rotate the bones to align with those verts (using roll from rig config).
+        let helpers = prefab.get_helpers(
+            &config.prefab_morph_targets,
+            &basemesh.0,
+            &morph_targets,
+        ).unwrap_or_else(|e| panic!("{}", e) );
         let mut model_space_bindposes = get_model_space_skeleton_transforms(
-            &cache.bone_order, &helpers, rig_type, &bone_rotations, &vg, &rig_data);
+            &cache.bone_order, &helpers, rig_type, &vg, &rig_data,
+        );
         let mut local_bone_transforms = AHashMap::default();
 
         // The skeleton has now been adjusted so that the bones' rotations align head to tail.
@@ -132,26 +132,27 @@ pub(crate) fn fit_skeleton_to_shape(
         // can lead to very different poses in the same animation clip.
         //
         // In order to prevent this we adjust the bone bind pose transforms so that they have the same
-        // positions in model space, but we force their rotations to align exactly with the reference 
+        // positions in model space, but we force their rotations to align exactly with the reference
         // skeleton from which the animation clips were authored in the glb files. In other words, we
         // rotate the bones such that they may not point to their child bone anymore. Instead they will
         // match the reference rig bind pose rotations exactly, so that rotation offsets from the
         // AninationClips look as consistent as possible. This will require changing not just rotations
         // but also translations in general, as changing the rotation on a bone will alter the model
         // space translation of all children in the hierarchy, so we alter the translations to get
-        // the bone back into the correct position after rotating its parents. 
+        // the bone back into the correct position after rotating its parents.
 
-        let bone_config = &rig_data.configs[&prefab.rig.rig_type];
+        let bone_config = &rig_data[&prefab.rig].config;
         for &bone in &cache.bone_order {
-            if let Some(bone_data) = bone_config.get(bone) {
-                let parent_transform = match model_space_bindposes.get(bone_data.parent) {
+            if let Some(bone_data) = bone_config.bones.get(bone) {
+                let parent = NAME_INTERNER.intern(&bone_data.parent).leak();
+                let parent_transform = match model_space_bindposes.get(parent) {
                     Some(xform) => *xform,
                     None => Transform::IDENTITY,
                 };
                 let old_global = model_space_bindposes[bone];
 
                 // Use reference rotation, preserve global position
-                let reference_rot = cache.bone_model_space_rots[bone];
+                let reference_rot = cache.bone_model_space_transforms[bone].rotation;
                 let new_global = Transform {
                     translation: old_global.translation,
                     rotation: reference_rot,
@@ -173,6 +174,7 @@ pub(crate) fn fit_skeleton_to_shape(
             }
         }
 
+        /*
         if !matches!(global_config.translation_tracks, TranslationTracks::None) {
             // Cache the bone translations for animation post-processing
             match global_config.translation_tracks {
@@ -192,40 +194,47 @@ pub(crate) fn fit_skeleton_to_shape(
             }
 
             // We re-aligned the bone rotations to match the reference skeleton exactly, but this
-            // came at the cost of adding in some translation offsets. This introduces another 
-            // complexity if we are retargeting translation tracks, since the translations are in 
+            // came at the cost of adding in some translation offsets. This introduces another
+            // complexity if we are retargeting translation tracks, since the translations are in
             // local bone space, which is not rotated.  We need to correct for this.  Here we cache
             // a small rotation which we can apply to re-align translation directions during
             // animation postprocessing for translation tracks.
             if matches!(global_config.translation_tracks, TranslationTracks::Full) {
                 let mut bone_rotation_deltas: AHashMap<&'static str, Quat> = AHashMap::default();
                 for &name in cache.bone_order.iter() {
-                    let bone_data = bone_config.get(name).unwrap();
+                    let bone_data = bone_config.bones.get(name).unwrap();
                     if bone_data.parent.is_empty() {
                         continue;
                     };
                     let ref_bone = global_transforms.get(bone_entities[name]).unwrap();
+                    let parent = NAME_INTERNER.intern(&bone_data.parent).leak();
                     let ref_parent = global_transforms
-                        .get(bone_entities[bone_data.parent])
+                        .get(bone_entities[parent])
                         .unwrap();
                     let ref_dir: Vec3 =
                         (ref_bone.translation() - ref_parent.translation()).normalize();
                     let shape_dir = (model_space_bindposes[name].translation
-                        - model_space_bindposes[bone_data.parent].translation)
+                        - model_space_bindposes[parent].translation)
                         .normalize();
                     let delta = Quat::from_rotation_arc(ref_dir, shape_dir);
-                    let parent_rot = model_space_bindposes[bone_data.parent].rotation;
+                    let parent_rot = model_space_bindposes[parent].rotation;
                     bone_rotation_deltas.insert(name, parent_rot.inverse() * delta * parent_rot);
                 }
                 config.bone_delta_rotations = bone_rotation_deltas;
             }
         }
+         */
 
         // Create new skinned_mesh, put it on the character root.
         // Root doesn't have a mesh3d but it makes it easier to clone for children with CharacterPart.
         let model_space_inv_bindposes = model_space_bindposes
             .iter()
-            .map(|(&bone, transform)| (bone, Transform::from_matrix(transform.to_matrix().inverse())))
+            .map(|(&bone, transform)| {
+                (
+                    bone,
+                    Transform::from_matrix(transform.to_matrix().inverse()),
+                )
+            })
             .collect::<AHashMap<_, _>>();
 
         let mut inv_bindposes = vec![];
@@ -235,7 +244,10 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // Cache commonly used joint entities for easy access, e.g. IK
         let root_bone = bone_entities[cache.bone_order[0]];
-        let related = RelatedEntities { rig: rig_entity, root_bone };
+        let related = RelatedEntities {
+            rig: rig_entity,
+            root_bone,
+        };
 
         commands
             .entity(character_entity)
@@ -249,7 +261,8 @@ pub(crate) fn fit_skeleton_to_shape(
             .remove::<FitSkeleton>();
 
         // Remove skinned mesh from rig_entity, and rotate to face the correct forward direction
-        commands.entity(rig_entity)
+        commands
+            .entity(rig_entity)
             .remove::<SkinnedMesh>()
             .insert(Transform::from_rotation(crate::MODEL_ROTATION_FIX));
 
@@ -259,6 +272,6 @@ pub(crate) fn fit_skeleton_to_shape(
                 .entity(root_bone)
                 .insert(RootBonePrevious::default());
         }
-
+        info!("DONE fitting skeleton ");
     }
 }

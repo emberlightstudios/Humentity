@@ -1,135 +1,41 @@
 use crate::{
-    mesh_ops::{
-        fix_normals, fix_normals_multiple, generate_mhid_lookup, generate_vertex_map, get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents, parse_obj_vertices
-    }, morphs::{MHMorphs, adjust_helpers_to_morphs}, paths_config::{HumentityAssetPath, HumentityAssetSourceId}, prefab::PrefabOverride, prelude::*, rigs::{RigWeights, SkeletonCache, set_asset_rig_arrays}, 
-};
-use ::bevy::{
-    asset::RenderAssetUsages,
     prelude::*,
-};
-use ::std::{
-    fs::File,
-    io::{BufRead, BufReader},
-    path::PathBuf,
+    loaders::{MhcloAsset, MhcloVertexMap}, mesh_ops::{
+        fix_normals, fix_normals_multiple, generate_mhid_lookup, generate_vertex_map,
+        get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents,
+        parse_obj_vertices,
+    },
+    morphs::adjust_helpers_to_morphs,
+    prefab::PrefabOverride,
+    rigs::{SkeletonCache, set_asset_rig_arrays}
 };
 use ahash::{AHashMap, AHashSet};
-use bevy::{
-    ecs::intern::Internable, image::ImageLoaderSettings, mesh::morph::{MorphAttributes, MorphTargetImage}
-};
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-use std::{path::Path, sync::Arc};
-use walkdir::WalkDir;
+use bevy::mesh::morph::{MorphAttributes, MorphTargetImage};
+use bevy::{asset::RenderAssetUsages, prelude::*};
+use std::sync::{Arc, RwLock};
 
-/// Sub-folder definitions for textures types.  Texture maps for assets (and skin) 
-/// should be put in subfolders with one of theses names so that the paths will
-/// be picked up by the plugin for easy texture loading.
-///
-/// This is not required, as you can handle texture loading completely manually
-/// if you want.  It's just a convenience so that you can easily load textures
-/// for your assets with [`CharacterPart::get_texture_handle`]
-/// 
-const ALBEDO_SUBFOLDERS: [&str; 3] = ["albedo", "diffuse", "base_color"];
-const NORMAL_SUBFOLDERS: [&str; 1] = ["normal"];
-const OCCLUSION_SUBFOLDERS: [&str; 3] = ["occlusion", "ambient_occlusion", "ao"];
-const ROUGHNESS_METALLIC_SUBFOLDERS: [&str; 4] = ["roughness", "roughness_metallic", "metallic_roughness", "metallic"];
-const SPECULAR_TRANSMISSION_SUBFOLDERS: [&str; 1] = ["specular_transmission"];
-const DIFFUSE_TRANSMISSION_SUBFOLDERS: [&str; 1] = ["diffuse_transmission"];
-const EMISSIVE_SUBFOLDERS: [&str; 2] = ["emissive", "emission"];
-const THICKNESS_SUBFOLDERS: [&str; 1] = ["thickness"];
-const ANISOTROPY_SUBFOLDERS: [&str; 2] = ["anisotropy", "aniso"];
-const SPECULAR_REFLECTION_SUBFOLDERS: [&str; 1] = ["specular_reflection"];
-const PARALLAX_DEPTH_SUBFOLDERS: [&str; 2] = ["parallax_depth", "depth"];
-const SPECULAR_TINT_SUBFOLDERS: [&str; 2] = ["specular_tint", "tint"];
-const CLEARCOAT_SUBFOLDERS: [&str; 2] = ["clearcoat", "clear"];
-const CLEARCOAT_ROUGHNESS_SUBFOLDERS: [&str; 1] = ["clearcoat_roughness"];
-const CLEARCOAT_NORMAL_SUBFOLDERS: [&str; 1] = ["clearcoat_normal"];
-
-/// The types of asset types which can be added to humans.
-/// Does not include base mesh which is special
-#[derive(Component, Clone, Copy, Eq, PartialEq, Hash, Debug)]
-#[require(Visibility)]
-pub enum CharacterPart {
-    BodyMesh(&'static str),
-    BodyPart(&'static str),
-    Equipment(&'static str),
-}
-
-impl CharacterPart {
-    /// Load a texture by name/type for this part and return the handle
-    pub fn get_texture_handle(
-        &self,
-        texture_name: impl AsRef<str>,
-        texture_type: CharacterAssetTextureType,
-        asset_server: &AssetServer,
-        asset_registry: &CharacterAssetRegistry,
-    ) -> Handle<Image> {
-        let Some(asset) = asset_registry.get(self) else {
-            error!("No such asset registered: {:#?}", self);
-            return Handle::default();
-        };
-        asset.get_texture_handle(texture_name.as_ref(), texture_type, asset_server)
-    }
-
-    /// Clear out the CharacterAssetData struct storing mesh and texture handles
-    pub fn unload_data(&self, registry: &mut CharacterAssetRegistry, prefab_name: &'static str) {
-        if let Some(asset) = registry.get_mut(self) {
-            asset.unload(prefab_name);
-        }
-    }
-}
-
-impl Serialize for CharacterPart {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let s = match self {
-            CharacterPart::BodyMesh(name) => format!("BodyMesh:{}", name),
-            CharacterPart::BodyPart(name) => format!("BodyPart:{}", name),
-            CharacterPart::Equipment(name) => format!("Equipment:{}", name),
-        };
-        serializer.serialize_str(&s)
-    }
-}
-
-impl<'de> Deserialize<'de> for CharacterPart {
-    fn deserialize<D>(deserializer: D) -> Result<CharacterPart, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-
-        let mut parts = s.splitn(2, ':');
-        let variant = parts.next().unwrap();
-        let value = parts
-            .next()
-            .ok_or_else(|| de::Error::custom("expected variant:data"))?;
-
-        let interned = NAME_INTERNER.intern(value).leak();
-
-        match variant {
-            "BodyMesh" => Ok(CharacterPart::BodyMesh(interned)),
-            "BodyPart" => Ok(CharacterPart::BodyPart(interned)),
-            "Equipment" => Ok(CharacterPart::Equipment(interned)),
-            other => Err(de::Error::custom(format!("unknown variant `{}`", other))),
-        }
-    }
-}
+/// A simple wrapper around an mhclo asset handle.
+/// This is all that's needed to generate the mesh.
+#[derive(Component, Clone, Debug, Eq, PartialEq, Hash, Deref)]
+pub struct CharacterPart(pub Handle<MhcloAsset>);
 
 /// Collection of parts that should be stitched together.  This will
 /// spawn siblings for each part then despawn this entity.
-#[derive(Component, Clone, Deref, DerefMut, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Component, Clone, Deref, DerefMut, Eq, PartialEq, Hash, Debug)]
 pub struct StitchedParts(pub Vec<StitchedPart>);
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct StitchedPart {
-    pub(crate) part: CharacterPart,
+    pub(crate) part: Handle<MhcloAsset>,
     pub(crate) prefab_override: Option<PrefabOverride>,
 }
 
-impl From<CharacterPart> for StitchedPart {
-    fn from(value: CharacterPart) -> Self {
-        Self{ part: value, prefab_override: None }
+impl From<Handle<MhcloAsset>> for StitchedPart {
+    fn from(part: Handle<MhcloAsset>) -> Self {
+        Self {
+            part,
+            prefab_override: None,
+        }
     }
 }
 
@@ -140,262 +46,212 @@ impl StitchedPart {
     }
 }
 
-/// The texture types which can be loaded for materials which go on [`CharacterAsset`] meshes
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub enum CharacterAssetTextureType {
-    Albedo,
-    Normal,
-    AmbientOcclusion,
-    MetallicRoughness,
-    ParallaxDepth,
-    Emissive,
-    DiffuseTransmission,
-    SpecularTransmission,
-    Thickness,
-    SpecularReflection,
-    SpecularTint,
-    Clearcoat,
-    ClearcoatRoughness,
-    ClearcoatNormal,
-    Anisotropy,
-}
-
-/// Represents a part of a human, either a body part, equipment, or a proxy mesh.
-/// This is a wrapper around a mesh which is morphable by the makehuman morph targets.
-pub struct CharacterAsset {
-    pub(crate) part: CharacterPart,
-    pub paths: CharacterMeshAssetFilePaths,
-    pub data: Option<CharacterAssetData>,
-    pub raw_mesh_handle: Option<Handle<Mesh>>,
-    pub mesh_handles: AHashMap<&'static str, Handle<Mesh>>,
-}
-
-impl CharacterAsset {
-    pub fn new(part: CharacterPart, paths: CharacterMeshAssetFilePaths) -> Self {
-        Self {
-            part, paths, data: None, raw_mesh_handle: None, mesh_handles: AHashMap::default(),
-         }
-    }
-
-    pub const fn get_name(&self) -> &'static str {
-        match self.part {
-            CharacterPart::BodyMesh(name)
-            | CharacterPart::Equipment(name)
-            | CharacterPart::BodyPart(name) => name,
-        }
-    }
-
-    /// Get a texture by name and texture type
-    pub fn get_texture_handle(
-        &self,
-        texture_name: impl AsRef<str>,
-        texture_type: CharacterAssetTextureType,
-        asset_server: &AssetServer,
-    ) -> Handle<Image> {
-        let paths = &self.paths.texture_maps;
-        if let Some(path) = paths.get(&(texture_type, texture_name.as_ref())) {
-            if matches!(texture_type, CharacterAssetTextureType::Normal) {
-                path.load_asset_with_settings(
-                    asset_server,
-                    |s: &mut ImageLoaderSettings| s.is_srgb = false,
-                )
-            } else {
-                path.load_asset(asset_server)
+fn shape_mesh_from_helpers_mhclo(
+    mesh: &Mesh,
+    mhclo: &MhcloAsset,
+    helpers: &[Vec3],
+    mhid_lookup: &[u16],
+    bevy_vertex_map: &AHashMap<u16, Vec<u16>>,
+) -> Mesh {
+    let mut vertices = get_vertex_positions(mesh);
+    for (vert, mh_asset_vertex) in mhid_lookup.iter().enumerate() {
+        let hm = &mhclo.helper_map[*mh_asset_vertex as usize];
+        match hm {
+            MhcloVertexMap::SingleVertex(i) => {
+                vertices[vert] = helpers[*i as usize];
             }
-        } else {
-            error!(
-                "No such texture {} for {:#?}",
-                texture_name.as_ref(),
-                self.part
-            );
-            Handle::<Image>::default()
-        }
-    }
-
-    /// Remove cached mesh handle. 
-    pub fn unload(&mut self, prefab_name: &'static str) {
-        self.mesh_handles.remove(prefab_name);
-        if self.mesh_handles.is_empty() {
-            self.data = None;
-            self.raw_mesh_handle = None;
-            self.mesh_handles.clear();
-        }
-    }
-}
-
-/// File paths for assets to be loaded for assets
-#[derive(Default, Clone)]
-pub struct CharacterMeshAssetFilePaths {
-    pub(crate) mh_file: HumentityAssetPath,
-    pub texture_maps: AHashMap<(CharacterAssetTextureType, &'static str), HumentityAssetPath>,
-}
-
-/// The cached data for the asset, includes handles to relevant assets and
-/// other misc. data relevant to the makehuman system read from mh files.
-#[allow(dead_code)]
-#[derive(Clone)]
-pub struct CharacterAssetData {
-    pub(crate) helper_map: Vec<HelperMap>,
-    pub(crate) delete_verts: AHashSet<u16>,
-    pub(crate) obj_file: HumentityAssetPath,
-    tags: Vec<&'static str>,
-    z_depth: i8, // Currently unused
-    scale_data: [ScaleData; 3],
-}
-
-impl CharacterAssetData {
-    pub(crate) fn build_final_meshes(
-        assets: &[Self],
-        input_meshes: &mut [Mesh],
-        prefabs: &[CharacterArchetypePrefab],
-        mh_morphs: &Arc<MHMorphs>,
-        basemesh: &BaseMesh,
-        rig_weights: &Arc<RigWeights>,
-        sk_cache: &Arc<SkeletonCache>,
-    ) -> (Vec<Mesh>, Vec<Vec<String>>, Vec<MorphTargetImage>) {
-
-        // Load raw mesh and build vertex lookup between mh indices and bevy indices (vert duplicates in bevy)
-        let mut mhid_lookup = vec![];
-        let mut vertex_map = vec![];
-
-        let n_meshes = input_meshes.len();
-        for i in 0..n_meshes {
-            let mesh = &input_meshes[i];
-            let mh_vertices = parse_obj_vertices(assets[i].obj_file.full_path());
-            let verts = get_vertex_positions(mesh);
-            vertex_map.push(generate_vertex_map(&mh_vertices, &verts));
-            mhid_lookup.push(generate_mhid_lookup(&vertex_map[i]));
-            // Recaculate mesh from helpers, fixes scale, redoes normals and tangents
-            input_meshes[i] = assets[i].shape_mesh_from_helpers(mesh, &basemesh.0, &mhid_lookup[i], &vertex_map[i]);
-        }
-
-        // Find all shapes over all prefabs
-        // There is an implicit assumption that names uniquely identify the shapes
-        // since we cannot/do not want to hash the morphs AHashMap.
-        let shapes: AHashSet<_> = prefabs
-            .iter()
-            .flat_map(|p| &p.shapes)
-            .map(|s| s.name)
-            .collect();
-
-        // Build shaped meshes
-        let mut shape_meshes = AHashMap::default();
-        for &shape in shapes.iter() {
-            let mut meshes = vec![];
-            for (i_mesh, mesh) in input_meshes.iter().enumerate() {
-                let prefab = &prefabs[i_mesh];
-                let mut matched = false;
-                for mesh_shape in prefab.shapes.iter() {
-                    if shape == mesh_shape.name {
-                        let helpers = adjust_helpers_to_morphs(&mesh_shape.morphs, mh_morphs, basemesh);
-                        meshes.push(Some(assets[i_mesh].shape_mesh_from_helpers(mesh, &helpers, &mhid_lookup[i_mesh], &vertex_map[i_mesh])));
-                        matched = true;
+            MhcloVertexMap::Triangle {
+                helper_verts,
+                helper_weights,
+                helper_offset,
+            } => {
+                let mut position = Vec3::ZERO;
+                for i in 0..3 {
+                    let mh_vert = helper_verts[i];
+                    let wt = helper_weights[i];
+                    if let Some(mh_helper_position) = helpers.get(mh_vert as usize) {
+                        position += *mh_helper_position * wt;
                     }
                 }
-                if !matched {
-                    meshes.push(None);
-                }
-            } 
-
-            let mut tmp_mesh_vec = meshes.iter_mut().filter_map(|m| m.as_mut()).collect::<Vec<_>>();
-            // Stitch mesh normals together
-            fix_normals_multiple(&mut tmp_mesh_vec);
-            shape_meshes.insert(shape, meshes);
-        }
-
-        // Build morphs and rig from shapes
-        let mut morph_imgs = vec![];
-        let mut morph_names = vec![];
-
-        for i_mesh in 0..n_meshes {
-            let mesh = &input_meshes[i_mesh];
-            let base_positions = get_vertex_positions(mesh);
-            let base_normals = get_vertex_normals(mesh);
-            let base_tangents = get_vertex_tangents(mesh)
-                .expect("Failed to get tangents");
-            let mut names = vec![];
-            let mut morph_attrs = vec![];
-            let prefab = &prefabs[i_mesh];
-
-            for shape in prefab.shapes.iter() {
-                let Some(shape_mesh) = &shape_meshes[shape.name][i_mesh] else { continue };
-                let mut morph = Vec::<MorphAttributes>::new();
-
-                let shape_positions = get_vertex_positions(shape_mesh);
-                let shape_normals = get_vertex_normals(shape_mesh);
-                let shape_tangents = get_vertex_tangents(shape_mesh)
-                    .expect("Shape meshes should always have tangents");
-
-                for vtx in 0..base_positions.len() {
-                    morph.push(MorphAttributes::from([
-                        shape_positions[vtx] - base_positions[vtx],
-                        shape_normals[vtx] - base_normals[vtx],
-                        shape_tangents[vtx] - base_tangents[vtx],
-                    ]));
-                }
-
-                names.push(shape.name.to_string());
-                morph_attrs.push(morph.into_iter());
+                let offset = mhclo.get_offset_scale_mhclo(helpers) * helper_offset;
+                vertices[vert] = position + offset;
             }
-            let image = MorphTargetImage::new(
-                morph_attrs.into_iter(),
-                base_positions.len(),
-                RenderAssetUsages::default(),
-            )
-                .expect("failed to create morph target image");
-            morph_imgs.push(image);
-            morph_names.push(names);
-        
-            // Rig the mesh
-            set_asset_rig_arrays(&mut input_meshes[i_mesh], rig_weights,
-                &mhid_lookup[i_mesh], &assets[i_mesh].helper_map, &prefab.rig, sk_cache);
-
         }
-
-        (input_meshes.to_vec(), morph_names, morph_imgs)
     }
 
-    pub(crate) fn build_final_mesh(
-        &self,
-        input_mesh: &Mesh,
-        prefab: &CharacterArchetypePrefab,
-        mh_morphs: &Arc<MHMorphs>,
-        basemesh: &BaseMesh,
-        rig_weights: &Arc<RigWeights>,
-        sk_cache: &Arc<SkeletonCache>,
-    ) -> (Mesh, Vec<String>, MorphTargetImage) {
+    let mut mesh = Mesh::new(
+        bevy::mesh::PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(mesh))
+    .with_inserted_indices(mesh.indices().unwrap().clone())
+    .with_computed_area_weighted_normals()
+    .with_generated_tangents()
+    .expect("Failed to generate tangents?");
+    fix_normals(&mut mesh, bevy_vertex_map);
+    mesh
+}
 
-        // Load raw mesh and build vertex lookup between mh indices and bevy indices (vert duplicates in bevy)
-        let mh_vertices = parse_obj_vertices(self.obj_file.full_path());
-        let verts = get_vertex_positions(input_mesh);
-        let vertex_map = generate_vertex_map(&mh_vertices, &verts);
-        let mhid_lookup = generate_mhid_lookup(&vertex_map);
+pub(crate) fn build_final_mesh_mhclo(
+    mhclo: &MhcloAsset,
+    input_mesh: &Mesh,
+    prefab: &CharacterArchetypePrefab,
+    mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
+    basemesh: Arc<Vec<Vec3>>,
+    rig_weights: &Arc<RigWeightsAsset>,
+    sk_cache: &Arc<SkeletonCache>,
+) -> (Mesh, Vec<String>, MorphTargetImage) {
+    let obj_path = mhclo.obj_file.path();
+    let mh_vertices = parse_obj_vertices(obj_path);
+    let verts = get_vertex_positions(input_mesh);
+    let vertex_map = generate_vertex_map(&mh_vertices, &verts);
+    let mhid_lookup = generate_mhid_lookup(&vertex_map);
 
-        // Recaculate mesh from helpers, fixes scale, redoes normals and tangents
-        let mut input_mesh = self.shape_mesh_from_helpers(input_mesh, &basemesh.0, &mhid_lookup, &vertex_map);
+    let mut input_mesh =
+        shape_mesh_from_helpers_mhclo(input_mesh, mhclo, &basemesh, &mhid_lookup, &vertex_map);
 
-        // Build shaped meshes
-        let mut meshes = vec![];
-        for shape in prefab.shapes.iter() {
-            let helpers = adjust_helpers_to_morphs(&shape.morphs, mh_morphs, basemesh);
-            let mesh = self.shape_mesh_from_helpers(&input_mesh, &helpers, &mhid_lookup, &vertex_map);
-            meshes.push(mesh);
+    let mut meshes = vec![];
+    for shape in prefab.shapes.iter() {
+        let helpers = adjust_helpers_to_morphs(&shape.morphs, &mh_morphs, &basemesh)
+            .unwrap_or_else(|e| panic!("{}", e));
+        let mesh =
+            shape_mesh_from_helpers_mhclo(&input_mesh, mhclo, &helpers, &mhid_lookup, &vertex_map);
+        meshes.push(mesh);
+    }
+
+    let base_positions = get_vertex_positions(&input_mesh);
+    let base_normals = get_vertex_normals(&input_mesh);
+    let base_tangents = get_vertex_tangents(&input_mesh).expect("Failed to get tangents");
+    let mut morph_names = vec![];
+    let mut morphs = vec![];
+
+    for (is, shape_mesh) in meshes.iter().enumerate() {
+        let mut morph = Vec::<MorphAttributes>::new();
+        let shape_positions = get_vertex_positions(shape_mesh);
+        let shape_normals = get_vertex_normals(shape_mesh);
+        let shape_tangents =
+            get_vertex_tangents(shape_mesh).expect("Shape meshes should always have tangents");
+
+        for vtx in 0..base_positions.len() {
+            morph.push(MorphAttributes::from([
+                shape_positions[vtx] - base_positions[vtx],
+                shape_normals[vtx] - base_normals[vtx],
+                shape_tangents[vtx] - base_tangents[vtx],
+            ]));
         }
 
-        // Build morphs from shapes
-        let base_positions = get_vertex_positions(&input_mesh);
-        let base_normals = get_vertex_normals(&input_mesh);
-        let base_tangents = get_vertex_tangents(&input_mesh)
-            .expect("Failed to get tangents");
-        let mut morph_names = vec![];
-        let mut morphs = vec![];
+        morph_names.push(prefab.shapes[is].name.to_string());
+        morphs.push(morph.into_iter());
+    }
+    let image = MorphTargetImage::new(
+        morphs.into_iter(),
+        base_positions.len(),
+        RenderAssetUsages::default(),
+    )
+    .expect("failed to create morph target image");
 
-        for (is, shape_mesh) in meshes.iter().enumerate() {
+    set_asset_rig_arrays(
+        &mut input_mesh,
+        &mhid_lookup,
+        rig_weights,
+        &mhclo.helper_map,
+        sk_cache,
+    );
+
+    (input_mesh, morph_names, image)
+}
+
+pub(crate) fn build_final_meshes_mhclo(
+    mhclos: &[MhcloAsset],
+    input_meshes: &mut [Mesh],
+    prefabs: &[CharacterArchetypePrefab],
+    mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
+    basemesh: Arc<Vec<Vec3>>,
+    rig_weights: &Arc<RigWeightsAsset>,
+    sk_cache: &Arc<SkeletonCache>,
+) -> (Vec<Mesh>, Vec<Vec<String>>, Vec<MorphTargetImage>) {
+    let mut mhid_lookup = vec![];
+    let mut vertex_map = vec![];
+
+    let n_meshes = input_meshes.len();
+    for i in 0..n_meshes {
+        let mesh = &input_meshes[i];
+        let obj_path = mhclos[i].obj_file.path();
+        let mh_vertices = parse_obj_vertices(obj_path);
+        let verts = get_vertex_positions(mesh);
+        vertex_map.push(generate_vertex_map(&mh_vertices, &verts));
+        mhid_lookup.push(generate_mhid_lookup(&vertex_map[i]));
+        input_meshes[i] = shape_mesh_from_helpers_mhclo(
+            mesh,
+            &mhclos[i],
+            &basemesh,
+            &mhid_lookup[i],
+            &vertex_map[i],
+        );
+    }
+
+    let shapes: AHashSet<_> = prefabs
+        .iter()
+        .flat_map(|p| &p.shapes)
+        .map(|s| s.name)
+        .collect();
+
+    let mut shape_meshes = AHashMap::default();
+    for &shape in shapes.iter() {
+        let mut meshes = vec![];
+        for (i_mesh, mesh) in input_meshes.iter().enumerate() {
+            let prefab = &prefabs[i_mesh];
+            let mut matched = false;
+            for mesh_shape in prefab.shapes.iter() {
+                if shape == mesh_shape.name {
+                    let helpers = adjust_helpers_to_morphs(&mesh_shape.morphs, &mh_morphs, &basemesh) 
+                        .unwrap_or_else(|e| panic!("{}", e));
+                    meshes.push(Some(shape_mesh_from_helpers_mhclo(
+                        mesh,
+                        &mhclos[i_mesh],
+                        &helpers,
+                        &mhid_lookup[i_mesh],
+                        &vertex_map[i_mesh],
+                    )));
+                    matched = true;
+                }
+            }
+            if !matched {
+                meshes.push(None);
+            }
+        }
+
+        let mut tmp_mesh_vec = meshes
+            .iter_mut()
+            .filter_map(|m| m.as_mut())
+            .collect::<Vec<_>>();
+        fix_normals_multiple(&mut tmp_mesh_vec);
+        shape_meshes.insert(shape, meshes);
+    }
+
+    let mut morph_imgs = vec![];
+    let mut morph_names = vec![];
+
+    for i_mesh in 0..n_meshes {
+        let mesh = &input_meshes[i_mesh];
+        let base_positions = get_vertex_positions(mesh);
+        let base_normals = get_vertex_normals(mesh);
+        let base_tangents = get_vertex_tangents(mesh).expect("Failed to get tangents");
+        let mut names = vec![];
+        let mut morph_attrs = vec![];
+        let prefab = &prefabs[i_mesh];
+
+        for shape in prefab.shapes.iter() {
+            let Some(shape_mesh) = &shape_meshes[shape.name][i_mesh] else {
+                continue;
+            };
             let mut morph = Vec::<MorphAttributes>::new();
+
             let shape_positions = get_vertex_positions(shape_mesh);
             let shape_normals = get_vertex_normals(shape_mesh);
-            let shape_tangents = get_vertex_tangents(shape_mesh)
-                .expect("Shape meshes should always have tangents");
+            let shape_tangents =
+                get_vertex_tangents(shape_mesh).expect("Shape meshes should always have tangents");
 
             for vtx in 0..base_positions.len() {
                 morph.push(MorphAttributes::from([
@@ -405,565 +261,26 @@ impl CharacterAssetData {
                 ]));
             }
 
-            morph_names.push(prefab.shapes[is].name.to_string());
-            morphs.push(morph.into_iter());
+            names.push(shape.name.to_string());
+            morph_attrs.push(morph.into_iter());
         }
         let image = MorphTargetImage::new(
-            morphs.into_iter(),
+            morph_attrs.into_iter(),
             base_positions.len(),
             RenderAssetUsages::default(),
         )
         .expect("failed to create morph target image");
+        morph_imgs.push(image);
+        morph_names.push(names);
 
-        // Rig the mesh
-        set_asset_rig_arrays(&mut input_mesh, rig_weights,
-            &mhid_lookup, &self.helper_map, &prefab.rig, sk_cache);
-
-        (input_mesh, morph_names, image)
+        set_asset_rig_arrays(
+            &mut input_meshes[i_mesh],
+            &mhid_lookup[i_mesh],
+            rig_weights,
+            &mhclos[i_mesh].helper_map,
+            sk_cache,
+        );
     }
 
-    pub(crate) fn get_offset_scale(&self, helpers: &[Vec3]) -> Vec3 {
-        Vec3::new(
-            (helpers[self.scale_data[0].max as usize].x
-                - helpers[self.scale_data[0].min as usize].x)
-                / self.scale_data[0].scale,
-            (helpers[self.scale_data[1].max as usize].y
-                - helpers[self.scale_data[1].min as usize].y)
-                / self.scale_data[1].scale,
-            (helpers[self.scale_data[2].max as usize].z
-                - helpers[self.scale_data[2].min as usize].z)
-                / self.scale_data[2].scale,
-        )
-    }
-
-    /// Adjust an asset mesh to match morphed helpers
-    pub fn shape_mesh_from_helpers(
-        &self,
-        mesh: &Mesh,
-        helpers: &[Vec3],
-        mhid_lookup: &[u16],
-        bevy_vertex_map: &AHashMap<u16, Vec<u16>>,
-    ) -> Mesh {
-        // Note that helpers should already be morphed before input so we don't have to apply weights
-        let mut vertices = get_vertex_positions(mesh);
-        for (vert, mh_asset_vertex) in mhid_lookup.iter().enumerate() {
-            let helper_map = &self.helper_map[*mh_asset_vertex as usize];
-            if let Some(mh_helper_vertex) = helper_map.single_vertex {
-                vertices[vert] = helpers[mh_helper_vertex as usize];
-            } else {
-                // Triangulation
-                let triangle = helper_map.triangle.as_ref().unwrap();
-                let mut position = Vec3::ZERO;
-                for i in 0..3 {
-                    let mh_vert = triangle.helper_verts[i];
-                    let wt = triangle.helper_weights[i];
-                    if let Some(mh_helper_position) = helpers.get(mh_vert as usize) {
-                        position += mh_helper_position * wt;
-                    }
-                }
-                let offset = self.get_offset_scale(helpers) * triangle.helper_offset;
-                vertices[vert] = position + offset;
-            }
-        }
-
-        let mut mesh = Mesh::new(
-                bevy::mesh::PrimitiveTopology::TriangleList,
-                RenderAssetUsages::default(),
-            )
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(mesh))
-            .with_inserted_indices(mesh.indices().unwrap().clone())
-            .with_computed_area_weighted_normals()
-            .with_generated_tangents()
-            .expect("Failed to generate tangents?");
-        fix_normals(&mut mesh, bevy_vertex_map);
-        mesh
-    }
+    (input_meshes.to_vec(), morph_names, morph_imgs)
 }
-
-// Each vertex is mapped to either a single helper vertex
-// or triangulated by 3 of them
-#[derive(Default, Debug, Clone)]
-pub(crate) struct HelperMap {
-    pub(crate) single_vertex: Option<u16>,
-    pub(crate) triangle: Option<Triangle>,
-}
-
-#[derive(Default, Debug, Clone)]
-pub(crate) struct Triangle {
-    pub(crate) helper_verts: [u16; 3],
-    pub(crate) helper_weights: [f32; 3],
-    pub(crate) helper_offset: Vec3,
-}
-
-#[derive(Default, Clone)]
-struct ScaleData {
-    min: u16,
-    max: u16,
-    scale: f32,
-}
-
-#[derive(Eq, PartialEq)]
-enum FileSection {
-    Header,
-    Vertices,
-    DeleteVertices,
-}
-
-#[derive(Resource, Deref, DerefMut)]
-#[allow(dead_code)]
-pub struct CharacterAssetRegistry(AHashMap<CharacterPart, CharacterAsset>);
-
-impl FromWorld for CharacterAssetRegistry {
-    fn from_world(world: &mut World) -> Self {
-        let mut assets = AHashMap::<CharacterPart, CharacterAsset>::default();
-
-        let config = world
-            .get_resource_mut::<HumentityPathsConfig>()
-            .expect("No global Humentity config loaded");
-
-        // Body Parts
-        for dir in &config.body_part_paths {
-            let prefix = &dir.source_id.root_path;
-
-            for entry in WalkDir::new(prefix.join(&dir.path))
-                .into_iter()
-                .filter_map(Result::ok)
-            {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
-                let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
-                    continue;
-                };
-                if extension == "mhclo" {
-                    let folder = path.parent().expect("No parent folder?").to_path_buf();
-
-                    let name = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .expect("Failed to parse file name");
-                    info!("Importing body part : {name}");
-                    let name = NAME_INTERNER.intern(name).leak();
-
-                    let mh_file = HumentityAssetPath {
-                        path: path.to_path_buf(),
-                        source_id: dir.source_id.clone(),
-                    };
-                    let part = CharacterPart::BodyPart(name);
-                    let paths = get_all_texture_paths(mh_file, &folder, &dir.source_id);
-                    let asset = CharacterAsset::new(part, paths);
-                    assets.insert(part, asset);
-                }
-            }
-        }
-
-        // Equipment
-        for dir in &config.equipment_paths {
-            let prefix = &dir.source_id.root_path;
-
-            for entry in WalkDir::new(prefix.join(&dir.path))
-                .into_iter()
-                .filter_map(Result::ok)
-            {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
-                let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
-                    continue;
-                };
-                if extension == "mhclo" {
-                    let folder = path.parent().expect("No parent folder?").to_path_buf();
-
-                    let name = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .expect("Failed to parse file name");
-                    info!("Importing equipment : {name}");
-                    let name = NAME_INTERNER.intern(name).leak();
-                    let mh_file = path.to_path_buf();
-                    let mh_file = HumentityAssetPath {
-                        path: mh_file,
-                        source_id: dir.source_id.clone(),
-                    };
-                    let part = CharacterPart::Equipment(name);
-                    let paths = get_all_texture_paths(mh_file, &folder, &dir.source_id);
-                    let asset = CharacterAsset::new(part, paths);
-                    assets.insert(part, asset);
-                }
-            }
-        }
-
-        // skin maps are shared across proxy/body meshes
-        let mut paths = CharacterMeshAssetFilePaths::default();
-        for dir in &config.skin_texture_paths {
-            let prefix = &dir.source_id.root_path;
-            let path = prefix.join(&dir.path);
-            let this_paths = get_all_texture_paths(paths.mh_file.clone(), &path, &dir.source_id);
-            paths.texture_maps.extend(this_paths.texture_maps);
-        }
-
-        // Proxy Meshes
-        for dir in &config.body_mesh_paths {
-            let prefix = &dir.source_id.root_path;
-            for entry in WalkDir::new(prefix.join(&dir.path))
-                .into_iter()
-                .filter_map(Result::ok)
-            {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
-                let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
-                    continue;
-                };
-                if extension == "proxy" || extension == "mhclo" {
-                    let name = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .expect("Failed to parse file name");
-                    let name = NAME_INTERNER.intern(name).leak();
-                    info!("Importing proxy mesh : {name}");
-                    let mh_file = path.to_path_buf();
-                    let mh_file = HumentityAssetPath {
-                        path: mh_file,
-                        source_id: dir.source_id.clone(),
-                    };
-                    let mut paths = paths.clone();
-                    paths.mh_file = mh_file;
-                    let part = CharacterPart::BodyMesh(name);
-                    let asset = CharacterAsset::new(part, paths);
-                    assets.insert(part, asset);
-                }
-            }
-        }
-
-        CharacterAssetRegistry(assets)
-    }
-}
-
-fn get_all_texture_paths(
-    mh_file: HumentityAssetPath,
-    folder: &Path,
-    source_id: &HumentityAssetSourceId,
-) -> CharacterMeshAssetFilePaths {
-
-    let mut texture_maps = AHashMap::default();
-
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::Albedo, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::Normal, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::AmbientOcclusion, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::MetallicRoughness, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::ParallaxDepth, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::Emissive, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::DiffuseTransmission, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::SpecularTransmission, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::Thickness, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::SpecularReflection, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::SpecularTint, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::Clearcoat, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::ClearcoatRoughness, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::ClearcoatNormal, source_id));
-    texture_maps.extend(get_texture_paths(
-        folder, CharacterAssetTextureType::Anisotropy, source_id));
-
-    CharacterMeshAssetFilePaths {
-        mh_file,
-        texture_maps,
-    }
-}
-
-fn get_texture_paths(
-    path: &Path,
-    texture_type: CharacterAssetTextureType,
-    source_id: &HumentityAssetSourceId,
-) -> AHashMap<(CharacterAssetTextureType, &'static str), HumentityAssetPath> {
-    let subfolders = match texture_type {
-        CharacterAssetTextureType::Albedo => &ALBEDO_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::Normal => &NORMAL_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::AmbientOcclusion => &OCCLUSION_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::MetallicRoughness => &ROUGHNESS_METALLIC_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::ParallaxDepth => &PARALLAX_DEPTH_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::Emissive => &EMISSIVE_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::DiffuseTransmission => &DIFFUSE_TRANSMISSION_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::SpecularTransmission => &SPECULAR_TRANSMISSION_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::Thickness => &THICKNESS_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::SpecularReflection => &SPECULAR_REFLECTION_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::SpecularTint => &SPECULAR_TINT_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::Clearcoat => &CLEARCOAT_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::ClearcoatRoughness => &CLEARCOAT_ROUGHNESS_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::ClearcoatNormal => &CLEARCOAT_NORMAL_SUBFOLDERS.to_vec(),
-        CharacterAssetTextureType::Anisotropy => &ANISOTROPY_SUBFOLDERS.to_vec(),
-    };
-    let mut textures = AHashMap::default();
-
-    for &folder in subfolders {
-        let subfolder = path.join(folder);
-        if !subfolder.exists() { continue; }
-
-        for entry in std::fs::read_dir(subfolder).expect("Failed to read folder") {
-            let Ok(entry) = entry else { continue };
-            let path = entry.path();
-
-            if path.is_file() && let Some(stem) = path.file_stem() {
-                let stem = NAME_INTERNER.intern(stem.to_str().unwrap()).leak();
-                let prefix = &source_id.root_path;
-                let Ok(path) = path.strip_prefix(prefix) else {
-                    continue;
-                };
-                let path = path.to_path_buf();
-                let asset_path = HumentityAssetPath {
-                    path,
-                    source_id: source_id.clone(),
-                };
-                textures.insert((texture_type, stem), asset_path);
-            }
-        }
-    }
-    textures
-}
-
-pub(crate) fn parse_character_asset(
-    mh_path: &HumentityAssetPath,
-) -> CharacterAssetData {
-    let mut tags = Vec::<String>::new();
-    let mut z_depth = 0_i8;
-    let mut delete_verts = AHashSet::<u16>::default();
-    let mut helper_map = Vec::<HelperMap>::new();
-    let mut x_scale = ScaleData::default();
-    let mut y_scale = ScaleData::default();
-    let mut z_scale = ScaleData::default();
-    let mut obj_file = PathBuf::default();
-    let mut section = FileSection::Header;
-    //let mut name = "";
-
-    let source_id = &mh_path.source_id;
-    let mh_path_buf = &mh_path.path;
-    let err_msg = format!(
-        "Couldn't open target file {}",
-        mh_path_buf.to_string_lossy()
-    );
-    let file = File::open(mh_path_buf).expect(&err_msg);
-
-    for line_result in BufReader::new(file).lines() {
-        let Ok(line) = line_result else { break };
-        if line.starts_with("#") {
-            continue;
-        }
-        if line.trim().is_empty() {
-            continue;
-        }
-        if line.starts_with("verts 0") {
-            section = FileSection::Vertices;
-            continue;
-        }
-        if line.starts_with("delete_verts") {
-            section = FileSection::DeleteVertices;
-            continue;
-        }
-
-        let line_vec: Vec<&str> = line.split_whitespace().collect();
-
-        if section == FileSection::Header {
-            if *line_vec.first().unwrap() == "obj_file" {
-                let &filename = line_vec.last().unwrap();
-                obj_file = mh_path.path.clone();
-                obj_file.set_file_name(filename);
-                obj_file = obj_file
-                    .strip_prefix(&mh_path.source_id.root_path)
-                    .expect("Invalid path prefix")
-                    .to_path_buf();
-            } else if *line_vec.first().unwrap() == "x_scale" {
-                x_scale.min = line_vec[1].parse().unwrap();
-                x_scale.max = line_vec[2].parse().unwrap();
-                x_scale.scale = line_vec[3].parse().unwrap();
-            } else if *line_vec.first().unwrap() == "y_scale" {
-                y_scale.min = line_vec[1].parse().unwrap();
-                y_scale.max = line_vec[2].parse().unwrap();
-                y_scale.scale = line_vec[3].parse().unwrap();
-            } else if *line_vec.first().unwrap() == "z_scale" {
-                z_scale.min = line_vec[1].parse().unwrap();
-                z_scale.max = line_vec[2].parse().unwrap();
-                z_scale.scale = line_vec[3].parse().unwrap();
-            } else if *line_vec.first().unwrap() == "z_depth" {
-                z_depth = line_vec[1].parse().unwrap();
-            } else if *line_vec.first().unwrap() == "tag" {
-                tags.push(line_vec.last().unwrap().to_string());
-            } else if *line_vec.first().unwrap() == "name" {
-                //name = line_vec.last().unwrap().to_string();
-            }
-        } else if section == FileSection::Vertices {
-            // Some header lines work there way down here on occasion
-            if line_vec[0] == "material" {
-                continue;
-            }
-            if line_vec.len() == 9 {
-                let helper_verts = [
-                    line_vec[0].parse().unwrap(),
-                    line_vec[1].parse().unwrap(),
-                    line_vec[2].parse().unwrap(),
-                ];
-                let mut helper_weights = [
-                    line_vec[3].parse().unwrap(),
-                    line_vec[4].parse().unwrap(),
-                    line_vec[5].parse().unwrap(),
-                ];
-                for i in 0..3 {
-                    helper_weights[i] /= helper_weights.iter().sum::<f32>();
-                }
-                let helper_offset = Vec3::new(
-                    line_vec[6].parse().unwrap(),
-                    line_vec[7].parse().unwrap(),
-                    line_vec[8].parse().unwrap(),
-                );
-                helper_map.push(HelperMap {
-                    triangle: Some(Triangle {
-                        helper_verts,
-                        helper_weights,
-                        helper_offset,
-                    }),
-                    single_vertex: None,
-                });
-            } else if line_vec.len() == 1 {
-                helper_map.push(HelperMap {
-                    triangle: None,
-                    single_vertex: Some(line.trim().parse().unwrap()),
-                });
-            } else {
-                println!("{:?}", line);
-                panic!("Unparseable vertex line")
-            }
-        } else if section == FileSection::DeleteVertices {
-            // Either vert index "v" or vert range "v1 - v2"
-            let mut start: Option<u16> = None;
-            let mut grouping = false;
-            for &v in line_vec.iter() {
-                if grouping {
-                    let Some(s) = start else {
-                        panic!("Failed to parse delete verts")
-                    };
-                    for i in s..=v.parse().unwrap() {
-                        delete_verts.insert(i);
-                    }
-                    start = None;
-                    grouping = false;
-                } else if v != "-" {
-                    if let Some(s) = start {
-                        delete_verts.insert(s);
-                    }
-                    start = Some(v.parse().unwrap());
-                } else {
-                    grouping = true;
-                }
-            }
-
-            // If there's a final start without a pairing, push it
-            if let Some(s) = start {
-                delete_verts.insert(s);
-            }
-        }
-    }
-
-    // Ignore.  Use file_stem instead
-    //let name = name;
-    let tags = tags
-        .iter()
-        .map(|n| NAME_INTERNER.intern(n).leak())
-        .collect::<Vec<_>>();
-
-    let obj_file = HumentityAssetPath {
-        path: obj_file,
-        source_id: source_id.clone(),
-    };
-
-    CharacterAssetData {
-        obj_file,
-        tags,
-        z_depth,
-        delete_verts,
-        scale_data: [x_scale, y_scale, z_scale],
-        helper_map,
-    }
-}
-
-// MHCLO assets can define a list of delete verts which can be occluded (by clothes for example)
-// This can stop the body mesh from popping through clothes, which can be an issue.
-// If we were to bake out everything to a new mesh this would be a good optimization, but that
-// breaks instancing so it would be a downgrade. If we could add a per material instance GPU buffer of
-// indices to cull this would be better and wouldn't break instancing.
-//#[allow(dead_code)]
-//pub(crate) fn delete_mesh_verts(
-//    meshes: &mut ResMut<Assets<Mesh>>,
-//    base_mesh: &Res<crate::basemesh::BaseMesh>,
-//    delete_verts: AHashSet<u16>,
-//) -> Mesh {
-//    let mesh = meshes.get(&base_mesh.mesh_handle).unwrap().clone();
-//
-//    let vertices = get_vertex_positions(&mesh);
-//    let normals = get_vertex_normals(&mesh);
-//    let uv = get_uv_coords(&mesh);
-//    let indices = mesh.indices().expect("FAILED TO GET MESH FACES");
-//
-//    // Set up new storage for the new mesh
-//    let verts = vertices.len() - delete_verts.len(); // Roughly
-//    let mut new_vertices = Vec::<Vec3>::with_capacity(verts);
-//    let mut new_normals = Vec::<Vec3>::with_capacity(verts);
-//    let mut new_uv = Vec::<Vec2>::with_capacity(verts);
-//    let mut new_indices = Vec::<u16>::with_capacity(verts);
-//
-//    // need to map new vertex indices to original before deleting verts
-//    let mut indices_map = AHashMap::<u16, u16>::default();
-//
-//    for (vtx, &mh_vert) in base_mesh.mhid_lookup.iter().enumerate() {
-//        if !delete_verts.contains(&mh_vert) {
-//            indices_map.insert(vtx as u16, new_vertices.len() as u16);
-//            new_vertices.push(vertices[vtx]);
-//            new_normals.push(normals[vtx]);
-//            new_uv.push(uv[vtx]);
-//        }
-//    }
-//
-//    let indices_vec: Vec<u16> = indices.iter().map(|x| x as u16).collect();
-//    // Find new face indices
-//    for face in indices_vec.chunks(3) {
-//        // Check if all vertices still exist in new mesh verts
-//        if !face.iter().all(|&i| indices_map.contains_key(&{ i })) {
-//            continue;
-//        }
-//        // Map face to new vertex indices
-//        new_indices.extend_from_slice(face);
-//    }
-//    new_indices = new_indices
-//        .iter()
-//        .map(|x| *indices_map.get(x).unwrap())
-//        .collect();
-//
-//    let mut new_mesh = Mesh::new(
-//        PrimitiveTopology::TriangleList,
-//        RenderAssetUsages::RENDER_WORLD,
-//    )
-//    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, new_vertices)
-//    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, new_normals)
-//    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, new_uv)
-//    .with_inserted_indices(Indices::U16(new_indices));
-//    new_mesh.compute_area_weighted_normals();
-//    new_mesh.generate_tangents().ok();
-//    new_mesh
-//}
-//

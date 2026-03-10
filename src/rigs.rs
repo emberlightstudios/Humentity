@@ -1,19 +1,16 @@
 use ahash::AHashMap;
 use bevy::{
-    animation::{AnimatedBy, AnimationTargetId},
-    color::palettes::css::RED,
-    ecs::intern::Internable,
-    mesh::{
-        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
-        VertexAttributeValues,
-    },
-    prelude::*,
+    animation::{AnimatedBy, AnimationTargetId}, color::palettes::css::RED, ecs::{intern::Internable}, mesh::{
+        VertexAttributeValues, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}
+    }, prelude::*
 };
 use serde::{Deserialize, Serialize};
-use std::{fs::File, io::BufReader, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
-    assets::HelperMap, basemesh::VertexGroups, prelude::*,
+    basemesh::{BaseMesh, VertexGroups},
+    loaders::{MhcloVertexMap, RigConfigAsset, RigWeightsAsset},
+    prelude::*,
 };
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Default, Serialize, Deserialize, Debug)]
@@ -58,48 +55,71 @@ pub(crate) struct RootBonePrevious {
     pub(crate) prev_weights: Vec<f32>,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct BoneTransform {
-    cube_name: Option<String>,
-    strategy: String,
-    vertex_indices: Option<Vec<u16>>,
-    vertex_index: Option<u16>,
+
+#[derive(Clone)]
+pub(crate) struct RigSpec {
+    pub(crate) weights: Arc<RigWeightsAsset>,
+    pub(crate) config: Arc<RigConfigAsset>,
 }
 
-#[derive(Deserialize, Debug)]
-pub(crate) struct BoneJson {
-    //inherit_scale: String,
-    //roll: f32,
-    pub(crate) parent: String,
-    head: BoneTransform,
-    tail: BoneTransform,
-}
+#[derive(Resource, Default, Deref, DerefMut)]
+pub(crate) struct RigData(pub(crate) AHashMap<RigType, RigSpec>);
 
-#[derive(Deserialize, Debug)]
-struct WeightsFile {
-    weights: AHashMap<String, Vec<(u16, f32)>>,
-}
+/// Moves loaded rig assets into RigData for easy access.
+pub(crate) fn sync_rig_assets(
+    mut config_events: MessageReader<AssetEvent<RigConfigAsset>>,
+    mut weights_events: MessageReader<AssetEvent<RigWeightsAsset>>,
+    mut rigs: ResMut<RigData>,
+    config_assets: Res<Assets<RigConfigAsset>>,
+    weights_assets: Res<Assets<RigWeightsAsset>>,
+) {
+    if config_events.is_empty() && weights_events.is_empty() {
+        return;
+    }
 
-// Contains an extra layer for some reason.  Usual config is in the bones key
-#[derive(Deserialize, Debug)]
-struct MixamoConfig {
-    bones: AHashMap<String, BoneJson>,
-}
+    let mut new_configs = vec![];
+    let mut new_weights = vec![];
 
-pub(crate) type RigWeights = AHashMap<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>;
-pub(crate) type RigConfigs = AHashMap<RigType, AHashMap<&'static str, BoneData>>;
+    for ev in config_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev {
+            let config_asset = config_assets.get(*id).unwrap();
+            let rig = config_asset.rig;
+            if !rigs.contains_key(&rig) {
+                new_configs.push(rig);
+            }
+        }
+    }
 
-/// Raw rig data from makehuman json files
-#[derive(Resource)]
-pub(crate) struct RigData {
-    pub(crate) weights: Arc<RigWeights>,
-    pub(crate) configs: Arc<RigConfigs>,
-}
+    for ev in weights_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev {
+            let weights_asset = weights_assets.get(*id).unwrap();
+            let rig = weights_asset.rig;
+            if !rigs.contains_key(&rig) {
+                new_weights.push(rig);
+            }
+        }
+    }
 
-pub(crate) struct BoneData {
-    pub(crate) parent: &'static str,
-    head: BoneTransform,
-    tail: BoneTransform,
+    let to_load = new_configs
+        .into_iter()
+        .filter(|rig| new_weights.contains(rig))
+        .collect::<Vec<_>>();
+
+    for rig in to_load {
+        let (_, config) = config_assets
+            .iter()
+            .find(|(_, a)| a.rig == rig)
+            .unwrap_or_else(|| panic!("Weights asset for rig {rig:?} not found"));
+        let (_, weights) = weights_assets
+            .iter()
+            .find(|(_, a)| a.rig == rig)
+            .unwrap_or_else(|| panic!("Weights asset for rig {rig:?} not found"));
+
+        rigs.insert(rig, RigSpec {
+            weights: Arc::new(weights.clone()),
+            config: Arc::new(config.clone()),
+        });
+    }
 }
 
 #[derive(Resource, Default, Deref, DerefMut)]
@@ -111,9 +131,9 @@ pub struct SkeletonCache {
     /// For looking up bone index by name when building rig arrays
     pub(crate) bone_name_to_index: AHashMap<&'static str, usize>,
     /// Model space bind pose rotations for each bone, used in rig array construction
-    pub(crate) bone_model_space_rots: AHashMap<&'static str, Quat>,
+    pub(crate) bone_model_space_transforms: AHashMap<&'static str, Transform>,
     /// Model space bind pose translations for each bone, used in rig array construction and root motion
-    pub(crate) bone_local_translations: AHashMap<&'static str, Vec3>,
+    pub(crate) bone_local_space_transforms: AHashMap<&'static str, Transform>,
     /// A scene for the skeleton
     pub(crate) scene: Handle<DynamicScene>,
 }
@@ -129,84 +149,7 @@ impl SkeletonCache {
     }
 
     pub fn bone_bindpose_translation(&self, bone_name: &str) -> Option<Vec3> {
-        self.bone_local_translations.get(bone_name).copied()
-    }
-}
-
-impl From<BoneJson> for BoneData {
-    fn from(value: BoneJson) -> Self {
-        Self {
-            head: value.head,
-            tail: value.tail,
-            parent: NAME_INTERNER.intern(&value.parent).leak(),
-        }
-    }
-}
-
-impl FromWorld for RigData {
-    fn from_world(world: &mut World) -> Self {
-        let config = world.get_resource::<HumentityPathsConfig>().unwrap();
-        let path = config.core_assets_path.clone();
-        let mut type_strings = AHashMap::<RigType, &str>::default();
-        type_strings.insert(RigType::Default, "default");
-        type_strings.insert(RigType::Mixamo, "mixamo");
-        type_strings.insert(RigType::GameEngine, "game_engine");
-
-        let mut rig_weights =
-            AHashMap::<RigType, AHashMap<&'static str, AHashMap<u16, f32>>>::default();
-        let mut rig_configs = AHashMap::<RigType, AHashMap<&'static str, BoneData>>::default();
-
-        for (rig_type, name) in type_strings.iter() {
-            let err_msg = "FAILED TO OPEN WEIGHTS FILE : ".to_string() + name;
-            let weights_file =
-                File::open(path.join(
-                    "rigs/weights.".to_string() + type_strings.get(rig_type).unwrap() + ".json",
-                ))
-                .expect(&err_msg);
-            let weights_reader = BufReader::new(weights_file);
-            let err_msg = "FAILED TO READ WEIGHTS JSON : ".to_string() + name;
-            let weights: WeightsFile = serde_json::from_reader(weights_reader).expect(&err_msg);
-            let mut weights_hashmap = AHashMap::<&'static str, AHashMap<u16, f32>>::default();
-            for (bone, wts) in weights.weights.iter() {
-                let hashmap: AHashMap<u16, f32> = wts.iter().cloned().collect();
-                weights_hashmap.insert(NAME_INTERNER.intern(bone).leak(), hashmap);
-            }
-            rig_weights.insert(*rig_type, weights_hashmap);
-
-            let err_msg = "FAILED TO OPEN CONFIG FILE : ".to_string() + name;
-            let config_file = File::open(
-                path.join("rigs/rig.".to_string() + type_strings.get(rig_type).unwrap() + ".json"),
-            )
-            .expect(&err_msg);
-            let config_reader = BufReader::new(config_file);
-            let err_msg = "FAILED TO READ CONFIG JSON : ".to_string() + name;
-            if *rig_type == RigType::Mixamo {
-                // Mixamo json structure is slightly different
-                let config: MixamoConfig = serde_json::from_reader(config_reader).expect(&err_msg);
-                rig_configs.insert(
-                    *rig_type,
-                    config
-                        .bones
-                        .into_iter()
-                        .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x.into()))
-                        .collect::<AHashMap<&'static str, BoneData>>(),
-                );
-            } else {
-                let config: AHashMap<String, BoneJson> =
-                    serde_json::from_reader(config_reader).expect(&err_msg);
-                rig_configs.insert(
-                    *rig_type,
-                    config
-                        .into_iter()
-                        .map(|(k, x)| (NAME_INTERNER.intern(&k).leak(), x.into()))
-                        .collect::<AHashMap<&'static str, BoneData>>(),
-                );
-            }
-        }
-        RigData {
-            weights: Arc::new(rig_weights),
-            configs: Arc::new(rig_configs),
-        }
+        self.bone_local_space_transforms.get(bone_name).map(|t| t.translation)
     }
 }
 
@@ -223,45 +166,14 @@ pub(crate) fn bone_debug_draw(
     })
 }
 
-pub(crate) fn get_bone_order(world: &mut World, rig: RigType) -> Vec<&'static str> {
-    let mh_config = world
-        .get_resource::<RigData>()
-        .expect("Humentitiy not loaded");
-    let mh_config = &mh_config.configs[&rig];
-    let mut depths = AHashMap::<&'static str, usize>::default();
-    for (name, bone) in mh_config.iter() {
-        let mut depth = 0;
-        let mut parent = &bone.parent;
-        while !parent.is_empty() {
-            depth += 1;
-            parent = &mh_config
-                .get(NAME_INTERNER.intern(parent).leak())
-                .unwrap()
-                .parent;
-        }
-        depths.insert(name, depth);
-    }
-
-    let mut sorted_bones: Vec<(&'static str, usize)> = depths.into_iter().collect();
-    sorted_bones.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
-    sorted_bones
-        .into_iter()
-        .map(|(name, _)| name)
-        .collect::<Vec<&'static str>>()
-}
-
 pub(crate) fn set_asset_rig_arrays(
     mesh: &mut Mesh,
-    rig_weights: &Arc<RigWeights>,
     mhid_lookup: &[u16],
-    helper_map: &[HelperMap],
-    rig: &CharacterAnimationArchetype,
+    rig_weights: &Arc<RigWeightsAsset>,
+    helper_map: &[MhcloVertexMap],
     cache: &SkeletonCache,
 ) {
-    let weights_res = rig_weights
-        .get(&rig.rig_type)
-        .expect("No weights for rig?");
-
+    let rig_weights = &rig_weights.weights;
     let vertex_count = mhid_lookup.len();
 
     // Final fixed-size output arrays
@@ -285,23 +197,25 @@ pub(crate) fn set_asset_rig_arrays(
         // Aggregate bone weights deterministically
         let mut aggregate: AHashMap<u16, f32> = AHashMap::default();
 
-        for (bone_index, bone_name) in cache.bone_order.iter().enumerate() {
-            let Some(bone_weights) = weights_res.get(bone_name) else {
+        for (bone_index, &bone_name) in cache.bone_order.iter().enumerate() {
+            let Some(bone_weights) = rig_weights.get(bone_name) else {
                 continue;
             };
 
-            if let Some(v) = helper.single_vertex {
-                if let Some(&helper_wt) = bone_weights.get(&v) {
-                    if helper_wt > 0.0 {
-                        *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt;
-                    }
-                }
-            } else if let Some(triangle) = &helper.triangle {
-                for (i, mh_id) in triangle.helper_verts.iter().enumerate() {
-                    if let Some(&helper_wt) = bone_weights.get(mh_id) {
+            match helper {
+                MhcloVertexMap::SingleVertex(v) => {
+                    if let Some(&helper_wt) = bone_weights.get(v) {
                         if helper_wt > 0.0 {
-                            *aggregate.entry(bone_index as u16).or_insert(0.0) +=
-                                helper_wt * triangle.helper_weights[i];
+                            *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt;
+                        }
+                    }
+                },
+                MhcloVertexMap::Triangle { helper_verts, helper_weights, .. } => {
+                    for (i, mh_id) in helper_verts.iter().enumerate() {
+                        if let Some(&helper_wt) = bone_weights.get(mh_id) {
+                            if helper_wt > 0.0 {
+                                *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt * helper_weights[i];
+                            }
                         }
                     }
                 }
@@ -364,15 +278,19 @@ pub(crate) fn set_asset_rig_arrays(
 }
 
 
-/// Spawns bone entities and sets up the hierarchy
+/// Spawns bone entities and sets up the hierarchy. Builds skeleton from basemesh + rig config (roll in JSON).
+/// Returns (scene handle, model-space rotations, local translations) for SkeletonCache.
 pub(crate) fn build_human_rig_scene(
     helpers: &[Vec3],
     rig: RigType,
-    bone_rotations: &AHashMap<&'static str, Quat>,
     bone_order: &Vec<&'static str>,
     world: &mut World,
-) -> Handle<DynamicScene> {
-    let mh_config = &world.resource::<RigData>().configs[&rig];
+) -> (Handle<DynamicScene>, AHashMap<&'static str, Transform>, AHashMap<&'static str, Transform>) {
+    let rig_data = world.resource::<RigData>();
+    let mh_config = &rig_data
+        .get(&rig)
+        .unwrap_or_else(|| panic!("No rig data loaded for {rig:?}"))
+        .config;
 
     // Set up some convenient data structures for tracking joints/bones and entities
     let mut bone_entities = AHashMap::<&'static str, Entity>::default();
@@ -387,6 +305,7 @@ pub(crate) fn build_human_rig_scene(
             AnimationPlayer::default(),
             Name::new("Human.rig"),
             Transform::IDENTITY,
+            // Not really a "bone" per se but useful when finding local bone transforms
             SkeletalBone,
         ))
         .id();
@@ -395,12 +314,12 @@ pub(crate) fn build_human_rig_scene(
     for (i, &name) in bone_order.iter().enumerate() {
         let mut path = Vec::<Name>::new();
         path.push(Name::from(name));
-        let mut bone = &mh_config[&name];
+        let mut bone = &mh_config.bones[&name];
 
         while !bone.parent.is_empty() {
-            let parent = NAME_INTERNER.intern(bone.parent).leak();
+            let parent = NAME_INTERNER.intern(&bone.parent).leak();
             path.push(Name::new(parent));
-            bone = &mh_config[&parent];
+            bone = &mh_config.bones[&parent];
         }
         path.push(Name::new("Human.rig"));
 
@@ -422,7 +341,7 @@ pub(crate) fn build_human_rig_scene(
     // Wire up parent-child relationships
     for &name in bone_order.iter() {
         let &child = bone_entities.get(&name).unwrap();
-        if let Some(parent_name) = mh_config.get(&name).map(|b| b.parent.to_string()) 
+        if let Some(parent_name) = mh_config.bones.get(&name).map(|b| b.parent.to_string())
             && !parent_name.is_empty() && let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak())
         {
             scene_world.entity_mut(child).insert(ChildOf(parent));
@@ -431,7 +350,7 @@ pub(crate) fn build_human_rig_scene(
 
     // Attach root(s) to rig entity
     for &name in bone_order.iter() {
-        if let Some(bone) = mh_config.get(&name) && bone.parent.is_empty() {
+        if let Some(bone) = mh_config.bones.get(&name) && bone.parent.is_empty() {
             scene_world
                 .entity_mut(bone_entities[&name])
                 .insert(ChildOf(rig_entity));
@@ -441,7 +360,7 @@ pub(crate) fn build_human_rig_scene(
     let vg = world.resource::<VertexGroups>();
     let rig_data = world.resource::<RigData>();
     let global_transforms =
-        get_model_space_skeleton_transforms(bone_order, helpers, rig, bone_rotations, vg, rig_data);
+        get_model_space_skeleton_transforms(bone_order, helpers, rig, vg, rig_data);
     let local_transforms =
         get_local_skeleton_transforms(bone_order, rig, rig_data, &global_transforms);
 
@@ -474,24 +393,27 @@ pub(crate) fn build_human_rig_scene(
     scene_world.entity_mut(rig_entity).insert(skinned_mesh);
 
     let mut ds = world.resource_mut::<Assets<DynamicScene>>();
-    ds.add(DynamicScene::from_world(&scene_world))
+    let scene = ds.add(DynamicScene::from_world(&scene_world));
+
+    (scene, global_transforms, local_transforms)
 }
 
 pub(crate) fn get_model_space_skeleton_transforms(
     bone_order: &Vec<&'static str>,
     helpers: &[Vec3],
     rig_type: RigType,
-    bone_rotations: &AHashMap<&'static str, Quat>,
     vg: &VertexGroups,
     rig_data: &RigData,
 ) -> AHashMap<&'static str, Transform> {
-    let mh_config = &rig_data.configs[&rig_type];
-    // Compute global transforms
+    let mh_config = &rig_data
+        .get(&rig_type)
+        .unwrap_or_else(|| panic!("No rig data loaded for {rig_type:?}"))
+        .config;
+    // Compute global transforms from basemesh + roll in config (no GLB reference)
     let mut global_transforms = AHashMap::<&'static str, Transform>::default();
     for &name in bone_order.iter() {
-        let bone = &mh_config[name];
-        let base_rot = bone_rotations[name];
-        global_transforms.insert(name, get_bone_transform(bone, base_rot, vg, helpers));
+        let bone = &mh_config.bones[name];
+        global_transforms.insert(name, get_bone_transform(bone, vg, helpers));
     }
     global_transforms
 }
@@ -503,16 +425,19 @@ pub(crate) fn get_local_skeleton_transforms(
     global_transforms: &AHashMap<&'static str, Transform>,
 ) -> AHashMap<&'static str, Transform> {
     // Compute local transforms relative to parent
-    let mh_config = &rig_data.configs[&rig_type];
+    let mh_config = &rig_data
+        .get(&rig_type)
+        .unwrap_or_else(|| panic!("No rig data loaded for {rig_type:?}"))
+        .config;
     let mut local_transforms = AHashMap::<&'static str, Transform>::default();
     for &name in bone_order.iter() {
         let mut mat = global_transforms[name].to_matrix();
         let mut parent_names = Vec::<&'static str>::new();
 
-        let mut bone = &mh_config[name];
+        let mut bone = &mh_config.bones[name];
         while !bone.parent.is_empty() {
-            parent_names.push(bone.parent);
-            bone = &mh_config[NAME_INTERNER.intern(bone.parent).leak()];
+            parent_names.push(&bone.parent);
+            bone = &mh_config.bones[NAME_INTERNER.intern(&bone.parent).leak()];
         }
 
         // Apply inverse of each parent's local transform
@@ -526,9 +451,78 @@ pub(crate) fn get_local_skeleton_transforms(
     local_transforms
 }
 
+pub(crate) fn get_bone_order(
+    rig: RigType,
+    world: &World,
+) -> Vec<&'static str> {
+    let rig_data = world.resource::<RigData>();
+    let mh_config = &rig_data
+        .get(&rig)
+        .unwrap_or_else(|| panic!("No rig data loaded for {rig:?}"))
+        .config;
+    let mut depths = AHashMap::<&'static str, usize>::default();
+    for (name, bone) in mh_config.bones.iter() {
+        let mut depth = 0;
+        let mut parent = &bone.parent;
+        while !parent.is_empty() {
+            depth += 1;
+            parent = &mh_config
+                .bones
+                .get(NAME_INTERNER.intern(parent).leak())
+                .unwrap()
+                .parent;
+        }
+        depths.insert(name, depth);
+    }
+
+    let mut sorted_bones: Vec<(&'static str, usize)> = depths.into_iter().collect();
+    sorted_bones.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
+    sorted_bones
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect::<Vec<&'static str>>()
+}
+
+/// Builds skeleton caches when SkeletonAsset handles are loaded. Only skeletons whose handles
+/// are in SkeletonHandles are built. Transition to AnimationProcessing when all prefab rig types have caches.
+pub(crate) fn build_skeleton_caches(world: &mut World) {
+    let skeleton_caches = world.resource::<SkeletonCaches>();
+    let to_build: Vec<RigType> = skeleton_caches
+        .iter()
+        .filter(|(_, cache)| cache.scene == Handle::<DynamicScene>::default())
+        .map(|(&rig, _)| rig)
+        .collect();
+
+    for rig_type in to_build {
+        let basemesh = world.resource::<BaseMesh>();
+        let helpers = basemesh.0.clone();
+        let bone_order = get_bone_order(rig_type, &world);
+        let (scene, bone_model_space_transforms, bone_local_space_transforms) =
+            crate::rigs::build_human_rig_scene(&helpers, rig_type, &bone_order, world);
+
+        let bone_name_to_index = bone_order
+            .iter()
+            .enumerate()
+            .map(|(i, &bone_name)| (bone_name, i))
+            .collect::<AHashMap<_, _>>();
+
+        let mut skeleton_caches = world.resource_mut::<SkeletonCaches>();
+        skeleton_caches.insert(
+            rig_type,
+            Arc::new(SkeletonCache {
+                bone_order: bone_order.clone(),
+                bone_name_to_index,
+                bone_model_space_transforms,
+                bone_local_space_transforms,
+                scene,
+            }),
+        );
+    }
+}
+
+
 pub(crate) fn get_bone_transform(
-    bone: &BoneData,
-    base_rot: Quat,
+    bone: &BoneJsonConfig,
     vg: &VertexGroups,
     helpers: &[Vec3],
 ) -> Transform {
@@ -536,12 +530,14 @@ pub(crate) fn get_bone_transform(
     let end = get_bone_position(&bone.tail, vg, helpers);
 
     let orientation = (end - start).normalize();
-    let correction = Quat::from_rotation_arc(base_rot * Vec3::Y, orientation);
+    // Align bone axis (Y in local) with head->tail, then apply roll around that axis (Blender convention)
+    let r_align = Quat::from_rotation_arc(Vec3::Y, orientation);
+    let base_rot = r_align * Quat::from_rotation_y(bone.roll);
 
-    Transform::from_translation(start).with_rotation(correction * base_rot)
+    Transform::from_translation(start).with_rotation(base_rot)
 }
 
-fn get_bone_position(bone: &BoneTransform, vg: &VertexGroups, helpers: &[Vec3]) -> Vec3 {
+fn get_bone_position(bone: &BoneTransformSpec, vg: &VertexGroups, helpers: &[Vec3]) -> Vec3 {
     let v1: u16;
     let v2: u16;
     if bone.strategy == "MEAN" {

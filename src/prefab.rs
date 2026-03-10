@@ -1,10 +1,6 @@
-use std::sync::Arc;
-
 use crate::{
-    animation::get_skeleton_transforms,
     morphs::adjust_helpers_to_morphs,
     prelude::*,
-    rigs::{get_bone_order, SkeletonCache, SkeletonCaches},
 };
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
@@ -66,93 +62,31 @@ impl<'de> Deserialize<'de> for CharacterShapeArchetype {
     }
 }
 
-/// Encapsulates animation properties associated with an archetype/prefab.
-#[derive(Default, Clone, Debug)]
-pub struct CharacterAnimationArchetype {
-    pub animation_glbs: Vec<&'static str>,
-    pub rig_type: RigType,
-}
-
-impl Serialize for CharacterAnimationArchetype {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Serialize as a map with "name" and "morphs"
-        let mut state: <S as Serializer>::SerializeStruct =
-            serializer.serialize_struct("CharacterAnimationArchetype", 2)?;
-        state.serialize_field("animation_glbs", &self.animation_glbs)?;
-        state.serialize_field("rig_type", &self.rig_type)?;
-        state.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for CharacterAnimationArchetype {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Tmp {
-            animation_glbs: Vec<String>,
-            rig_type: RigType,
-        }
-
-        let tmp = Tmp::deserialize(deserializer)?;
-
-        // Convert name to &'static str via leak (safe if fixed names)
-        let glbs: Vec<&'static str> = tmp
-            .animation_glbs
-            .iter()
-            .map(|s| NAME_INTERNER.intern(s).leak())
-            .collect();
-        Ok(CharacterAnimationArchetype {
-            animation_glbs: glbs,
-            rig_type: tmp.rig_type,
-        })
-    }
-}
-
-impl CharacterAnimationArchetype {
-    pub fn new(
-        rig_type: RigType,
-        animation_glbs: impl IntoIterator<Item = impl AsRef<str>>,
-    ) -> Self {
-        Self {
-            animation_glbs: animation_glbs
-                .into_iter()
-                .map(|s| NAME_INTERNER.intern(s.as_ref()).leak())
-                .collect::<Vec<_>>(),
-            rig_type,
-        }
-    }
-}
-
 /// A collection of base shapes and animation properties.  The shapes will be baked into a
 /// new Mesh as morph targets.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct CharacterArchetypePrefab {
     pub shapes: Vec<CharacterShapeArchetype>,
-    pub rig: CharacterAnimationArchetype,
+    pub rig: RigType,
 }
 
 impl CharacterArchetypePrefab {
     pub fn new(
         shapes: impl IntoIterator<Item = CharacterShapeArchetype>,
-        rig: CharacterAnimationArchetype,
+        rig: RigType,
     ) -> Self {
         Self {
             shapes: shapes.into_iter().collect(),
             rig,
-        }
     }
+}
 
     pub(crate) fn get_helpers(
         &self,
         morph_values: &MorphTargets,
-        basemesh: &BaseMesh,
+        basemesh_vertices: &[Vec3],
         mh_morphs: &MakeHumanMorphs,
-    ) -> Vec<Vec3> {
+    ) -> Result<Vec<Vec3>, crate::morphs::MorphError> {
         let mut mh_morph_values = MorphTargets::default();
         for shape in self.shapes.iter() {
             let Some(weight) = morph_values.get(shape.name) else {
@@ -163,7 +97,7 @@ impl CharacterArchetypePrefab {
                 *entry += *v * weight;
             }
         }
-        adjust_helpers_to_morphs(&mh_morph_values, &mh_morphs.targets, basemesh)
+        adjust_helpers_to_morphs(&mh_morph_values, &mh_morphs.targets, basemesh_vertices)
     }
 }
 
@@ -201,57 +135,4 @@ impl CharacterArchetypePrefabs {
         prefabs.insert("", CharacterArchetypePrefab::default());
         Self(prefabs)
     }
-}
-
-pub(crate) fn create_character_prefab_rig_scenes(world: &mut World) {
-    // Only run if prefab rig scenes are None
-    let prefabs = world
-        .get_resource::<CharacterArchetypePrefabs>()
-        .expect("No human prefabs resource found");
-
-    let prefab_data = prefabs
-        .iter()
-        .map(|(&n, p)| (n, p.rig.rig_type))
-        .collect::<Vec<_>>();
-
-    for (name, rig_type) in prefab_data {
-        let (bone_rotations, bone_translations) = get_skeleton_transforms(world, rig_type)
-            .expect("Failed to get skeleton rotations from glb file");
-
-        let bone_order = get_bone_order(world, rig_type);
-        let base_mesh = world.get_resource::<BaseMesh>().unwrap();
-        let helpers = &base_mesh.0.clone();
-        let scene = crate::rigs::build_human_rig_scene(
-            helpers,
-            rig_type,
-            &bone_rotations,
-            &bone_order,
-            world,
-        );
-
-        let mut prefabs = world.resource_mut::<CharacterArchetypePrefabs>();
-        let prefab = prefabs.get_mut(&name).unwrap();
-        let rig_type = prefab.rig.rig_type;
-
-        let mut skeleton_caches = world.resource_mut::<SkeletonCaches>();
-        if !skeleton_caches.contains_key(&rig_type) {
-            let bone_name_to_index = bone_order
-                .iter()
-                .enumerate()
-                .map(|(i, &bone_name)| (bone_name, i))
-                .collect::<AHashMap<_, _>>();
-            skeleton_caches.insert(
-                rig_type,
-                Arc::new(SkeletonCache {
-                    bone_order: bone_order.clone(),
-                    bone_name_to_index,
-                    bone_model_space_rots: bone_rotations,
-                    bone_local_translations: bone_translations,
-                    scene,
-                }),
-            );
-        }
-    }
-    let mut state = world.resource_mut::<NextState<HumentityLoadState>>();
-    state.set(HumentityLoadState::AnimationProcessing);
 }

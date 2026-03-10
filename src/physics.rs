@@ -322,7 +322,14 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
         };
 
         let prefab = &prefabs[&shape_config.prefab];
-        let helpers = prefab.get_helpers(&shape_config.prefab_morph_targets, &basemesh, &mh_morphs);
+        let helpers =
+            match prefab.get_helpers(&shape_config.prefab_morph_targets, &basemesh, &mh_morphs) {
+                Ok(h) => h,
+                Err(e) => {
+                    error!("Failed to compute morph helpers for colliders: {}", e);
+                    continue;
+                }
+            };
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
@@ -455,7 +462,14 @@ pub(crate) fn spawn_ragdoll_colliders(
         };
 
         let prefab = &prefabs[&shape_config.prefab];
-        let helpers = prefab.get_helpers(&shape_config.prefab_morph_targets, &basemesh, &mh_morphs);
+        let helpers =
+            match prefab.get_helpers(&shape_config.prefab_morph_targets, &basemesh, &mh_morphs) {
+                Ok(h) => h,
+                Err(e) => {
+                    error!("Failed to compute morph helpers for ragdoll: {}", e);
+                    return;
+                }
+            };
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             return;
         };

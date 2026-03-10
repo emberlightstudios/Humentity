@@ -5,23 +5,25 @@ use bevy::{
     prelude::*,
 };
 use gltf::Skin;
-use std::{
-    f32::consts::PI,
-    path::{Path, PathBuf},
-};
+use serde::{Deserialize, Serialize};
+use std::f32::consts::PI;
 
 use crate::{
+    loaders::RetargetedAnimationAsset,
     prelude::*,
-    spawn_skeleton::FitSkeleton,
     rigs::{BoneTranslationData, RigType, RootBone, RootBonePrevious, SkeletonCaches},
+    spawn_skeleton::FitSkeleton,
     spawn_skeleton::RelatedEntities,
-    HumentityGlobalConfig,
 };
 
-#[derive(Resource, Deref, DerefMut)]
-pub struct CharacterAnimationClips(
-    AHashMap<RigType, AHashMap<&'static str, Handle<AnimationClip>>>,
-);
+/// Which translation tracks should be kept on animation clips
+#[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
+pub enum TranslationTracks {
+    #[default]
+    Root,
+    Full,
+    None,
+}
 
 /// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
 /// in realtime using data cached on the human config.
@@ -34,9 +36,9 @@ pub(crate) fn rescale_bone_translations(
     skeleton_caches: Res<SkeletonCaches>,
 ) {
     for (entity, human) in humans {
-        let rig_type = &prefabs[human.prefab].rig.rig_type;
+        let rig_type = &prefabs[human.prefab].rig;
         let cache = &skeleton_caches[rig_type];
-        let ref_translations = &cache.bone_local_translations;
+        let ref_translations = &cache.bone_local_space_transforms;
         let BoneTranslationData::Full(shape_translations) = &human.bone_translations else {
             continue;
         };
@@ -48,7 +50,7 @@ pub(crate) fn rescale_bone_translations(
             let Some(ref_trans) = ref_translations.get(name) else {
                 continue;
             };
-            let ref_trans = ref_trans.length();
+            let ref_trans = ref_trans.translation.length();
             if ref_trans < 1e-3 {
                 continue;
             }
@@ -77,17 +79,17 @@ pub(crate) fn rescale_root_bone_translation(
     skeleton_caches: Res<SkeletonCaches>,
 ) {
     for (related, human) in humans {
-        let rig_type = &prefabs[human.prefab].rig.rig_type;
+        let rig_type = &prefabs[human.prefab].rig;
         let cache = &skeleton_caches[rig_type];
         let &root_bone = &cache.bone_order[0];
         let BoneTranslationData::Root(shape_trans) = &human.bone_translations else {
             continue;
         };
-        let ref_trans = &cache.bone_local_translations;
+        let ref_trans = &cache.bone_local_space_transforms;
         let Ok(mut root) = transforms.get_mut(related.root_bone) else {
             continue;
         };
-        root.translation = root.translation * shape_trans.length() / ref_trans[root_bone].length();
+        root.translation = root.translation * shape_trans.length() / ref_trans[root_bone].translation.length();
     }
 }
 
@@ -175,107 +177,11 @@ pub(crate) fn root_motion(
     }
 }
 
-pub(crate) fn rebuild_animations(
-    prefabs: Res<CharacterArchetypePrefabs>,
-    mut clips_assets: ResMut<Assets<AnimationClip>>,
-    mut commands: Commands,
-    config: Res<HumentityGlobalConfig>,
-) {
-    let rig_types = prefabs.values().map(|p| p.rig.rig_type).collect::<Vec<_>>();
-
-    let mut rig_clips =
-        AHashMap::<RigType, AHashMap<&'static str, Handle<AnimationClip>>>::default();
-    for rig in rig_types.into_iter() {
-        let glbs = prefabs
-            .iter()
-            .filter(|(_, p)| p.rig.rig_type == rig)
-            .flat_map(|(_, p)| p.rig.animation_glbs.iter())
-            .collect::<Vec<_>>();
-
-        let mut clip_handles = AHashMap::<&'static str, Handle<AnimationClip>>::new();
-        for &glb in &glbs {
-            let path = PathBuf::from(glb);
-            let clips = get_animation_clips(path, config.translation_tracks)
-                .expect("Failed to retarget animation clips");
-            let mut handles: AHashMap<&'static str, Handle<AnimationClip>> = AHashMap::default();
-            for (name, clip) in clips.into_iter() {
-                handles.insert(name, clips_assets.add(clip));
-            }
-            clip_handles.extend(handles);
-        }
-        rig_clips.insert(rig, clip_handles);
-    }
-    commands.insert_resource(CharacterAnimationClips(rig_clips));
-    commands.set_state(HumentityLoadState::Ready);
-}
-
-pub type SkeletonTransforms = (AHashMap<&'static str, Quat>, AHashMap<&'static str, Vec3>);
-
-/// Returns a tuple of HashMaps, one for (model space) rotations, the other for (bone space) translations
-pub(crate) fn get_skeleton_transforms(
-    world: &mut World,
-    rig: RigType,
-) -> Result<SkeletonTransforms, BevyError> {
-    let config = world
-        .get_resource::<HumentityPathsConfig>()
-        .expect("Humentity not loaded");
-    let mut path = config.core_assets_path.clone();
-    match rig {
-        RigType::Default => path = path.join("skeletons/default.glb"),
-        RigType::Mixamo => path = path.join("skeletons/mixamo.glb"),
-        RigType::GameEngine => path = path.join("skeletons/game_engine.glb"),
-        //_ => unimplemented!("Add skeleton glb file for this skeleton")
-    }
-    let (document, ..) = gltf::import(path)?;
-    if document.skins().len() > 1 {
-        return Err(BevyError::from("More than one skin present in file"));
-    };
-    let Some(skin) = document.skins().next() else {
-        return Err(BevyError::from("No skins available"));
-    };
-    let mut transforms = AHashMap::<&'static str, Transform>::default();
-    let mut node_indices = AHashMap::<&'static str, usize>::default();
-
-    // Get joint local transforms
-    for joint in skin.joints() {
-        let name = joint.name().expect("No name for bone in skeleton file?");
-        node_indices.insert(NAME_INTERNER.intern(name).leak(), joint.index());
-        let (pos, rot, scale) = joint.transform().decomposed();
-        let transform = Transform {
-            translation: Vec3::from_array(pos),
-            rotation: Quat::from_array(rot).normalize(),
-            scale: Vec3::from_array(scale),
-        };
-        transforms.insert(NAME_INTERNER.intern(name).leak(), transform);
-    }
-
-    // Convert to global transforms
-    let mut global_transforms = AHashMap::<&'static str, Transform>::default();
-    let root = &find_root_joints(&skin);
-    compute_global_transform(
-        root,
-        &transforms,
-        &mut global_transforms,
-        Transform::IDENTITY,
-    )?;
-
-    Ok((
-        global_transforms
-            .iter()
-            .map(|(&n, t)| (n, t.rotation))
-            .collect::<AHashMap<&'static str, Quat>>(),
-        transforms
-            .iter()
-            .map(|(&n, t)| (n, t.translation))
-            .collect::<AHashMap<&'static str, Vec3>>(),
-    ))
-}
-
-pub(crate) fn get_animation_clips(
-    path: impl AsRef<Path>,
+pub(crate) fn get_animation_clips_from_bytes(
+    bytes: &[u8],
     translation_tracks: TranslationTracks,
 ) -> Result<AHashMap<&'static str, AnimationClip>, BevyError> {
-    let (document, buffers, _) = gltf::import(path)?;
+    let (document, buffers, _) = gltf::import_slice(bytes)?;
     if document.skins().len() > 1 {
         return Err(BevyError::from("More than one skin present in file"));
     };
@@ -285,7 +191,6 @@ pub(crate) fn get_animation_clips(
     let mut transforms = AHashMap::<&'static str, Transform>::default();
     let mut node_indices = AHashMap::<&'static str, usize>::default();
 
-    // Get joint local transforms
     for joint in skin.joints() {
         let name = joint.name().unwrap_or("");
         node_indices.insert(NAME_INTERNER.intern(name).leak(), joint.index());
@@ -298,7 +203,6 @@ pub(crate) fn get_animation_clips(
         transforms.insert(NAME_INTERNER.intern(name).leak(), transform);
     }
 
-    // Convert to global transforms
     let mut global_transforms = AHashMap::default();
     let root = &find_root_joints(&skin);
     compute_global_transform(
@@ -308,13 +212,10 @@ pub(crate) fn get_animation_clips(
         Transform::IDENTITY,
     )?;
 
-    // Get bone paths
     let joint_targets = build_joint_paths(root);
 
-    // Output clips
     let mut new_clips = AHashMap::default();
 
-    // Build new clips
     for animation in document.animations() {
         let mut clip = AnimationClip::default();
         let clip_name = animation
@@ -322,7 +223,6 @@ pub(crate) fn get_animation_clips(
             .ok_or_else(|| BevyError::from("Animation clip has no name"))?;
 
         for channel in animation.channels() {
-            // Get input values (t1, t2, ...)
             let sampler = channel.sampler();
             let input_accessor = sampler.input();
             let input_view = input_accessor
@@ -335,7 +235,6 @@ pub(crate) fn get_animation_clips(
             let data = &buffer[start..end];
             let times: Vec<f32> = bytemuck::cast_slice(data).to_vec();
 
-            // Get output values (pos1, pos2, ...) or (quat1, quat2, ...)
             let output_accessor = sampler.output();
             let output_view = output_accessor
                 .view()
@@ -353,14 +252,13 @@ pub(crate) fn get_animation_clips(
             let floats_per_element = match target_property {
                 gltf::animation::Property::Translation | gltf::animation::Property::Scale => 3,
                 gltf::animation::Property::Rotation => 4,
-                _ => continue, // Morph target weights
+                _ => continue,
             };
             let end =
                 start + output_accessor.count() * floats_per_element * std::mem::size_of::<f32>();
             let values = &buffer[start..end];
             let floats: &[f32] = bytemuck::cast_slice(values);
 
-            // Add new curve to new clip
             match target_property {
                 gltf::animation::Property::Translation => {
                     if matches!(translation_tracks, TranslationTracks::None) {
