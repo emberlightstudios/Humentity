@@ -197,7 +197,7 @@ fn on_slider_value_changed(
 // directly, avoiding morphs, skinning, etc. until the end.  This is my lazy way of doing it.
 fn rebuild(
     mut asset_registry: ResMut<CharacterAssetRegistry>,
-    mut mediator: ResMut<AssetLoadingMediators>,
+    mut mediator: ResMut<MhcloMeshBuilder>,
     human: Single<(Entity, &RelatedEntities), With<CharacterShapeConfig>>,
     mut commands: Commands,
 ) {

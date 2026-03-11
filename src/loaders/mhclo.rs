@@ -102,7 +102,10 @@ impl AssetLoader for MhcloAssetLoader {
                     }
                     "obj_file" => {
                         if let Some(value) = parts.next()
-                            && let Ok(path) = load_context.path().resolve(value)
+                            && let Ok(path) = load_context.path()
+                                .parent()
+                                .expect("Failed to get folder")
+                                .resolve(value)
                         {
                             obj_file = path;
                         }

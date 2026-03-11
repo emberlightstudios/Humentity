@@ -36,10 +36,10 @@ pub(crate) fn spawn_rig_scene(
         // Spawn rig scene
         if let Some(prefab) = prefabs.get(&config.prefab) {
             let rig_type = prefab.rig;
-            let Some(cached_scene) = skeleton_caches.get(&rig_type) else { 
+            let Some(cache) = skeleton_caches.get(&rig_type) else { 
                 return
             };
-            let cached_scene = cached_scene.scene.clone();
+            let cached_scene = cache.scene.clone();
             let cached_scene = commands
                 .spawn((DynamicSceneRoot::from(cached_scene), Name::new("RigScene")))
                 .id();
@@ -272,6 +272,5 @@ pub(crate) fn fit_skeleton_to_shape(
                 .entity(root_bone)
                 .insert(RootBonePrevious::default());
         }
-        info!("DONE fitting skeleton ");
     }
 }

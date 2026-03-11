@@ -69,7 +69,7 @@ pub(crate) struct RigData(pub(crate) AHashMap<RigType, RigSpec>);
 pub(crate) fn sync_rig_assets(
     mut config_events: MessageReader<AssetEvent<RigConfigAsset>>,
     mut weights_events: MessageReader<AssetEvent<RigWeightsAsset>>,
-    mut rigs: ResMut<RigData>,
+    mut rig_data: ResMut<RigData>,
     config_assets: Res<Assets<RigConfigAsset>>,
     weights_assets: Res<Assets<RigWeightsAsset>>,
 ) {
@@ -77,32 +77,20 @@ pub(crate) fn sync_rig_assets(
         return;
     }
 
-    let mut new_configs = vec![];
-    let mut new_weights = vec![];
+    config_events.read();
+    weights_events.read();
 
-    for ev in config_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = ev {
-            let config_asset = config_assets.get(*id).unwrap();
-            let rig = config_asset.rig;
-            if !rigs.contains_key(&rig) {
-                new_configs.push(rig);
-            }
-        }
-    }
-
-    for ev in weights_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = ev {
-            let weights_asset = weights_assets.get(*id).unwrap();
-            let rig = weights_asset.rig;
-            if !rigs.contains_key(&rig) {
-                new_weights.push(rig);
-            }
-        }
-    }
-
-    let to_load = new_configs
+    let cfgs = config_assets
+        .iter()
+        .map(|(_, cfg)| cfg.rig);
+    let wts = weights_assets
+        .iter()
+        .map(|(_, wt)| wt.rig)
+        .collect::<Vec<_>>();
+    let to_load = cfgs
         .into_iter()
-        .filter(|rig| new_weights.contains(rig))
+        .filter(|rig| wts.contains(rig))
+        .filter(|rig| !rig_data.contains_key(rig))
         .collect::<Vec<_>>();
 
     for rig in to_load {
@@ -115,7 +103,7 @@ pub(crate) fn sync_rig_assets(
             .find(|(_, a)| a.rig == rig)
             .unwrap_or_else(|| panic!("Weights asset for rig {rig:?} not found"));
 
-        rigs.insert(rig, RigSpec {
+        rig_data.insert(rig, RigSpec {
             weights: Arc::new(weights.clone()),
             config: Arc::new(config.clone()),
         });
@@ -486,14 +474,16 @@ pub(crate) fn get_bone_order(
 /// Builds skeleton caches when SkeletonAsset handles are loaded. Only skeletons whose handles
 /// are in SkeletonHandles are built. Transition to AnimationProcessing when all prefab rig types have caches.
 pub(crate) fn build_skeleton_caches(world: &mut World) {
-    let skeleton_caches = world.resource::<SkeletonCaches>();
-    let to_build: Vec<RigType> = skeleton_caches
-        .iter()
-        .filter(|(_, cache)| cache.scene == Handle::<DynamicScene>::default())
-        .map(|(&rig, _)| rig)
-        .collect();
+    let rig_data = world.resource::<RigData>();
+    let rigs = rig_data.keys().copied().collect::<Vec<_>>();
 
-    for rig_type in to_build {
+    let skeleton_caches = world.resource::<SkeletonCaches>();
+    let to_build = rigs
+        .iter()
+        .filter(|rig| !skeleton_caches.contains_key(*rig))
+        .collect::<Vec<_>>();
+
+    for &rig_type in to_build {
         let basemesh = world.resource::<BaseMesh>();
         let helpers = basemesh.0.clone();
         let bone_order = get_bone_order(rig_type, &world);

@@ -14,11 +14,11 @@ mod shared;
 use ahash::AHashMap;
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*, scene::SceneInstanceReady};
 use humentity::prelude::*;
-use shared::{add_humentity_plugin, add_material, cam_controls};
+use shared::{setup_plugin, add_material, cam_controls};
 
 fn main() {
     let mut app = App::new();
-    add_humentity_plugin(&mut app);
+    setup_plugin(&mut app);
 
     app.add_plugins(DefaultPlugins)
         .add_systems(Startup, setup_env)

@@ -59,13 +59,6 @@ pub struct MakeHumanMorphs {
     composites: CompositeTargetsAsset,
 }
 
-// Temp resource before assets are moved onto MakeHumanMorphs resource
-#[derive(Resource)]
-pub(crate) struct MorphHandles {
-    macro_handle: Handle<MacroDataAsset>,
-    composite_handle: Handle<CompositeTargetsAsset>,
-}
-
 pub(crate) fn sync_loaded_morph_manifests(
     macro_assets: Res<Assets<MacroDataAsset>>,
     composite_assets: Res<Assets<CompositeTargetsAsset>>,
@@ -79,7 +72,6 @@ pub(crate) fn sync_loaded_morph_manifests(
             macros: macro_asset.clone(),
             composites: composite_asset.clone(),
         });
-        commands.remove_resource::<MorphHandles>();
     }
 }
 

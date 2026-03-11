@@ -89,6 +89,7 @@ impl CharacterArchetypePrefab {
     ) -> Result<Vec<Vec3>, crate::morphs::MorphError> {
         let mut mh_morph_values = MorphTargets::default();
         for shape in self.shapes.iter() {
+            info!("{} {:#?}", shape.name, shape.morphs);
             let Some(weight) = morph_values.get(shape.name) else {
                 continue;
             };
@@ -96,6 +97,7 @@ impl CharacterArchetypePrefab {
                 let entry = mh_morph_values.entry(k).or_insert(0.);
                 *entry += *v * weight;
             }
+            info!("{:#?}", mh_morph_values);
         }
         adjust_helpers_to_morphs(&mh_morph_values, &mh_morphs.targets, basemesh_vertices)
     }

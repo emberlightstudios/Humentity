@@ -1,73 +1,87 @@
 #![allow(dead_code)]
-use std::path::PathBuf;
-
-use ahash::AHashSet;
-use bevy::{asset::io::AssetSourceBuilder, input::mouse::MouseMotion, prelude::*};
+use bevy::{asset::LoadedFolder, input::mouse::MouseMotion, prelude::*};
 use humentity::prelude::*;
 
-pub fn add_humentity_plugin(app: &mut App) {
-    let paths = build_humentity_custom_source_paths(app);
+pub fn setup_app() -> App {
+    // I moved target.json and macro.macro to the root of the assets folder because when trying to load
+    // the target folders, the asset server tried to load them their also.
 
-    app.add_plugins(HumentityPlugin {
-        paths,
-        config: HumentityGlobalConfig {
-            debug_draw_bones: true,
-            translation_tracks: TranslationTracks::None,
-        },
+    let mut app = App::new();
+
+    app 
+        .add_plugins((
+            DefaultPlugins,
+            BoneDebugPlugin,
+            HumentityPlugin
+        ))
+        .add_systems(Startup, load_assets)
+        .add_systems(Update, update_mesh_when_ready);
+
+    app
+}
+
+#[derive(Resource)]
+pub struct HumentityHandles {
+    pub basemesh: Handle<BaseMeshAsset>,
+    pub vertex_groups: Handle<VertexGroupsAsset>,
+    pub rig_config: Handle<RigConfigAsset>,
+    pub rig_weight: Handle<RigWeightsAsset>,
+    pub composite_targets: Handle<CompositeTargetsAsset>,
+    pub macro_targets: Handle<MacroDataAsset>,
+    pub targets: Handle<LoadedFolder>,
+}
+
+/// These assets are necessary to get the plugin to work.
+fn load_assets(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    // base mesh, with helpers, used for fitting meshes to morphs
+    let basemesh = asset_server.load::<BaseMeshAsset>("base.obj");
+
+    // morph targets, per vert deltas, used for shaping humans
+    let targets = asset_server.load_folder("targets");
+
+    // metadata for macro sliders, age, gender, etc
+    let macro_targets = asset_server.load::<MacroDataAsset>("macro.macro");
+
+    // manifest for composite targets, combines morphs in pairs positive/negative, left/right, etc
+    let composite_targets = asset_server.load::<CompositeTargetsAsset>("target.json");
+
+    // vertex groups, used for fitting skeleton
+    let vertex_groups = asset_server.load::<VertexGroupsAsset>("basemesh_vertex_groups.json");
+
+    // rig config, used with vertex groups to fit the skeleton to the mesh
+    let rig_config = asset_server.load::<RigConfigAsset>("rigs/rig.default.json");
+
+    // rig weights, used to build the mesh arrays for skinning
+    let rig_weight = asset_server.load::<RigWeightsAsset>("rigs/weights.default.json");
+
+    commands.insert_resource(HumentityHandles {
+        basemesh,
+        vertex_groups,
+        rig_config,
+        rig_weight,
+        targets,
+        composite_targets, 
+        macro_targets,
     });
 }
 
-pub fn build_humentity_custom_source_paths(app: &mut App) -> HumentityPathsConfig {
-    /// We will build the path configs for included assets with a custom source
-    const ASSET_SOURCE_ID: &str = "humentity";
-
-    // In this case it's just the default assets folder in this crate.
-    // This is just for example
-    let path = "./assets";
-
-    app.register_asset_source(
-        ASSET_SOURCE_ID,
-        AssetSourceBuilder::platform_default(path, None),
-    );
-
-    let humentity_source = HumentityAssetSourceId::new(
-        // None if using default asset source
-        Some(ASSET_SOURCE_ID),
-        // This would still be required in case default asset source path has changed
-        PathBuf::from(path),
-    );
-
-    // Set up paths to all asset types.  Assets in folders will be scanned and imported into the CharacterAssetRegistry
-
-    // ProxyMeshes/body lod
-    let mut body_mesh_paths = AHashSet::default();
-    // Hair, eyes, eyebrows, etc
-    let mut body_part_paths = AHashSet::default();
-    // Clothes, armor, etc
-    let mut equipment_paths = AHashSet::default();
-    // Skin textures
-    let mut skin_texture_paths = AHashSet::default();
-    // Morph target files, exported from Makehuman/MPFB
-    let mut target_paths = AHashSet::default();
-
-    // These paths must be relative to the source root folder
-    body_mesh_paths.insert(HumentityAssetPath::new("./proxymeshes", &humentity_source));
-    body_part_paths.insert(HumentityAssetPath::new("./body_parts", &humentity_source));
-    equipment_paths.insert(HumentityAssetPath::new("./clothes", &humentity_source));
-    skin_texture_paths.insert(HumentityAssetPath::new(
-        "./skin_textures",
-        &humentity_source,
-    ));
-    target_paths.insert(PathBuf::from(path).join("targets"));
-
-    HumentityPathsConfig::new(
-        humentity_source.root_path.clone(),
-        body_mesh_paths,
-        body_part_paths,
-        equipment_paths,
-        skin_texture_paths,
-        target_paths,
-    )
+pub fn update_mesh_when_ready(
+    character_parts: Query<(Entity, &ChildOf, &CharacterPart), Without<Mesh3d>>,
+    characters: Query<&CharacterShapeConfig>,
+    cached_meshes: Res<CachedMhcloMeshHandles>,
+    mut commands: Commands,
+) {
+    for (entity, parent, part) in character_parts.iter() {
+        let mhclo_handle = part.0.clone();
+        let character = characters.get(parent.parent()).unwrap();
+        let prefab = character.prefab;
+        if let Some(mesh_handle) = cached_meshes.get(&(mhclo_handle, prefab)) {
+            commands.entity(entity).insert(Mesh3d(mesh_handle.clone()));
+        }
+    }
 }
 
 pub fn cam_controls(
@@ -91,8 +105,8 @@ pub fn cam_controls(
         return;
     };
     for ev in mouse_motion.read() {
-        *yaw -= ev.delta.x * LS;
-        *pitch -= ev.delta.y * LS;
+        //*yaw -= ev.delta.x * LS;
+        //*pitch -= ev.delta.y * LS;
     }
     cam.rotation = Quat::from_euler(EulerRot::YXZ, *yaw, *pitch, 0.);
     let mut mv = Vec3::ZERO;

@@ -17,8 +17,6 @@ use bevy::prelude::*;
 use bevy_obj::ObjPlugin;
 use prelude::*;
 
-use crate::morphs::MorphHandles;
-
 pub static NAME_INTERNER: Interner<str> = Interner::new();
 
 pub mod prelude {
@@ -74,6 +72,7 @@ pub mod prelude {
         spawn_skeleton::RelatedEntities,
         HumentityGlobalConfig,
         HumentityPlugin,
+        BoneDebugPlugin,
         NAME_INTERNER,
     };
     #[cfg(feature = "physics")]
@@ -85,8 +84,6 @@ pub(crate) const MODEL_ROTATION_FIX: Quat = Quat::from_xyzw(0., 1., 0., 0.);
 
 #[derive(Resource, Default, Clone)]
 pub struct HumentityGlobalConfig {
-    /// Draw red lines showing the skeleton
-    pub debug_draw_bones: bool,
     /// Use animation postprocessing to rescale position tracks to mesh size
     /// This has some performance overhead. If disabled then translation tracks will
     /// be removed from all retargeted animations.
@@ -214,10 +211,6 @@ impl Plugin for HumentityPlugin {
         }
 
         /*
-        if self.config.debug_draw_bones {
-            app.add_systems(Update, rigs::bone_debug_draw);
-        }
-
         if matches!(self.config.translation_tracks, TranslationTracks::Root) {
             app.add_systems(
                 PostUpdate,
@@ -248,3 +241,11 @@ impl Plugin for HumentityPlugin {
     }
 
 }
+
+pub struct BoneDebugPlugin;
+
+impl Plugin for BoneDebugPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, rigs::bone_debug_draw);
+    }
+}   

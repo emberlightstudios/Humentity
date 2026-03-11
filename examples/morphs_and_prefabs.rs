@@ -22,21 +22,36 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
+use shared::{add_material, cam_controls, setup_env, setup_app};
+
+const PREFAB_NAME: &str = "ExampleHumanPrefab";
+const BABY: &str = "baby";
+const BODYBUILDER: &str = "bodybuilder";
+
 
 fn main() {
-    let mut app = App::new();
-    add_humentity_plugin(&mut app);
+    let mut app = setup_app();
 
-    app.add_plugins(DefaultPlugins)
-        .add_systems(Startup, setup_env)
-        .add_systems(OnEnter(HumentityLoadState::BuildingPrefabs), setup_prefabs)
-        .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
-        .add_systems(Update, (cam_controls, add_material))
+    app.add_systems(Startup, setup_env)
+        .add_systems(
+            Update,
+            (
+                cam_controls,
+                add_material,
+                add_humans
+                    .run_if(resource_exists::<MakeHumanMorphs>)
+                    .run_if(not(resource_exists::<CharacterArchetypePrefabs>))
+            )
+        )
         .run();
 }
 
-fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
+fn add_humans(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut mesh_builder: ResMut<MhcloMeshBuilder>,
+    morphs: Res<MakeHumanMorphs>,
+) {
     // When feeding in morphs you can ignore the categories here.
     // They are only for helping you organize a UI
     //info!("Available morphs: {:#?}", morphs.get_morph_names());
@@ -48,102 +63,97 @@ fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
-    // We'll give our prefab 2 shapes, a baby archetype and a bodybuilder archetype
-    let baby_shape = CharacterShapeArchetype::new(
-        "baby",
-        // This fn call is necessary to deconstruct compound "morph" values
-        // down to the level of individual makehuman morph targets.
-        // Many of the available morphs (see line 83) actually drive multiple
-        // makehuman morph targets at once.
-        morphs.compute_target_weights(&morph_targets),
-    );
+    // This fn call is necessary to deconstruct compound "morph" values
+    // down to the level of individual makehuman morph targets.
+    // Many of the available morphs (see line 83) actually drive multiple
+    // makehuman morph targets at once.
+    let Ok(baby_morphs) = morphs.compute_target_weights(&morph_targets)
+        else { return };
 
     morph_targets.clear();
     // These are desinged in makehuman such that you don't have to normalize their sum.
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
-    let bodybuilder_shape = CharacterShapeArchetype::new(
-        "bodybuilder",
-        morphs.compute_target_weights(&morph_targets),
+    let Ok(bodybuilder_morphs) = morphs.compute_target_weights(&morph_targets)
+        else { return };
+
+    commands.insert_resource(
+        CharacterArchetypePrefabs::new([(
+            PREFAB_NAME,
+            CharacterArchetypePrefab::new(
+                [
+                    CharacterShapeArchetype::new(BODYBUILDER, bodybuilder_morphs),
+                    CharacterShapeArchetype::new(BABY, baby_morphs),
+                ],
+                RigType::Default,
+            ),
+        )]),
     );
 
-    // You could use this, e.g. to define distinct face presets on a body also. Since they
-    // become morph targets you can generate essentially infinite face shapes from the vector
-    // space spanned by these basis morphs.
-
-    let mut prefabs = CharacterArchetypePrefabs::default();
-
-    // You can have more than one prefab, but for this example just one.
-    // Prefabs have a name also
-    prefabs.insert(
-        "ExampleHumanPrefab",
-        CharacterArchetypePrefab::new(
-            vec![baby_shape, bodybuilder_shape],
-            CharacterAnimationArchetype::default(), // No animation in this example
-        ),
-    );
-
-    commands.insert_resource(prefabs);
-}
-
-fn add_humans(mut commands: Commands) {
     // Previously defined shapes will now appear as morph targets on the prefab's mesh
     // The HumanShapeConfig type controls prefab access and applies our morph targets.
-    let prefab_name = "ExampleHumanPrefab";
-    let baby = "baby";
-    let bodybuilder = "bodybuilder";
+    let basemesh_part =
+        CharacterPart(asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy"));
 
+    // Trigger the mesh to build with the new morph targets.
+    mesh_builder.trigger(LoadAssetMeshJob::Single {
+        part: basemesh_part.clone(),
+        prefab_name: PREFAB_NAME,
+    });
+
+    // Spawn some characters with different morph values.  They will all share the same mesh handle, but look different!
+    
     // The base mesh
     let mut morphs = MorphTargets::default();
-    morphs.insert(baby, 0.);
-    morphs.insert(bodybuilder, 0.);
+    morphs.insert(BABY, 0.);
+    morphs.insert(BODYBUILDER, 0.);
     commands.spawn((
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(CharacterPart::BodyMesh("basemesh"))],
+        CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
+        children![(basemesh_part.clone())],
     ));
 
     // A baby
-    morphs.insert(baby, 1.);
-    morphs.insert(bodybuilder, 0.);
+    morphs.insert(BABY, 1.);
+    morphs.insert(BODYBUILDER, 0.);
     commands.spawn((
         Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(CharacterPart::BodyMesh("basemesh"))],
+        CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
+        children![(basemesh_part.clone())],
     ));
 
     // A bodybuilder
-    morphs.insert(baby, 0.);
-    morphs.insert(bodybuilder, 1.);
+    morphs.insert(BABY, 0.);
+    morphs.insert(BODYBUILDER, 1.);
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(CharacterPart::BodyMesh("basemesh"))],
+        CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
+        children![(basemesh_part.clone())],
     ));
 
     // Half baby/half bodybuilder, ha!
     // Note that the shapekey weights sum to 1
-    morphs.insert(baby, 0.5);
-    morphs.insert(bodybuilder, 0.5);
+    morphs.insert(BABY, 0.5);
+    morphs.insert(BODYBUILDER, 0.5);
     commands.spawn((
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(prefab_name, morphs.clone()),
-        children![(CharacterPart::BodyMesh("basemesh"))],
+        CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
+        children![(basemesh_part.clone())],
     ));
 
     // You have to be careful with normalization of mixed shapekeys sometimes
     // or you might end up with artifacts!
     // Here is a baby/bodybuilder mix, without normalizing
-    morphs.insert(baby, 1.);
-    morphs.insert(bodybuilder, 1.);
+    morphs.insert(BABY, 1.);
+    morphs.insert(BODYBUILDER, 1.);
     commands.spawn((
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(prefab_name, morphs),
-        children![(CharacterPart::BodyMesh("basemesh"))],
+        CharacterShapeConfig::new(PREFAB_NAME, morphs),
+        children![(basemesh_part)],
     ));
 }
