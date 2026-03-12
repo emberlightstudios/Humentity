@@ -67,15 +67,27 @@ fn add_humans(
     // down to the level of individual makehuman morph targets.
     // Many of the available morphs (see line 83) actually drive multiple
     // makehuman morph targets at once.
-    let Ok(baby_morphs) = morphs.compute_target_weights(&morph_targets)
-        else { return };
+    let baby_morphs = match morphs.compute_target_weights(&morph_targets) {
+        Ok(morphs) => morphs,
+        Err(err) => {
+            error!("Error computing morph targets for baby: {err}");
+            return;
+        } 
+    };
+    //info!("baby morphs: {:#?}", baby_morphs);
 
     morph_targets.clear();
     // These are desinged in makehuman such that you don't have to normalize their sum.
     morph_targets.insert("weight", 1.);
     morph_targets.insert("muscle", 1.);
-    let Ok(bodybuilder_morphs) = morphs.compute_target_weights(&morph_targets)
-        else { return };
+    let bodybuilder_morphs = match morphs.compute_target_weights(&morph_targets) {
+        Ok(morphs) => morphs,
+        Err(err) => {
+            error!("Error computing morph targets for bodybuilder: {err}");
+            return;
+        } 
+    };
+    //info!("bodybuilder morphs: {:#?}", bodybuilder_morphs);
 
     commands.insert_resource(
         CharacterArchetypePrefabs::new([(
@@ -107,12 +119,14 @@ fn add_humans(
     let mut morphs = MorphTargets::default();
     morphs.insert(BABY, 0.);
     morphs.insert(BODYBUILDER, 0.);
+    /*
     commands.spawn((
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
         children![(basemesh_part.clone())],
     ));
+     */
 
     // A baby
     morphs.insert(BABY, 1.);
@@ -124,6 +138,7 @@ fn add_humans(
         children![(basemesh_part.clone())],
     ));
 
+    /*
     // A bodybuilder
     morphs.insert(BABY, 0.);
     morphs.insert(BODYBUILDER, 1.);
@@ -156,4 +171,5 @@ fn add_humans(
         CharacterShapeConfig::new(PREFAB_NAME, morphs),
         children![(basemesh_part)],
     ));
+     */
 }

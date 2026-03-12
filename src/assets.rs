@@ -1,13 +1,13 @@
 use crate::{
-    prelude::*,
-    loaders::{MhcloAsset, MhcloVertexMap}, mesh_ops::{
+    loaders::{MhcloAsset, MhcloVertexMap},
+    mesh_ops::{
         fix_normals, fix_normals_multiple, generate_mhid_lookup, generate_vertex_map,
         get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents,
-        parse_obj_vertices,
     },
     morphs::adjust_helpers_to_morphs,
     prefab::PrefabOverride,
-    rigs::{SkeletonCache, set_asset_rig_arrays}
+    prelude::*,
+    rigs::{set_asset_rig_arrays, SkeletonCache},
 };
 use ahash::{AHashMap, AHashSet};
 use bevy::mesh::morph::{MorphAttributes, MorphTargetImage};
@@ -96,16 +96,15 @@ fn shape_mesh_from_helpers_mhclo(
 pub(crate) fn build_final_mesh_mhclo(
     mhclo: &MhcloAsset,
     input_mesh: &Mesh,
+    mesh_verts: &ObjVertsAsset,
     prefab: &CharacterArchetypePrefab,
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_weights: &Arc<RigWeightsAsset>,
     sk_cache: &Arc<SkeletonCache>,
 ) -> (Mesh, Vec<String>, MorphTargetImage) {
-    let obj_path = mhclo.obj_file.path();
-    let mh_vertices = parse_obj_vertices(obj_path);
-    let verts = get_vertex_positions(input_mesh);
-    let vertex_map = generate_vertex_map(&mh_vertices, &verts);
+    let vertices = get_vertex_positions(input_mesh);
+    let vertex_map = generate_vertex_map(&mesh_verts.vertices, &vertices);
     let mhid_lookup = generate_mhid_lookup(&vertex_map);
 
     let mut input_mesh =
@@ -165,6 +164,7 @@ pub(crate) fn build_final_mesh_mhclo(
 pub(crate) fn build_final_meshes_mhclo(
     mhclos: &[MhcloAsset],
     input_meshes: &mut [Mesh],
+    mesh_verts: &[ObjVertsAsset],
     prefabs: &[CharacterArchetypePrefab],
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
@@ -177,10 +177,8 @@ pub(crate) fn build_final_meshes_mhclo(
     let n_meshes = input_meshes.len();
     for i in 0..n_meshes {
         let mesh = &input_meshes[i];
-        let obj_path = mhclos[i].obj_file.path();
-        let mh_vertices = parse_obj_vertices(obj_path);
-        let verts = get_vertex_positions(mesh);
-        vertex_map.push(generate_vertex_map(&mh_vertices, &verts));
+        let vertices = get_vertex_positions(mesh);
+        vertex_map.push(generate_vertex_map(&mesh_verts[i].vertices, &vertices));
         mhid_lookup.push(generate_mhid_lookup(&vertex_map[i]));
         input_meshes[i] = shape_mesh_from_helpers_mhclo(
             mesh,
@@ -205,8 +203,9 @@ pub(crate) fn build_final_meshes_mhclo(
             let mut matched = false;
             for mesh_shape in prefab.shapes.iter() {
                 if shape == mesh_shape.name {
-                    let helpers = adjust_helpers_to_morphs(&mesh_shape.morphs, &mh_morphs, &basemesh) 
-                        .unwrap_or_else(|e| panic!("{}", e));
+                    let helpers =
+                        adjust_helpers_to_morphs(&mesh_shape.morphs, &mh_morphs, &basemesh)
+                            .unwrap_or_else(|e| panic!("{}", e));
                     meshes.push(Some(shape_mesh_from_helpers_mhclo(
                         mesh,
                         &mhclos[i_mesh],

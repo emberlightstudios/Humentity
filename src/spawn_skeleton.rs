@@ -81,6 +81,16 @@ pub(crate) fn fit_skeleton_to_shape(
 ) {
     for (character_entity, mut config, root_motion) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
+        let Ok(helpers) = prefab.get_helpers(
+            &config.prefab_morph_targets,
+            &basemesh.0,
+            &morph_targets,
+        ) else {
+            return // Targets probably not loaded yet, try again next frame
+        };
+        //info!("{:#?}", config.prefab_morph_targets);
+        //info!("{:#?}", helpers[5063]);
+
         let rig_type = prefab.rig;
         let cache = &skeleton_caches[&rig_type];
 
@@ -114,11 +124,6 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // Re-fit skeleton to mesh shape.  This is based on fixed vertices in the base mesh.
         // This will move and rotate the bones to align with those verts (using roll from rig config).
-        let helpers = prefab.get_helpers(
-            &config.prefab_morph_targets,
-            &basemesh.0,
-            &morph_targets,
-        ).unwrap_or_else(|e| panic!("{}", e) );
         let mut model_space_bindposes = get_model_space_skeleton_transforms(
             &cache.bone_order, &helpers, rig_type, &vg, &rig_data,
         );

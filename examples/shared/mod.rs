@@ -8,12 +8,7 @@ pub fn setup_app() -> App {
 
     let mut app = App::new();
 
-    app 
-        .add_plugins((
-            DefaultPlugins,
-            BoneDebugPlugin,
-            HumentityPlugin
-        ))
+    app.add_plugins((DefaultPlugins, BoneDebugPlugin, HumentityPlugin))
         .add_systems(Startup, load_assets)
         .add_systems(Update, update_mesh_when_ready);
 
@@ -22,7 +17,7 @@ pub fn setup_app() -> App {
 
 #[derive(Resource)]
 pub struct HumentityHandles {
-    pub basemesh: Handle<BaseMeshAsset>,
+    pub basemesh: Handle<ObjVertsAsset>,
     pub vertex_groups: Handle<VertexGroupsAsset>,
     pub rig_config: Handle<RigConfigAsset>,
     pub rig_weight: Handle<RigWeightsAsset>,
@@ -32,12 +27,11 @@ pub struct HumentityHandles {
 }
 
 /// These assets are necessary to get the plugin to work.
-fn load_assets(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-) {
+fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
     // base mesh, with helpers, used for fitting meshes to morphs
-    let basemesh = asset_server.load::<BaseMeshAsset>("base.obj");
+    let basemesh = asset_server.load_with_settings("base.obj", |settings: &mut ObjVertsSettings| {
+        settings.is_basemesh_helpers = true;
+    });
 
     // morph targets, per vert deltas, used for shaping humans
     let targets = asset_server.load_folder("targets");
@@ -63,7 +57,7 @@ fn load_assets(
         rig_config,
         rig_weight,
         targets,
-        composite_targets, 
+        composite_targets,
         macro_targets,
     });
 }

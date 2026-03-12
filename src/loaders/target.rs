@@ -4,6 +4,8 @@ use bevy::{
 
 use crate::NAME_INTERNER;
 
+const SCALE_FACTOR: f32 = 0.1;
+
 #[derive(Clone, Debug)]
 pub struct TargetDelta {
     pub vertex: u16,
@@ -59,7 +61,7 @@ impl AssetLoader for TargetAssetLoader {
 
             deltas.push(TargetDelta {
                 vertex,
-                offset: Vec3::new(x, y, z),
+                offset: Vec3::new(x, y, z) * SCALE_FACTOR,
             });
         }
 

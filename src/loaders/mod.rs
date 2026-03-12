@@ -1,4 +1,4 @@
-mod basemesh;
+mod obj_verts;
 mod mhclo;
 mod macro_json;
 mod retargeted_animation;
@@ -7,14 +7,15 @@ mod rig_weights;
 mod target;
 mod composite_target_manifest;
 
-pub use basemesh::{
-    BaseMeshAsset,
-    BaseMeshAssetLoader,
+pub use obj_verts::{
+    ObjVertsAsset,
+    ObjVertsAssetLoader,
+    ObjVertsSettings,
     VertexGroupsAsset,
     VertexGroupsAssetLoader,
 };
 pub use mhclo::{MhcloAsset, MhcloAssetLoader, MhcloVertexMap};
-pub use macro_json::{MacroBound, MacroBounds, MacroDataAsset, MacroDataAssetLoader};
+pub use macro_json::{MacroBoundString, MacroBounds, MacroDataAsset, MacroDataAssetLoader};
 pub use retargeted_animation::{
     RetargetedAnimationAsset,
     RetargetedAnimationAssetLoader,

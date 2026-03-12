@@ -22,14 +22,15 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 pub mod prelude {
     pub use crate::{
         loaders::{
-            BaseMeshAsset,
-            BaseMeshAssetLoader,
+            ObjVertsAsset,
+            ObjVertsAssetLoader,
+            ObjVertsSettings,
             VertexGroupsAsset,
             VertexGroupsAssetLoader,
             CategoryMorphsAsset,
             CompositeTarget,
             CompositeTargetsAsset,
-            MacroBound,
+            MacroBoundString,
             MacroBounds,
             MacroDataAsset,
             MacroDataAssetLoader,
@@ -118,8 +119,8 @@ impl Plugin for HumentityPlugin {
             .init_resource::<rigs::SkeletonCaches>()
             .init_resource::<rigs::RigData>()
 
-            .init_asset::<BaseMeshAsset>()
-            .register_asset_loader(BaseMeshAssetLoader)
+            .init_asset::<ObjVertsAsset>()
+            .register_asset_loader(ObjVertsAssetLoader)
             .init_asset::<VertexGroupsAsset>()
             .register_asset_loader(VertexGroupsAssetLoader)
             .init_asset::<MhcloAsset>()

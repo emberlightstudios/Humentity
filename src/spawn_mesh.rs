@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, mesh::{morph::{MorphTargetImage}}, prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
-use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{BaseMeshAsset, MhcloAsset}, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs}, rigs::{BoneTranslationData, RigData, SkeletonCaches}};
+use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{ObjVertsAsset, MhcloAsset}, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs}, rigs::{BoneTranslationData, RigData, SkeletonCaches}};
 use serde::{Deserialize, Deserializer, Serialize};
 
 
@@ -61,8 +61,13 @@ pub enum AssetLoadState {
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct CachedMhcloMeshHandles(AHashMap<(Handle<MhcloAsset>, &'static str), Handle<Mesh>>);
 
+pub(crate) struct RawMeshCache {
+    pub(crate) mesh: Handle<Mesh>,
+    pub(crate) verts: Handle<ObjVertsAsset>,
+}
+
 #[derive(Resource, Deref, DerefMut, Default)]
-pub(crate) struct CachedMhcloRawMeshHandles(AHashMap<Handle<MhcloAsset>, Handle<Mesh>>);
+pub(crate) struct CachedMhcloRawMeshHandles(AHashMap<Handle<MhcloAsset>, RawMeshCache>);
 
 
 /// A resource for communicating with background threads for mesh loading
@@ -116,6 +121,7 @@ pub(crate) struct MeshConstructedMsg {
 pub(crate) fn mesh_build(
     prefabs: ResMut<CharacterArchetypePrefabs>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mesh_verts: Res<Assets<ObjVertsAsset>>,
     mhclo_assets: Res<Assets<MhcloAsset>>,
     mut images: ResMut<Assets<Image>>,
     mut morphs: ResMut<MakeHumanMorphs>,
@@ -131,7 +137,7 @@ pub(crate) fn mesh_build(
         match key {
             LoadAssetMeshJob::Single { part, prefab_name } => {
                 build_single_mesh_process(
-                    mediator, load_state, part, prefab_name, &prefabs, &mut meshes, &mhclo_assets,
+                    mediator, load_state, part, prefab_name, &prefabs, &mut meshes, &mesh_verts, &mhclo_assets,
                     &mut morphs, &basemesh.0, &rig_data, &asset_server, &sk_cache, &mut cached_raw_meshes,
                 );
 
@@ -144,7 +150,7 @@ pub(crate) fn mesh_build(
             }
             LoadAssetMeshJob::Stitched{ parts, prefab_name } => {
                 build_stitched_meshes_process(
-                    mediator, load_state, parts, prefab_name, &prefabs, &mut meshes,
+                    mediator, load_state, parts, prefab_name, &prefabs, &mut meshes, &mesh_verts,
                     &mhclo_assets, &mut morphs, &basemesh.0, &rig_data, &asset_server, &sk_cache,
                     &mut cached_raw_meshes,
                 );
@@ -230,6 +236,7 @@ pub(crate) fn build_single_mesh_process(
     prefab_name: &'static str,
     prefabs: &CharacterArchetypePrefabs,
     meshes: &mut Assets<Mesh>,
+    mesh_verts: &Assets<ObjVertsAsset>,
     mhclo_assets: &Assets<MhcloAsset>,
     morphs: &mut MakeHumanMorphs,
     basemesh: &Arc<Vec<Vec3>>,
@@ -249,19 +256,22 @@ pub(crate) fn build_single_mesh_process(
     if *load_state == AssetLoadState::None {
         *load_state = AssetLoadState::LoadedObj;
         if !cached_raw_meshes.contains_key(&**part) {
-            let handle = asset_server.load(mhclo.obj_file.clone());
-            cached_raw_meshes.insert(part.0.clone(), handle);
+            let mesh = asset_server.load::<Mesh>(mhclo.obj_file.clone());
+            let verts = asset_server.load::<ObjVertsAsset>(mhclo.obj_file.clone());
+            cached_raw_meshes.insert(part.0.clone(), RawMeshCache { mesh, verts });
             return;
         }
     }
 
     if *load_state == AssetLoadState::LoadedObj
-            && let Some(handle) = cached_raw_meshes.get(&**part)
-            && let Some(input_mesh) = meshes.get(handle)
+            && let Some(cache) = cached_raw_meshes.get(&**part)
+            && let Some(input_mesh) = meshes.get(&cache.mesh)
+            && let Some(mesh_verts) = mesh_verts.get(&cache.verts)
     {
         *load_state = AssetLoadState::BuildSubmitted;
 
         let input_mesh = input_mesh.clone();
+        let mesh_verts = mesh_verts.clone();
         let prefab = prefab.clone();
         let mh_morphs = morphs.targets.clone();
         let Some(rig_entry) = rig_data.get(&prefab.rig) else {
@@ -276,7 +286,8 @@ pub(crate) fn build_single_mesh_process(
 
         pool.spawn(async move {
             let (mesh, morph_names, morph_image) = build_final_mesh_mhclo(
-                &mhclo, &input_mesh, &prefab, mh_morphs, basemesh, &rig_weights, &sk_cache
+                &mhclo, &input_mesh, &mesh_verts, &prefab, mh_morphs,
+                basemesh, &rig_weights, &sk_cache
             );
             sender.send(MeshConstructedMsg {
                 final_meshes: vec![mesh],
@@ -295,6 +306,7 @@ fn build_stitched_meshes_process(
     prefab_name: &'static str,
     prefabs: &CharacterArchetypePrefabs,
     meshes: &mut Assets<Mesh>,
+    mesh_verts: &Assets<ObjVertsAsset>,
     mhclo_assets: &Assets<MhcloAsset>,
     morphs: &mut MakeHumanMorphs,
     basemesh: &Arc<Vec<Vec3>>,
@@ -321,8 +333,9 @@ fn build_stitched_meshes_process(
         for StitchedPart { part, .. } in parts.iter() {
             if !cached_raw_meshes.contains_key(&*part) {
                 let mhclo = mhclo_assets.get(&*part).expect("mhclo already checked");
-                let handle = asset_server.load(mhclo.obj_file.clone());
-                cached_raw_meshes.insert(part.clone(), handle);
+                let mesh = asset_server.load::<Mesh>(mhclo.obj_file.clone());
+                let verts = asset_server.load::<ObjVertsAsset>(mhclo.obj_file.clone());
+                cached_raw_meshes.insert(part.clone(), RawMeshCache { mesh, verts });
             }
         }
         return;
@@ -342,7 +355,12 @@ fn build_stitched_meshes_process(
 
         let loaded_meshes: Vec<_> = raw_handles
             .iter()
-            .filter_map(|h| h.and_then(|handle| meshes.get(handle)))
+            .filter_map(|h| h.and_then(|cache| meshes.get(&cache.mesh)))
+            .collect();
+
+        let mesh_verts: Vec<_> = raw_handles
+            .iter()
+            .filter_map(|h| h.and_then(|cache| mesh_verts.get(&cache.verts)))
             .collect();
 
         if loaded_meshes.len() != parts.len() {
@@ -352,6 +370,7 @@ fn build_stitched_meshes_process(
         *load_state = AssetLoadState::BuildSubmitted;
 
         let mut input_meshes: Vec<Mesh> = loaded_meshes.into_iter().cloned().collect();
+        let mesh_verts: Vec<ObjVertsAsset> = mesh_verts.into_iter().cloned().collect();
         let mhclos: Vec<_> = parts
             .iter()
             .map(|p| mhclo_assets.get(&p.part).unwrap().clone())
@@ -381,6 +400,7 @@ fn build_stitched_meshes_process(
             let (final_meshes, morph_names, morph_images) = build_final_meshes_mhclo(
                 &mhclos,
                 &mut input_meshes,
+                &mesh_verts,
                 &prefabs_for_build,
                 mh_morphs,
                 basemesh,

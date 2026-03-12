@@ -2,24 +2,34 @@ use bevy::{
     asset::{io::Reader, AssetLoader, LoadContext},
     prelude::*,
 };
-use serde::Deserialize;
 use ahash::AHashMap;
+use serde::{Deserialize, Serialize};
 
 #[derive(Asset, TypePath, Clone, Debug)]
-pub struct BaseMeshAsset(pub Vec<Vec3>);
+pub struct ObjVertsAsset {
+    pub vertices: Vec<Vec3>,
+    pub is_basemesh_helpers: bool,
+}
+
+#[derive(Asset, TypePath, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct ObjVertsSettings {
+    #[serde(default)]
+    pub is_basemesh_helpers: bool,
+}
 
 #[derive(Default, TypePath)]
-pub struct BaseMeshAssetLoader;
+pub struct ObjVertsAssetLoader;
 
-impl AssetLoader for BaseMeshAssetLoader {
-    type Asset = BaseMeshAsset;
-    type Settings = ();
+impl AssetLoader for ObjVertsAssetLoader {
+    type Asset = ObjVertsAsset;
+    type Settings = ObjVertsSettings;
     type Error = std::io::Error;
 
     async fn load(
         &self,
         reader: &mut dyn Reader,
-        _settings: &Self::Settings,
+        settings: &Self::Settings,
         _load_context: &mut LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
@@ -46,7 +56,10 @@ impl AssetLoader for BaseMeshAssetLoader {
             vertices.push(Vec3::new(x, y, z));
         }
 
-        Ok(BaseMeshAsset(vertices))
+        Ok(ObjVertsAsset {
+            vertices,
+            is_basemesh_helpers: settings.is_basemesh_helpers,
+        })
     }
 
     fn extensions(&self) -> &[&str] {

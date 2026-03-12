@@ -1,8 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    loaders::{CompositeTargetsAsset, MacroDataAsset, TargetAsset},
-    prelude::*,
+    loaders::{CompositeTargetsAsset, MacroDataAsset, TargetAsset}, morphs, prelude::*
 };
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
@@ -158,155 +157,110 @@ impl MakeHumanMorphs {
             return Ok(morph_targets.clone());
         }
 
-        // --- 1️⃣ Separate race sliders ---
-        let race_sliders: AHashMap<_, _> = morph_targets
-            .iter()
-            .filter(|(k, _)| ["african", "asian", "caucasian"].contains(k))
-            .map(|(&k, v)| (k, *v))
-            .collect();
+        let mut morph_targets = morph_targets.clone();
 
-        let total_race: f32 = race_sliders.values().sum();
-        let race_weights: AHashMap<_, _> = if total_race > 0.0 {
-            race_sliders
-                .iter()
-                .map(|(&k, v)| (k, v / total_race))
-                .collect()
+        // --- 1️⃣ Normalize race sliders ---
+        let mut total_race: f32 = 0.;
+        for race in self.macros.morph_map["race"].iter() {
+            if let Some(value) = morph_targets.0.get(race) {
+                total_race += value;
+            }
+        }
+        if total_race > 0. {
+            for race in self.macros.morph_map["race"].iter() {
+                let value = morph_targets.0.entry(race).or_default();
+                *value /= total_race;
+            }
         } else {
             // Default to Caucasian=1 if not specified
-            let mut m = AHashMap::default();
-            m.insert("caucasian", 1.0);
-            m
+            morph_targets.insert("caucasian", 1.0);
+            morph_targets.insert("african", 0.0);
+            morph_targets.insert("asian", 0.0);
         };
 
         // --- 2️⃣ Split out macros ---
-        let mut macro_inputs = AHashMap::default();
-
-        for (&k, v) in morph_targets.iter() {
-            if self
-                .macros
-                .macrotargets
-                .contains_key(k)
-            {
-                macro_inputs.insert(k, *v);
-            }
-        }
-
         // Handle defaults for macros
-        if !macro_inputs.contains_key("gender") {
-            macro_inputs.insert("gender", 1.0); // Male
+        if !morph_targets.contains_key("gender") {
+            morph_targets.insert("gender", 1.0); // Male
         }
-        if !macro_inputs.contains_key("age") {
-            macro_inputs.insert("age", 0.5); // Young
+        if !morph_targets.contains_key("age") {
+            morph_targets.insert("age", 0.5); // Young
         }
-        if !macro_inputs.contains_key("weight") {
-            macro_inputs.insert("weight", 0.5);
+        if !morph_targets.contains_key("weight") {
+            morph_targets.insert("weight", 0.5);
         }
-        if !macro_inputs.contains_key("muscle") {
-            macro_inputs.insert("muscle", 0.5);
+        if !morph_targets.contains_key("muscle") {
+            morph_targets.insert("muscle", 0.5);
         }
-        if !macro_inputs.contains_key("proportions") {
-            macro_inputs.insert("proportions", 0.5);
+        if !morph_targets.contains_key("proportions") {
+            morph_targets.insert("proportions", 0.5);
         }
 
         // --- 3️⃣ Compute macro morphs ---
-        let macro_morphs = morph_targets
-            .iter()
-            .filter(|(k, _)| self.macros.macrotargets.contains_key(*k))
-            .map(|(&k, v)| (k, *v))
-            .collect::<AHashMap<_, _>>();
+        let macro_values = compute_macro_weights(&self.macros, &morph_targets);
+        
+        let macro_flat_morphs = self.macros.morph_map
+            .values()
+            .flat_map(|v| v.iter())
+            .collect::<Vec<_>>();
 
-        let mut macro_combos = AHashMap::<&str, &[&str]>::default();
-        macro_combos.insert("race", &["caucasian", "asian", "african"]);
-        macro_combos.insert("gender", &["male", "female"]);
-        macro_combos.insert("age", &["baby", "child", "young", "old"]);
-        macro_combos.insert("muscle", &["minmuscle", "averagemuscle", "maxmuscle"]);
-        macro_combos.insert("weight", &["minweight", "averageweight", "maxweight"]);
-        macro_combos.insert("proportions", &["uncommonproportions", "idealproportions"]);
-        macro_combos.insert("height", &["minheight", "maxheight"]);
-        macro_combos.insert("cupsize", &["mincup", "averagecup", "maxcup"]);
-        macro_combos.insert("firmness", &["minfirmness", "averagefirmness", "maxfirmness"]);
-
-        let gender_values = macro_morphs
-            .iter()
-            .filter(|(n, _)| macro_combos["gender"].contains(n))
-            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
-            .collect::<AHashMap<&'static str, f32>>();
-        let age_values = macro_morphs
-            .iter()
-            .filter(|(n, _)| macro_combos["age"].contains(n))
-            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
-            .collect::<AHashMap<&'static str, f32>>();
-        let muscle_values = macro_morphs
-            .iter()
-            .filter(|(n, _)| macro_combos["muscle"].contains(n))
-            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
-            .collect::<AHashMap<&'static str, f32>>();
-        let weight_values = macro_morphs
-            .iter()
-            .filter(|(n, _)| macro_combos["weight"].contains(n))
-            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
-            .collect::<AHashMap<&'static str, f32>>();
-        let proportions_values = macro_morphs
-            .iter()
-            .filter(|(n, _)| macro_combos["proportions"].contains(n))
-            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
-            .collect::<AHashMap<&'static str, f32>>();
-        let height_values = macro_morphs
-            .iter()
-            .filter(|(n, _)| macro_combos["height"].contains(n))
-            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
-            .collect::<AHashMap<&'static str, f32>>();
-        let cupsize_values = macro_morphs
-            .iter()
-            .filter(|(n, _)| macro_combos["cupsize"].contains(n))
-            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
-            .collect::<AHashMap<&'static str, f32>>();
-        let firmness_values = macro_morphs
-            .iter()
-            .filter(|(n, _)| macro_combos["firmness"].contains(n))
-            .map(|(n, v)| (NAME_INTERNER.intern(n).leak(), *v))
-            .collect::<AHashMap<&'static str, f32>>();
-
-        fn snap_edges(value: f32) -> f32 {
-            if value < 0.005 { 0.0 }
-            else if value > 0.995 { 1.0 }
-            else { value }
+        for macro_key in macro_flat_morphs {
+            morph_targets.remove(macro_key);
+        }
+        for macro_key in self.macros.morph_map.keys() {
+            morph_targets.remove(macro_key);
         }
 
         // race-gender-age targets
-        for (&race, race_value) in race_weights.iter() {
-            for (&gender, gender_value) in gender_values.iter() {
-                for (&age, age_value) in age_values.iter() {
+        for &race in self.macros.morph_map["race"].iter() {
+            for &gender in self.macros.morph_map["gender"].iter() {
+                for &age in self.macros.morph_map["age"].iter() {
+                    let race_value = morph_targets.get(&race).copied().unwrap_or(0.0);
+                    let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
+                    let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
                     let name = NAME_INTERNER
                         .intern(&format!("{race}-{gender}-{age}"))
                         .leak();
                     let value = race_value * gender_value * age_value;
-                    result.insert(name, snap_edges(value));
+                    if value != 0.0 {
+                        result.insert(name, value);
+                    }
                 }
             }
         }
 
         // universal-gender-age-muscle-weight targets
-        for (&gender, gender_value) in gender_values.iter() {
-            for (&age, age_value) in age_values.iter() {
-                for (&muscle, muscle_value) in muscle_values.iter() {
-                    for (&weight, weight_value) in weight_values.iter() {
+        for &gender in self.macros.morph_map["gender"].iter() {
+            for &age in self.macros.morph_map["age"].iter() {
+                for &muscle in self.macros.morph_map["muscle"].iter() {
+                    for &weight in self.macros.morph_map["weight"].iter() {
+                        let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
+                        let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
+                        let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
+                        let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
                         let name = NAME_INTERNER
                             .intern(&format!("universal-{gender}-{age}-{muscle}-{weight}"))
                             .leak();
                         let value = gender_value * age_value * muscle_value * weight_value;
-                        result.insert(name, snap_edges(value));
+                        if value != 0.0 {
+                            result.insert(name, value);
+                        }
                     }
                 }
             }
         }
 
         // gender-age-muscle-weight-height targets
-        for (&gender, gender_value) in gender_values.iter() {
-            for (&age, age_value) in age_values.iter() {
-                for (&muscle, muscle_value) in muscle_values.iter() {
-                    for (&weight, weight_value) in weight_values.iter() {
-                        for (&height, height_value) in height_values.iter() {
+        for &gender in self.macros.morph_map["gender"].iter() {
+            for &age in self.macros.morph_map["age"].iter() {
+                for &muscle in self.macros.morph_map["muscle"].iter() {
+                    for &weight in self.macros.morph_map["weight"].iter() {
+                        for &height in self.macros.morph_map["height"].iter() {
+                            let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
+                            let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
+                            let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
+                            let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
+                            let height_value = macro_values.get(&height).copied().unwrap_or(0.0);
                             let name = NAME_INTERNER
                                 .intern(&format!("{gender}-{age}-{muscle}-{weight}-{height}"))
                                 .leak();
@@ -315,7 +269,9 @@ impl MakeHumanMorphs {
                                 * muscle_value
                                 * weight_value
                                 * height_value;
-                            result.insert(name, snap_edges(value));
+                            if value != 0.0 {
+                                result.insert(name, value);
+                            }
                         }
                     }
                 }
@@ -323,14 +279,19 @@ impl MakeHumanMorphs {
         }
 
         // gender-age-muscle-weight-proportions targets
-        for (&gender, gender_value) in gender_values.iter() {
-            for (&age, age_value) in age_values.iter() {
+        for &gender in self.macros.morph_map["gender"].iter() {
+            for &age in self.macros.morph_map["age"].iter() {
                 if age == "baby" {
                     continue;
                 }
-                for (&muscle, muscle_value) in muscle_values.iter() {
-                    for (&weight, weight_value) in weight_values.iter() {
-                        for (&proportions, proportions_value) in proportions_values.iter() {
+                for &muscle in self.macros.morph_map["muscle"].iter() {
+                    for &weight in self.macros.morph_map["weight"].iter() {
+                        for &proportions in self.macros.morph_map["proportions"].iter() {
+                            let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
+                            let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
+                            let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
+                            let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
+                            let proportions_value = macro_values.get(&proportions).copied().unwrap_or(0.0);
                             let name = NAME_INTERNER
                                 .intern(&format!("{gender}-{age}-{muscle}-{weight}-{proportions}"))
                                 .leak();
@@ -339,7 +300,9 @@ impl MakeHumanMorphs {
                                 * muscle_value
                                 * weight_value
                                 * proportions_value;
-                            result.insert(name, snap_edges(value));
+                            if value != 0.0 {
+                                result.insert(name, value);
+                            }
                         }
                     }
                 }
@@ -347,21 +310,27 @@ impl MakeHumanMorphs {
         }
 
         // gender-age-muscle-weight-cup-firmness targets
-        for (&gender, gender_value) in gender_values.iter() {
+        for &gender in self.macros.morph_map["gender"].iter() {
             if gender == "male" {
                 continue;
             }
-            for (&age, age_value) in age_values.iter() {
+            for &age in self.macros.morph_map["age"].iter() {
                 if age == "baby" {
                     continue;
                 }
-                for (&muscle, muscle_value) in muscle_values.iter() {
-                    for (&weight, weight_value) in weight_values.iter() {
-                        for (&cupsize, cupsize_value) in cupsize_values.iter() {
-                            for (&firmness, firmness_value) in firmness_values.iter() {
+                for &muscle in self.macros.morph_map["muscle"].iter() {
+                    for &weight in self.macros.morph_map["weight"].iter() {
+                        for &cupsize in self.macros.morph_map["cupsize"].iter() {
+                            for &firmness in self.macros.morph_map["firmness"].iter() {
                                 if firmness == "averagefirmness" && cupsize == "averagecup" {
                                     continue;
                                 }
+                                let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
+                                let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
+                                let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
+                                let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
+                                let cupsize_value = macro_values.get(&cupsize).copied().unwrap_or(0.0);
+                                let firmness_value = macro_values.get(&firmness).copied().unwrap_or(0.0);
                                 let name = NAME_INTERNER
                                     .intern(&format!(
                                         "{gender}-{age}-{muscle}-{weight}-{cupsize}-{firmness}"
@@ -373,17 +342,15 @@ impl MakeHumanMorphs {
                                     * weight_value
                                     * cupsize_value
                                     * firmness_value;
-                                result.insert(name, snap_edges(value));
+                                if value != 0.0 {
+                                    result.insert(name, value);
+                                }
                             }
                         }
                     }
                 }
             }
         }
-
-        let morph_targets = morph_targets
-            .iter()
-            .filter(|(k, _)| !macro_morphs.contains_key(*k));
 
         // -----------------------------------
         // 2. Resolve composite morph sliders
@@ -395,7 +362,8 @@ impl MakeHumanMorphs {
             })
             .collect::<AHashMap<_, _>>();
         
-        for (&slider_name, value) in morph_targets.clone() {
+        let mut to_remove = Vec::new();
+        for (&slider_name, value) in morph_targets.iter() {
             // Find the composite morph definition that matches this slider
             if let Some(morph) = flattened_composite_morphs.get(slider_name) {
                 // Some morphs just directly reference targets
@@ -426,6 +394,7 @@ impl MakeHumanMorphs {
                             .entry(NAME_INTERNER.intern(&opps.negative_unsided).leak())
                             .or_insert(0.0) += value.abs();
                     }
+                    to_remove.push(slider_name);
                 } else if let Some(targets) = &morph.targets {
                     // No opposites: directly apply
                     for target in targets {
@@ -433,12 +402,14 @@ impl MakeHumanMorphs {
                             .entry(NAME_INTERNER.intern(target).leak())
                             .or_insert(0.0) += *value;
                     }
+                    to_remove.push(slider_name);
                 }
             }
         }
 
-        let morph_targets = morph_targets.clone()
-            .filter(|(k, _)| !flattened_composite_morphs.contains_key(*k));
+        // Remove handled composite morphs to see if any unknown sliders remain that don't map to targets
+        let morph_targets = morph_targets.iter()
+            .filter(|(k, _)| !to_remove.contains(*k));
 
         let mut missing = morph_targets.clone()
             .filter(|(k, _)| !targets.contains_key(*k) )
@@ -487,4 +458,35 @@ pub(crate) fn adjust_helpers_to_morphs(
         }
     }
     Ok(helpers)
+}
+
+fn compute_macro_weights(
+    macros: &MacroDataAsset,
+    slider_values: &MorphTargets,
+) -> AHashMap<&'static str, f32> {
+    let mut result = AHashMap::default();
+
+    for (&macro_name, value) in slider_values.iter() {
+        if let Some(bounds) = macros.macrotargets.get(macro_name) {
+            for part in &bounds.parts {
+                if *value >= part.lowest && *value <= part.highest {
+                    let range = part.highest - part.lowest;
+                    let t = (value - part.lowest) / range;
+
+                    let (low, high) = (&part.low[..], &part.high[..]);
+                    let low = NAME_INTERNER.intern(low).leak();
+                    let high = NAME_INTERNER.intern(high).leak();
+                    if !low.is_empty() {
+                        *result.entry(low).or_insert(0.0) += 1.0 - t;
+                    }
+                    if !high.is_empty() {
+                        *result.entry(high).or_insert(0.0) += t;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    result
 }

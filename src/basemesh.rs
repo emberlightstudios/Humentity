@@ -3,12 +3,10 @@ use std::sync::Arc;
 use ahash::AHashMap;
 use bevy::prelude::*;
 
-use crate::{
-    loaders::{BaseMeshAsset, VertexGroupsAsset},
-};
+use crate::loaders::{ObjVertsAsset, VertexGroupsAsset};
 
-pub(crate) const _BODY_VERTICES: u16 = 13380u16;
-pub(crate) const _BODY_SCALE: f32 = 0.1;
+// The last vert for the basemesh before helpers
+//pub(crate) const _BODY_VERTICES: u16 = 13380u16;
 
 #[derive(Resource)]
 pub struct BaseMesh(pub Arc<Vec<Vec3>>);
@@ -17,14 +15,18 @@ pub struct BaseMesh(pub Arc<Vec<Vec3>>);
 pub struct VertexGroups(pub Arc<AHashMap<String, Vec<[usize; 2]>>>);
 
 pub(crate) fn extract_basemesh_asset(
-    basemesh_assets: Res<Assets<BaseMeshAsset>>,
-    mut basemesh_events: MessageReader<AssetEvent<BaseMeshAsset>>,
+    basemesh_assets: Res<Assets<ObjVertsAsset>>,
+    mut basemesh_events: MessageReader<AssetEvent<ObjVertsAsset>>,
     mut commands: Commands,
 ) {
     for ev in basemesh_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = ev {
             if let Some(asset) = basemesh_assets.get(*id) {
-                commands.insert_resource(BaseMesh(Arc::new(asset.0.clone())));
+                // Only cache helper OBJs (the basemesh helpers used for morphing)
+                if asset.is_basemesh_helpers {
+                    commands.insert_resource(BaseMesh(Arc::new(asset.vertices.clone())));
+                    return;
+                }
             }
         }
     }

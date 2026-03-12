@@ -8,21 +8,37 @@ use crate::NAME_INTERNER;
 
 #[derive(Asset, TypePath, Clone, Debug, Default)]
 pub struct MacroDataAsset {
+    /// Raw macro data
     pub macrotargets: AHashMap<&'static str, MacroBounds>,
+    /// Convenience fied mapping macro names to the morph names they affect
+    pub morph_map: AHashMap<&'static str, Vec<&'static str>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct MacroDataAssetString {
-    pub macrotargets: AHashMap<String, MacroBounds>,
+    pub macrotargets: AHashMap<String, MacroBoundsString>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct MacroBounds {
     pub parts: Vec<MacroBound>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct MacroBoundsString {
+    pub parts: Vec<MacroBoundString>,
+}
+
+#[derive(Clone, Debug)]
 pub struct MacroBound {
+    pub lowest: f32,
+    pub highest: f32,
+    pub low: &'static str,
+    pub high: &'static str,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MacroBoundString {
     pub lowest: f32,
     pub highest: f32,
     pub low: String,
@@ -47,18 +63,37 @@ impl AssetLoader for MacroDataAssetLoader {
         reader.read_to_end(&mut bytes).await?;
 
         let values = serde_json::from_slice::<MacroDataAssetString>(&bytes)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()));
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
-        values.iter().map(|v| {
-            let interned = v
-                .macrotargets
-                .iter()
-                .map(|(k, bounds)| (NAME_INTERNER.intern(k).leak(), bounds.clone()))
-                .collect();
-            MacroDataAsset {
-                macrotargets: interned,
+        let mut morph_map = AHashMap::<&'static str, Vec<&'static str>>::default();
+        let mut macros = MacroDataAsset::default();
+        for (macro_name, bounds) in values.macrotargets.iter() {
+            let name = NAME_INTERNER.intern(macro_name).leak();
+            let parts = bounds.parts.iter().map(|part| {
+                let low = NAME_INTERNER.intern(&part.low).leak();
+                let high = NAME_INTERNER.intern(&part.high).leak();
+                MacroBound {
+                    lowest: part.lowest,
+                    highest: part.highest,
+                    low,
+                    high,
+                }
+            }).collect();
+
+            macros.macrotargets.insert(name, MacroBounds { parts });
+
+            let mut morph_names: Vec<&'static str> = macros.macrotargets[name]
+                .parts.iter().flat_map(|part| [part.low, part.high]).collect();
+            morph_names.dedup();
+            if let Some(pos) = morph_names.iter().position(|x| x.is_empty()) {
+                morph_names.remove(pos);
             }
-        }).next().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "No data found in macro asset"))
+            morph_map.insert(name, morph_names);
+        }
+        morph_map.insert("race", vec!["african", "asian", "caucasian"]);
+        macros.morph_map = morph_map;
+
+        Ok(macros)
     }
 
     fn extensions(&self) -> &[&str] {

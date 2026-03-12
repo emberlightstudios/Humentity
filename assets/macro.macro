@@ -5,8 +5,8 @@
             "label": "Gender",
             "parts": [
                 {
-                    "lowest": -0.01,
-                    "highest": 1.01,
+                    "lowest": 0.0,
+                    "highest": 1.0,
                     "low": "female",
                     "high": "male"
                 }
@@ -17,20 +17,20 @@
             "label": "Age",
             "parts": [
                 {
-                    "lowest": -0.01,
-                    "highest": 0.1874998,
+                    "lowest": 0.0,
+                    "highest": 0.1875,
                     "low": "baby",
                     "high": "child"
                 },
                 {
-                    "lowest": 0.1874999,
-                    "highest": 0.49998,
+                    "lowest": 0.1875,
+                    "highest": 0.5,
                     "low": "child",
                     "high": "young"
                 },
                 {
-                    "lowest": 0.49999,
-                    "highest": 1.01,
+                    "lowest": 0.5,
+                    "highest": 1.0,
                     "low": "young",
                     "high": "old"
                 }
@@ -41,14 +41,14 @@
             "label": "Muscularity",
             "parts": [
                 {
-                    "lowest": -0.01,
-                    "highest": 0.49998,
+                    "lowest": 0.0,
+                    "highest": 0.5,
                     "low": "minmuscle",
                     "high": "averagemuscle"
                 },
                 {
-                    "lowest": 0.49999,
-                    "highest": 1.01,
+                    "lowest": 0.5,
+                    "highest": 1.0,
                     "low": "averagemuscle",
                     "high": "maxmuscle"
                 }
@@ -59,14 +59,14 @@
             "label": "Weight",
             "parts": [
                 {
-                    "lowest": -0.01,
-                    "highest": 0.49998,
+                    "lowest": 0.0,
+                    "highest": 0.5,
                     "low": "minweight",
                     "high": "averageweight"
                 },
                 {
-                    "lowest": 0.49999,
-                    "highest": 1.01,
+                    "lowest": 0.5,
+                    "highest": 1.0,
                     "low": "averageweight",
                     "high": "maxweight"
                 }
@@ -77,14 +77,14 @@
             "label": "Proportions",
             "parts": [
                 {
-                    "lowest": -0.01,
-                    "highest": 0.4999,
+                    "lowest": 0.0,
+                    "highest": 0.5,
                     "low": "uncommonproportions",
                     "high": ""
                 },
                 {
                     "lowest": 0.50,
-                    "highest": 1.01,
+                    "highest": 1.0,
                     "low": "",
                     "high": "idealproportions"
                 }
@@ -95,14 +95,14 @@
             "label": "Height",
             "parts": [
                 {
-                    "lowest": -0.01,
-                    "highest": 0.49,
+                    "lowest": 0.0,
+                    "highest": 0.5,
                     "low": "minheight",
                     "high": ""
                 },
                 {
-                    "lowest": 0.51,
-                    "highest": 1.01,
+                    "lowest": 0.5,
+                    "highest": 1.0,
                     "low": "",
                     "high": "maxheight"
                 }
@@ -113,14 +113,14 @@
             "label": "Cup size",
             "parts": [
                 {
-                    "lowest": -0.01,
-                    "highest": 0.49998,
+                    "lowest": 0.0,
+                    "highest": 0.5,
                     "low": "mincup",
                     "high": "averagecup"
                 },
                 {
-                    "lowest": 0.49999,
-                    "highest": 1.01,
+                    "lowest": 0.5,
+                    "highest": 1.0,
                     "low": "averagecup",
                     "high": "maxcup"
                 }
@@ -131,14 +131,14 @@
             "label": "Breast firmness",
             "parts": [
                 {
-                    "lowest": -0.01,
-                    "highest": 0.4998,
+                    "lowest": 0.0,
+                    "highest": 0.5,
                     "low": "minfirmness",
                     "high": "averagefirmness"
                 },
                 {
-                    "lowest": 0.4999,
-                    "highest": 1.01,
+                    "lowest": 0.5,
+                    "highest": 1.0,
                     "low": "averagefirmness",
                     "high": "maxfirmness"
                 }
