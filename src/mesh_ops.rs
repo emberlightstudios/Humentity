@@ -6,24 +6,6 @@ use std::{
     path::Path,
 };
 
-pub fn parse_obj_vertices<T: AsRef<Path>>(filename: T) -> Vec<Vec3> {
-    let path = filename.as_ref();
-    let file = File::open(path).unwrap_or_else(|_| panic!("Couldn't open file {:?}", path));
-    let mut vertices = Vec::<Vec3>::new();
-    for line_result in BufReader::new(file).lines() {
-        let Ok(line) = line_result else { break };
-        if line.starts_with("v ") {
-            let coords: Vec<f32> = line
-                .split_whitespace()
-                .skip(1)
-                .filter_map(|x| x.parse().ok())
-                .collect();
-            vertices.push(Vec3::new(coords[0], coords[1], coords[2]));
-        }
-    }
-    vertices
-}
-
 pub fn get_vertex_positions(mesh: &Mesh) -> Vec<Vec3> {
     let Some(VertexAttributeValues::Float32x3(verts)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
     else {

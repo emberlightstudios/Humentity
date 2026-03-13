@@ -1,5 +1,7 @@
 #![allow(dead_code)]
-use bevy::{asset::LoadedFolder, input::mouse::MouseMotion, prelude::*};
+use bevy::{
+    asset::LoadedFolder, input::mouse::MouseMotion, mesh::skinning::SkinnedMesh, prelude::*,
+};
 use humentity::prelude::*;
 
 pub fn setup_app() -> App {
@@ -10,7 +12,10 @@ pub fn setup_app() -> App {
 
     app.add_plugins((DefaultPlugins, BoneDebugPlugin, HumentityPlugin))
         .add_systems(Startup, load_assets)
-        .add_systems(Update, update_mesh_when_ready);
+        .add_systems(
+            Update,
+            update_mesh_when_ready.run_if(resource_exists::<CharacterArchetypePrefabs>),
+        );
 
     app
 }
@@ -29,9 +34,10 @@ pub struct HumentityHandles {
 /// These assets are necessary to get the plugin to work.
 fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
     // base mesh, with helpers, used for fitting meshes to morphs
-    let basemesh = asset_server.load_with_settings("base.obj", |settings: &mut ObjVertsSettings| {
-        settings.is_basemesh_helpers = true;
-    });
+    let basemesh =
+        asset_server.load_with_settings("base.obj", |settings: &mut ObjVertsSettings| {
+            settings.is_basemesh_helpers = true;
+        });
 
     // morph targets, per vert deltas, used for shaping humans
     let targets = asset_server.load_folder("targets");
@@ -64,16 +70,33 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
 
 pub fn update_mesh_when_ready(
     character_parts: Query<(Entity, &ChildOf, &CharacterPart), Without<Mesh3d>>,
-    characters: Query<&CharacterShapeConfig>,
+    characters: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
     cached_meshes: Res<CachedMhcloMeshHandles>,
+    meshes: Res<Assets<Mesh>>,
+    prefabs: Res<CharacterArchetypePrefabs>,
     mut commands: Commands,
 ) {
     for (entity, parent, part) in character_parts.iter() {
         let mhclo_handle = part.0.clone();
-        let character = characters.get(parent.parent()).unwrap();
-        let prefab = character.prefab;
+        let Ok((shape_config, skm)) = characters.get(parent.parent()) else {
+            continue;
+        };
+        let prefab = shape_config.prefab;
+
+        // After you trigger a mesh build it will be put in this cache
         if let Some(mesh_handle) = cached_meshes.get(&(mhclo_handle, prefab)) {
-            commands.entity(entity).insert(Mesh3d(mesh_handle.clone()));
+            commands.entity(entity).insert((
+                Mesh3d(mesh_handle.clone()),
+                Transform::IDENTITY, // I think this is necessary
+                skm.clone(),         // This is necessary to bind the mesh to the skeleton
+            ));
+            let mesh = meshes.get(mesh_handle).unwrap();
+            if mesh.has_morph_targets() {
+                // This is necessary for any mesh which has morphs.
+                commands
+                    .entity(entity)
+                    .insert(shape_config.get_morph_weights_component(&prefabs[prefab]));
+            }
         }
     }
 }

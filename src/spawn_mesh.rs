@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use ahash::AHashMap;
-use bevy::{ecs::intern::Internable, mesh::{morph::{MorphTargetImage}}, prelude::*, tasks::AsyncComputeTaskPool};
+use bevy::{ecs::intern::Internable, mesh::morph::{MeshMorphWeights, MorphTargetImage}, prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
-use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{ObjVertsAsset, MhcloAsset}, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs}, rigs::{BoneTranslationData, RigData, SkeletonCaches}};
+use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset}, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs, CharacterShapeArchetype}, rigs::{BoneTranslationData, RigData, SkeletonCaches}};
 use serde::{Deserialize, Deserializer, Serialize};
 
 
@@ -17,6 +17,17 @@ pub struct CharacterShapeConfig {
     pub(crate) bone_translations: BoneTranslationData,
     #[serde(skip)]
     pub(crate) bone_delta_rotations: AHashMap<&'static str, Quat>,
+}
+
+impl CharacterShapeConfig {
+    pub fn get_morph_weights_component(&self, prefab: &CharacterArchetypePrefab) -> MeshMorphWeights {
+        let morph_weights = prefab
+            .shapes
+            .iter()
+            .map(|s| *self.prefab_morph_targets.get(s.name).unwrap_or(&0.))
+            .collect::<Vec<_>>();
+        MeshMorphWeights::new(morph_weights).unwrap()
+    }
 }
 
 impl<'de> Deserialize<'de> for CharacterShapeConfig {
@@ -269,6 +280,7 @@ pub(crate) fn build_single_mesh_process(
             && let Some(mesh_verts) = mesh_verts.get(&cache.verts)
     {
         *load_state = AssetLoadState::BuildSubmitted;
+        cached_raw_meshes.remove(&**part);
 
         let input_mesh = input_mesh.clone();
         let mesh_verts = mesh_verts.clone();
@@ -394,6 +406,10 @@ fn build_stitched_meshes_process(
         };
         let rig_weights = rig_entry.weights.clone();
         let sk_cache = sk_cache[&rig].clone();
+
+        parts.iter().for_each(|p| {
+            cached_raw_meshes.remove(&p.part);
+        });
 
         let sender = mediator.mesh_building_msg_sender.clone();
         pool.spawn(async move {

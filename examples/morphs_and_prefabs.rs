@@ -74,6 +74,13 @@ fn add_humans(
             return;
         } 
     };
+
+    for k in baby_morphs.keys() {
+        let loaded = morphs.targets.read().unwrap();
+        if !loaded.contains_key(k) {
+            return;
+        }
+    }
     //info!("baby morphs: {:#?}", baby_morphs);
 
     morph_targets.clear();
@@ -87,6 +94,12 @@ fn add_humans(
             return;
         } 
     };
+    for k in bodybuilder_morphs.keys() {
+        let loaded = morphs.targets.read().unwrap();
+        if !loaded.contains_key(k) {
+            return;
+        }
+    }
     //info!("bodybuilder morphs: {:#?}", bodybuilder_morphs);
 
     commands.insert_resource(
@@ -119,14 +132,12 @@ fn add_humans(
     let mut morphs = MorphTargets::default();
     morphs.insert(BABY, 0.);
     morphs.insert(BODYBUILDER, 0.);
-    /*
     commands.spawn((
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
         children![(basemesh_part.clone())],
     ));
-     */
 
     // A baby
     morphs.insert(BABY, 1.);
@@ -138,7 +149,6 @@ fn add_humans(
         children![(basemesh_part.clone())],
     ));
 
-    /*
     // A bodybuilder
     morphs.insert(BABY, 0.);
     morphs.insert(BODYBUILDER, 1.);
@@ -171,5 +181,4 @@ fn add_humans(
         CharacterShapeConfig::new(PREFAB_NAME, morphs),
         children![(basemesh_part)],
     ));
-     */
 }

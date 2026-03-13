@@ -199,24 +199,11 @@ impl MakeHumanMorphs {
         // --- 3️⃣ Compute macro morphs ---
         let macro_values = compute_macro_weights(&self.macros, &morph_targets);
         
-        let macro_flat_morphs = self.macros.morph_map
-            .values()
-            .flat_map(|v| v.iter())
-            .collect::<Vec<_>>();
-
-        for macro_key in macro_flat_morphs {
-            morph_targets.remove(macro_key);
-        }
-        for macro_key in self.macros.morph_map.keys() {
-            morph_targets.remove(macro_key);
-        }
-
-        // race-gender-age targets
         for &race in self.macros.morph_map["race"].iter() {
+            let race_value = morph_targets.get(&race).copied().unwrap_or(0.0);
             for &gender in self.macros.morph_map["gender"].iter() {
+                let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
                 for &age in self.macros.morph_map["age"].iter() {
-                    let race_value = morph_targets.get(&race).copied().unwrap_or(0.0);
-                    let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
                     let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
                     let name = NAME_INTERNER
                         .intern(&format!("{race}-{gender}-{age}"))
@@ -231,12 +218,12 @@ impl MakeHumanMorphs {
 
         // universal-gender-age-muscle-weight targets
         for &gender in self.macros.morph_map["gender"].iter() {
+            let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
             for &age in self.macros.morph_map["age"].iter() {
+                let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
                 for &muscle in self.macros.morph_map["muscle"].iter() {
+                    let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
                     for &weight in self.macros.morph_map["weight"].iter() {
-                        let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-                        let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
-                        let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
                         let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
                         let name = NAME_INTERNER
                             .intern(&format!("universal-{gender}-{age}-{muscle}-{weight}"))
@@ -252,14 +239,14 @@ impl MakeHumanMorphs {
 
         // gender-age-muscle-weight-height targets
         for &gender in self.macros.morph_map["gender"].iter() {
+            let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
             for &age in self.macros.morph_map["age"].iter() {
+                let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
                 for &muscle in self.macros.morph_map["muscle"].iter() {
+                    let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
                     for &weight in self.macros.morph_map["weight"].iter() {
+                        let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
                         for &height in self.macros.morph_map["height"].iter() {
-                            let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-                            let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
-                            let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
-                            let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
                             let height_value = macro_values.get(&height).copied().unwrap_or(0.0);
                             let name = NAME_INTERNER
                                 .intern(&format!("{gender}-{age}-{muscle}-{weight}-{height}"))
@@ -280,17 +267,17 @@ impl MakeHumanMorphs {
 
         // gender-age-muscle-weight-proportions targets
         for &gender in self.macros.morph_map["gender"].iter() {
+            let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
             for &age in self.macros.morph_map["age"].iter() {
                 if age == "baby" {
                     continue;
                 }
+                let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
                 for &muscle in self.macros.morph_map["muscle"].iter() {
+                    let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
                     for &weight in self.macros.morph_map["weight"].iter() {
+                        let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
                         for &proportions in self.macros.morph_map["proportions"].iter() {
-                            let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-                            let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
-                            let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
-                            let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
                             let proportions_value = macro_values.get(&proportions).copied().unwrap_or(0.0);
                             let name = NAME_INTERNER
                                 .intern(&format!("{gender}-{age}-{muscle}-{weight}-{proportions}"))
@@ -314,22 +301,22 @@ impl MakeHumanMorphs {
             if gender == "male" {
                 continue;
             }
+            let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
             for &age in self.macros.morph_map["age"].iter() {
                 if age == "baby" {
                     continue;
                 }
+                let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
                 for &muscle in self.macros.morph_map["muscle"].iter() {
+                    let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
                     for &weight in self.macros.morph_map["weight"].iter() {
+                        let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
                         for &cupsize in self.macros.morph_map["cupsize"].iter() {
+                            let cupsize_value = macro_values.get(&cupsize).copied().unwrap_or(0.0);
                             for &firmness in self.macros.morph_map["firmness"].iter() {
                                 if firmness == "averagefirmness" && cupsize == "averagecup" {
                                     continue;
                                 }
-                                let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-                                let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
-                                let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
-                                let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
-                                let cupsize_value = macro_values.get(&cupsize).copied().unwrap_or(0.0);
                                 let firmness_value = macro_values.get(&firmness).copied().unwrap_or(0.0);
                                 let name = NAME_INTERNER
                                     .intern(&format!(
@@ -351,6 +338,20 @@ impl MakeHumanMorphs {
                 }
             }
         }
+
+        let macro_flat_morphs = self.macros.morph_map
+            .values()
+            .flat_map(|v| v.iter())
+            .collect::<Vec<_>>();
+
+        for macro_key in macro_flat_morphs {
+            morph_targets.remove(macro_key);
+        }
+        for macro_key in self.macros.morph_map.keys() {
+            morph_targets.remove(macro_key);
+        }
+
+        // race-gender-age targets
 
         // -----------------------------------
         // 2. Resolve composite morph sliders
