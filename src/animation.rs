@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
 use crate::{
-    loaders::RetargetedAnimationAsset,
     prelude::*,
-    rigs::{BoneTranslationData, RigType, RootBone, RootBonePrevious, SkeletonCaches},
+    rigs::{BoneTranslationData, RootBone, RootBonePrevious, SkeletonCaches},
     spawn_skeleton::FitSkeleton,
     spawn_skeleton::RelatedEntities,
 };
@@ -19,9 +18,9 @@ use crate::{
 /// Which translation tracks should be kept on animation clips
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
 pub enum TranslationTracks {
-    #[default]
     Root,
     Full,
+    #[default]
     None,
 }
 

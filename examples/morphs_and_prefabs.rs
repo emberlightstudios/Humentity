@@ -8,8 +8,7 @@
 //! To overcome these problems Humentity uses a "prefab" system.
 //!
 //! Makehuman has something like 1000 distinct morph targets.  This
-//! is too many to be used at runtime.  While possible, it is likely to lead
-//! to performance degradation in the shader.  The Humentity prefab system
+//! is too many to be used at runtime.  The Humentity prefab system
 //! allows you to bake an entire set of makehuman morph weights down to a
 //! single morph target in bevy. In order to make variable humans we can define
 //! a few basic human archetypes, and perhaps a set of distinct faces that we can
@@ -22,7 +21,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{add_material, cam_controls, setup_env, setup_app};
+use shared::setup_app;
 
 const PREFAB_NAME: &str = "ExampleHumanPrefab";
 const BABY: &str = "baby";
@@ -32,16 +31,12 @@ const BODYBUILDER: &str = "bodybuilder";
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(Startup, setup_env)
+    app
         .add_systems(
             Update,
-            (
-                cam_controls,
-                add_material,
-                add_humans
-                    .run_if(resource_exists::<MakeHumanMorphs>)
-                    .run_if(not(resource_exists::<CharacterArchetypePrefabs>))
-            )
+            add_humans
+                .run_if(resource_exists::<MakeHumanMorphs>)
+                .run_if(not(resource_exists::<CharacterArchetypePrefabs>))
         )
         .run();
 }

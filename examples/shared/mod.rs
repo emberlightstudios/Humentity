@@ -12,16 +12,21 @@ pub fn setup_app() -> App {
 
     app.add_plugins((DefaultPlugins, BoneDebugPlugin, HumentityPlugin))
         .add_systems(Startup, load_assets)
+        .add_systems(Startup, setup_env)
         .add_systems(
             Update,
-            update_mesh_when_ready.run_if(resource_exists::<CharacterArchetypePrefabs>),
+            (
+                update_mesh_when_ready.run_if(resource_exists::<CharacterArchetypePrefabs>),
+                cam_controls,
+                add_material,
+            ),
         );
 
     app
 }
 
 #[derive(Resource)]
-pub struct HumentityHandles {
+struct HumentityHandles {
     pub basemesh: Handle<ObjVertsAsset>,
     pub vertex_groups: Handle<VertexGroupsAsset>,
     pub rig_config: Handle<RigConfigAsset>,
@@ -68,7 +73,7 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
     });
 }
 
-pub fn update_mesh_when_ready(
+fn update_mesh_when_ready(
     character_parts: Query<(Entity, &ChildOf, &CharacterPart), Without<Mesh3d>>,
     characters: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
     cached_meshes: Res<CachedMhcloMeshHandles>,
@@ -101,7 +106,7 @@ pub fn update_mesh_when_ready(
     }
 }
 
-pub fn cam_controls(
+fn cam_controls(
     mut cam: Query<&mut Transform, With<Camera3d>>,
     mut mouse_motion: MessageReader<MouseMotion>,
     kb_input: Res<ButtonInput<KeyCode>>,
@@ -148,7 +153,7 @@ pub fn cam_controls(
     cam.translation += Transform::from_rotation(transform.rotation) * mv;
 }
 
-pub fn add_material(
+fn add_material(
     humans: Query<Entity, (With<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -159,7 +164,7 @@ pub fn add_material(
     }
 }
 
-pub fn setup_env(
+fn setup_env(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
