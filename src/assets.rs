@@ -7,7 +7,7 @@ use crate::{
     morphs::adjust_helpers_to_morphs,
     prefab::PrefabOverride,
     prelude::*,
-    rigs::{set_asset_rig_arrays, SkeletonCache},
+    rigs::{set_asset_rig_arrays, RigSpec},
 };
 use ahash::{AHashMap, AHashSet};
 use bevy::mesh::morph::{MorphAttributes, MorphTargetImage};
@@ -101,7 +101,7 @@ pub(crate) fn build_final_mesh_mhclo(
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_weights: &Arc<RigWeightsAsset>,
-    sk_cache: &Arc<SkeletonCache>,
+    rig_spec: &RigSpec,
 ) -> (Mesh, Vec<String>, MorphTargetImage) {
     let vertices = get_vertex_positions(input_mesh);
     let vertex_map = generate_vertex_map(&mesh_verts.vertices, &vertices);
@@ -155,7 +155,7 @@ pub(crate) fn build_final_mesh_mhclo(
         &mhid_lookup,
         rig_weights,
         &mhclo.helper_map,
-        sk_cache,
+        rig_spec,
     );
 
     (input_mesh, morph_names, image)
@@ -169,7 +169,7 @@ pub(crate) fn build_final_meshes_mhclo(
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_weights: &Arc<RigWeightsAsset>,
-    sk_cache: &Arc<SkeletonCache>,
+    rig_spec: &RigSpec,
 ) -> (Vec<Mesh>, Vec<Vec<String>>, Vec<MorphTargetImage>) {
     let mut mhid_lookup = vec![];
     let mut vertex_map = vec![];
@@ -277,7 +277,7 @@ pub(crate) fn build_final_meshes_mhclo(
             &mhid_lookup[i_mesh],
             rig_weights,
             &mhclos[i_mesh].helper_map,
-            sk_cache,
+            rig_spec,
         );
     }
 

@@ -10,7 +10,7 @@ use std::f32::consts::PI;
 
 use crate::{
     prelude::*,
-    rigs::{BoneTranslationData, RootBone, RootBonePrevious, SkeletonCaches},
+    rigs::{BoneTranslationData, RigData, RootBone, RootBonePrevious},
     spawn_skeleton::FitSkeleton,
     spawn_skeleton::RelatedEntities,
 };
@@ -32,12 +32,12 @@ pub(crate) fn rescale_bone_translations(
     children: Query<&Children>,
     names: Query<&Name>,
     mut transforms: Query<&mut Transform>,
-    skeleton_caches: Res<SkeletonCaches>,
+    rig_data: Res<RigData>,
 ) {
     for (entity, human) in humans {
         let rig_type = &prefabs[human.prefab].rig;
-        let cache = &skeleton_caches[rig_type];
-        let ref_translations = &cache.bone_local_space_transforms;
+        let rig_spec = &rig_data[rig_type];
+        let ref_translations = &rig_spec.reference_rig.local_bindpose;
         let BoneTranslationData::Full(shape_translations) = &human.bone_translations else {
             continue;
         };
@@ -75,20 +75,21 @@ pub(crate) fn rescale_root_bone_translation(
     prefabs: Res<CharacterArchetypePrefabs>,
     humans: Query<(&RelatedEntities, &CharacterShapeConfig), Without<FitSkeleton>>,
     mut transforms: Query<&mut Transform>,
-    skeleton_caches: Res<SkeletonCaches>,
+    rig_data: Res<RigData>,
 ) {
     for (related, human) in humans {
         let rig_type = &prefabs[human.prefab].rig;
-        let cache = &skeleton_caches[rig_type];
-        let &root_bone = &cache.bone_order[0];
+        let rig_spec = &rig_data[rig_type];
+        let &root_bone = &rig_spec.reference_rig.bone_names[0];
         let BoneTranslationData::Root(shape_trans) = &human.bone_translations else {
             continue;
         };
-        let ref_trans = &cache.bone_local_space_transforms;
+        let ref_trans = &rig_spec.reference_rig.local_bindpose;
         let Ok(mut root) = transforms.get_mut(related.root_bone) else {
             continue;
         };
-        root.translation = root.translation * shape_trans.length() / ref_trans[root_bone].translation.length();
+        root.translation =
+            root.translation * shape_trans.length() / ref_trans[root_bone].translation.length();
     }
 }
 

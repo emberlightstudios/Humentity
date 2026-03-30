@@ -1,15 +1,20 @@
 use ahash::AHashMap;
 use bevy::{
-    animation::{AnimatedBy, AnimationTargetId}, color::palettes::css::RED, ecs::{intern::Internable}, mesh::{
-        VertexAttributeValues, skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}
-    }, prelude::*
+    animation::{AnimatedBy, AnimationTargetId},
+    color::palettes::css::RED,
+    ecs::intern::Internable,
+    mesh::{
+        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
+        VertexAttributeValues,
+    },
+    prelude::*,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
     basemesh::{BaseMesh, VertexGroups},
-    loaders::{MhcloVertexMap, RigConfigAsset, RigWeightsAsset},
+    loaders::{MhcloVertexMap, ReferenceRigAsset, RigConfigAsset, RigWeightsAsset},
     prelude::*,
 };
 
@@ -55,89 +60,111 @@ pub(crate) struct RootBonePrevious {
     pub(crate) prev_weights: Vec<f32>,
 }
 
-
 #[derive(Clone)]
 pub(crate) struct RigSpec {
     pub(crate) weights: Arc<RigWeightsAsset>,
     pub(crate) config: Arc<RigConfigAsset>,
+    pub(crate) reference_rig: Arc<ReferenceRigAsset>,
+    pub(crate) scene: Option<Handle<DynamicScene>>,
 }
 
 #[derive(Resource, Default, Deref, DerefMut)]
 pub(crate) struct RigData(pub(crate) AHashMap<RigType, RigSpec>);
 
-/// Moves loaded rig assets into RigData for easy access.
-pub(crate) fn sync_rig_assets(
+impl RigSpec {
+    pub fn bone_index(&self, bone_name: &str) -> Option<usize> {
+        self.reference_rig
+            .bone_name_to_index
+            .get(bone_name)
+            .copied()
+    }
+}
+
+impl std::ops::Index<&RigType> for RigData {
+    type Output = RigSpec;
+    fn index(&self, index: &RigType) -> &Self::Output {
+        self.0.index(index)
+    }
+}
+
+/// Syncs rig assets when all 3 assets are available. Scene building deferred.
+pub(crate) fn sync_and_build_rig_data(
     mut config_events: MessageReader<AssetEvent<RigConfigAsset>>,
     mut weights_events: MessageReader<AssetEvent<RigWeightsAsset>>,
+    mut reference_rig_events: MessageReader<AssetEvent<ReferenceRigAsset>>,
     mut rig_data: ResMut<RigData>,
     config_assets: Res<Assets<RigConfigAsset>>,
     weights_assets: Res<Assets<RigWeightsAsset>>,
+    reference_rig_assets: Res<Assets<ReferenceRigAsset>>,
 ) {
-    if config_events.is_empty() && weights_events.is_empty() {
+    if config_events.is_empty() && weights_events.is_empty() && reference_rig_events.is_empty() {
         return;
     }
 
     config_events.read();
     weights_events.read();
+    reference_rig_events.read();
 
-    let cfgs = config_assets
-        .iter()
-        .map(|(_, cfg)| cfg.rig);
-    let wts = weights_assets
-        .iter()
-        .map(|(_, wt)| wt.rig)
-        .collect::<Vec<_>>();
-    let to_load = cfgs
+    // Collect available rigs from each asset type
+    let cfgs: Vec<_> = config_assets.iter().map(|(_, cfg)| cfg.rig).collect();
+    let wts: Vec<_> = weights_assets.iter().map(|(_, wt)| wt.rig).collect();
+    let ref_rigs: Vec<_> = reference_rig_assets.iter().map(|(_, r)| r.rig).collect();
+
+    // Find rigs where all 3 assets are available
+    let to_load: Vec<_> = cfgs
         .into_iter()
         .filter(|rig| wts.contains(rig))
+        .filter(|rig| ref_rigs.contains(rig))
         .filter(|rig| !rig_data.contains_key(rig))
-        .collect::<Vec<_>>();
+        .collect();
 
+    // Insert rigs - scene will be built lazily
     for rig in to_load {
         let (_, config) = config_assets
             .iter()
             .find(|(_, a)| a.rig == rig)
-            .unwrap_or_else(|| panic!("Weights asset for rig {rig:?} not found"));
+            .unwrap_or_else(|| panic!("Config asset for rig {rig:?} not found"));
         let (_, weights) = weights_assets
             .iter()
             .find(|(_, a)| a.rig == rig)
             .unwrap_or_else(|| panic!("Weights asset for rig {rig:?} not found"));
+        let (_, reference_rig) = reference_rig_assets
+            .iter()
+            .find(|(_, a)| a.rig == rig)
+            .unwrap_or_else(|| panic!("Reference rig asset for rig {rig:?} not found"));
 
-        rig_data.insert(rig, RigSpec {
-            weights: Arc::new(weights.clone()),
-            config: Arc::new(config.clone()),
-        });
+        rig_data.insert(
+            rig,
+            RigSpec {
+                weights: Arc::new(weights.clone()),
+                config: Arc::new(config.clone()),
+                reference_rig: Arc::new(reference_rig.clone()),
+                scene: None,
+            },
+        );
     }
 }
 
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct SkeletonCaches(AHashMap<RigType, Arc<SkeletonCache>>);
+use bevy::ecs::system::SystemState;
 
-pub struct SkeletonCache {
-    /// Bone order from root to tip, used for consistent indexing
-    pub(crate) bone_order: Vec<&'static str>,
-    /// For looking up bone index by name when building rig arrays
-    pub(crate) bone_name_to_index: AHashMap<&'static str, usize>,
-    /// Model space bind pose rotations for each bone, used in rig array construction
-    pub(crate) bone_model_space_transforms: AHashMap<&'static str, Transform>,
-    /// Model space bind pose translations for each bone, used in rig array construction and root motion
-    pub(crate) bone_local_space_transforms: AHashMap<&'static str, Transform>,
-    /// A scene for the skeleton
-    pub(crate) scene: Handle<DynamicScene>,
-}
+/// Builds skeleton scenes for rigs that have all assets but no scene yet.
+pub(crate) fn build_rig_scenes(mut world: &mut World) {
+    let rigs_to_build: Vec<_> = {
+        let mut state: SystemState<ResMut<RigData>> = SystemState::new(&mut world);
+        let rig_data = state.get_mut(&mut world);
+        rig_data
+            .iter()
+            .filter(|(_, spec)| spec.scene.is_none())
+            .map(|(rig_type, spec)| (*rig_type, Arc::clone(&spec.reference_rig)))
+            .collect()
+    };
 
-impl SkeletonCache {
-    pub fn bone_index(&self, bone_name: &str) -> Option<usize> {
-        self.bone_name_to_index.get(bone_name).copied()
-    }
+    for (rig_type, reference_rig) in rigs_to_build {
+        let scene = build_skeleton_scene(rig_type, &reference_rig, &mut world);
 
-    pub fn bone_entity(&self, skinned_mesh: &SkinnedMesh, bone_name: &str) -> Option<Entity> {
-        let index = self.bone_index(bone_name)?;
-        skinned_mesh.joints.get(index).copied()
-    }
-
-    pub fn bone_bindpose_translation(&self, bone_name: &str) -> Option<Vec3> {
-        self.bone_local_space_transforms.get(bone_name).map(|t| t.translation)
+        let mut state: SystemState<ResMut<RigData>> = SystemState::new(&mut world);
+        let mut rig_data = state.get_mut(&mut world);
+        rig_data.get_mut(&rig_type).unwrap().scene = Some(scene);
     }
 }
 
@@ -159,9 +186,10 @@ pub(crate) fn set_asset_rig_arrays(
     mhid_lookup: &[u16],
     rig_weights: &Arc<RigWeightsAsset>,
     helper_map: &[MhcloVertexMap],
-    cache: &SkeletonCache,
+    rig_spec: &RigSpec,
 ) {
-    let rig_weights = &rig_weights.weights;
+    let bone_names = &rig_spec.reference_rig.bone_names;
+    let rig_weights = &rig_spec.weights.weights;
     let vertex_count = mhid_lookup.len();
 
     // Final fixed-size output arrays
@@ -172,7 +200,6 @@ pub(crate) fn set_asset_rig_arrays(
     let mut mhid_cache: AHashMap<u16, ([u16; 4], [f32; 4])> = AHashMap::default();
 
     for (vert, &mhid) in mhid_lookup.iter().enumerate() {
-
         // If we've already computed this mhid, reuse it
         if let Some(&(cached_indices, cached_weights)) = mhid_cache.get(&mhid) {
             indices[vert] = cached_indices;
@@ -185,7 +212,7 @@ pub(crate) fn set_asset_rig_arrays(
         // Aggregate bone weights deterministically
         let mut aggregate: AHashMap<u16, f32> = AHashMap::default();
 
-        for (bone_index, &bone_name) in cache.bone_order.iter().enumerate() {
+        for (bone_index, &bone_name) in bone_names.iter().enumerate() {
             let Some(bone_weights) = rig_weights.get(bone_name) else {
                 continue;
             };
@@ -197,12 +224,17 @@ pub(crate) fn set_asset_rig_arrays(
                             *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt;
                         }
                     }
-                },
-                MhcloVertexMap::Triangle { helper_verts, helper_weights, .. } => {
+                }
+                MhcloVertexMap::Triangle {
+                    helper_verts,
+                    helper_weights,
+                    ..
+                } => {
                     for (i, mh_id) in helper_verts.iter().enumerate() {
                         if let Some(&helper_wt) = bone_weights.get(mh_id) {
                             if helper_wt > 0.0 {
-                                *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt * helper_weights[i];
+                                *aggregate.entry(bone_index as u16).or_insert(0.0) +=
+                                    helper_wt * helper_weights[i];
                             }
                         }
                     }
@@ -214,8 +246,7 @@ pub(crate) fn set_asset_rig_arrays(
         let mut pairs: Vec<(u16, f32)> = aggregate.into_iter().collect();
 
         pairs.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1).unwrap()
-                .then_with(|| a.0.cmp(&b.0)) // tie-break by bone index
+            b.1.partial_cmp(&a.1).unwrap().then_with(|| a.0.cmp(&b.0)) // tie-break by bone index
         });
 
         // Take top 4
@@ -265,20 +296,17 @@ pub(crate) fn set_asset_rig_arrays(
     );
 }
 
-
-/// Spawns bone entities and sets up the hierarchy. Builds skeleton from basemesh + rig config (roll in JSON).
-/// Returns (scene handle, model-space rotations, local translations) for SkeletonCache.
-pub(crate) fn build_human_rig_scene(
-    helpers: &[Vec3],
+/// Builds skeleton scene from reference rig.
+pub(crate) fn build_skeleton_scene(
     rig: RigType,
-    bone_order: &Vec<&'static str>,
+    reference_rig: &Arc<ReferenceRigAsset>,
     world: &mut World,
-) -> (Handle<DynamicScene>, AHashMap<&'static str, Transform>, AHashMap<&'static str, Transform>) {
-    let rig_data = world.resource::<RigData>();
-    let mh_config = &rig_data
-        .get(&rig)
-        .unwrap_or_else(|| panic!("No rig data loaded for {rig:?}"))
-        .config;
+) -> Handle<DynamicScene> {
+    let bone_order = &reference_rig.bone_names;
+    let ref_bone_parents = &reference_rig.bone_parents;
+    let ref_local_bindpose = &reference_rig.local_bindpose;
+    let ref_bone_parents = &reference_rig.bone_parents;
+    let ref_local_bindpose = &reference_rig.local_bindpose;
 
     // Set up some convenient data structures for tracking joints/bones and entities
     let mut bone_entities = AHashMap::<&'static str, Entity>::default();
@@ -302,13 +330,17 @@ pub(crate) fn build_human_rig_scene(
     for (i, &name) in bone_order.iter().enumerate() {
         let mut path = Vec::<Name>::new();
         path.push(Name::from(name));
-        let mut bone = &mh_config.bones[&name];
 
-        while !bone.parent.is_empty() {
-            let parent = NAME_INTERNER.intern(&bone.parent).leak();
-            path.push(Name::new(parent));
-            bone = &mh_config.bones[&parent];
+        let mut current_parent = ref_bone_parents.get(name).cloned().unwrap_or_default();
+        while !current_parent.is_empty() {
+            path.push(Name::new(current_parent.clone()));
+            let next = ref_bone_parents
+                .get(&NAME_INTERNER.intern(&current_parent).leak())
+                .cloned()
+                .unwrap_or_default();
+            current_parent = next;
         }
+
         path.push(Name::new("Human.rig"));
 
         let entity = scene_world
@@ -329,28 +361,35 @@ pub(crate) fn build_human_rig_scene(
     // Wire up parent-child relationships
     for &name in bone_order.iter() {
         let &child = bone_entities.get(&name).unwrap();
-        if let Some(parent_name) = mh_config.bones.get(&name).map(|b| b.parent.to_string())
-            && !parent_name.is_empty() && let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak())
-        {
-            scene_world.entity_mut(child).insert(ChildOf(parent));
+
+        let parent_name = ref_bone_parents.get(name).cloned().unwrap_or_default();
+
+        if !parent_name.is_empty() {
+            if let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak()) {
+                scene_world.entity_mut(child).insert(ChildOf(parent));
+            }
         }
     }
 
     // Attach root(s) to rig entity
     for &name in bone_order.iter() {
-        if let Some(bone) = mh_config.bones.get(&name) && bone.parent.is_empty() {
+        let is_root = ref_bone_parents
+            .get(name)
+            .map(|p| p.is_empty())
+            .unwrap_or(false);
+        if is_root {
             scene_world
                 .entity_mut(bone_entities[&name])
                 .insert(ChildOf(rig_entity));
         }
     }
 
-    let vg = world.resource::<VertexGroups>();
-    let rig_data = world.resource::<RigData>();
-    let global_transforms =
-        get_model_space_skeleton_transforms(bone_order, helpers, rig, vg, rig_data);
-    let local_transforms =
-        get_local_skeleton_transforms(bone_order, rig, rig_data, &global_transforms);
+    let (global_transforms, local_transforms) = {
+        let local = ref_local_bindpose.clone();
+        let model_space = reference_rig.model_space_bindpose.clone();
+
+        (model_space, local)
+    };
 
     // compute inverse bindposes
     let mut inverse_bindposes = Vec::with_capacity(bone_order.len());
@@ -383,7 +422,7 @@ pub(crate) fn build_human_rig_scene(
     let mut ds = world.resource_mut::<Assets<DynamicScene>>();
     let scene = ds.add(DynamicScene::from_world(&scene_world));
 
-    (scene, global_transforms, local_transforms)
+    scene
 }
 
 pub(crate) fn get_model_space_skeleton_transforms(
@@ -439,10 +478,7 @@ pub(crate) fn get_local_skeleton_transforms(
     local_transforms
 }
 
-pub(crate) fn get_bone_order(
-    rig: RigType,
-    world: &World,
-) -> Vec<&'static str> {
+pub(crate) fn get_bone_order(rig: RigType, world: &World) -> Vec<&'static str> {
     let rig_data = world.resource::<RigData>();
     let mh_config = &rig_data
         .get(&rig)
@@ -470,46 +506,6 @@ pub(crate) fn get_bone_order(
         .map(|(name, _)| name)
         .collect::<Vec<&'static str>>()
 }
-
-/// Builds skeleton caches when SkeletonAsset handles are loaded. Only skeletons whose handles
-/// are in SkeletonHandles are built. Transition to AnimationProcessing when all prefab rig types have caches.
-pub(crate) fn build_skeleton_caches(world: &mut World) {
-    let rig_data = world.resource::<RigData>();
-    let rigs = rig_data.keys().copied().collect::<Vec<_>>();
-
-    let skeleton_caches = world.resource::<SkeletonCaches>();
-    let to_build = rigs
-        .iter()
-        .filter(|rig| !skeleton_caches.contains_key(*rig))
-        .collect::<Vec<_>>();
-
-    for &rig_type in to_build {
-        let basemesh = world.resource::<BaseMesh>();
-        let helpers = basemesh.0.clone();
-        let bone_order = get_bone_order(rig_type, &world);
-        let (scene, bone_model_space_transforms, bone_local_space_transforms) =
-            crate::rigs::build_human_rig_scene(&helpers, rig_type, &bone_order, world);
-
-        let bone_name_to_index = bone_order
-            .iter()
-            .enumerate()
-            .map(|(i, &bone_name)| (bone_name, i))
-            .collect::<AHashMap<_, _>>();
-
-        let mut skeleton_caches = world.resource_mut::<SkeletonCaches>();
-        skeleton_caches.insert(
-            rig_type,
-            Arc::new(SkeletonCache {
-                bone_order: bone_order.clone(),
-                bone_name_to_index,
-                bone_model_space_transforms,
-                bone_local_space_transforms,
-                scene,
-            }),
-        );
-    }
-}
-
 
 pub(crate) fn get_bone_transform(
     bone: &BoneJsonConfig,

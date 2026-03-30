@@ -6,6 +6,7 @@ mod rig_config;
 mod rig_weights;
 mod target;
 mod composite_target_manifest;
+mod reference_rig;
 
 pub use obj_verts::{
     ObjVertsAsset,
@@ -31,3 +32,4 @@ pub use composite_target_manifest::{
     OppositesAsset,
     TargetManifestAssetLoader,
 };
+pub use reference_rig::{ReferenceRigAsset, ReferenceRigAssetLoader};

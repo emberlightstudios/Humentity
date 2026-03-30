@@ -46,6 +46,8 @@ pub mod prelude {
             RigConfigAssetLoader,
             RigWeightsAsset,
             RigWeightsAssetLoader,
+            ReferenceRigAsset,
+            ReferenceRigAssetLoader,
             TargetAsset,
             TargetAssetLoader,
             TargetDelta,
@@ -66,8 +68,6 @@ pub mod prelude {
             SkeletalBone,
             RigType,
             RootMotion,
-            SkeletonCache,
-            SkeletonCaches,
         },
         spawn_mesh::{CharacterShapeConfig, MhcloMeshBuilder, LoadAssetMeshJob, CachedMhcloMeshHandles},
         spawn_skeleton::RelatedEntities,
@@ -116,7 +116,6 @@ impl Plugin for HumentityPlugin {
             .insert_resource(spawn_mesh::MhcloMeshBuilder::default())
             .insert_resource(spawn_mesh::CachedMhcloMeshHandles::default())
             .insert_resource(spawn_mesh::CachedMhcloRawMeshHandles::default())
-            .init_resource::<rigs::SkeletonCaches>()
             .init_resource::<rigs::RigData>()
 
             .init_asset::<ObjVertsAsset>()
@@ -137,6 +136,8 @@ impl Plugin for HumentityPlugin {
             .register_asset_loader(RigWeightsAssetLoader)
             .init_asset::<RigConfigAsset>()
             .register_asset_loader(RigConfigAssetLoader)
+            .init_asset::<ReferenceRigAsset>()
+            .register_asset_loader(ReferenceRigAssetLoader)
 
             // Some assets are always needed
             .add_systems(
@@ -150,9 +151,7 @@ impl Plugin for HumentityPlugin {
                         .run_if(not(resource_exists::<morphs::MakeHumanMorphs>)),
                     morphs::sync_loaded_morph_targets
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
-                    rigs::sync_rig_assets,
-                    rigs::build_skeleton_caches
-                        .run_if(resource_changed::<rigs::RigData>),
+                    rigs::sync_and_build_rig_data,
                     (
                         (   
                             spawn_skeleton::spawn_rig_scene,
@@ -168,9 +167,10 @@ impl Plugin for HumentityPlugin {
                         .run_if(resource_exists::<prefab::CharacterArchetypePrefabs>)
                         .run_if(resource_exists::<basemesh::VertexGroups>)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>)
-                        .run_if(resource_exists::<rigs::SkeletonCaches>)
+                        .run_if(resource_exists::<rigs::RigData>)
                 ),
-            );
+            )
+            .add_systems(Update, rigs::build_rig_scenes);
         
         #[cfg(feature = "physics")]
         {

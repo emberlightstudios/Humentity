@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, mesh::morph::{MeshMorphWeights, MorphTargetImage}, prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
-use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset}, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs, CharacterShapeArchetype}, rigs::{BoneTranslationData, RigData, SkeletonCaches}};
+use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset}, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs, CharacterShapeArchetype}, rigs::{BoneTranslationData, RigData}};
 use serde::{Deserialize, Deserializer, Serialize};
 
 
@@ -139,7 +139,6 @@ pub(crate) fn mesh_build(
     basemesh: Res<BaseMesh>,
     rig_data: Res<RigData>,
     asset_server: Res<AssetServer>,
-    sk_cache: Res<SkeletonCaches>,
     mut cached_meshes: ResMut<CachedMhcloMeshHandles>,
     mut cached_raw_meshes: ResMut<CachedMhcloRawMeshHandles>,
     mut mediators: ResMut<MhcloMeshBuilder>,
@@ -149,7 +148,7 @@ pub(crate) fn mesh_build(
             LoadAssetMeshJob::Single { part, prefab_name } => {
                 build_single_mesh_process(
                     mediator, load_state, part, prefab_name, &prefabs, &mut meshes, &mesh_verts, &mhclo_assets,
-                    &mut morphs, &basemesh.0, &rig_data, &asset_server, &sk_cache, &mut cached_raw_meshes,
+                    &mut morphs, &basemesh.0, &rig_data, &asset_server, &mut cached_raw_meshes,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
@@ -162,7 +161,7 @@ pub(crate) fn mesh_build(
             LoadAssetMeshJob::Stitched{ parts, prefab_name } => {
                 build_stitched_meshes_process(
                     mediator, load_state, parts, prefab_name, &prefabs, &mut meshes, &mesh_verts,
-                    &mhclo_assets, &mut morphs, &basemesh.0, &rig_data, &asset_server, &sk_cache,
+                    &mhclo_assets, &mut morphs, &basemesh.0, &rig_data, &asset_server,
                     &mut cached_raw_meshes,
                 );
 
@@ -253,7 +252,6 @@ pub(crate) fn build_single_mesh_process(
     basemesh: &Arc<Vec<Vec3>>,
     rig_data: &RigData,
     asset_server: &AssetServer,
-    sk_cache: &SkeletonCaches,
     cached_raw_meshes: &mut CachedMhcloRawMeshHandles,
 ) {
     let pool = AsyncComputeTaskPool::get();
@@ -290,7 +288,7 @@ pub(crate) fn build_single_mesh_process(
             return;
         };
         let rig_weights = rig_entry.weights.clone();
-        let sk_cache = sk_cache[&prefab.rig].clone();
+        let rig_spec = rig_entry.clone();
 
         let sender = mediator.mesh_building_msg_sender.clone();
         let mhclo = mhclo.clone();
@@ -299,7 +297,7 @@ pub(crate) fn build_single_mesh_process(
         pool.spawn(async move {
             let (mesh, morph_names, morph_image) = build_final_mesh_mhclo(
                 &mhclo, &input_mesh, &mesh_verts, &prefab, mh_morphs,
-                basemesh, &rig_weights, &sk_cache
+                basemesh, &rig_weights, &rig_spec
             );
             sender.send(MeshConstructedMsg {
                 final_meshes: vec![mesh],
@@ -324,7 +322,6 @@ fn build_stitched_meshes_process(
     basemesh: &Arc<Vec<Vec3>>,
     rig_data: &RigData,
     asset_server: &AssetServer,
-    sk_cache: &SkeletonCaches,
     cached_raw_meshes: &mut CachedMhcloRawMeshHandles,
 ) {
     let pool = AsyncComputeTaskPool::get();
@@ -405,7 +402,7 @@ fn build_stitched_meshes_process(
             return;
         };
         let rig_weights = rig_entry.weights.clone();
-        let sk_cache = sk_cache[&rig].clone();
+        let rig_spec = rig_entry.clone();
 
         parts.iter().for_each(|p| {
             cached_raw_meshes.remove(&p.part);
@@ -421,7 +418,7 @@ fn build_stitched_meshes_process(
                 mh_morphs,
                 basemesh,
                 &rig_weights,
-                &sk_cache,
+                &rig_spec,
             );
             sender.send(MeshConstructedMsg {
                 final_meshes,
