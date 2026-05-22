@@ -160,7 +160,7 @@ pub(crate) fn build_rig_scenes(mut world: &mut World) {
     };
 
     for (rig_type, reference_rig) in rigs_to_build {
-        let scene = build_skeleton_scene(rig_type, &reference_rig, &mut world);
+        let scene = build_skeleton_scene(&reference_rig, &mut world);
 
         let mut state: SystemState<ResMut<RigData>> = SystemState::new(&mut world);
         let mut rig_data = state.get_mut(&mut world);
@@ -298,13 +298,10 @@ pub(crate) fn set_asset_rig_arrays(
 
 /// Builds skeleton scene from reference rig.
 pub(crate) fn build_skeleton_scene(
-    rig: RigType,
     reference_rig: &Arc<ReferenceRigAsset>,
     world: &mut World,
 ) -> Handle<DynamicScene> {
     let bone_order = &reference_rig.bone_names;
-    let ref_bone_parents = &reference_rig.bone_parents;
-    let ref_local_bindpose = &reference_rig.local_bindpose;
     let ref_bone_parents = &reference_rig.bone_parents;
     let ref_local_bindpose = &reference_rig.local_bindpose;
 
@@ -358,15 +355,13 @@ pub(crate) fn build_skeleton_scene(
         bone_entities.insert(name, entity);
     }
 
-    // Wire up parent-child relationships
+    // Wire up parent-child relationships.
     for &name in bone_order.iter() {
         let &child = bone_entities.get(&name).unwrap();
-
         let parent_name = ref_bone_parents.get(name).cloned().unwrap_or_default();
-
         if !parent_name.is_empty() {
             if let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak()) {
-                scene_world.entity_mut(child).insert(ChildOf(parent));
+                scene_world.entity_mut(parent).add_child(child);
             }
         }
     }
@@ -375,12 +370,10 @@ pub(crate) fn build_skeleton_scene(
     for &name in bone_order.iter() {
         let is_root = ref_bone_parents
             .get(name)
-            .map(|p| p.is_empty())
+            .map(|p| p == &"Human.rig".to_string())
             .unwrap_or(false);
         if is_root {
-            scene_world
-                .entity_mut(bone_entities[&name])
-                .insert(ChildOf(rig_entity));
+            scene_world.entity_mut(rig_entity).add_child(bone_entities[&name]);
         }
     }
 

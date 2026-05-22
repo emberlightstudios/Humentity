@@ -18,6 +18,8 @@ thiserror = ">=2.0"
 
 [dev-dependencies]
 bevy = { version = ">=0.18.0", features = ["experimental_bevy_feathers"] }
+bevy-inspector-egui = "0.36.0"
+bevy_egui = "0.39.1"
 toml = ">=0.9.11"
 
 [[example]]

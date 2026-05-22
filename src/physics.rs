@@ -309,7 +309,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
 ) {
     for (character_entity, shape_config, related, mut colliders, skm) in needs_colliders.iter_mut()
     {
-        let rig_type = prefabs[&shape_config.prefab].rig.rig_type;
+        let rig_type = prefabs[&shape_config.prefab].rig;
         let model_to_world = Transform::from(
             _global_transforms
                 .get(related.rig)
@@ -333,7 +333,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
-        let sk_cache = &skeleton_caches[&prefab.rig.rig_type];
+        let sk_cache = &skeleton_caches[&prefab.rig];
 
         let bone_entities = sk_cache
             .bone_order
@@ -454,7 +454,7 @@ pub(crate) fn spawn_ragdoll_colliders(
 ) {
     for (character_entity, shape_config, related, mut colliders, skm) in needs_colliders.iter_mut()
     {
-        let rig_type = prefabs[&shape_config.prefab].rig.rig_type;
+        let rig_type = prefabs[&shape_config.prefab].rig;
 
         let collider_bone_map = match rig_type {
             RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
@@ -463,7 +463,7 @@ pub(crate) fn spawn_ragdoll_colliders(
 
         let prefab = &prefabs[&shape_config.prefab];
         let helpers =
-            match prefab.get_helpers(&shape_config.prefab_morph_targets, &basemesh, &mh_morphs) {
+            match prefab.get_helpers(&shape_config.prefab_morph_targets, &*basemesh, &mh_morphs) {
                 Ok(h) => h,
                 Err(e) => {
                     error!("Failed to compute morph helpers for ragdoll: {}", e);
@@ -473,7 +473,7 @@ pub(crate) fn spawn_ragdoll_colliders(
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             return;
         };
-        let sk_cache = &skeleton_caches[&prefab.rig.rig_type];
+        let sk_cache = &skeleton_caches[&prefab.rig];
 
         let bone_entities = sk_cache
             .bone_order

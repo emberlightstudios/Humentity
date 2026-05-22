@@ -3,6 +3,8 @@ use bevy::{
     asset::LoadedFolder, input::mouse::MouseMotion, mesh::skinning::SkinnedMesh, prelude::*,
 };
 use humentity::prelude::*;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_egui::prelude::*;
 
 pub fn setup_app() -> App {
     // I moved target.json and macro.macro to the root of the assets folder because when trying to load
@@ -11,6 +13,7 @@ pub fn setup_app() -> App {
     let mut app = App::new();
 
     app.add_plugins((DefaultPlugins, BoneDebugPlugin, HumentityPlugin))
+        .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
         .add_systems(Startup, load_assets)
         .add_systems(Startup, setup_env)
         .add_systems(
@@ -31,6 +34,7 @@ struct HumentityHandles {
     pub vertex_groups: Handle<VertexGroupsAsset>,
     pub rig_config: Handle<RigConfigAsset>,
     pub rig_weight: Handle<RigWeightsAsset>,
+    pub rig_ref: Handle<ReferenceRigAsset>,
     pub composite_targets: Handle<CompositeTargetsAsset>,
     pub macro_targets: Handle<MacroDataAsset>,
     pub targets: Handle<LoadedFolder>,
@@ -62,11 +66,15 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
     // rig weights, used to build the mesh arrays for skinning
     let rig_weight = asset_server.load::<RigWeightsAsset>("rigs/weights.default.json");
 
+    // rig weights, used to build the mesh arrays for skinning
+    let rig_ref = asset_server.load::<ReferenceRigAsset>("skeletons/default.glb");
+
     commands.insert_resource(HumentityHandles {
         basemesh,
         vertex_groups,
         rig_config,
         rig_weight,
+        rig_ref,
         targets,
         composite_targets,
         macro_targets,

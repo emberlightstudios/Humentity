@@ -55,17 +55,17 @@ pub(crate) fn spawn_rig_scene(
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
     prefabs: Res<CharacterArchetypePrefabs>,
-    skinned_meshes: Query<(Entity, &SkinnedMesh), (Without<Mesh3d>, With<ChildOf>)>,
+    skinned_meshes: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>)>,
     children: Query<&Children>,
     mut configs: Query<(Entity, &mut CharacterShapeConfig, Option<&RootMotion>), With<FitSkeleton>>,
     names: Query<&Name, With<SkeletalBone>>,
-    global_transforms: Query<&GlobalTransform, With<SkeletalBone>>,
     mut local_transforms: Query<&mut Transform, Without<CharacterShapeConfig>>,
     mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     basemesh: Res<BaseMesh>,
     morph_targets: Res<MakeHumanMorphs>,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
+    bones: Query<&Children, With<SkeletalBone>>,
 ) {
     for (character_entity, config, root_motion) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
@@ -78,16 +78,17 @@ pub(crate) fn fit_skeleton_to_shape(
         let rig_type = prefab.rig;
         let rig_spec = rig_data.get(&rig_type).expect("Rig not loaded");
 
-        // Find the SkinnedMesh entity (rig_entity) that is a descendant of the character
-        // The SkinnedMesh is on the rig_entity which has ChildOf pointing to DynamicSceneRoot
-        let (rig_entity, skinned_mesh) = match skinned_meshes
-            .iter()
-            .find(|(e, _)| children.iter_descendants(character_entity).any(|d| d == *e))
-        {
-            Some((entity, skm)) => (entity, skm.clone()),
-            None => {
-                continue;
+        let mut rig_entity: Option<Entity> = None;
+        let mut skinned_mesh: Option<SkinnedMesh> = None;
+        for child in children.iter_descendants(character_entity) {
+            if let Ok(rig) = skinned_meshes.get(child) {
+                rig_entity = Some(child);
+                skinned_mesh = Some(rig.clone());
             }
+        }
+
+        let (Some(rig_entity), Some(skm)) = (rig_entity, skinned_mesh) else {
+            continue;
         };
 
         // Collect bone entities by iterating descendants of the rig_entity
@@ -171,7 +172,7 @@ pub(crate) fn fit_skeleton_to_shape(
             .entity(character_entity)
             .insert((
                 SkinnedMesh {
-                    joints: skinned_mesh.joints.clone(),
+                    joints: skm.joints.clone(),
                     inverse_bindposes: inv_bindpose_assets.add(inv_bindposes),
                 },
                 related,

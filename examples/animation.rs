@@ -53,6 +53,22 @@ fn add_humans(
     morphs: Res<MakeHumanMorphs>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
+    // Spawn the raw GLB animation scene for comparison
+    // Load as Gltf to force the GLTF loader (not the retargeted one)
+    //let clip_handle = asset_server.load::<AnimationClip>("animation/idle.glb");
+    //let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
+    //let graph_handle = graphs.add(graph);
+
+    //commands.spawn((
+    //    SceneRoot(asset_server.load::<Scene>("animation/idle.glb")),
+    //    Transform::from_translation(Vec3::new(-1., 0., 0.))
+    //        .with_rotation(Quat::from_rotation_y(PI)),
+    //    Animationindex(index),
+    //    AnimationGraphHandle(graph_handle.clone()),
+    //));//.observe();
+
+
+    // Spawn the dynamic character with retargeted animation
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
@@ -102,19 +118,6 @@ fn add_humans(
     let clip = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
     commands.insert_resource(RetargetedAnimations { glb_clips: clip });
 
-    // Also spawn the raw GLB animation scene for comparison
-    // Load as Gltf to force the GLTF loader (not the retargeted one)
-    //let clip_handle = asset_server.load::<AnimationClip>("animation/idle.glb");
-    //let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
-    //let graph_handle = graphs.add(graph);
-
-    //commands.spawn((
-    //    SceneRoot(asset_server.load::<Scene>("animation/idle.glb")),
-    //    Transform::from_translation(Vec3::new(-1., 0., 0.))
-    //        .with_rotation(Quat::from_rotation_y(PI)),
-    //    Animationindex(index),
-    //    AnimationGraphHandle(graph_handle.clone()),
-    //));//.observe();
 }
 
 fn clip_loaded(
