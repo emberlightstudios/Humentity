@@ -12,12 +12,12 @@ use serde::{Deserializer, Serializer};
 /// mesh, and the rest of the makehuman shapekeys are removed.  Use this for distinct faces or body types.
 /// You can also blend between them, since they are just shapekeys.
 #[derive(Clone, Debug)]
-pub struct CharacterShapeArchetype {
+pub struct CharacterMorphShapes {
     pub name: &'static str,
     pub morphs: MorphTargets,
 }
 
-impl CharacterShapeArchetype {
+impl CharacterMorphShapes {
     pub fn new(name: impl AsRef<str>, morphs: MorphTargets) -> Self {
         Self {
             name: NAME_INTERNER.intern(name.as_ref()).leak(),
@@ -26,7 +26,7 @@ impl CharacterShapeArchetype {
     }
 }
 
-impl Serialize for CharacterShapeArchetype {
+impl Serialize for CharacterMorphShapes {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -40,7 +40,7 @@ impl Serialize for CharacterShapeArchetype {
     }
 }
 
-impl<'de> Deserialize<'de> for CharacterShapeArchetype {
+impl<'de> Deserialize<'de> for CharacterMorphShapes {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -55,7 +55,7 @@ impl<'de> Deserialize<'de> for CharacterShapeArchetype {
 
         // Convert name to &'static str via leak (safe if fixed names)
         let name: &'static str = NAME_INTERNER.intern(&tmp.name).leak();
-        Ok(CharacterShapeArchetype {
+        Ok(CharacterMorphShapes {
             name,
             morphs: tmp.morphs,
         })
@@ -65,14 +65,14 @@ impl<'de> Deserialize<'de> for CharacterShapeArchetype {
 /// A collection of base shapes and animation properties.  The shapes will be baked into a
 /// new Mesh as morph targets.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
-pub struct CharacterArchetypePrefab {
-    pub shapes: Vec<CharacterShapeArchetype>,
+pub struct CharacterTemplate {
+    pub shapes: Vec<CharacterMorphShapes>,
     pub rig: RigType,
 }
 
-impl CharacterArchetypePrefab {
+impl CharacterTemplate {
     pub fn new(
-        shapes: impl IntoIterator<Item = CharacterShapeArchetype>,
+        shapes: impl IntoIterator<Item = CharacterMorphShapes>,
         rig: RigType,
     ) -> Self {
         Self {
@@ -101,11 +101,11 @@ impl CharacterArchetypePrefab {
     }
 }
 
-/// Overrides the prefab shapes for a part
+/// Overrides the template shapes for a part
 #[derive(Component, Deref, Serialize, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct PrefabOverride(pub &'static str);
+pub struct TemplateOverride(pub &'static str);
 
-impl<'de> Deserialize<'de> for PrefabOverride {
+impl<'de> Deserialize<'de> for TemplateOverride {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -116,23 +116,23 @@ impl<'de> Deserialize<'de> for PrefabOverride {
 }
 
 #[derive(Resource, Deref, DerefMut, Default)]
-pub struct CharacterArchetypePrefabs(AHashMap<&'static str, CharacterArchetypePrefab>);
+pub struct CharacterTemplates(AHashMap<&'static str, CharacterTemplate>);
 
-impl CharacterArchetypePrefabs {
+impl CharacterTemplates {
     pub fn new(
-        prefabs: impl IntoIterator<Item = (&'static str, CharacterArchetypePrefab)>,
+        templates: impl IntoIterator<Item = (&'static str, CharacterTemplate)>,
     ) -> Self {
         Self(
-            prefabs
+            templates
                 .into_iter()
-                .collect::<AHashMap<&'static str, CharacterArchetypePrefab>>(),
+                .collect::<AHashMap<&'static str, CharacterTemplate>>(),
         )
     }
 
     /// This is just for testing, no shapes are added
     pub fn basemesh() -> Self {
-        let mut prefabs = AHashMap::default();
-        prefabs.insert("", CharacterArchetypePrefab::default());
-        Self(prefabs)
+        let mut templates = AHashMap::default();
+        templates.insert("", CharacterTemplate::default());
+        Self(templates)
     }
 }

@@ -18,18 +18,20 @@ use bevy::{prelude::*, scene::SceneInstanceReady};
 use humentity::prelude::*;
 use shared::setup_app;
 
-const PREFAB_NAME: &str = "ExampleHumanPrefab";
+const TEMPLATE_NAME: &str = "ExampleHumanTemplate";
 const BABY: &str = "baby";
 
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(
+    app
+        .add_plugins(BoneDebugPlugin)
+        .add_systems(
         Update,
         (
             add_humans
                 .run_if(resource_exists::<MakeHumanMorphs>)
-                .run_if(not(resource_exists::<CharacterArchetypePrefabs>)),
+                .run_if(not(resource_exists::<CharacterTemplates>)),
             play_graph,
             add_graph,
         ),
@@ -66,18 +68,18 @@ fn add_humans(
     };
 
     // Make sure the morphs have loaded
+    let loaded = morphs.targets.read().unwrap();
     for k in baby_morphs.keys() {
-        let loaded = morphs.targets.read().unwrap();
         if !loaded.contains_key(k) {
             return;
         }
     }
 
-    commands.insert_resource(CharacterArchetypePrefabs::new([
+    commands.insert_resource(CharacterTemplates::new([
         (
-            PREFAB_NAME,
-            CharacterArchetypePrefab::new(
-                [CharacterShapeArchetype::new(BABY, baby_morphs)],
+            TEMPLATE_NAME,
+            CharacterTemplate::new(
+                [CharacterMorphShapes::new(BABY, baby_morphs)],
                 RigType::Default,
             ),
         )
@@ -106,7 +108,7 @@ fn add_humans(
 
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh_part.clone(),
-        prefab_name: PREFAB_NAME,
+        template_name: TEMPLATE_NAME,
     });
 
     // Spawn the character with baby morphs
@@ -116,7 +118,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         Name::new("Retargeted"),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(PREFAB_NAME, morphs),
+        CharacterShapeConfig::new(TEMPLATE_NAME, morphs),
         children![(
             Name::new("Mesh"),
             basemesh_part,

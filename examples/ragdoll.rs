@@ -33,7 +33,7 @@ fn main() {
     ))
     .insert_resource(settings)
     .add_systems(Startup, (setup_env, floor))
-    .add_systems(Startup, setup_prefabs)
+    .add_systems(Startup, setup_templates)
     .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
     .add_systems(
         Update,
@@ -52,7 +52,7 @@ fn toggle(
     mut hitbox: Single<&mut CharacterColliders<HitboxCollider>>,
     mut ragdoll: Single<&mut CharacterColliders<RagdollCollider>>,
     human: Single<(&CharacterShapeConfig, &SkinnedMesh)>,
-    prefabs: Res<CharacterArchetypePrefabs>,
+    templates: Res<CharacterTemplates>,
     sk_caches: Res<SkeletonCaches>,
     mut bones: Query<&mut Transform, With<SkeletalBone>>,
 ) {
@@ -69,7 +69,7 @@ fn toggle(
             hitbox.bones_subset = None;
 
             let (shape_config, skinned_mesh) = *human;
-            let rig_type = prefabs[&shape_config.prefab].rig.rig_type;
+            let rig_type = templates[&shape_config.template].rig.rig_type;
             let cache = &sk_caches[&rig_type];
             if let Some(pelvis_entity) = cache.bone_entity(skinned_mesh, "root")
                 && let Some(pelvis_bindpose) = cache.bone_bindpose_translation("root")
@@ -145,12 +145,12 @@ fn add_human(
     ));
 }
 
-fn setup_prefabs(mut commands: Commands) {
+fn setup_templates(mut commands: Commands) {
     // No shape morphs, just the basemesh
     // Just for the examples.
-    commands.insert_resource(CharacterArchetypePrefabs::new([(
+    commands.insert_resource(CharacterTemplates::new([(
         "",
-        CharacterArchetypePrefab::new(
+        CharacterTemplate::new(
             [],
             CharacterAnimationArchetype::new(RigType::Default, ["assets/animation/idle.glb"]),
         ),

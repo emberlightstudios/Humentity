@@ -5,7 +5,7 @@ use crate::{
         get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents,
     },
     morphs::adjust_helpers_to_morphs,
-    prefab::PrefabOverride,
+    template::TemplateOverride,
     prelude::*,
     rigs::{set_asset_rig_arrays, RigSpec},
 };
@@ -27,21 +27,21 @@ pub struct StitchedParts(pub Vec<StitchedPart>);
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct StitchedPart {
     pub(crate) part: Handle<MhcloAsset>,
-    pub(crate) prefab_override: Option<PrefabOverride>,
+    pub(crate) template_override: Option<TemplateOverride>,
 }
 
 impl From<Handle<MhcloAsset>> for StitchedPart {
     fn from(part: Handle<MhcloAsset>) -> Self {
         Self {
             part,
-            prefab_override: None,
+            template_override: None,
         }
     }
 }
 
 impl StitchedPart {
-    pub const fn with_prefab_override(mut self, prefab: &'static str) -> Self {
-        self.prefab_override = Some(PrefabOverride(prefab));
+    pub const fn with_template_override(mut self, template: &'static str) -> Self {
+        self.template_override = Some(TemplateOverride(template));
         self
     }
 }
@@ -97,7 +97,7 @@ pub(crate) fn build_final_mesh_mhclo(
     mhclo: &MhcloAsset,
     input_mesh: &Mesh,
     mesh_verts: &ObjVertsAsset,
-    prefab: &CharacterArchetypePrefab,
+    template: &CharacterTemplate,
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_spec: &RigSpec,
@@ -110,7 +110,7 @@ pub(crate) fn build_final_mesh_mhclo(
         shape_mesh_from_helpers_mhclo(input_mesh, mhclo, &basemesh, &mhid_lookup, &vertex_map);
 
     let mut meshes = vec![];
-    for shape in prefab.shapes.iter() {
+    for shape in template.shapes.iter() {
         let helpers = adjust_helpers_to_morphs(&shape.morphs, &mh_morphs, &basemesh)
             .unwrap_or_else(|e| panic!("{}", e));
         let mesh =
@@ -139,7 +139,7 @@ pub(crate) fn build_final_mesh_mhclo(
             ]));
         }
 
-        morph_names.push(prefab.shapes[is].name.to_string());
+        morph_names.push(template.shapes[is].name.to_string());
         morphs.push(morph.into_iter());
     }
     let image = MorphTargetImage::new(
@@ -163,7 +163,7 @@ pub(crate) fn build_final_meshes_mhclo(
     mhclos: &[MhcloAsset],
     input_meshes: &mut [Mesh],
     mesh_verts: &[ObjVertsAsset],
-    prefabs: &[CharacterArchetypePrefab],
+    templates: &[CharacterTemplate],
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_spec: &RigSpec,
@@ -186,7 +186,7 @@ pub(crate) fn build_final_meshes_mhclo(
         );
     }
 
-    let shapes: AHashSet<_> = prefabs
+    let shapes: AHashSet<_> = templates
         .iter()
         .flat_map(|p| &p.shapes)
         .map(|s| s.name)
@@ -196,9 +196,9 @@ pub(crate) fn build_final_meshes_mhclo(
     for &shape in shapes.iter() {
         let mut meshes = vec![];
         for (i_mesh, mesh) in input_meshes.iter().enumerate() {
-            let prefab = &prefabs[i_mesh];
+            let template = &templates[i_mesh];
             let mut matched = false;
-            for mesh_shape in prefab.shapes.iter() {
+            for mesh_shape in template.shapes.iter() {
                 if shape == mesh_shape.name {
                     let helpers =
                         adjust_helpers_to_morphs(&mesh_shape.morphs, &mh_morphs, &basemesh)
@@ -236,9 +236,9 @@ pub(crate) fn build_final_meshes_mhclo(
         let base_tangents = get_vertex_tangents(mesh).expect("Failed to get tangents");
         let mut names = vec![];
         let mut morph_attrs = vec![];
-        let prefab = &prefabs[i_mesh];
+        let template = &templates[i_mesh];
 
-        for shape in prefab.shapes.iter() {
+        for shape in template.shapes.iter() {
             let Some(shape_mesh) = &shape_meshes[shape.name][i_mesh] else {
                 continue;
             };

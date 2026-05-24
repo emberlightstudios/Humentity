@@ -12,7 +12,7 @@ use bevy_mod_physx::{
 
 use crate::{
     morphs::MakeHumanMorphs,
-    prefab::CharacterArchetypePrefabs,
+    template::CharacterTemplates,
     prelude::{BaseMesh, CharacterShapeConfig, RelatedEntities},
     rigs::{RigType, SkeletalBone, SkeletonCaches},
     spawn_skeleton::FitSkeleton,
@@ -298,7 +298,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
         ),
     >,
     _global_transforms: Query<&GlobalTransform>,
-    prefabs: Res<CharacterArchetypePrefabs>,
+    templates: Res<CharacterTemplates>,
     basemesh: Res<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
@@ -309,7 +309,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
 ) {
     for (character_entity, shape_config, related, mut colliders, skm) in needs_colliders.iter_mut()
     {
-        let rig_type = prefabs[&shape_config.prefab].rig;
+        let rig_type = templates[&shape_config.template].rig;
         let model_to_world = Transform::from(
             _global_transforms
                 .get(related.rig)
@@ -321,9 +321,9 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
             _ => continue,
         };
 
-        let prefab = &prefabs[&shape_config.prefab];
+        let template = &templates[&shape_config.template];
         let helpers =
-            match prefab.get_helpers(&shape_config.prefab_morph_targets, &basemesh, &mh_morphs) {
+            match template.get_helpers(&shape_config.template_morph_targets, &basemesh, &mh_morphs) {
                 Ok(h) => h,
                 Err(e) => {
                     error!("Failed to compute morph helpers for colliders: {}", e);
@@ -333,7 +333,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
-        let sk_cache = &skeleton_caches[&prefab.rig];
+        let sk_cache = &skeleton_caches[&template.rig];
 
         let bone_entities = sk_cache
             .bone_order
@@ -443,7 +443,7 @@ pub(crate) fn spawn_ragdoll_colliders(
         ),
     >,
     global_transforms: Query<&GlobalTransform>,
-    prefabs: Res<CharacterArchetypePrefabs>,
+    templates: Res<CharacterTemplates>,
     basemesh: Res<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
@@ -454,16 +454,16 @@ pub(crate) fn spawn_ragdoll_colliders(
 ) {
     for (character_entity, shape_config, related, mut colliders, skm) in needs_colliders.iter_mut()
     {
-        let rig_type = prefabs[&shape_config.prefab].rig;
+        let rig_type = templates[&shape_config.template].rig;
 
         let collider_bone_map = match rig_type {
             RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
             _ => todo!("impl more rigs"),
         };
 
-        let prefab = &prefabs[&shape_config.prefab];
+        let template = &templates[&shape_config.template];
         let helpers =
-            match prefab.get_helpers(&shape_config.prefab_morph_targets, &*basemesh, &mh_morphs) {
+            match template.get_helpers(&shape_config.template_morph_targets, &*basemesh, &mh_morphs) {
                 Ok(h) => h,
                 Err(e) => {
                     error!("Failed to compute morph helpers for ragdoll: {}", e);
@@ -473,7 +473,7 @@ pub(crate) fn spawn_ragdoll_colliders(
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             return;
         };
-        let sk_cache = &skeleton_caches[&prefab.rig];
+        let sk_cache = &skeleton_caches[&template.rig];
 
         let bone_entities = sk_cache
             .bone_order

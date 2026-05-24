@@ -61,7 +61,7 @@ pub(crate) struct RootBonePrevious {
 }
 
 #[derive(Clone)]
-pub(crate) struct RigSpec {
+pub struct RigSpec {
     pub(crate) weights: Arc<RigWeightsAsset>,
     pub(crate) config: Arc<RigConfigAsset>,
     pub(crate) reference_rig: Arc<ReferenceRigAsset>,
@@ -69,7 +69,7 @@ pub(crate) struct RigSpec {
 }
 
 #[derive(Resource, Default, Deref, DerefMut)]
-pub(crate) struct RigData(pub(crate) AHashMap<RigType, RigSpec>);
+pub struct RigData(pub AHashMap<RigType, RigSpec>);
 
 impl RigSpec {
     pub fn bone_index(&self, bone_name: &str) -> Option<usize> {

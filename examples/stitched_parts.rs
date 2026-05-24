@@ -2,15 +2,13 @@
 /// This demonstrates solving the normal-discontinuity problem at seam cuts, and also shows how
 /// per-part morph targets let you put facial expression morphs only on the head mesh, not the body.
 ///
-/// The problem with splitting meshes into multiple pieces is that when you cut a mesh at an edge loop,
-/// most 3d modelling software will autmoatically recompute normals at the loop and create a discontinuity
-/// of mesh normals across the seam.  The normals will no longer be smooth and lighting will make a line
-/// obvious where you cut.  This is the main problem intended to be solved by mesh stitching.
+/// The problem with splitting meshes into multiple pieces is that normals at the seams are not continuous.
+/// The leads to lighting artifacts at the seam.  This is the main problem intended to be solved by mesh stitching.
 ///
-/// Additionally, because each stitched part can use a different prefab, expression morphs
-/// (which only deform face helpers) can be baked only into the head mesh and not the body.
-/// This avoids unnecessary shapekeys on the body and prevents any seam displacement.
-///
+/// Additionally, we can isolate shapes to smaller meshes.  In this example we put facial expressions on a separate
+/// template that only the head mesh uses because the body mesh doesn't care about facial expressions. 
+/// This helps optimize vram usage.
+/// 
 /// Note that the normal smoothing algorithm requires that the vert positions are bitwise identical on both
 /// sides of your edge loop cuts.
 
@@ -21,7 +19,7 @@ use humentity::prelude::*;
 use shared::setup_app;
 
 const STITCHED: &str = "stitched";
-const HEAD_PREFAB: &str = "head_prefab";
+const HEAD_TEMPLATE: &str = "head_template";
 
 fn main() {
     let mut app = setup_app();
@@ -30,7 +28,7 @@ fn main() {
         Update,
         add_humans
             .run_if(resource_exists::<MakeHumanMorphs>)
-            .run_if(not(resource_exists::<CharacterArchetypePrefabs>)),
+            .run_if(not(resource_exists::<CharacterTemplates>)),
     )
     .run();
 }
@@ -53,23 +51,23 @@ fn add_humans(
         }
     };
 
+    let loaded = morphs.targets.read().unwrap();
     for k in resolved.keys() {
-        let loaded = morphs.targets.read().unwrap();
         if !loaded.contains_key(k) {
             return;
         }
     }
 
-    let shape = CharacterShapeArchetype::new("woman", resolved);
+    let shape = CharacterMorphShapes::new("woman", resolved);
 
-    // Expression morph — only defined on the head-portion prefab so it never touches the body mesh
+    // Expression morph — only defined on the head-portion template so it never touches the body mesh
     let mut expression_targets = MorphTargets::default();
     expression_targets.insert("jawOpen", 1.0);
-    let expression_shape = CharacterShapeArchetype::new("jawOpen", expression_targets);
+    let expression_shape = CharacterMorphShapes::new("jawOpen", expression_targets);
 
-    commands.insert_resource(CharacterArchetypePrefabs::new([
-        (STITCHED, CharacterArchetypePrefab::new([shape.clone()], RigType::Default)),
-        (HEAD_PREFAB, CharacterArchetypePrefab::new([shape, expression_shape], RigType::Default)),
+    commands.insert_resource(CharacterTemplates::new([
+        (STITCHED, CharacterTemplate::new([shape.clone()], RigType::Default)),
+        (HEAD_TEMPLATE, CharacterTemplate::new([shape, expression_shape], RigType::Default)),
     ]));
 
     // Split pieces for stitched demonstration
@@ -81,13 +79,13 @@ fn add_humans(
     );
 
     // Stitched: head + body reconnected with continuous normals.
-    // The head uses a separate prefab so expression morphs are baked only into the head mesh.
+    // The head uses a separate template so expression morphs are baked only into the head mesh.
     mesh_builder.trigger(LoadAssetMeshJob::Stitched {
         parts: StitchedParts(vec![
             StitchedPart::from(headless.clone()),
-            StitchedPart::from(head.clone()).with_prefab_override(HEAD_PREFAB),
+            StitchedPart::from(head.clone()).with_template_override(HEAD_TEMPLATE),
         ]),
-        prefab_name: STITCHED,
+        template_name: STITCHED,
     });
 
     let white = materials.add(StandardMaterial::from_color(Color::WHITE));
@@ -103,7 +101,7 @@ fn add_humans(
         InheritedVisibility::default(),
         children![
             (CharacterPart(headless), Name::new("headless"), MeshMaterial3d(white.clone())),
-            (CharacterPart(head), Name::new("head"), PrefabOverride(HEAD_PREFAB), MeshMaterial3d(white)),
+            (CharacterPart(head), Name::new("head"), TemplateOverride(HEAD_TEMPLATE), MeshMaterial3d(white)),
         ],
     ));
 }

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use humentity::prelude::*;
 use shared::setup_app;
 
-const PREFAB: &str = "prefab";
+const TEMPLATE: &str = "template";
 const EYES: &str = "body_parts/Eyes/Eyeballs/high-poly-eyes.mhclo";
 const EYEBROW: &str = "body_parts/eyebrows/eyebrows001/eyebrow001.mhclo";
 const EYELASH: &str = "body_parts/Eyelashes/false_eyelashes/false_eyelashes.mhclo";
@@ -19,7 +19,7 @@ fn main() {
         Update,
         add_human
             .run_if(resource_exists::<MakeHumanMorphs>)
-            .run_if(not(resource_exists::<CharacterArchetypePrefabs>)),
+            .run_if(not(resource_exists::<CharacterTemplates>)),
     )
     .run();
 }
@@ -42,18 +42,18 @@ fn add_human(
         }
     };
 
+    let loaded = morphs.targets.read().unwrap();
     for k in resolved.keys() {
-        let loaded = morphs.targets.read().unwrap();
         if !loaded.contains_key(k) {
             return;
         }
     }
 
-    let shape = CharacterShapeArchetype::new("female", resolved);
+    let shape = CharacterMorphShapes::new("female", resolved);
 
-    commands.insert_resource(CharacterArchetypePrefabs::new([(
-        PREFAB,
-        CharacterArchetypePrefab::new([shape], RigType::Default),
+    commands.insert_resource(CharacterTemplates::new([(
+        TEMPLATE,
+        CharacterTemplate::new([shape], RigType::Default),
     )]));
 
     let basemesh = CharacterPart(
@@ -69,7 +69,7 @@ fn add_human(
     for part in [&basemesh, &eyes, &eyebrow, &eyelash, &hair, &bra, &panties] {
         mesh_builder.trigger(LoadAssetMeshJob::Single {
             part: part.clone(),
-            prefab_name: PREFAB,
+            template_name: TEMPLATE,
         });
     }
 
@@ -126,7 +126,7 @@ fn add_human(
     commands.spawn((
         Name::new("Character"),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
-        CharacterShapeConfig::new(PREFAB, morph_targets),
+        CharacterShapeConfig::new(TEMPLATE, morph_targets),
         InheritedVisibility::default(),
         children![
             (basemesh, Name::new("basemesh"), MeshMaterial3d(skin_mat)),

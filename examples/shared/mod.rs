@@ -12,14 +12,14 @@ pub fn setup_app() -> App {
 
     let mut app = App::new();
 
-    app.add_plugins((DefaultPlugins, BoneDebugPlugin, HumentityPlugin))
+    app.add_plugins((DefaultPlugins, HumentityPlugin))
         .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
         .add_systems(Startup, load_assets)
         .add_systems(Startup, setup_env)
         .add_systems(
             Update,
             (
-                update_mesh_when_ready.run_if(resource_exists::<CharacterArchetypePrefabs>),
+                update_mesh_when_ready.run_if(resource_exists::<CharacterTemplates>),
                 cam_controls,
                 add_material,
             ),
@@ -84,10 +84,10 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
 fn update_mesh_when_ready(
     character_parts: Query<(Entity, &ChildOf, &CharacterPart), Without<Mesh3d>>,
     characters: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
-    prefab_overrides: Query<&PrefabOverride>,
+    template_overrides: Query<&TemplateOverride>,
     cached_meshes: Res<CachedMhcloMeshHandles>,
     meshes: Res<Assets<Mesh>>,
-    prefabs: Res<CharacterArchetypePrefabs>,
+    templates: Res<CharacterTemplates>,
     mut commands: Commands,
 ) {
     for (entity, parent, part) in character_parts.iter() {
@@ -95,10 +95,10 @@ fn update_mesh_when_ready(
         let Ok((shape_config, skm)) = characters.get(parent.parent()) else {
             continue;
         };
-        let prefab = shape_config.prefab;
+        let template = shape_config.template;
 
         // After you trigger a mesh build it will be put in this cache
-        if let Some(mesh_handle) = cached_meshes.get(&(mhclo_handle, prefab)) {
+        if let Some(mesh_handle) = cached_meshes.get(&(mhclo_handle, template)) {
             commands.entity(entity).insert((
                 Mesh3d(mesh_handle.clone()),
                 Transform::IDENTITY, // I think this is necessary
@@ -106,13 +106,13 @@ fn update_mesh_when_ready(
             ));
             let mesh = meshes.get(mesh_handle).unwrap();
             if mesh.has_morph_targets() {
-                let active_prefab = prefab_overrides
+                let active_template = template_overrides
                     .get(entity)
                     .ok()
-                    .map_or(prefab, |o| o.0);
+                    .map_or(template, |o| o.0);
                 commands
                     .entity(entity)
-                    .insert(shape_config.get_morph_weights_component(&prefabs[active_prefab]));
+                    .insert(shape_config.get_morph_weights_component(&templates[active_template]));
             }
         }
     }

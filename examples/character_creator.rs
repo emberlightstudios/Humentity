@@ -23,79 +23,40 @@ use bevy::ui_widgets::SliderPrecision;
 use bevy::ui_widgets::SliderStep;
 use bevy::ui_widgets::ValueChange;
 use humentity::prelude::*;
-use shared::{add_humentity_plugin, add_material, cam_controls};
+use shared::setup_app;
 
-const PREFAB: &'static str = "PrefabName";
-const SHAPE_NAME: &'static str = "DefaultShapeName";
+const TEMPLATE: &str = "TemplateName";
+const SHAPE_NAME: &str = "DefaultShapeName";
 
-fn main() {
-    let mut app = App::new();
-    add_humentity_plugin(&mut app);
-
-    app.add_plugins((DefaultPlugins, FeathersPlugins))
-        .insert_resource(UiTheme(create_dark_theme()))
-        .add_systems(Startup, setup_env)
-        .add_systems(Startup, setup_prefab)
-        .add_systems(
-            OnEnter(HumentityLoadState::Ready),
-            move |mut commands: Commands| add_human(&mut commands),
-        )
-        .add_systems(Update, (cam_controls, add_material, update_mesh_handle))
-        .add_systems(Update, rebuild.run_if(on_timer(Duration::from_millis(50))))
-        .insert_resource(SliderValues::default())
-        .run();
-}
-
-// For tracking categories when reacting to button presses
 #[derive(Component, Deref)]
 struct ButtonCategory(&'static str);
 
-// For tracking which morph a slider corresponds to
 #[derive(Component)]
 struct SliderMetadata(&'static str, &'static str);
 
-// The root UI node
 #[derive(Component)]
 struct RootNode;
 
-// Check if the mesh has been updated
-fn setup_prefab(mut commands: Commands, mh_morphs: Res<MakeHumanMorphs>) {
-    let mut morphs = MorphTargets::default();
-    morphs.insert("age", 0.5);
-    morphs.insert("gender", 1.0);
-    morphs.insert("caucasian", 1.0);
+#[derive(Resource)]
+struct UiInitialized;
 
-    let mut prefabs = CharacterArchetypePrefabs::default();
-    prefabs.insert(
-        PREFAB,
-        CharacterArchetypePrefab::new(
-            vec![CharacterShapeArchetype::new(
-                SHAPE_NAME,
-                mh_morphs.compute_target_weights(&morphs),
-            )],
-            CharacterAnimationArchetype::default(),
-        ),
-    );
-
-    commands.insert_resource(prefabs);
+#[derive(Resource)]
+struct DirectBuild {
+    mhclo: Handle<MhcloAsset>,
+    raw_mesh: Option<Handle<Mesh>>,
+    raw_verts: Option<Handle<ObjVertsAsset>>,
+    needs_build: bool,
 }
 
-// Global slider state.
 #[derive(Resource, DerefMut, Deref)]
 struct SliderValues(ahash::AHashMap<&'static str, MorphTargets>);
 
 impl Default for SliderValues {
     fn default() -> Self {
-        // We need to set the initial slider values for our UI
         let mut instance = Self(Default::default());
-
-        // These we explicitly defined in our prefab
         instance.insert_value("macro", "age", 0.5);
         instance.insert_value("macro", "gender", 1.);
         instance.insert_value("macro", "caucasian", 1.);
-
-        // Macro shapes have implicit values when you don't set them explicitly.
-        // These are the default values.
         instance.insert_value("macro", "height", 0.5);
         instance.insert_value("macro", "cupsize", 0.5);
         instance.insert_value("macro", "firmness", 0.5);
@@ -114,60 +75,174 @@ impl SliderValues {
 
     fn categories(&self) -> Vec<&'static str> {
         vec![
-            "macro",
-            "head",
-            "forehead",
-            "eyes",
-            "eyebrows",
-            "nose",
-            "mouth",
-            "cheek",
-            "chin",
-            "ears",
-            "neck",
-            "torso",
-            "breast",
-            "stomach",
-            "pelvis",
-            "buttocks",
-            "arms",
-            "hands",
-            "legs",
-            "feet",
-            "asymmetry",
+            "macro", "head", "forehead", "eyes", "eyebrows", "nose", "mouth",
+            "cheek", "chin", "ears", "neck", "torso", "breast", "stomach",
+            "pelvis", "buttocks", "arms", "hands", "legs", "feet", "asymmetry",
         ]
     }
 }
 
-// Update handle every frame
-fn update_mesh_handle(
-    asset_registry: Res<CharacterAssetRegistry>,
-    mut human: Query<(&mut Mesh3d, &ChildOf), With<CharacterPart>>,
-    shape_cfg: Query<&CharacterShapeConfig>,
-) {
-    let asset = asset_registry.get(&CharacterPart::BodyMesh("basemesh")).unwrap();
-    if let Ok((mut mesh3d, parent)) = human.single_mut() {
-        let shape = shape_cfg.get(parent.parent()).unwrap();
-        let prefab = shape.prefab;
-        if let Some(handle) = asset.mesh_handles.get(prefab) {
-            mesh3d.0 = handle.clone();
-        }
-    }
+fn main() {
+    let mut app = setup_app();
+
+    app.add_plugins(FeathersPlugins)
+        .insert_resource(UiTheme(create_dark_theme()))
+        .add_systems(
+            Update,
+            setup_and_add_human
+                .run_if(resource_exists::<MakeHumanMorphs>)
+                .run_if(not(resource_exists::<DirectBuild>)),
+        )
+        .add_systems(
+            Update,
+            init_ui
+                .run_if(resource_exists::<MakeHumanMorphs>)
+                .run_if(not(resource_exists::<UiInitialized>)),
+        )
+        .add_systems(Update, build_direct.run_if(resource_exists::<DirectBuild>))
+        .add_systems(Update, rebuild.run_if(on_timer(Duration::from_millis(50))))
+        .insert_resource(SliderValues::default())
+        .run();
 }
 
-// Trigger a change in a prefab shape
+fn build_direct(
+    mut state: ResMut<DirectBuild>,
+    asset_server: Res<AssetServer>,
+    mhclo_assets: Res<Assets<MhcloAsset>>,
+    obj_verts: Res<Assets<ObjVertsAsset>>,
+    templates: Res<CharacterTemplates>,
+    morphs: Res<MakeHumanMorphs>,
+    basemesh: Res<BaseMesh>,
+    rig_data: Res<RigData>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+    mut commands: Commands,
+    parts: Query<(Entity, &CharacterPart)>,
+) {
+    // Phase 1: kick off raw mesh loading
+    if state.raw_mesh.is_none() {
+        if let Some(mhclo) = mhclo_assets.get(&state.mhclo) {
+            let mesh = asset_server.load::<Mesh>(mhclo.obj_file.clone());
+            let verts = asset_server.load::<ObjVertsAsset>(mhclo.obj_file.clone());
+            state.raw_mesh = Some(mesh);
+            state.raw_verts = Some(verts);
+        }
+        return;
+    }
+
+    if !state.needs_build {
+        return;
+    }
+
+    // Phase 2: build when all dependencies are ready
+    let Some(mhclo) = mhclo_assets.get(&state.mhclo) else { return };
+    let Some(raw_mesh) = state.raw_mesh.as_ref().and_then(|h| meshes.get(h)) else { return };
+    let Some(raw_verts) = state.raw_verts.as_ref().and_then(|h| obj_verts.get(h)) else { return };
+    let Some(template) = templates.get(TEMPLATE) else { return };
+    let Some(rig_spec) = rig_data.get(&template.rig) else { return };
+
+    let mesh = build_single_mesh_direct(
+        mhclo,
+        raw_mesh,
+        raw_verts,
+        template,
+        morphs.targets.clone(),
+        basemesh.0.clone(),
+        rig_spec,
+        &mut images,
+    );
+
+    let mesh_handle = meshes.add(mesh);
+
+    for (entity, part) in parts.iter() {
+        if part.0 == state.mhclo {
+            commands.entity(entity).insert(Mesh3d(mesh_handle.clone()));
+        }
+    }
+
+    state.needs_build = false;
+}
+
+fn setup_and_add_human(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mh_morphs: Res<MakeHumanMorphs>,
+) {
+    let mut morph_targets = MorphTargets::default();
+    morph_targets.insert("age", 0.5);
+    morph_targets.insert("gender", 1.0);
+    morph_targets.insert("caucasian", 1.0);
+
+    let resolved = match mh_morphs.compute_target_weights(&morph_targets) {
+        Ok(m) => m,
+        Err(err) => {
+            error!("Error computing morph targets: {err}");
+            return;
+        }
+    };
+
+    let loaded = mh_morphs.targets.read().unwrap();
+    for k in resolved.keys() {
+        if !loaded.contains_key(k) {
+            return;
+        }
+    }
+
+    commands.insert_resource(CharacterTemplates::new([(
+        TEMPLATE,
+        CharacterTemplate::new(
+            [CharacterMorphShapes::new(SHAPE_NAME, resolved)],
+            RigType::Default,
+        ),
+    )]));
+
+    let mhclo = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+
+    commands.insert_resource(DirectBuild {
+        mhclo: mhclo.clone(),
+        raw_mesh: None,
+        raw_verts: None,
+        needs_build: true,
+    });
+
+    let mut morph_weights = MorphTargets::default();
+    morph_weights.insert(SHAPE_NAME, 1.0);
+
+    commands.spawn((
+        Name::new("Character"),
+        Transform::from_translation(Vec3::new(-1., 0., 0.)),
+        InheritedVisibility::default(),
+        CharacterShapeConfig::new(TEMPLATE, morph_weights),
+        children![(CharacterPart(mhclo), Name::new("basemesh"))],
+    ));
+}
+
+fn rebuild(
+    mut state: ResMut<DirectBuild>,
+    human: Single<(Entity, &RelatedEntities), With<CharacterShapeConfig>>,
+    mut commands: Commands,
+) {
+    let (entity, related) = *human;
+
+    state.needs_build = true;
+
+    commands.entity(related.rig).despawn();
+    commands
+        .entity(entity)
+        .remove::<RelatedEntities>()
+        .remove::<SkinnedMesh>();
+}
+
 fn on_slider_value_changed(
     trigger: On<ValueChange<f32>>,
     mut sliders: ResMut<SliderValues>,
     slider_metadata: Query<&SliderMetadata>,
     mh_morphs: Res<MakeHumanMorphs>,
-    mut prefabs: ResMut<CharacterArchetypePrefabs>,
+    mut templates: ResMut<CharacterTemplates>,
 ) {
     let metadata = slider_metadata.get(trigger.event().source).unwrap();
     sliders.insert_value(metadata.0, metadata.1, trigger.event().value);
 
-    // Only the UI uses nested iterators for categories
-    // Everything in humentity wants flat iterators
     let mut morphs = MorphTargets::default();
     for (&category, targets) in sliders.iter() {
         for (&name, &value) in targets.iter() {
@@ -177,98 +252,19 @@ fn on_slider_value_changed(
         }
     }
 
-    // convert macro/composite sliders to makehuman morph targets 
-    // This is required if you use any macro sliders 
-    morphs = mh_morphs.compute_target_weights(&morphs);
-
-    // Update morphs on the prefab shape (only 1 shape on 1 prefab here)
-    let prefab = prefabs.get_mut(PREFAB).unwrap();
-    let shape = prefab.shapes.get_mut(0).unwrap();
-    shape.morphs = morphs;
-
-    // I tried to trigger rebuild here but it lags behind the slider settings due
-    // to the asynchronous nature.  It tends to build the last slider values instead
-    // of the current
-}
-
-// This runs every 50 milliseconds and always triggers full rebuild from the current prefab. 
-// It does introduce a bit of a lag unfortunately, but this is inevitable due to the time
-// it takes to rebuild the mesh anyway.  It could be made faster by building the mesh
-// directly, avoiding morphs, skinning, etc. until the end.  This is my lazy way of doing it.
-fn rebuild(
-    mut asset_registry: ResMut<CharacterAssetRegistry>,
-    mut mediator: ResMut<MhcloMeshBuilder>,
-    human: Single<(Entity, &RelatedEntities), With<CharacterShapeConfig>>,
-    mut commands: Commands,
-) {
-    // Delete the cached mesh handle
-    let asset = asset_registry.get_mut(&CharacterPart::BodyMesh("basemesh")).unwrap();
-    asset.mesh_handles.remove(PREFAB);
-
-    // This will trigger a rebuild
-    mediator.trigger(
-        LoadAssetMeshJob::Single {
-            prefab_name: PREFAB, part: CharacterPart::BodyMesh("basemesh"),
+    morphs = match mh_morphs.compute_target_weights(&morphs) {
+        Ok(m) => m,
+        Err(err) => {
+            error!("Error computing morph targets: {err}");
+            return;
         }
-    );
+    };
 
-    // This will trigger a re-fit of the skeleton to the new mesh shape.  
-    let (entity, related) = *human;
-    commands.entity(related.rig).despawn();
-    commands.entity(entity).remove::<SkinnedMesh>();
+    let template = templates.get_mut(TEMPLATE).unwrap();
+    let shape = template.shapes.get_mut(0).unwrap();
+    shape.morphs = morphs;
 }
 
-fn setup_env(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    // circular base
-    let mesh = meshes.add(Circle::new(4.0));
-    let material = materials.add(Color::WHITE);
-
-    commands.spawn((
-        Mesh3d(mesh),
-        MeshMaterial3d(material.clone()),
-        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-    ));
-
-    // A light:
-    commands.spawn((
-        PointLight {
-            intensity: 15_000_0.0,
-            radius: 20.,
-            range: 20.,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(0.0, 1.0, 3.0),
-    ));
-
-    // A camera:
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(-1.0, 1., -2.5).looking_at(Vec3::Y * 1., Vec3::Y),
-    ));
-
-    let ui = commands.register_system(init_ui);
-    commands.run_system(ui);
-}
-
-// Spawn the human
-fn add_human(commands: &mut Commands) {
-    let mut morphs = MorphTargets::default();
-    morphs.insert(SHAPE_NAME, 1.0);
-
-    commands.spawn((
-        Transform::from_translation(Vec3::new(-1., 0., 0.)),
-        InheritedVisibility::default(),
-        CharacterShapeConfig::new(PREFAB, morphs.clone()),
-        children![(CharacterPart::BodyMesh("basemesh"))],
-    ));
-}
-
-// Set up the category buttons at the top
 fn init_ui(
     mut commands: Commands,
     mh_morphs: Res<MakeHumanMorphs>,
@@ -325,9 +321,10 @@ fn init_ui(
             .id();
         commands.entity(top_bar).add_child(btn);
     }
+
+    commands.insert_resource(UiInitialized);
 }
 
-//Show individual sliders when a category is selected
 fn category_selected(
     trigger: On<Activate>,
     categories: Query<&ButtonCategory>,
@@ -341,11 +338,10 @@ fn category_selected(
     let category = **categories.get(btn).unwrap();
     let min_values = mh_morphs.get_min_values();
 
-    // Remove any existing sliders
     for childof in sliders.iter() {
         commands.entity(childof.parent()).despawn();
     }
-    // Spawn new sliders
+
     let root = root.single().unwrap();
     let morphs = slider_values.get(category).unwrap();
     for (&name, morph) in morphs.iter() {
@@ -373,7 +369,7 @@ fn category_selected(
                         observe(on_slider_value_changed),
                         observe(slider_self_update)
                     ),
-                    (Text::new(name), ThemedText,)
+                    (Text::new(name), ThemedText)
                 ],
             ))
             .id();

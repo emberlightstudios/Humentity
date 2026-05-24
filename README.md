@@ -17,14 +17,14 @@
 ## How It Works
 All needed types should be exported via the crate prelude module.  The steps to create humanoid characters are as follows.
 1. Setup/add the HumentityPlugin.
-2. Create a humanoid prefab with some shapes.
+2. Create a humanoid template with some shapes.
 3. Create an entity with a CharacterShapeConfig component.
 4. Add children with CharacterPart components.
 
 ### Notes
 You can find working examples in the examples folder.
 
-The prefab you build contains a rig spec for animation.
+The template you build contains a rig spec for animation.
 You can provide .glb files with animation clips.
 It is assumed the clips will be authored for the character in the base mesh with no shape keys applied, so remove all shapekeys in blender before making clips.
 Clips should be retargetable to any character using the same rig.
@@ -42,5 +42,5 @@ Regarding asset loading and unloading, for textures this crate only stores the p
 CharacterPart provides an API for quick retrieval of a Handle\<Image\> but it is not cached anywhere inside the plugin, so automatic texture unloading should just work when you remove the last assets (e.g. material) referencing the image.
 The meshes are a different story.
 Meshes for the CharacterParts will be built automatically in a background thread on any (not disabled) entity satisfying (With\<CharacterPart\>, Without\<Mesh3d\>).
-Mesh handles **are** cached inside the CharacterAssetRegistry (per prefab) because mesh construction is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be manually removed.
+Mesh handles **are** cached inside the CharacterAssetRegistry (per template) because mesh construction is a slower process requiring a bit of calculation, so to completely unload the mesh assets the cached handles must be manually removed.
 There is a helper fn on CharacterPart for this purpose.

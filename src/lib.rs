@@ -4,7 +4,7 @@ mod basemesh;
 mod loaders;
 mod mesh_ops;
 mod morphs;
-mod prefab;
+mod template;
 mod rigs;
 mod spawn_skeleton;
 mod spawn_mesh;
@@ -60,16 +60,18 @@ pub mod prelude {
             StitchedParts, StitchedPart
         },
         morphs::{MakeHumanMorphs, MorphTargets, MorphError},
-        prefab::{
-            CharacterArchetypePrefab, CharacterArchetypePrefabs,
-            CharacterShapeArchetype, PrefabOverride,
+        template::{
+            CharacterTemplate, CharacterTemplates,
+            CharacterMorphShapes, TemplateOverride,
         },
         rigs::{
+            RigData,
+            RigSpec,
             SkeletalBone,
             RigType,
             RootMotion,
         },
-        spawn_mesh::{CharacterShapeConfig, MhcloMeshBuilder, LoadAssetMeshJob, CachedMhcloMeshHandles},
+        spawn_mesh::{CharacterShapeConfig, MhcloMeshBuilder, LoadAssetMeshJob, CachedMhcloMeshHandles, build_single_mesh_direct},
         spawn_skeleton::RelatedEntities,
         HumentityGlobalConfig,
         HumentityPlugin,
@@ -157,7 +159,7 @@ impl Plugin for HumentityPlugin {
                     )
                         .chain()
                         .run_if(resource_exists::<basemesh::BaseMesh>)
-                        .run_if(resource_exists::<prefab::CharacterArchetypePrefabs>)
+                        .run_if(resource_exists::<template::CharacterTemplates>)
                         .run_if(resource_exists::<basemesh::VertexGroups>)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>)
                         .run_if(resource_exists::<rigs::RigData>)

@@ -28,13 +28,13 @@ pub(crate) fn spawn_rig_scene(
         (Entity, &CharacterShapeConfig),
         (Without<SkinnedMesh>, Without<FitSkeleton>),
     >,
-    prefabs: Res<CharacterArchetypePrefabs>,
+    templates: Res<CharacterTemplates>,
     rig_data: Res<RigData>,
     mut commands: Commands,
 ) {
     for (human, config) in new_humans {
-        if let Some(prefab) = prefabs.get(&config.prefab) {
-            let rig_type = prefab.rig;
+        if let Some(template) = templates.get(&config.template) {
+            let rig_type = template.rig;
             let rig_spec = rig_data.get(&rig_type).expect("Rig not loaded");
             let scene = rig_spec.scene.clone().expect("Scene not built yet");
             let cached_scene = commands
@@ -45,7 +45,7 @@ pub(crate) fn spawn_rig_scene(
                 .insert(FitSkeleton)
                 .add_child(cached_scene);
         } else {
-            error!("No such prefab named {}", config.prefab);
+            error!("No such template named {}", config.template);
             commands.entity(human).despawn();
         }
     }
@@ -54,7 +54,7 @@ pub(crate) fn spawn_rig_scene(
 #[allow(clippy::type_complexity)]
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
-    prefabs: Res<CharacterArchetypePrefabs>,
+    templates: Res<CharacterTemplates>,
     skinned_meshes: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>)>,
     children: Query<&Children>,
     mut configs: Query<(Entity, &mut CharacterShapeConfig, Option<&RootMotion>), With<FitSkeleton>>,
@@ -67,14 +67,14 @@ pub(crate) fn fit_skeleton_to_shape(
     vg: Res<VertexGroups>,
 ) {
     for (character_entity, config, root_motion) in configs.iter_mut() {
-        let prefab = &prefabs[&config.prefab];
+        let template = &templates[&config.template];
         let Ok(helpers) =
-            prefab.get_helpers(&config.prefab_morph_targets, &basemesh.0, &morph_targets)
+            template.get_helpers(&config.template_morph_targets, &basemesh.0, &morph_targets)
         else {
             continue;
         };
 
-        let rig_type = prefab.rig;
+        let rig_type = template.rig;
         let rig_spec = rig_data.get(&rig_type).expect("Rig not loaded");
 
         let mut rig_entity: Option<Entity> = None;

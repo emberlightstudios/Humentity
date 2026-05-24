@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, mesh::morph::{MeshMorphWeights, MorphTargetImage}, prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
-use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset}, morphs::{MakeHumanMorphs, MorphTargets}, prefab::{CharacterArchetypePrefab, CharacterArchetypePrefabs, CharacterShapeArchetype}, rigs::{BoneTranslationData, RigData}};
+use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset, TargetAsset}, morphs::{MakeHumanMorphs, MorphTargets}, template::{CharacterTemplate, CharacterTemplates, CharacterMorphShapes}, rigs::{BoneTranslationData, RigData, RigSpec}};
 use serde::{Deserialize, Deserializer, Serialize};
 
 
@@ -11,8 +11,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 #[derive(Component, Clone, Default, Debug, Serialize)]
 #[require(Visibility)]
 pub struct CharacterShapeConfig {
-    pub prefab_morph_targets: MorphTargets,
-    pub prefab: &'static str,
+    pub template_morph_targets: MorphTargets,
+    pub template: &'static str,
     #[serde(skip)]
     pub(crate) bone_translations: BoneTranslationData,
     #[serde(skip)]
@@ -20,11 +20,11 @@ pub struct CharacterShapeConfig {
 }
 
 impl CharacterShapeConfig {
-    pub fn get_morph_weights_component(&self, prefab: &CharacterArchetypePrefab) -> MeshMorphWeights {
-        let morph_weights = prefab
+    pub fn get_morph_weights_component(&self, template: &CharacterTemplate) -> MeshMorphWeights {
+        let morph_weights = template
             .shapes
             .iter()
-            .map(|s| *self.prefab_morph_targets.get(s.name).unwrap_or(&0.))
+            .map(|s| *self.template_morph_targets.get(s.name).unwrap_or(&0.))
             .collect::<Vec<_>>();
         MeshMorphWeights::new(morph_weights).unwrap()
     }
@@ -37,22 +37,22 @@ impl<'de> Deserialize<'de> for CharacterShapeConfig {
     {
         #[derive(Deserialize)]
         struct Raw {
-            prefab_morph_targets: MorphTargets,
-            prefab: String,
+            template_morph_targets: MorphTargets,
+            template: String,
         }
 
         let raw = Raw::deserialize(deserializer)?;
-        let prefab: &'static str = NAME_INTERNER.intern(&raw.prefab).leak();
+        let template: &'static str = NAME_INTERNER.intern(&raw.template).leak();
 
-        Ok(Self::new(prefab, raw.prefab_morph_targets))
+        Ok(Self::new(template, raw.template_morph_targets))
     }
 }
 
 impl CharacterShapeConfig {
-    pub fn new(prefab: &'static str, morphs: MorphTargets) -> Self {
+    pub fn new(template: &'static str, morphs: MorphTargets) -> Self {
         Self {
-            prefab,
-            prefab_morph_targets: morphs,
+            template,
+            template_morph_targets: morphs,
             bone_translations: BoneTranslationData::None,
             bone_delta_rotations: AHashMap::<&'static str, Quat>::default(),
         }
@@ -88,8 +88,8 @@ pub struct MhcloMeshBuilder(AHashMap<LoadAssetMeshJob, (LoadingMediator, AssetLo
 /// The type of a mesh load job, single CharacterMesh or multiple parts in a StitchedMesh
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub enum LoadAssetMeshJob {
-    Single{ part: CharacterPart, prefab_name: &'static str },
-    Stitched{ parts: StitchedParts, prefab_name: &'static str },
+    Single{ part: CharacterPart, template_name: &'static str },
+    Stitched{ parts: StitchedParts, template_name: &'static str },
 }
 
 impl MhcloMeshBuilder {
@@ -130,7 +130,7 @@ pub(crate) struct MeshConstructedMsg {
 /// This system runs in phases, so it gets triggered multiple times to load a mesh
 /// State is tracked by [`AssetLoadState`]
 pub(crate) fn mesh_build(
-    prefabs: ResMut<CharacterArchetypePrefabs>,
+    templates: ResMut<CharacterTemplates>,
     mut meshes: ResMut<Assets<Mesh>>,
     mesh_verts: Res<Assets<ObjVertsAsset>>,
     mhclo_assets: Res<Assets<MhcloAsset>>,
@@ -145,43 +145,43 @@ pub(crate) fn mesh_build(
 ) {
     for (key, (mediator, load_state)) in mediators.0.iter_mut() {
         match key {
-            LoadAssetMeshJob::Single { part, prefab_name } => {
+            LoadAssetMeshJob::Single { part, template_name } => {
                 build_single_mesh_process(
-                    mediator, load_state, part, prefab_name, &prefabs, &mut meshes, &mesh_verts, &mhclo_assets,
+                    mediator, load_state, part, template_name, &templates, &mut meshes, &mesh_verts, &mhclo_assets,
                     &mut morphs, &basemesh.0, &rig_data, &asset_server, &mut cached_raw_meshes,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
-                    let mesh = handle_single_mesh_complete(msg, &prefabs[prefab_name], &mut images);
+                    let mesh = handle_single_mesh_complete(msg, &templates[template_name], &mut images);
                     let mesh_handle = meshes.add(mesh);
-                    cached_meshes.insert((part.0.clone(), prefab_name), mesh_handle.clone());
+                    cached_meshes.insert((part.0.clone(), template_name), mesh_handle.clone());
                     *load_state = AssetLoadState::Finished;
                 }
             }
-            LoadAssetMeshJob::Stitched{ parts, prefab_name } => {
+            LoadAssetMeshJob::Stitched{ parts, template_name } => {
                 build_stitched_meshes_process(
-                    mediator, load_state, parts, prefab_name, &prefabs, &mut meshes, &mesh_verts,
+                    mediator, load_state, parts, template_name, &templates, &mut meshes, &mesh_verts,
                     &mhclo_assets, &mut morphs, &basemesh.0, &rig_data, &asset_server,
                     &mut cached_raw_meshes,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
-                    let prefab_names = parts
+                    let template_names = parts
                         .iter()
-                        .map(|p| p.prefab_override.as_ref().map_or(*prefab_name, |ov| ov.0))
+                        .map(|p| p.template_override.as_ref().map_or(*template_name, |ov| ov.0))
                         .collect::<Vec<_>>();
                     
-                    let prefabs = prefab_names
+                    let templates = template_names
                         .iter()
-                        .map(|p| &prefabs[p])
+                        .map(|p| &templates[p])
                         .collect::<Vec<_>>();
 
-                    let new_meshes = handle_stitched_mesh_complete(msg, &prefabs, &mut images);
+                    let new_meshes = handle_stitched_mesh_complete(msg, &templates, &mut images);
 
                     for (i_mesh, mesh) in new_meshes.into_iter().enumerate() {
                         let handle = parts[i_mesh].part.clone();
                         let mesh_handle = meshes.add(mesh);
-                        cached_meshes.insert((handle, prefab_name), mesh_handle.clone());
+                        cached_meshes.insert((handle, template_name), mesh_handle.clone());
                     }
                     *load_state = AssetLoadState::Finished;
                 }
@@ -193,13 +193,13 @@ pub(crate) fn mesh_build(
 /// Handles the message for a completed single mesh and builds the final mesh
 pub(crate) fn handle_single_mesh_complete(
     msg: MeshConstructedMsg,
-    prefab: &CharacterArchetypePrefab,
+    template: &CharacterTemplate,
     images: &mut Assets<Image>,
 ) -> Mesh {
     let MeshConstructedMsg { final_meshes, morph_names, morph_images } = msg;
     let mut mesh = final_meshes.into_iter().next().unwrap();
 
-    if !prefab.shapes.is_empty() {
+    if !template.shapes.is_empty() {
         let morph_names = morph_names.into_iter().next().unwrap();
         let morph_image = morph_images.into_iter().next().unwrap();
         let image = images.add(morph_image.0);
@@ -210,10 +210,33 @@ pub(crate) fn handle_single_mesh_complete(
     mesh
 }
 
+/// Build a single mesh directly from loaded assets, bypassing the async job system.
+/// All dependencies must already be loaded in their respective asset stores.
+pub fn build_single_mesh_direct(
+    mhclo: &MhcloAsset,
+    input_mesh: &Mesh,
+    mesh_verts: &ObjVertsAsset,
+    template: &CharacterTemplate,
+    mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
+    basemesh: Arc<Vec<Vec3>>,
+    rig_spec: &RigSpec,
+    images: &mut Assets<Image>,
+) -> Mesh {
+    let (mesh, morph_names, morph_image) = build_final_mesh_mhclo(
+        mhclo, input_mesh, mesh_verts, template, mh_morphs, basemesh, rig_spec,
+    );
+    let msg = MeshConstructedMsg {
+        final_meshes: vec![mesh],
+        morph_names: vec![morph_names],
+        morph_images: vec![morph_image],
+    };
+    handle_single_mesh_complete(msg, template, images)
+}
+
 /// Handles the message for a completed stitched mesh and builds the final meshes
 pub(crate) fn handle_stitched_mesh_complete(
     msg: MeshConstructedMsg,
-    prefabs: &[&CharacterArchetypePrefab],
+    templates: &[&CharacterTemplate],
     images: &mut Assets<Image>,
 ) -> Vec<Mesh> {
     let MeshConstructedMsg { final_meshes, morph_names, morph_images } = msg;
@@ -225,8 +248,8 @@ pub(crate) fn handle_stitched_mesh_complete(
             .zip(morph_names)
             .enumerate()
     {
-        let prefab = prefabs[i_mesh];
-        if !prefab.shapes.is_empty() {
+        let template = templates[i_mesh];
+        if !template.shapes.is_empty() {
             let morph_names = names;
             let image = images.add(image.0);
             mesh = mesh
@@ -243,8 +266,8 @@ pub(crate) fn build_single_mesh_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
     part: &CharacterPart,
-    prefab_name: &'static str,
-    prefabs: &CharacterArchetypePrefabs,
+    template_name: &'static str,
+    templates: &CharacterTemplates,
     meshes: &mut Assets<Mesh>,
     mesh_verts: &Assets<ObjVertsAsset>,
     mhclo_assets: &Assets<MhcloAsset>,
@@ -255,7 +278,7 @@ pub(crate) fn build_single_mesh_process(
     cached_raw_meshes: &mut CachedMhcloRawMeshHandles,
 ) {
     let pool = AsyncComputeTaskPool::get();
-    let prefab = prefabs.get(prefab_name).expect("No such prefab");
+    let template = templates.get(template_name).expect("No such template");
 
     let Some(mhclo) = mhclo_assets.get(&**part) else {
         return;
@@ -282,9 +305,9 @@ pub(crate) fn build_single_mesh_process(
 
         let input_mesh = input_mesh.clone();
         let mesh_verts = mesh_verts.clone();
-        let prefab = prefab.clone();
+        let template = template.clone();
         let mh_morphs = morphs.targets.clone();
-        let Some(rig_entry) = rig_data.get(&prefab.rig) else {
+        let Some(rig_entry) = rig_data.get(&template.rig) else {
             return;
         };
         let rig_spec = rig_entry.clone();
@@ -295,7 +318,7 @@ pub(crate) fn build_single_mesh_process(
 
         pool.spawn(async move {
             let (mesh, morph_names, morph_image) = build_final_mesh_mhclo(
-                &mhclo, &input_mesh, &mesh_verts, &prefab, mh_morphs, basemesh, &rig_spec
+                &mhclo, &input_mesh, &mesh_verts, &template, mh_morphs, basemesh, &rig_spec
             );
             sender.send(MeshConstructedMsg {
                 final_meshes: vec![mesh],
@@ -311,8 +334,8 @@ fn build_stitched_meshes_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
     parts: &StitchedParts,
-    prefab_name: &'static str,
-    prefabs: &CharacterArchetypePrefabs,
+    template_name: &'static str,
+    templates: &CharacterTemplates,
     meshes: &mut Assets<Mesh>,
     mesh_verts: &Assets<ObjVertsAsset>,
     mhclo_assets: &Assets<MhcloAsset>,
@@ -383,15 +406,15 @@ fn build_stitched_meshes_process(
             .map(|p| mhclo_assets.get(&p.part).unwrap().clone())
             .collect();
 
-        let prefab_names: Vec<&'static str> = parts
+        let template_names: Vec<&'static str> = parts
             .iter()
-            .map(|p| p.prefab_override.as_ref().map_or(prefab_name, |ov| ov.0))
+            .map(|p| p.template_override.as_ref().map_or(template_name, |ov| ov.0))
             .collect();
 
-        let rig = prefabs[prefab_names[0]].rig;
-        let prefabs_for_build: Vec<_> = prefab_names
+        let rig = templates[template_names[0]].rig;
+        let templates_for_build: Vec<_> = template_names
             .iter()
-            .map(|p| prefabs[*p].clone())
+            .map(|p| templates[*p].clone())
             .collect();
 
         let mh_morphs = morphs.targets.clone();
@@ -411,7 +434,7 @@ fn build_stitched_meshes_process(
                 &mhclos,
                 &mut input_meshes,
                 &mesh_verts,
-                &prefabs_for_build,
+                &templates_for_build,
                 mh_morphs,
                 basemesh,
                 &rig_spec,

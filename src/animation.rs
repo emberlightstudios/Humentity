@@ -27,7 +27,7 @@ pub enum TranslationTracks {
 /// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
 /// in realtime using data cached on the human config.
 pub(crate) fn rescale_bone_translations(
-    prefabs: Res<CharacterArchetypePrefabs>,
+    templates: Res<CharacterTemplates>,
     humans: Query<(Entity, &CharacterShapeConfig), Without<FitSkeleton>>,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -35,7 +35,7 @@ pub(crate) fn rescale_bone_translations(
     rig_data: Res<RigData>,
 ) {
     for (entity, human) in humans {
-        let rig_type = &prefabs[human.prefab].rig;
+        let rig_type = &templates[human.template].rig;
         let rig_spec = &rig_data[rig_type];
         let ref_translations = &rig_spec.reference_rig.local_bindpose;
         let BoneTranslationData::Full(shape_translations) = &human.bone_translations else {
@@ -72,13 +72,13 @@ pub(crate) fn rescale_bone_translations(
 /// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
 /// in realtime using data cached on the human config.  This one affects only the root bone.
 pub(crate) fn rescale_root_bone_translation(
-    prefabs: Res<CharacterArchetypePrefabs>,
+    templates: Res<CharacterTemplates>,
     humans: Query<(&RelatedEntities, &CharacterShapeConfig), Without<FitSkeleton>>,
     mut transforms: Query<&mut Transform>,
     rig_data: Res<RigData>,
 ) {
     for (related, human) in humans {
-        let rig_type = &prefabs[human.prefab].rig;
+        let rig_type = &templates[human.template].rig;
         let rig_spec = &rig_data[rig_type];
         let &root_bone = &rig_spec.reference_rig.bone_names[0];
         let BoneTranslationData::Root(shape_trans) = &human.bone_translations else {

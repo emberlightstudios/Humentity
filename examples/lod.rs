@@ -8,7 +8,7 @@ use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
 use shared::setup_app;
 
-const PREFAB: &str = "ExamplePrefab";
+const TEMPLATE: &str = "ExampleTemplate";
 const SHAPE_NAME: &str = "bigboobs";
 
 fn main() {
@@ -18,7 +18,7 @@ fn main() {
         Update,
         add_humans
             .run_if(resource_exists::<MakeHumanMorphs>)
-            .run_if(not(resource_exists::<CharacterArchetypePrefabs>)),
+            .run_if(not(resource_exists::<CharacterTemplates>)),
     )
     .run();
 }
@@ -44,18 +44,18 @@ fn add_humans(
         }
     };
 
+    let loaded = morphs.targets.read().unwrap();
     for k in resolved_morphs.keys() {
-        let loaded = morphs.targets.read().unwrap();
         if !loaded.contains_key(k) {
             return;
         }
     }
 
-    let shape = CharacterShapeArchetype::new(SHAPE_NAME, resolved_morphs);
+    let shape = CharacterMorphShapes::new(SHAPE_NAME, resolved_morphs);
 
-    commands.insert_resource(CharacterArchetypePrefabs::new([(
-        PREFAB,
-        CharacterArchetypePrefab::new([shape], RigType::Default),
+    commands.insert_resource(CharacterTemplates::new([(
+        TEMPLATE,
+        CharacterTemplate::new([shape], RigType::Default),
     )]));
 
     let lod0 = CharacterPart(
@@ -73,19 +73,19 @@ fn add_humans(
 
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod0.clone(),
-        prefab_name: PREFAB,
+        template_name: TEMPLATE,
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod1.clone(),
-        prefab_name: PREFAB,
+        template_name: TEMPLATE,
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod2.clone(),
-        prefab_name: PREFAB,
+        template_name: TEMPLATE,
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod3.clone(),
-        prefab_name: PREFAB,
+        template_name: TEMPLATE,
     });
 
     let mut morphs = MorphTargets::default();
@@ -98,7 +98,7 @@ fn add_humans(
     commands.spawn((
         Name::new("LOD Character"),
         Transform::from_translation(Vec3::new(0., 0., -1.)),
-        CharacterShapeConfig::new(PREFAB, morphs.clone()),
+        CharacterShapeConfig::new(TEMPLATE, morphs.clone()),
         InheritedVisibility::default(),
         children![
             (
@@ -154,7 +154,7 @@ fn add_humans(
         commands.spawn((
             Name::new(name),
             Transform::from_translation(Vec3::new(x, 0., 0.)),
-            CharacterShapeConfig::new(PREFAB, morphs.clone()),
+            CharacterShapeConfig::new(TEMPLATE, morphs.clone()),
             InheritedVisibility::default(),
             children![(proxy, Name::new("mesh"), MeshMaterial3d(black.clone()))],
         ));
