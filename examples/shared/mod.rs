@@ -126,7 +126,7 @@ fn cam_controls(
         *init = true;
         *yaw = std::f32::consts::PI;
     }
-    const MS: f32 = 1e-2;
+    const MS: f32 = 1e-1;
     const LS: f32 = 5e-3;
     let Ok(transform) = cam.single().cloned() else {
         return;

@@ -3,56 +3,108 @@
 //! In this example we switch lods early just for clarity.
 
 mod shared;
-use ahash::AHashMap;
+
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
-use shared::{add_humentity_plugin, cam_controls, setup_env};
+use shared::setup_app;
 
 const PREFAB: &str = "ExamplePrefab";
-// I'm testing the topology I swear
 const SHAPE_NAME: &str = "bigboobs";
 
 fn main() {
-    let mut app = App::new();
-    add_humentity_plugin(&mut app);
+    let mut app = setup_app();
 
-    app.add_plugins(DefaultPlugins)
-        .add_systems(Startup, setup_env)
-        .add_systems(Update, (cam_controls, add_material))
-        .add_systems(Startup, setup_prefabs)
-        .add_systems(OnEnter(HumentityLoadState::Ready), add_humans)
-        .run();
+    app.add_systems(
+        Update,
+        add_humans
+            .run_if(resource_exists::<MakeHumanMorphs>)
+            .run_if(not(resource_exists::<CharacterArchetypePrefabs>)),
+    )
+    .run();
 }
 
-// this is just a marker component to control which mesh has lods.
-#[derive(Component)]
-struct LevelOfDetail;
+fn add_humans(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut mesh_builder: ResMut<MhcloMeshBuilder>,
+    morphs: Res<MakeHumanMorphs>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let mut morph_targets = MorphTargets::default();
+    morph_targets.insert("muscle", 1.);
+    morph_targets.insert("gender", 0.);
+    morph_targets.insert("cupsize", 1.);
+    morph_targets.insert("firmness", 1.);
 
-fn add_humans(mut commands: Commands) {
-    // Previously defined shapes will now appear as morph targets on the prefab's mesh
-    // The HumanConfig type controls prefab access and applies our morph targets.
+    let resolved_morphs = match morphs.compute_target_weights(&morph_targets) {
+        Ok(m) => m,
+        Err(err) => {
+            error!("Error computing morph targets: {err}");
+            return;
+        }
+    };
 
-    // I'm testing the topology I swear
+    for k in resolved_morphs.keys() {
+        let loaded = morphs.targets.read().unwrap();
+        if !loaded.contains_key(k) {
+            return;
+        }
+    }
+
+    let shape = CharacterShapeArchetype::new(SHAPE_NAME, resolved_morphs);
+
+    commands.insert_resource(CharacterArchetypePrefabs::new([(
+        PREFAB,
+        CharacterArchetypePrefab::new([shape], RigType::Default),
+    )]));
+
+    let lod0 = CharacterPart(
+        asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy"),
+    );
+    let lod1 = CharacterPart(
+        asset_server.load::<MhcloAsset>("proxymeshes/proxy4817/proxy4817.proxy"),
+    );
+    let lod2 = CharacterPart(
+        asset_server.load::<MhcloAsset>("proxymeshes/proxy1605/proxy1605.proxy"),
+    );
+    let lod3 = CharacterPart(
+        asset_server.load::<MhcloAsset>("proxymeshes/proxy741/proxy741.proxy"),
+    );
+
+    mesh_builder.trigger(LoadAssetMeshJob::Single {
+        part: lod0.clone(),
+        prefab_name: PREFAB,
+    });
+    mesh_builder.trigger(LoadAssetMeshJob::Single {
+        part: lod1.clone(),
+        prefab_name: PREFAB,
+    });
+    mesh_builder.trigger(LoadAssetMeshJob::Single {
+        part: lod2.clone(),
+        prefab_name: PREFAB,
+    });
+    mesh_builder.trigger(LoadAssetMeshJob::Single {
+        part: lod3.clone(),
+        prefab_name: PREFAB,
+    });
+
     let mut morphs = MorphTargets::default();
     morphs.insert(SHAPE_NAME, 1.);
 
-    // Base mesh will be lod0
-    let lod0 = "basemesh";
-    let lod2 = "proxy1605";
-    let lod3 = "proxy741";
+    let white = materials.add(StandardMaterial::from_color(Color::WHITE));
+    let black = materials.add(StandardMaterial::from_color(Color::BLACK));
 
-    // I generated this from basemesh with a decimate modifier 
-    // in collapse mode, topology is a bit chaotic
-    let lod1 = "proxy4817";
-
+    // LOD character with all proxy meshes as children, each with a VisibilityRange
     commands.spawn((
+        Name::new("LOD Character"),
         Transform::from_translation(Vec3::new(0., 0., -1.)),
         CharacterShapeConfig::new(PREFAB, morphs.clone()),
-        LevelOfDetail, // Just a marker component for this example
         InheritedVisibility::default(),
         children![
             (
-                CharacterPart::BodyMesh(lod0),
+                lod0.clone(),
+                Name::new("basemesh"),
+                MeshMaterial3d(white.clone()),
                 VisibilityRange {
                     start_margin: 0.0..0.0,
                     end_margin: 2.0..3.0,
@@ -60,7 +112,9 @@ fn add_humans(mut commands: Commands) {
                 }
             ),
             (
-                CharacterPart::BodyMesh(lod1),
+                lod1.clone(),
+                Name::new("proxy4817"),
+                MeshMaterial3d(white.clone()),
                 VisibilityRange {
                     start_margin: 2.0..3.0,
                     end_margin: 7.0..8.0,
@@ -68,15 +122,19 @@ fn add_humans(mut commands: Commands) {
                 }
             ),
             (
-                CharacterPart::BodyMesh(lod2),
+                lod2.clone(),
+                Name::new("proxy1605"),
+                MeshMaterial3d(white.clone()),
                 VisibilityRange {
-                    start_margin: 7.0..8.,
+                    start_margin: 7.0..8.0,
                     end_margin: 14.0..15.0,
                     use_aabb: false,
                 }
             ),
             (
-                CharacterPart::BodyMesh(lod3),
+                lod3.clone(),
+                Name::new("proxy741"),
+                MeshMaterial3d(white),
                 VisibilityRange {
                     start_margin: 14.0..15.0,
                     end_margin: 20.0..30.0,
@@ -86,84 +144,19 @@ fn add_humans(mut commands: Commands) {
         ],
     ));
 
-    // Just for comparison we'll spawn the proxies used here
-
-    // Basemesh ~13k verts
-    commands.spawn((
-        Transform::from_translation(Vec3::new(-1.5, 0., 0.)),
-        CharacterShapeConfig::new(PREFAB, morphs.clone()),
-        InheritedVisibility::default(),
-        children![(CharacterPart::BodyMesh(lod0))],
-    ));
-
-    // mid poly 4817 verts
-    // Topology is not ideal.  I made it with decimate modifier on basemesh in blender
-    commands.spawn((
-        Transform::from_translation(Vec3::new(-0.5, 0., 0.)),
-        CharacterShapeConfig::new(PREFAB, morphs.clone()),
-        InheritedVisibility::default(),
-        children![(CharacterPart::BodyMesh(lod1))],
-    ));
-
-    //  low poly-count 1605 verts
-    commands.spawn((
-        Transform::from_translation(Vec3::new(0.5, 0., 0.)),
-        CharacterShapeConfig::new(PREFAB, morphs.clone()),
-        InheritedVisibility::default(),
-        children![(CharacterPart::BodyMesh(lod2))],
-    ));
-
-    // very low poly-count 741 verts
-    commands.spawn((
-        Transform::from_translation(Vec3::new(1.5, 0., 0.)),
-        CharacterShapeConfig::new(PREFAB, morphs.clone()),
-        InheritedVisibility::default(),
-        children![(CharacterPart::BodyMesh(lod3))],
-    ));
-
-}
-
-// Adds a simple black material to humans
-fn add_material(
-    humans: Query<(Entity, &ChildOf), (With<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>)>,
-    lod: Query<Entity, With<LevelOfDetail>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut commands: Commands,
-) {
-    let black = materials.add(StandardMaterial::from_color(Color::BLACK));
-    let white = materials.add(StandardMaterial::from_color(Color::WHITE));
-    for (human, parent) in humans {
-        if lod.get(parent.parent()).is_ok() {
-            commands.entity(human).insert(MeshMaterial3d(white.clone()));
-        } else {
-            commands.entity(human).insert(MeshMaterial3d(black.clone()));
-        }
+    // Reference characters showing individual proxy meshes
+    for (proxy, name, x) in [
+        (lod0, "basemesh ref", -1.5),
+        (lod1, "proxy4817 ref", -0.5),
+        (lod2, "proxy1605 ref", 0.5),
+        (lod3, "proxy741 ref", 1.5),
+    ] {
+        commands.spawn((
+            Name::new(name),
+            Transform::from_translation(Vec3::new(x, 0., 0.)),
+            CharacterShapeConfig::new(PREFAB, morphs.clone()),
+            InheritedVisibility::default(),
+            children![(proxy, Name::new("mesh"), MeshMaterial3d(black.clone()))],
+        ));
     }
-}
-
-fn setup_prefabs(mut commands: Commands, morphs: Res<MakeHumanMorphs>) {
-    let mut morph_targets = MorphTargets::default();
-    morph_targets.insert("muscle", 1.);
-    morph_targets.insert("gender", 0.);
-    morph_targets.insert("cupsize", 1.);
-    morph_targets.insert("firmness", 1.);
-
-    // Deconstruct compound sliders
-    let morphs = morphs.compute_target_weights(&morph_targets);
-
-    let shape = CharacterShapeArchetype::new(
-        SHAPE_NAME,
-        morphs
-    );
-
-    let mut prefabs = AHashMap::default();
-    prefabs.insert(
-        PREFAB,
-        CharacterArchetypePrefab::new(
-            vec![shape],
-            CharacterAnimationArchetype::default(), // No animation in this example
-        ),
-    );
-
-    commands.insert_resource(CharacterArchetypePrefabs::new(prefabs));
 }
