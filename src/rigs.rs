@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    basemesh::{BaseMesh, VertexGroups},
+    basemesh::VertexGroups,
     loaders::{MhcloVertexMap, ReferenceRigAsset, RigConfigAsset, RigWeightsAsset},
     prelude::*,
 };
@@ -184,7 +184,6 @@ pub(crate) fn bone_debug_draw(
 pub(crate) fn set_asset_rig_arrays(
     mesh: &mut Mesh,
     mhid_lookup: &[u16],
-    rig_weights: &Arc<RigWeightsAsset>,
     helper_map: &[MhcloVertexMap],
     rig_spec: &RigSpec,
 ) {

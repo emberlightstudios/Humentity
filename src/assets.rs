@@ -100,7 +100,6 @@ pub(crate) fn build_final_mesh_mhclo(
     prefab: &CharacterArchetypePrefab,
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
-    rig_weights: &Arc<RigWeightsAsset>,
     rig_spec: &RigSpec,
 ) -> (Mesh, Vec<String>, MorphTargetImage) {
     let vertices = get_vertex_positions(input_mesh);
@@ -153,7 +152,6 @@ pub(crate) fn build_final_mesh_mhclo(
     set_asset_rig_arrays(
         &mut input_mesh,
         &mhid_lookup,
-        rig_weights,
         &mhclo.helper_map,
         rig_spec,
     );
@@ -168,7 +166,6 @@ pub(crate) fn build_final_meshes_mhclo(
     prefabs: &[CharacterArchetypePrefab],
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
-    rig_weights: &Arc<RigWeightsAsset>,
     rig_spec: &RigSpec,
 ) -> (Vec<Mesh>, Vec<Vec<String>>, Vec<MorphTargetImage>) {
     let mut mhid_lookup = vec![];
@@ -275,7 +272,6 @@ pub(crate) fn build_final_meshes_mhclo(
         set_asset_rig_arrays(
             &mut input_meshes[i_mesh],
             &mhid_lookup[i_mesh],
-            rig_weights,
             &mhclos[i_mesh].helper_map,
             rig_spec,
         );

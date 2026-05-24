@@ -287,7 +287,6 @@ pub(crate) fn build_single_mesh_process(
         let Some(rig_entry) = rig_data.get(&prefab.rig) else {
             return;
         };
-        let rig_weights = rig_entry.weights.clone();
         let rig_spec = rig_entry.clone();
 
         let sender = mediator.mesh_building_msg_sender.clone();
@@ -296,8 +295,7 @@ pub(crate) fn build_single_mesh_process(
 
         pool.spawn(async move {
             let (mesh, morph_names, morph_image) = build_final_mesh_mhclo(
-                &mhclo, &input_mesh, &mesh_verts, &prefab, mh_morphs,
-                basemesh, &rig_weights, &rig_spec
+                &mhclo, &input_mesh, &mesh_verts, &prefab, mh_morphs, basemesh, &rig_spec
             );
             sender.send(MeshConstructedMsg {
                 final_meshes: vec![mesh],
@@ -401,7 +399,6 @@ fn build_stitched_meshes_process(
         let Some(rig_entry) = rig_data.get(&rig) else {
             return;
         };
-        let rig_weights = rig_entry.weights.clone();
         let rig_spec = rig_entry.clone();
 
         parts.iter().for_each(|p| {
@@ -417,7 +414,6 @@ fn build_stitched_meshes_process(
                 &prefabs_for_build,
                 mh_morphs,
                 basemesh,
-                &rig_weights,
                 &rig_spec,
             );
             sender.send(MeshConstructedMsg {

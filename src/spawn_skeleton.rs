@@ -65,7 +65,6 @@ pub(crate) fn fit_skeleton_to_shape(
     morph_targets: Res<MakeHumanMorphs>,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
-    bones: Query<&Children, With<SkeletalBone>>,
 ) {
     for (character_entity, config, root_motion) in configs.iter_mut() {
         let prefab = &prefabs[&config.prefab];
