@@ -84,6 +84,7 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
 fn update_mesh_when_ready(
     character_parts: Query<(Entity, &ChildOf, &CharacterPart), Without<Mesh3d>>,
     characters: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
+    prefab_overrides: Query<&PrefabOverride>,
     cached_meshes: Res<CachedMhcloMeshHandles>,
     meshes: Res<Assets<Mesh>>,
     prefabs: Res<CharacterArchetypePrefabs>,
@@ -105,10 +106,13 @@ fn update_mesh_when_ready(
             ));
             let mesh = meshes.get(mesh_handle).unwrap();
             if mesh.has_morph_targets() {
-                // This is necessary for any mesh which has morphs.
+                let active_prefab = prefab_overrides
+                    .get(entity)
+                    .ok()
+                    .map_or(prefab, |o| o.0);
                 commands
                     .entity(entity)
-                    .insert(shape_config.get_morph_weights_component(&prefabs[prefab]));
+                    .insert(shape_config.get_morph_weights_component(&prefabs[active_prefab]));
             }
         }
     }
