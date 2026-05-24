@@ -5,6 +5,7 @@ use bevy::{
 use crate::NAME_INTERNER;
 
 const SCALE_FACTOR: f32 = 0.1;
+const DELTA_SQ_THRESHOLD: f32 = 1e-6;
 
 #[derive(Clone, Debug)]
 pub struct TargetDelta {
@@ -59,10 +60,10 @@ impl AssetLoader for TargetAssetLoader {
                 continue;
             };
 
-            deltas.push(TargetDelta {
-                vertex,
-                offset: Vec3::new(x, y, z) * SCALE_FACTOR,
-            });
+            let offset = Vec3::new(x, y, z) * SCALE_FACTOR;
+            if offset.length_squared() > DELTA_SQ_THRESHOLD {
+                deltas.push(TargetDelta { vertex, offset });
+            }
         }
 
         let name = _load_context.path().path().file_stem()
