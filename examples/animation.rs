@@ -14,7 +14,7 @@ mod shared;
 
 use std::f32::consts::PI;
 
-use bevy::{gltf::Gltf, prelude::*};
+use bevy::{prelude::*, scene::SceneInstanceReady};
 use humentity::prelude::*;
 use shared::setup_app;
 
@@ -30,21 +30,21 @@ fn main() {
             add_humans
                 .run_if(resource_exists::<MakeHumanMorphs>)
                 .run_if(not(resource_exists::<CharacterArchetypePrefabs>)),
-            clip_loaded,
-            add_graph,
             play_graph,
+            add_graph,
         ),
     )
     .run();
 }
 
+// Hold handle refs to keep the clip assets alive
 #[derive(Resource)]
 struct RetargetedAnimations {
-    glb_clips: Handle<RetargetedAnimationAsset>,
+    clips: Handle<RetargetedAnimationAsset>,
 }
 
 #[derive(Component, Clone)]
-struct Animationindex(AnimationNodeIndex);
+struct AnimationIndex(AnimationNodeIndex);
 
 fn add_humans(
     mut commands: Commands,
@@ -53,22 +53,7 @@ fn add_humans(
     morphs: Res<MakeHumanMorphs>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
-    // Spawn the raw GLB animation scene for comparison
-    // Load as Gltf to force the GLTF loader (not the retargeted one)
-    //let clip_handle = asset_server.load::<AnimationClip>("animation/idle.glb");
-    //let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
-    //let graph_handle = graphs.add(graph);
-
-    //commands.spawn((
-    //    SceneRoot(asset_server.load::<Scene>("animation/idle.glb")),
-    //    Transform::from_translation(Vec3::new(-1., 0., 0.))
-    //        .with_rotation(Quat::from_rotation_y(PI)),
-    //    Animationindex(index),
-    //    AnimationGraphHandle(graph_handle.clone()),
-    //));//.observe();
-
-
-    // Spawn the dynamic character with retargeted animation
+    // Set up the dynamic character resources
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
@@ -80,6 +65,7 @@ fn add_humans(
         }
     };
 
+    // Make sure the morphs have loaded
     for k in baby_morphs.keys() {
         let loaded = morphs.targets.read().unwrap();
         if !loaded.contains_key(k) {
@@ -87,14 +73,34 @@ fn add_humans(
         }
     }
 
-    commands.insert_resource(CharacterArchetypePrefabs::new([(
-        PREFAB_NAME,
-        CharacterArchetypePrefab::new(
-            [CharacterShapeArchetype::new(BABY, baby_morphs)],
-            RigType::Default,
-        ),
-    )]));
+    commands.insert_resource(CharacterArchetypePrefabs::new([
+        (
+            PREFAB_NAME,
+            CharacterArchetypePrefab::new(
+                [CharacterShapeArchetype::new(BABY, baby_morphs)],
+                RigType::Default,
+            ),
+        )
+    ]));
+    info!("GLB scene loaded");
 
+    // Spawn the raw GLB animation scene for comparison, includes basemesh+helpers
+    let clip_handle = asset_server.load(GltfAssetLabel::Animation(0).from_asset("animation/idle.glb"));
+    let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
+    let graph_handle = graphs.add(graph);
+
+    commands.spawn((
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("animation/idle.glb"))),
+        Transform::from_translation(Vec3::new(-1., 0., 0.))
+            .with_rotation(Quat::from_rotation_y(PI)),
+        AnimationIndex(index),
+        AnimationGraphHandle(graph_handle.clone()),
+    )).observe(on_gltf_scene_ready);
+
+
+    // Load the dynamic avatar with morphs and a retargeted clip
+
+    // Create the morphable base mesh
     let basemesh_part =
         CharacterPart(asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy"));
 
@@ -108,65 +114,66 @@ fn add_humans(
     morphs.insert(BABY, 1.);
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
+        Name::new("Retargeted"),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB_NAME, morphs),
-        children![(basemesh_part)],
+        children![(
+            Name::new("Mesh"),
+            basemesh_part,
+        )],
     ));
 
-    // Load the animation clip with translation traks removed for different human shapes.
-    // You can use loader settings to retain translation tracks (still experimental)
-    let clip = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
-    commands.insert_resource(RetargetedAnimations { glb_clips: clip });
+    // Load the animation clip with translation tracks removed for different human shapes.
+    // Since this also loads via gltf we have to pass the type explicitly
+    // The clips are loaded on the RetargetedAnimationAsset as a hashmap
+    // Use loader settings to retain translation tracks (experimental/broken)
+    let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
+    commands.insert_resource(RetargetedAnimations{ clips });
 
+    info!("Baby created");
 }
 
-fn clip_loaded(
+fn on_gltf_scene_ready(
+    trigger: On<SceneInstanceReady>,
+    q: Query<(&AnimationIndex, &AnimationGraphHandle)>,
+    mut players: Query<&mut AnimationPlayer>,
+    children: Query<&Children>,
     mut commands: Commands,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
-    character: Single<Entity, With<CharacterShapeConfig>>,
-    mut msgs: MessageReader<AssetEvent<RetargetedAnimationAsset>>,
 ) {
-    for msg in msgs.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = msg {
-            let clips_map = retargeted_clips.get(*id).unwrap();
-            info!("{:#?}", clips_map.clips.keys());
-            let clip_handle = clips_map.clips.get("Idle-loop").unwrap();
-
-            let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
-            commands.entity(*character).insert((
-                Animationindex(index),
-                AnimationGraphHandle(graphs.add(graph)),
-            ));
+    let (index, graph) = q.get(trigger.entity).unwrap();
+    for child in children.iter_descendants(trigger.entity) {
+        if let Ok(mut player) = players.get_mut(child) {
+            commands.entity(child).insert(graph.clone());
+            player.play(index.0).repeat();
+            return;
         }
     }
 }
 
 fn add_graph(
-    q: Query<Entity, With<AnimationPlayer>>,
     mut commands: Commands,
-    children: Query<&Children>,
-    anim_data: Query<(Entity, &Animationindex, &AnimationGraphHandle)>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
+    mut character_player: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
 ) {
-    for (entity, node_index, graph_handle) in anim_data.iter() {
-        for child in children.iter_descendants(entity) {
-            if q.get(child).is_ok() {
-                commands
-                    .entity(child)
-                    .insert((node_index.clone(), graph_handle.clone()));
-                commands
-                    .entity(entity)
-                    .remove::<Animationindex>()
-                    .remove::<AnimationGraphHandle>();
-            }
-        }
+    let Ok((entity, mut player)) = character_player.single_mut() else { return };
+    if let Some((_id, clips_map)) = retargeted_clips.iter().next() {
+        let clip_handle = clips_map.clips.get("Idle-loop").unwrap();
+        let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
+        commands.entity(entity.clone()).insert((
+            AnimationIndex(index),
+            AnimationGraphHandle(graphs.add(graph)),
+        ));
+        player.play(index).repeat();
+        info!("Adding graph handle to retargeted character");
     }
 }
 
 fn play_graph(
-    mut players: Query<(&mut AnimationPlayer, &Animationindex), Added<AnimationGraphHandle>>,
+    mut players: Query<(&mut AnimationPlayer, &AnimationIndex), Added<AnimationGraphHandle>>,
 ) {
-    for (mut player, node_index) in players.iter_mut() {
+    for (mut player,node_index) in players.iter_mut() {
+        info!("Starting clip");
         player.play(node_index.0).repeat();
     }
 }

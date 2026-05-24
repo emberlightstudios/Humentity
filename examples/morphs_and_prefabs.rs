@@ -49,7 +49,6 @@ fn add_humans(
 ) {
     // When feeding in morphs you can ignore the categories here.
     // They are only for helping you organize a UI
-    //info!("Available morphs: {:#?}", morphs.get_morph_names());
 
     // Let's create a prefab that can take different shapes
     // If race is not specified, defaults to caucasian (caucasian = 1, african = 0, asian = 0)
@@ -76,7 +75,6 @@ fn add_humans(
             return;
         }
     }
-    //info!("baby morphs: {:#?}", baby_morphs);
 
     morph_targets.clear();
     // These are desinged in makehuman such that you don't have to normalize their sum.
@@ -95,7 +93,6 @@ fn add_humans(
             return;
         }
     }
-    //info!("bodybuilder morphs: {:#?}", bodybuilder_morphs);
 
     commands.insert_resource(
         CharacterArchetypePrefabs::new([(
@@ -128,6 +125,7 @@ fn add_humans(
     morphs.insert(BABY, 0.);
     morphs.insert(BODYBUILDER, 0.);
     commands.spawn((
+        Name::new("Basemesh"),
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
@@ -138,20 +136,28 @@ fn add_humans(
     morphs.insert(BABY, 1.);
     morphs.insert(BODYBUILDER, 0.);
     commands.spawn((
+        Name::new("Baby"),
         Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
-        children![(basemesh_part.clone())],
+        children![(
+            basemesh_part.clone(),
+            Name::new("mesh"),
+        )],
     ));
 
     // A bodybuilder
     morphs.insert(BABY, 0.);
     morphs.insert(BODYBUILDER, 1.);
     commands.spawn((
+        Name::new("Bodybuilder"),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
-        children![(basemesh_part.clone())],
+        children![(
+            Name::new("mesh"),
+            basemesh_part.clone(),
+        )],
     ));
 
     // Half baby/half bodybuilder, ha!
@@ -159,10 +165,14 @@ fn add_humans(
     morphs.insert(BABY, 0.5);
     morphs.insert(BODYBUILDER, 0.5);
     commands.spawn((
+        Name::new("Hybrid normalized"),
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB_NAME, morphs.clone()),
-        children![(basemesh_part.clone())],
+        children![(
+            basemesh_part.clone(),
+            Name::new("mesh"),
+        )],
     ));
 
     // You have to be careful with normalization of mixed shapekeys sometimes
@@ -171,9 +181,13 @@ fn add_humans(
     morphs.insert(BABY, 1.);
     morphs.insert(BODYBUILDER, 1.);
     commands.spawn((
+        Name::new("Hybrid unnormalized"),
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(PREFAB_NAME, morphs),
-        children![(basemesh_part)],
+        children![(
+            basemesh_part,
+            Name::new("mesh"),
+        )],
     ));
 }

@@ -122,9 +122,6 @@ impl AssetLoader for ReferenceRigAssetLoader {
         })
     }
 
-    fn extensions(&self) -> &[&str] {
-        &["glb", "gltf"]
-    }
 }
 
 fn compute_model_space_from_local(

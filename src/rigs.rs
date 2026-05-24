@@ -338,8 +338,6 @@ pub(crate) fn build_skeleton_scene(
             current_parent = next;
         }
 
-        path.push(Name::new("Human.rig"));
-
         let entity = scene_world
             .spawn((
                 Name::new(name),

@@ -45,7 +45,4 @@ impl AssetLoader for RetargetedAnimationAssetLoader {
         Ok(RetargetedAnimationAsset { clips: clip_handles })
     }
 
-    fn extensions(&self) -> &[&str] {
-        &["glb", "gltf"]
-    }
 }
