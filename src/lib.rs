@@ -91,13 +91,6 @@ pub struct HumentityGlobalConfig {
     pub translation_tracks: TranslationTracks,
 }
 
-#[derive(States, Debug, Hash, Eq, PartialEq, Copy, Clone)]
-pub enum HumentityLoadState {
-    BuildingPrefabs,
-    AnimationProcessing,
-    Ready,
-}
-
 /// The SystemSet for animation post-processing. If you need to add your own
 /// animatin post-processing you can set it after this.
 #[derive(SystemSet, Debug, Hash, Copy, Clone, Eq, PartialEq)]
@@ -198,13 +191,11 @@ impl Plugin for HumentityPlugin {
                         physics::on_colliders_changed::<HurtboxCollider>,
                         physics::on_colliders_changed::<RagdollCollider>,
                     )
-                        .run_if(in_state(HumentityLoadState::Ready))
                 )
                 .add_systems(
                     PostUpdate,
                     physics::sync_skeleton_to_ragdoll
                         .after(AnimationSystems)
-                        .run_if(in_state(HumentityLoadState::Ready)),
                 )
                 .add_observer(physics::mark_entity_needs_colliders::<HitboxCollider>)
                 .add_observer(physics::mark_entity_needs_colliders::<HurtboxCollider>)
@@ -217,7 +208,6 @@ impl Plugin for HumentityPlugin {
                 PostUpdate,
                 animation::rescale_root_bone_translation
                     .after(AnimationSystems)
-                    .run_if(in_state(HumentityLoadState::Ready))
                     .in_set(HumentityAnimationSystems),
             );
         } else if matches!(self.config.translation_tracks, TranslationTracks::Full) {
@@ -225,7 +215,6 @@ impl Plugin for HumentityPlugin {
                 PostUpdate,
                 animation::rescale_bone_translations
                     .after(AnimationSystems)
-                    .run_if(in_state(HumentityLoadState::Ready))
                     .in_set(HumentityAnimationSystems),
             );
         }
@@ -235,7 +224,6 @@ impl Plugin for HumentityPlugin {
                 PostUpdate,
                 animation::root_motion
                     .after(HumentityAnimationSystems)
-                    .run_if(in_state(HumentityLoadState::Ready)),
             );
         }
          */
