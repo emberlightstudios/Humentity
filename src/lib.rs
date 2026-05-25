@@ -57,12 +57,18 @@ pub mod prelude {
         animation::TranslationTracks,
         assets::{
             CharacterPart,
-            StitchedParts, StitchedPart
+            StitchedParts, StitchedPart,
+            shape_mesh_from_helpers_mhclo,
         },
-        morphs::{MakeHumanMorphs, MorphTargets, MorphError},
+        morphs::{MakeHumanMorphs, MorphTargets, MorphError, adjust_helpers_to_morphs},
         template::{
             CharacterTemplate, CharacterTemplates,
             CharacterMorphShapes, TemplateOverride,
+        },
+        mesh_ops::{
+            get_vertex_positions,
+            generate_vertex_map,
+            generate_mhid_lookup,
         },
         rigs::{
             RigData,
@@ -72,7 +78,7 @@ pub mod prelude {
             RootMotion,
         },
         spawn_mesh::{CharacterShapeConfig, MhcloMeshBuilder, LoadAssetMeshJob, CachedMhcloMeshHandles, build_single_mesh_direct},
-        spawn_skeleton::RelatedEntities,
+        spawn_skeleton::{FitSkeleton, RelatedEntities},
         HumentityGlobalConfig,
         HumentityPlugin,
         BoneDebugPlugin,
