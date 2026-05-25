@@ -13,7 +13,7 @@ use bevy::{
 /// This component will trigger the re-fitting of the skeleton to the character's morphs.
 /// Add it after changing morphs.
 #[derive(Component)]
-pub(crate) struct FitSkeleton;
+pub struct FitSkeleton;
 
 /// For storing refs to commonly needed entities so that you don't have to iter_descendants to find them.
 #[derive(Component)]

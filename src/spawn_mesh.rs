@@ -95,9 +95,7 @@ pub enum LoadAssetMeshJob {
 impl MhcloMeshBuilder {
     /// Trigger a rebuild of a mesh or group of stitched meshes
     pub fn trigger(&mut self, key: LoadAssetMeshJob) {
-        if !self.0.contains_key(&key) {
-            self.0.insert(key, (LoadingMediator::default(), AssetLoadState::None));
-        }
+        self.0.insert(key, (LoadingMediator::default(), AssetLoadState::None));
     }
     
     /// Removes the key when finished
