@@ -46,7 +46,7 @@ impl StitchedPart {
     }
 }
 
-fn shape_mesh_from_helpers_mhclo(
+pub fn shape_mesh_from_helpers_mhclo(
     mesh: &Mesh,
     mhclo: &MhcloAsset,
     helpers: &[Vec3],
