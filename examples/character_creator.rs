@@ -1,4 +1,8 @@
 //! Realtime mesh modification example
+//! 
+//! The process is slow.  Unfortunately bevy has a hard limit on the number of morphs a mesh may have,
+//! so we have to rebuild the mesh in real time and it is slow.  Not sure if it can be made faster.
+//! 
 
 mod shared;
 
