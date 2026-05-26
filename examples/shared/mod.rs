@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use bevy::{
-    asset::LoadedFolder, input::mouse::MouseMotion, mesh::skinning::SkinnedMesh, prelude::*,
+    input::mouse::MouseMotion, mesh::skinning::SkinnedMesh, prelude::*,
 };
 use humentity::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -8,7 +8,7 @@ use bevy_egui::prelude::*;
 
 pub fn setup_app() -> App {
     // I moved target.json and macro.macro to the root of the assets folder because when trying to load
-    // the target folders, the asset server tried to load them their also.
+    // the target folders, the asset server tried to load them there also.
 
     let mut app = App::new();
 
@@ -28,57 +28,22 @@ pub fn setup_app() -> App {
     app
 }
 
-#[derive(Resource)]
-struct HumentityHandles {
-    pub basemesh: Handle<ObjVertsAsset>,
-    pub vertex_groups: Handle<VertexGroupsAsset>,
-    pub rig_config: Handle<RigConfigAsset>,
-    pub rig_weight: Handle<RigWeightsAsset>,
-    pub rig_ref: Handle<ReferenceRigAsset>,
-    pub composite_targets: Handle<CompositeTargetsAsset>,
-    pub macro_targets: Handle<MacroDataAsset>,
-    pub targets: Handle<LoadedFolder>,
-}
-
 /// These assets are necessary to get the plugin to work.
 fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
-    // base mesh, with helpers, used for fitting meshes to morphs
-    let basemesh =
-        asset_server.load_with_settings("base.obj", |settings: &mut ObjVertsSettings| {
-            settings.is_basemesh_helpers = true;
-        });
-
-    // morph targets, per vert deltas, used for shaping humans
-    let targets = asset_server.load_folder("targets");
-
-    // metadata for macro sliders, age, gender, etc
-    let macro_targets = asset_server.load::<MacroDataAsset>("macro.macro");
-
-    // manifest for composite targets, combines morphs in pairs positive/negative, left/right, etc
-    let composite_targets = asset_server.load::<CompositeTargetsAsset>("target.json");
-
-    // vertex groups, used for fitting skeleton
-    let vertex_groups = asset_server.load::<VertexGroupsAsset>("basemesh_vertex_groups.json");
-
-    // rig config, used with vertex groups to fit the skeleton to the mesh
-    let rig_config = asset_server.load::<RigConfigAsset>("rigs/rig.default.json");
-
-    // rig weights, used to build the mesh arrays for skinning
-    let rig_weight = asset_server.load::<RigWeightsAsset>("rigs/weights.default.json");
-
-    // rig weights, used to build the mesh arrays for skinning
-    let rig_ref = asset_server.load::<ReferenceRigAsset>("skeletons/default.glb");
-
-    commands.insert_resource(HumentityHandles {
-        basemesh,
-        vertex_groups,
-        rig_config,
-        rig_weight,
-        rig_ref,
-        targets,
-        composite_targets,
-        macro_targets,
-    });
+    commands.insert_resource(MakeHumanMorphs::new(
+        &asset_server,
+        "target.json",
+        "macro.macro",
+        "targets",
+    ));
+    commands.insert_resource(RigData::new(
+        &asset_server,
+        "rigs/rig.default.json",
+        "rigs/weights.default.json",
+        "skeletons/default.glb",
+    ));
+    commands.insert_resource(BaseMesh::new(&asset_server, "base.obj"));
+    commands.insert_resource(VertexGroups::new(&asset_server, "basemesh_vertex_groups.json"));
 }
 
 fn update_mesh_when_ready(

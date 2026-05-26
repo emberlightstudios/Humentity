@@ -1,10 +1,10 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    loaders::{CompositeTargetsAsset, MacroDataAsset, TargetAsset}, morphs, prelude::*
+    loaders::{CompositeTargetsAsset, MacroDataAsset, TargetAsset}, prelude::*
 };
 use ahash::AHashMap;
-use bevy::{ecs::intern::Internable, prelude::*};
+use bevy::{asset::{LoadState, LoadedFolder}, ecs::intern::Internable, prelude::*};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
@@ -27,7 +27,6 @@ impl Serialize for MorphTargets {
     where
         S: Serializer,
     {
-        // Convert keys to owned Strings for serialization
         let map: AHashMap<String, f32> = self.0.iter().map(|(&k, &v)| (k.to_string(), v)).collect();
         map.serialize(serializer)
     }
@@ -53,49 +52,48 @@ impl<'de> Deserialize<'de> for MorphTargets {
 #[derive(Resource)]
 pub struct MakeHumanMorphs {
     pub targets: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
-    pub expressions: Vec<&'static str>,
-    macros: MacroDataAsset,
-    composites: CompositeTargetsAsset,
-}
-
-pub(crate) fn sync_loaded_morph_manifests(
-    macro_assets: Res<Assets<MacroDataAsset>>,
-    composite_assets: Res<Assets<CompositeTargetsAsset>>,
-    mut commands: Commands,
-) {
-    if let Some((_, macro_asset)) = macro_assets.iter().next() &&
-            let Some((_, composite_asset)) = composite_assets.iter().next() {
-        commands.insert_resource(MakeHumanMorphs {
-            targets: Arc::new(RwLock::new(AHashMap::default())),
-            expressions: Vec::new(),
-            macros: macro_asset.clone(),
-            composites: composite_asset.clone(),
-        });
-    }
-}
-
-pub(crate) fn sync_loaded_morph_targets(
-    morphs: Res<MakeHumanMorphs>,
-    target_assets: Res<Assets<TargetAsset>>,
-    mut target_events: MessageReader<AssetEvent<TargetAsset>>,
-) {
-    for ev in target_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = ev {
-            let asset = target_assets.get(*id).unwrap();
-            let name = asset.name;
-            let mut targets = morphs.targets.write().unwrap();
-            targets.insert(name, asset.clone());
-        }
-    }   
+    pub categories: RwLock<AHashMap<&'static str, Vec<&'static str>>>,
+    macros: Arc<RwLock<Option<MacroDataAsset>>>,
+    composites: Arc<RwLock<Option<CompositeTargetsAsset>>>,
+    composite_handle: Handle<CompositeTargetsAsset>,
+    macro_handle: Handle<MacroDataAsset>,
+    targets_handle: Handle<LoadedFolder>,
 }
 
 impl MakeHumanMorphs {
+    pub fn new(
+        asset_server: &AssetServer,
+        composite_path: &'static str,
+        macro_path: &'static str,
+        targets_folder: &'static str,
+    ) -> Self {
+        Self {
+            targets: default(),
+            macros: default(),
+            composites: default(),
+            categories: default(),
+            composite_handle: asset_server.load::<CompositeTargetsAsset>(composite_path),
+            macro_handle: asset_server.load::<MacroDataAsset>(macro_path),
+            targets_handle: asset_server.load_folder(targets_folder),
+        }
+    }
+
+    pub fn is_ready(&self, asset_server: &AssetServer) -> bool {
+        if !self.macros.read().unwrap().is_some() || !self.composites.read().unwrap().is_some() {
+            return false;
+        }
+        matches!(asset_server.get_load_state(&self.targets_handle), Some(LoadState::Loaded))
+    }
+
     pub fn get_min_values(&self) -> AHashMap<&'static str, f32> {
-        let names = self.get_morph_names();
+        let categories = self.categories.read().unwrap();
         let mut result = AHashMap::default();
-        for (&category, morph_names) in names.iter() {
+        for (&category, morph_names) in categories.iter() {
             for &morph in morph_names.iter() {
-                if category == "macro" || (category == "head" && morph.split('-').count() == 2) {
+                if category == "macro"
+                    || (category == "head" && morph.split('-').count() == 2)
+                    || category == "expressions"
+                {
                     result.insert(morph, 0.);
                 } else {
                     result.insert(morph, -1.);
@@ -105,35 +103,12 @@ impl MakeHumanMorphs {
         result
     }
 
-    /// Gets all available morph names
     pub fn get_morph_names(&self) -> AHashMap<&'static str, Vec<&'static str>> {
-        let mut sliders = AHashMap::<&'static str, Vec<&'static str>>::default();
-        let mut macro_sliders = vec!["caucasian", "asian", "african"];
-        macro_sliders.extend(self.macros.macrotargets.keys());
-        sliders.insert("macro", macro_sliders);
-        sliders.insert("asymmetry", self.get_asymetry_target_names());
-        for (&category, morphs) in self.composites.iter() {
-            let morph_names = morphs.morphs.iter().map(|m| m.name).collect();
-            sliders.insert(category, morph_names);
-        }
-        sliders
+        self.categories.read().unwrap().clone()
     }
 
-    /// Get asymmetry targets, not composite.  Everything else should be macro or composite
-    pub fn get_asymetry_target_names(&self) -> Vec<&'static str> {
-        let targets = self.targets.read().unwrap();
-        targets
-            .keys()
-            .filter(|&name| name.starts_with("asym"))
-            .map(|&name| name)
-            .collect::<Vec<_>>()
-    }
-
-    /// Given a single unified slider map, resolve all macro and composite morphs to final target weights.
     pub fn compute_target_weights(&self, morph_targets: &MorphTargets) -> Result<MorphTargets, MorphError> {
-
         let targets = self.targets.read().unwrap();
-        // If already resolved to raw target asset names, we have nothing to do
         if targets
             .keys()
             .all(|&t| morph_targets.contains_key(t))
@@ -141,15 +116,23 @@ impl MakeHumanMorphs {
             return Ok(morph_targets.clone());
         }
 
+        let macros = self.macros.read().unwrap();
+        let Some(macros) = macros.as_ref() else {
+            return Err(MorphError::MacrosNotLoaded);
+        };
+
+        let composites = self.composites.read().unwrap();
+        let Some(composites) = composites.as_ref() else {
+            return Err(MorphError::CompositeNotLoaded);
+        };
+
         let mut result = MorphTargets::default();
 
-        // Check for macro inputs
-        if self.macros.macrotargets.is_empty() {
+        if macros.macrotargets.is_empty() {
             return Err(MorphError::MacrosNotLoaded);
         }
 
-        // Check for composite inputs
-        if self.composites.is_empty() {
+        if composites.is_empty() {
             return Err(MorphError::CompositeNotLoaded);
         }
 
@@ -161,30 +144,28 @@ impl MakeHumanMorphs {
 
         // --- 1️⃣ Normalize race sliders ---
         let mut total_race: f32 = 0.;
-        for race in self.macros.morph_map["race"].iter() {
+        for race in macros.morph_map["race"].iter() {
             if let Some(value) = morph_targets.0.get(race) {
                 total_race += value;
             }
         }
         if total_race > 0. {
-            for race in self.macros.morph_map["race"].iter() {
+            for race in macros.morph_map["race"].iter() {
                 let value = morph_targets.0.entry(race).or_default();
                 *value /= total_race;
             }
         } else {
-            // Default to Caucasian=1 if not specified
             morph_targets.insert("caucasian", 1.0);
             morph_targets.insert("african", 0.0);
             morph_targets.insert("asian", 0.0);
         };
 
         // --- 2️⃣ Split out macros ---
-        // Handle defaults for macros
         if !morph_targets.contains_key("gender") {
-            morph_targets.insert("gender", 1.0); // Male
+            morph_targets.insert("gender", 1.0);
         }
         if !morph_targets.contains_key("age") {
-            morph_targets.insert("age", 0.5); // Young
+            morph_targets.insert("age", 0.5);
         }
         if !morph_targets.contains_key("weight") {
             morph_targets.insert("weight", 0.5);
@@ -197,13 +178,13 @@ impl MakeHumanMorphs {
         }
 
         // --- 3️⃣ Compute macro morphs ---
-        let macro_values = compute_macro_weights(&self.macros, &morph_targets);
-        
-        for &race in self.macros.morph_map["race"].iter() {
+        let macro_values = compute_macro_weights(macros, &morph_targets);
+
+        for &race in macros.morph_map["race"].iter() {
             let race_value = morph_targets.get(&race).copied().unwrap_or(0.0);
-            for &gender in self.macros.morph_map["gender"].iter() {
+            for &gender in macros.morph_map["gender"].iter() {
                 let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-                for &age in self.macros.morph_map["age"].iter() {
+                for &age in macros.morph_map["age"].iter() {
                     let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
                     let name = NAME_INTERNER
                         .intern(&format!("{race}-{gender}-{age}"))
@@ -216,14 +197,13 @@ impl MakeHumanMorphs {
             }
         }
 
-        // universal-gender-age-muscle-weight targets
-        for &gender in self.macros.morph_map["gender"].iter() {
+        for &gender in macros.morph_map["gender"].iter() {
             let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-            for &age in self.macros.morph_map["age"].iter() {
+            for &age in macros.morph_map["age"].iter() {
                 let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
-                for &muscle in self.macros.morph_map["muscle"].iter() {
+                for &muscle in macros.morph_map["muscle"].iter() {
                     let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
-                    for &weight in self.macros.morph_map["weight"].iter() {
+                    for &weight in macros.morph_map["weight"].iter() {
                         let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
                         let name = NAME_INTERNER
                             .intern(&format!("universal-{gender}-{age}-{muscle}-{weight}"))
@@ -237,16 +217,15 @@ impl MakeHumanMorphs {
             }
         }
 
-        // gender-age-muscle-weight-height targets
-        for &gender in self.macros.morph_map["gender"].iter() {
+        for &gender in macros.morph_map["gender"].iter() {
             let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-            for &age in self.macros.morph_map["age"].iter() {
+            for &age in macros.morph_map["age"].iter() {
                 let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
-                for &muscle in self.macros.morph_map["muscle"].iter() {
+                for &muscle in macros.morph_map["muscle"].iter() {
                     let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
-                    for &weight in self.macros.morph_map["weight"].iter() {
+                    for &weight in macros.morph_map["weight"].iter() {
                         let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
-                        for &height in self.macros.morph_map["height"].iter() {
+                        for &height in macros.morph_map["height"].iter() {
                             let height_value = macro_values.get(&height).copied().unwrap_or(0.0);
                             let name = NAME_INTERNER
                                 .intern(&format!("{gender}-{age}-{muscle}-{weight}-{height}"))
@@ -265,19 +244,18 @@ impl MakeHumanMorphs {
             }
         }
 
-        // gender-age-muscle-weight-proportions targets
-        for &gender in self.macros.morph_map["gender"].iter() {
+        for &gender in macros.morph_map["gender"].iter() {
             let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-            for &age in self.macros.morph_map["age"].iter() {
+            for &age in macros.morph_map["age"].iter() {
                 if age == "baby" {
                     continue;
                 }
                 let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
-                for &muscle in self.macros.morph_map["muscle"].iter() {
+                for &muscle in macros.morph_map["muscle"].iter() {
                     let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
-                    for &weight in self.macros.morph_map["weight"].iter() {
+                    for &weight in macros.morph_map["weight"].iter() {
                         let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
-                        for &proportions in self.macros.morph_map["proportions"].iter() {
+                        for &proportions in macros.morph_map["proportions"].iter() {
                             let proportions_value = macro_values.get(&proportions).copied().unwrap_or(0.0);
                             let name = NAME_INTERNER
                                 .intern(&format!("{gender}-{age}-{muscle}-{weight}-{proportions}"))
@@ -296,24 +274,23 @@ impl MakeHumanMorphs {
             }
         }
 
-        // gender-age-muscle-weight-cup-firmness targets
-        for &gender in self.macros.morph_map["gender"].iter() {
+        for &gender in macros.morph_map["gender"].iter() {
             if gender == "male" {
                 continue;
             }
             let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-            for &age in self.macros.morph_map["age"].iter() {
+            for &age in macros.morph_map["age"].iter() {
                 if age == "baby" {
                     continue;
                 }
                 let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
-                for &muscle in self.macros.morph_map["muscle"].iter() {
+                for &muscle in macros.morph_map["muscle"].iter() {
                     let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
-                    for &weight in self.macros.morph_map["weight"].iter() {
+                    for &weight in macros.morph_map["weight"].iter() {
                         let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
-                        for &cupsize in self.macros.morph_map["cupsize"].iter() {
+                        for &cupsize in macros.morph_map["cupsize"].iter() {
                             let cupsize_value = macro_values.get(&cupsize).copied().unwrap_or(0.0);
-                            for &firmness in self.macros.morph_map["firmness"].iter() {
+                            for &firmness in macros.morph_map["firmness"].iter() {
                                 if firmness == "averagefirmness" && cupsize == "averagecup" {
                                     continue;
                                 }
@@ -339,7 +316,7 @@ impl MakeHumanMorphs {
             }
         }
 
-        let macro_flat_morphs = self.macros.morph_map
+        let macro_flat_morphs = macros.morph_map
             .values()
             .flat_map(|v| v.iter())
             .collect::<Vec<_>>();
@@ -347,28 +324,23 @@ impl MakeHumanMorphs {
         for macro_key in macro_flat_morphs {
             morph_targets.remove(macro_key);
         }
-        for macro_key in self.macros.morph_map.keys() {
+        for macro_key in macros.morph_map.keys() {
             morph_targets.remove(macro_key);
         }
-
-        // race-gender-age targets
 
         // -----------------------------------
         // 2. Resolve composite morph sliders
         // -----------------------------------
-        let flattened_composite_morphs = self.composites
+        let flattened_composite_morphs = composites
             .iter()
             .flat_map(|(_category_name, category)| {
                 category.morphs.iter().cloned().map(|m| (m.name, m))
             })
             .collect::<AHashMap<_, _>>();
-        
+
         let mut to_remove = Vec::new();
         for (&slider_name, value) in morph_targets.iter() {
-            // Find the composite morph definition that matches this slider
             if let Some(morph) = flattened_composite_morphs.get(slider_name) {
-                // Some morphs just directly reference targets
-                // Apply evenly or using sign if opposites are present
                 if let Some(opps) = &morph.opposites {
                     if morph.has_left_and_right {
                         if *value > 0.0 {
@@ -397,7 +369,6 @@ impl MakeHumanMorphs {
                     }
                     to_remove.push(slider_name);
                 } else if let Some(targets) = &morph.targets {
-                    // No opposites: directly apply
                     for target in targets {
                         *result
                             .entry(NAME_INTERNER.intern(target).leak())
@@ -408,7 +379,6 @@ impl MakeHumanMorphs {
             }
         }
 
-        // Remove handled composite morphs to see if any unknown sliders remain that don't map to targets
         let morph_targets = morph_targets.iter()
             .filter(|(k, _)| !to_remove.contains(*k));
 
@@ -441,10 +411,72 @@ impl MakeHumanMorphs {
 
         Ok(result)
     }
-
 }
 
-pub(crate) fn adjust_helpers_to_morphs(
+pub(crate) fn populate_morph_resource(
+    morphs: Res<MakeHumanMorphs>,
+    macro_assets: Res<Assets<MacroDataAsset>>,
+    composite_assets: Res<Assets<CompositeTargetsAsset>>,
+) {
+    if morphs.macros.read().unwrap().is_none() {
+        if let Some((_, asset)) = macro_assets.iter().next() {
+            let data = asset.clone();
+            let mut cats = morphs.categories.write().unwrap();
+            let mut macro_sliders = vec!["caucasian", "asian", "african"];
+            macro_sliders.extend(data.macrotargets.keys());
+            cats.insert("macro", macro_sliders);
+            *morphs.macros.write().unwrap() = Some(data);
+        }
+    }
+
+    if morphs.composites.read().unwrap().is_none() {
+        if let Some((_, asset)) = composite_assets.iter().next() {
+            let data = asset.clone();
+            let mut cats = morphs.categories.write().unwrap();
+            for (&category, category_morphs) in data.iter() {
+                if category_morphs.morphs.is_empty() {
+                    continue;
+                }
+                let morph_names: Vec<&'static str> = category_morphs.morphs.iter().map(|m| m.name).collect();
+                cats.insert(category, morph_names);
+            }
+            *morphs.composites.write().unwrap() = Some(data);
+        }
+    }
+}
+
+pub(crate) fn sync_loaded_morph_targets(
+    morphs: Res<MakeHumanMorphs>,
+    target_assets: Res<Assets<TargetAsset>>,
+    asset_server: Res<AssetServer>,
+    mut target_events: MessageReader<AssetEvent<TargetAsset>>,
+) {
+    for ev in target_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev {
+            let asset = target_assets.get(*id).unwrap();
+            let name = asset.name;
+            let mut targets = morphs.targets.write().unwrap();
+            targets.insert(name, asset.clone());
+
+            if let Some(path) = asset_server.get_path(*id) {
+                let folder = path.path().parent().and_then(|p| p.file_stem()).and_then(|s| s.to_str());
+                let category = match folder {
+                    Some("expressions") => Some("expressions"),
+                    Some("asym") => Some("asymmetry"),
+                    _ => None,
+                };
+                if let Some(cat) = category {
+                    morphs.categories.write().unwrap()
+                        .entry(cat)
+                        .or_insert(vec![])
+                        .push(name);
+                }
+            }
+        }
+    }
+}
+
+pub fn adjust_helpers_to_morphs(
     morph_values: &MorphTargets,
     mh_morphs: &Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh_vertices: &[Vec3],

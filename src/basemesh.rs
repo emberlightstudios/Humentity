@@ -1,30 +1,70 @@
+use std::ops::Deref;
 use std::sync::Arc;
 
 use ahash::AHashMap;
 use bevy::prelude::*;
 
 use crate::loaders::{ObjVertsAsset, VertexGroupsAsset};
-
-// The last vert for the basemesh before helpers
-//pub(crate) const _BODY_VERTICES: u16 = 13380u16;
+use crate::loaders::ObjVertsSettings;
 
 #[derive(Resource)]
-pub struct BaseMesh(pub Arc<Vec<Vec3>>);
+pub struct BaseMesh {
+    pub vertices: Arc<Vec<Vec3>>,
+    handle: Handle<ObjVertsAsset>,
+}
+
+impl BaseMesh {
+    pub fn new(asset_server: &AssetServer, path: &'static str) -> Self {
+        let handle = asset_server.load_with_settings(path, |settings: &mut ObjVertsSettings| {
+            settings.is_basemesh_helpers = true;
+        });
+        Self {
+            vertices: default(),
+            handle,
+        }
+    }
+}
+
+impl Deref for BaseMesh {
+    type Target = Arc<Vec<Vec3>>;
+    fn deref(&self) -> &Self::Target {
+        &self.vertices
+    }
+}
 
 #[derive(Resource)]
-pub struct VertexGroups(pub Arc<AHashMap<String, Vec<[usize; 2]>>>);
+pub struct VertexGroups {
+    data: Arc<AHashMap<String, Vec<[usize; 2]>>>,
+    handle: Handle<VertexGroupsAsset>,
+}
+
+impl VertexGroups {
+    pub fn new(asset_server: &AssetServer, path: &'static str) -> Self {
+        let handle = asset_server.load::<VertexGroupsAsset>(path);
+        Self {
+            data: default(),
+            handle,
+        }
+    }
+}
+
+impl Deref for VertexGroups {
+    type Target = AHashMap<String, Vec<[usize; 2]>>;
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
 
 pub(crate) fn extract_basemesh_asset(
     basemesh_assets: Res<Assets<ObjVertsAsset>>,
     mut basemesh_events: MessageReader<AssetEvent<ObjVertsAsset>>,
-    mut commands: Commands,
+    mut meshes: ResMut<BaseMesh>,
 ) {
     for ev in basemesh_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = ev {
             if let Some(asset) = basemesh_assets.get(*id) {
-                // Only cache helper OBJs (the basemesh helpers used for morphing)
                 if asset.is_basemesh_helpers {
-                    commands.insert_resource(BaseMesh(Arc::new(asset.vertices.clone())));
+                    meshes.vertices = Arc::new(asset.vertices.clone());
                     return;
                 }
             }
@@ -35,12 +75,12 @@ pub(crate) fn extract_basemesh_asset(
 pub(crate) fn extract_vertex_groups_asset(
     vg_assets: Res<Assets<VertexGroupsAsset>>,
     mut vg_events: MessageReader<AssetEvent<VertexGroupsAsset>>,
-    mut commands: Commands,
+    mut vg: ResMut<VertexGroups>,
 ) {
     for ev in vg_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = ev {
             if let Some(asset) = vg_assets.get(*id) {
-                commands.insert_resource(VertexGroups(Arc::new(asset.0.clone())));
+                vg.data = Arc::new(asset.0.clone());
             }
         }
     }

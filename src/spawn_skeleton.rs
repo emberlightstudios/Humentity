@@ -69,7 +69,7 @@ pub(crate) fn fit_skeleton_to_shape(
     for (character_entity, config, root_motion) in configs.iter_mut() {
         let template = &templates[&config.template];
         let Ok(helpers) =
-            template.get_helpers(&config.template_morph_targets, &basemesh.0, &morph_targets)
+            template.get_helpers(&config.template_morph_targets, &basemesh.vertices, &morph_targets)
         else {
             continue;
         };

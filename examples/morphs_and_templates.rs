@@ -47,52 +47,18 @@ fn add_humans(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     morphs: Res<MakeHumanMorphs>,
 ) {
-    // When feeding in morphs you can ignore the categories here.
-    // They are only for helping you organize a UI
+    if !morphs.is_ready(&asset_server) {
+        return;
+    }
 
-    // Let's create a template that can take different shapes
-    // If race is not specified, defaults to caucasian (caucasian = 1, african = 0, asian = 0)
-    // If gender is not specified, defaults to male (gender = 1)
-    // If age is not specified, defaults to (young) adult (age = 0.5)
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
+    morph_targets.insert("baby", 0.60);
+    morph_targets.insert("child", 0.40);
 
-    // This fn call is necessary to deconstruct compound "morph" values
-    // down to the level of individual makehuman morph targets.
-    // Many of the available morphs (see line 83) actually drive multiple
-    // makehuman morph targets at once.
-    let baby_morphs = match morphs.compute_target_weights(&morph_targets) {
-        Ok(morphs) => morphs,
-        Err(err) => {
-            error!("Error computing morph targets for baby: {err}");
-            return;
-        } 
-    };
+    let baby_morphs = morphs.compute_target_weights(&morph_targets).unwrap();
 
-    let loaded = morphs.targets.read().unwrap();
-    for k in baby_morphs.keys() {
-        if !loaded.contains_key(k) {
-            return;
-        }
-    }
-
-    morph_targets.clear();
-    // These are desinged in makehuman such that you don't have to normalize their sum.
-    morph_targets.insert("weight", 1.);
-    morph_targets.insert("muscle", 1.);
-    let bodybuilder_morphs = match morphs.compute_target_weights(&morph_targets) {
-        Ok(morphs) => morphs,
-        Err(err) => {
-            error!("Error computing morph targets for bodybuilder: {err}");
-            return;
-        } 
-    };
-    let loaded = morphs.targets.read().unwrap();
-    for k in bodybuilder_morphs.keys() {
-        if !loaded.contains_key(k) {
-            return;
-        }
-    }
+    let bodybuilder_morphs = morphs.compute_target_weights(&morph_targets).unwrap();
 
     commands.insert_resource(
         CharacterTemplates::new([(

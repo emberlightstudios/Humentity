@@ -2,8 +2,6 @@
 
 mod shared;
 
-use std::time::Duration;
-
 use bevy::feathers::controls::button;
 use bevy::feathers::controls::slider;
 use bevy::feathers::controls::ButtonProps;
@@ -12,9 +10,7 @@ use bevy::feathers::dark_theme::create_dark_theme;
 use bevy::feathers::theme::ThemedText;
 use bevy::feathers::theme::UiTheme;
 use bevy::feathers::FeathersPlugins;
-use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
 use bevy::ui_widgets::observe;
 use bevy::ui_widgets::slider_self_update;
 use bevy::ui_widgets::Activate;
@@ -22,11 +18,12 @@ use bevy::ui_widgets::Slider;
 use bevy::ui_widgets::SliderPrecision;
 use bevy::ui_widgets::SliderStep;
 use bevy::ui_widgets::ValueChange;
+use std::sync::Arc;
+use ahash::AHashMap;
+use bevy::tasks::AsyncComputeTaskPool;
+use crossbeam_channel;
 use humentity::prelude::*;
 use shared::setup_app;
-
-const TEMPLATE: &str = "TemplateName";
-const SHAPE_NAME: &str = "DefaultShapeName";
 
 #[derive(Component, Deref)]
 struct ButtonCategory(&'static str);
@@ -39,14 +36,6 @@ struct RootNode;
 
 #[derive(Resource)]
 struct UiInitialized;
-
-#[derive(Resource)]
-struct DirectBuild {
-    mhclo: Handle<MhcloAsset>,
-    raw_mesh: Option<Handle<Mesh>>,
-    raw_verts: Option<Handle<ObjVertsAsset>>,
-    needs_build: bool,
-}
 
 #[derive(Resource, DerefMut, Deref)]
 struct SliderValues(ahash::AHashMap<&'static str, MorphTargets>);
@@ -72,14 +61,37 @@ impl SliderValues {
         let category = self.entry(category).or_insert(MorphTargets::default());
         category.insert(name, value);
     }
+}
 
-    fn categories(&self) -> Vec<&'static str> {
-        vec![
-            "macro", "head", "forehead", "eyes", "eyebrows", "nose", "mouth",
-            "cheek", "chin", "ears", "neck", "torso", "breast", "stomach",
-            "pelvis", "buttocks", "arms", "hands", "legs", "feet", "asymmetry",
-        ]
-    }
+/// Ordered category priority — categories not in this list appear at the end.
+const CATEGORY_ORDER: &[&str] = &[
+    "macro", "head", "forehead", "eyes", "eyebrows", "nose", "mouth",
+    "cheek", "chin", "ears", "neck", "torso", "breast", "stomach",
+    "pelvis", "buttocks", "arms", "hands", "legs", "feet", "asymmetry",
+    "expressions",
+];
+
+/// Categories to hide from the UI.
+const CATEGORY_BLOCKLIST: &[&str] = &["genitals", "measure", "unsorted"];
+
+struct BuildResult {
+    mesh: Mesh,
+}
+
+/// Cached asset handles and derived data for direct mesh building
+#[derive(Resource)]
+struct CreatorAssets {
+    mhclo: Handle<MhcloAsset>,
+    input_mesh: Handle<Mesh>,
+    mesh_verts: Handle<ObjVertsAsset>,
+    entity: Entity,
+    vertex_map: Arc<AHashMap<u16, Vec<u16>>>,
+    mhid_lookup: Arc<Vec<u16>>,
+    needs_rebuild: bool,
+    rx: Option<crossbeam_channel::Receiver<BuildResult>>,
+    /// Unchanging data cached as Arc after first build — avoids deep cloning on rebuilds
+    cached_input_mesh: Option<Arc<Mesh>>,
+    cached_mhclo: Option<Arc<MhcloAsset>>,
 }
 
 fn main() {
@@ -91,76 +103,21 @@ fn main() {
             Update,
             setup_and_add_human
                 .run_if(resource_exists::<MakeHumanMorphs>)
-                .run_if(not(resource_exists::<DirectBuild>)),
+                .run_if(not(resource_exists::<CreatorAssets>)),
+        )
+        .add_systems(
+            Update,
+            update_character_mesh.run_if(resource_exists::<CreatorAssets>),
         )
         .add_systems(
             Update,
             init_ui
                 .run_if(resource_exists::<MakeHumanMorphs>)
-                .run_if(not(resource_exists::<UiInitialized>)),
+                .run_if(not(resource_exists::<UiInitialized>))
+                .run_if(resource_exists::<CreatorAssets>),
         )
-        .add_systems(Update, build_direct.run_if(resource_exists::<DirectBuild>))
-        .add_systems(Update, rebuild.run_if(on_timer(Duration::from_millis(50))))
         .insert_resource(SliderValues::default())
         .run();
-}
-
-fn build_direct(
-    mut state: ResMut<DirectBuild>,
-    asset_server: Res<AssetServer>,
-    mhclo_assets: Res<Assets<MhcloAsset>>,
-    obj_verts: Res<Assets<ObjVertsAsset>>,
-    templates: Res<CharacterTemplates>,
-    morphs: Res<MakeHumanMorphs>,
-    basemesh: Res<BaseMesh>,
-    rig_data: Res<RigData>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut images: ResMut<Assets<Image>>,
-    mut commands: Commands,
-    parts: Query<(Entity, &CharacterPart)>,
-) {
-    // Phase 1: kick off raw mesh loading
-    if state.raw_mesh.is_none() {
-        if let Some(mhclo) = mhclo_assets.get(&state.mhclo) {
-            let mesh = asset_server.load::<Mesh>(mhclo.obj_file.clone());
-            let verts = asset_server.load::<ObjVertsAsset>(mhclo.obj_file.clone());
-            state.raw_mesh = Some(mesh);
-            state.raw_verts = Some(verts);
-        }
-        return;
-    }
-
-    if !state.needs_build {
-        return;
-    }
-
-    // Phase 2: build when all dependencies are ready
-    let Some(mhclo) = mhclo_assets.get(&state.mhclo) else { return };
-    let Some(raw_mesh) = state.raw_mesh.as_ref().and_then(|h| meshes.get(h)) else { return };
-    let Some(raw_verts) = state.raw_verts.as_ref().and_then(|h| obj_verts.get(h)) else { return };
-    let Some(template) = templates.get(TEMPLATE) else { return };
-    let Some(rig_spec) = rig_data.get(&template.rig) else { return };
-
-    let mesh = build_single_mesh_direct(
-        mhclo,
-        raw_mesh,
-        raw_verts,
-        template,
-        morphs.targets.clone(),
-        basemesh.0.clone(),
-        rig_spec,
-        &mut images,
-    );
-
-    let mesh_handle = meshes.add(mesh);
-
-    for (entity, part) in parts.iter() {
-        if part.0 == state.mhclo {
-            commands.entity(entity).insert(Mesh3d(mesh_handle.clone()));
-        }
-    }
-
-    state.needs_build = false;
 }
 
 fn setup_and_add_human(
@@ -168,81 +125,97 @@ fn setup_and_add_human(
     asset_server: Res<AssetServer>,
     mh_morphs: Res<MakeHumanMorphs>,
 ) {
+    if !mh_morphs.is_ready(&asset_server) {
+        return;
+    }
+
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.5);
     morph_targets.insert("gender", 1.0);
     morph_targets.insert("caucasian", 1.0);
 
-    let resolved = match mh_morphs.compute_target_weights(&morph_targets) {
-        Ok(m) => m,
-        Err(err) => {
-            error!("Error computing morph targets: {err}");
-            return;
-        }
-    };
+    let resolved = mh_morphs.compute_target_weights(&morph_targets).unwrap();
 
-    let loaded = mh_morphs.targets.read().unwrap();
-    for k in resolved.keys() {
-        if !loaded.contains_key(k) {
-            return;
-        }
+    let mhclo_handle = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+    let entity = commands.spawn((
+        Name::new("Character"),
+        Transform::from_translation(Vec3::new(-1., 0., 0.))
+            .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+        InheritedVisibility::default(),
+    )).id();
+
+    commands.insert_resource(CreatorAssets {
+        mhclo: mhclo_handle,
+        input_mesh: Handle::default(),
+        mesh_verts: Handle::default(),
+        entity,
+        vertex_map: Arc::new(AHashMap::default()),
+        mhid_lookup: Arc::new(vec![]),
+        needs_rebuild: false,
+        rx: None,
+        cached_input_mesh: None,
+        cached_mhclo: None,
+    });
+}
+
+fn update_character_mesh(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mesh_verts_assets: Res<Assets<ObjVertsAsset>>,
+    mhclo_assets: Res<Assets<MhcloAsset>>,
+    mh_morphs: Res<MakeHumanMorphs>,
+    basemesh: Res<BaseMesh>,
+    sliders: Option<Res<SliderValues>>,
+    mut creator: ResMut<CreatorAssets>,
+) {
+    // Phase 1 -- load OBJ assets once when MhcloAsset becomes available
+    if creator.input_mesh == Handle::default() {
+        let Some(mhclo) = mhclo_assets.get(&creator.mhclo) else { return };
+        creator.input_mesh = asset_server.load::<Mesh>(mhclo.obj_file.clone());
+        creator.mesh_verts = asset_server.load::<ObjVertsAsset>(mhclo.obj_file.clone());
+        return;
     }
 
-    commands.insert_resource(CharacterTemplates::new([(
-        TEMPLATE,
-        CharacterTemplate::new(
-            [CharacterMorphShapes::new(SHAPE_NAME, resolved)],
-            RigType::Default,
-        ),
-    )]));
+    // Wait for OBJ assets to finish loading
+    let Some(input_mesh) = meshes.get(&creator.input_mesh) else { return };
+    let Some(mesh_verts) = mesh_verts_assets.get(&creator.mesh_verts) else { return };
+    let Some(mhclo) = mhclo_assets.get(&creator.mhclo) else { return };
 
-    let mhclo = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+    // Phase 1.5 — one-time precomputation of unchanging data (vertex_map, mhid_lookup, cached mesh/mhclo)
+    if creator.vertex_map.is_empty() {
+        let vmap = generate_vertex_map(&mesh_verts.vertices, &get_vertex_positions(input_mesh));
+        let mhid = generate_mhid_lookup(&vmap);
+        creator.vertex_map = Arc::new(vmap);
+        creator.mhid_lookup = Arc::new(mhid);
+        creator.cached_input_mesh = Some(Arc::new(input_mesh.clone()));
+        creator.cached_mhclo = Some(Arc::new(mhclo.clone()));
+        creator.needs_rebuild = true;
+    }
 
-    commands.insert_resource(DirectBuild {
-        mhclo: mhclo.clone(),
-        raw_mesh: None,
-        raw_verts: None,
-        needs_build: true,
-    });
+    // Phase 2 -- collect result from a completed async build
+    if let Some(rx) = &creator.rx {
+        if let Ok(result) = rx.try_recv() {
+            commands.entity(creator.entity).insert(Mesh3d(meshes.add(result.mesh)));
+            creator.rx = None;
+        }
+        return;
+    }
 
-    let mut morph_weights = MorphTargets::default();
-    morph_weights.insert(SHAPE_NAME, 1.0);
+    // Phase 3 -- start an async build when flagged
+    if creator.rx.is_some() {
+        return;
+    }
+    if !creator.needs_rebuild && !creator.vertex_map.is_empty() {
+        return;
+    }
+    creator.needs_rebuild = false;
 
-    commands.spawn((
-        Name::new("Character"),
-        Transform::from_translation(Vec3::new(-1., 0., 0.)),
-        InheritedVisibility::default(),
-        CharacterShapeConfig::new(TEMPLATE, morph_weights),
-        children![(CharacterPart(mhclo), Name::new("basemesh"))],
-    ));
-}
-
-fn rebuild(
-    mut state: ResMut<DirectBuild>,
-    human: Single<(Entity, &RelatedEntities), With<CharacterShapeConfig>>,
-    mut commands: Commands,
-) {
-    let (entity, related) = *human;
-
-    state.needs_build = true;
-
-    commands.entity(related.rig).despawn();
-    commands
-        .entity(entity)
-        .remove::<RelatedEntities>()
-        .remove::<SkinnedMesh>();
-}
-
-fn on_slider_value_changed(
-    trigger: On<ValueChange<f32>>,
-    mut sliders: ResMut<SliderValues>,
-    slider_metadata: Query<&SliderMetadata>,
-    mh_morphs: Res<MakeHumanMorphs>,
-    mut templates: ResMut<CharacterTemplates>,
-) {
-    let metadata = slider_metadata.get(trigger.event().source).unwrap();
-    sliders.insert_value(metadata.0, metadata.1, trigger.event().value);
-
+    // Resolve morph weights on the main thread (fast — hashmap lookups only)
+    if !mh_morphs.is_ready(&asset_server) {
+        return;
+    }
+    let Some(sliders) = sliders else { return };
     let mut morphs = MorphTargets::default();
     for (&category, targets) in sliders.iter() {
         for (&name, &value) in targets.iter() {
@@ -251,18 +224,27 @@ fn on_slider_value_changed(
             }
         }
     }
+    let resolved = mh_morphs.compute_target_weights(&morphs).unwrap();
 
-    morphs = match mh_morphs.compute_target_weights(&morphs) {
-        Ok(m) => m,
-        Err(err) => {
-            error!("Error computing morph targets: {err}");
-            return;
-        }
-    };
+    let (tx, rx) = crossbeam_channel::unbounded();
+    creator.rx = Some(rx);
 
-    let template = templates.get_mut(TEMPLATE).unwrap();
-    let shape = template.shapes.get_mut(0).unwrap();
-    shape.morphs = morphs;
+    let mh_morphs_targets = mh_morphs.targets.clone();
+    let basemesh_vec = basemesh.vertices.clone();
+    let vertex_map = creator.vertex_map.clone();
+    let mhid_lookup = creator.mhid_lookup.clone();
+    let input_mesh_arc = creator.cached_input_mesh.as_ref().unwrap().clone();
+    let mhclo_arc = creator.cached_mhclo.as_ref().unwrap().clone();
+
+    AsyncComputeTaskPool::get().spawn(async move {
+        let helpers =
+            adjust_helpers_to_morphs(&resolved, &mh_morphs_targets, &basemesh_vec).unwrap();
+        let mesh = shape_mesh_from_helpers_mhclo(
+            &*input_mesh_arc, &*mhclo_arc, &helpers, &*mhid_lookup, &*vertex_map,
+        );
+        let _ = tx.send(BuildResult { mesh });
+    })
+    .detach();
 }
 
 fn init_ui(
@@ -299,10 +281,36 @@ fn init_ui(
     commands.entity(root).add_child(top_bar);
     let morphs = mh_morphs.get_morph_names();
 
-    for &category in sliders.categories().iter() {
-        let morphs = &morphs[category];
+    // Order categories: known ones first, then any extras from the morph map
+    let mut known: std::collections::HashSet<&str> = CATEGORY_ORDER.iter().copied().collect();
+    for &category in CATEGORY_ORDER {
+        let Some(morph_names) = morphs.get(category) else { continue };
         let sliders = sliders.entry(category).or_insert(MorphTargets::default());
-        for &morph in morphs.iter() {
+        for &morph in morph_names.iter() {
+            if !sliders.contains_key(morph) {
+                sliders.insert(morph, 0.);
+            }
+        }
+
+        let btn = commands
+            .spawn((
+                ButtonCategory(category),
+                button(
+                    ButtonProps::default(),
+                    (),
+                    Spawn((Text::new(category), ThemedText)),
+                ),
+            ))
+            .observe(category_selected)
+            .id();
+        commands.entity(top_bar).add_child(btn);
+    }
+    for &category in morphs.keys() {
+        if CATEGORY_BLOCKLIST.contains(&category) { continue }
+        if known.contains(category) { continue }
+        let morph_names = &morphs[category];
+        let sliders = sliders.entry(category).or_insert(MorphTargets::default());
+        for &morph in morph_names.iter() {
             if !sliders.contains_key(morph) {
                 sliders.insert(morph, 0.);
             }
@@ -375,4 +383,15 @@ fn category_selected(
             .id();
         commands.entity(root).add_child(slider);
     }
+}
+
+fn on_slider_value_changed(
+    trigger: On<ValueChange<f32>>,
+    mut sliders: ResMut<SliderValues>,
+    mut creator: ResMut<CreatorAssets>,
+    slider_metadata: Query<&SliderMetadata>,
+) {
+    let metadata = slider_metadata.get(trigger.source).unwrap();
+    sliders.insert_value(metadata.0, metadata.1, trigger.value);
+    creator.needs_rebuild = true;
 }

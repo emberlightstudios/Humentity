@@ -30,28 +30,18 @@ fn add_humans(
     morphs: Res<MakeHumanMorphs>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut morph_targets = MorphTargets::default();
-    morph_targets.insert("muscle", 1.);
-    morph_targets.insert("gender", 0.);
-    morph_targets.insert("cupsize", 1.);
-    morph_targets.insert("firmness", 1.);
-
-    let resolved_morphs = match morphs.compute_target_weights(&morph_targets) {
-        Ok(m) => m,
-        Err(err) => {
-            error!("Error computing morph targets: {err}");
-            return;
-        }
-    };
-
-    let loaded = morphs.targets.read().unwrap();
-    for k in resolved_morphs.keys() {
-        if !loaded.contains_key(k) {
-            return;
-        }
+    if !morphs.is_ready(&asset_server) {
+        return;
     }
 
-    let shape = CharacterMorphShapes::new(SHAPE_NAME, resolved_morphs);
+    let mut morph_targets = MorphTargets::default();
+    morph_targets.insert("age", 0.5);
+    morph_targets.insert("gender", 1.0);
+    morph_targets.insert("caucasian", 1.0);
+
+    let resolved = morphs.compute_target_weights(&morph_targets).unwrap();
+
+    let shape = CharacterMorphShapes::new(SHAPE_NAME, resolved);
 
     commands.insert_resource(CharacterTemplates::new([(
         TEMPLATE,

@@ -117,7 +117,6 @@ impl Plugin for HumentityPlugin {
             .insert_resource(spawn_mesh::MhcloMeshBuilder::default())
             .insert_resource(spawn_mesh::CachedMhcloMeshHandles::default())
             .insert_resource(spawn_mesh::CachedMhcloRawMeshHandles::default())
-            .init_resource::<rigs::RigData>()
 
             .init_asset::<ObjVertsAsset>()
             .register_asset_loader(ObjVertsAssetLoader)
@@ -140,19 +139,19 @@ impl Plugin for HumentityPlugin {
             .init_asset::<ReferenceRigAsset>()
             .register_asset_loader(ReferenceRigAssetLoader)
 
-            // Some assets are always needed
             .add_systems(
                 Update,
                 (
                     basemesh::extract_basemesh_asset
-                        .run_if(not(resource_exists::<basemesh::BaseMesh>)),
+                        .run_if(resource_exists::<basemesh::BaseMesh>),
                     basemesh::extract_vertex_groups_asset
-                        .run_if(not(resource_exists::<basemesh::VertexGroups>)),
-                    morphs::sync_loaded_morph_manifests
-                        .run_if(not(resource_exists::<morphs::MakeHumanMorphs>)),
+                        .run_if(resource_exists::<basemesh::VertexGroups>),
+                    morphs::populate_morph_resource
+                        .run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     morphs::sync_loaded_morph_targets
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
-                    rigs::sync_and_build_rig_data,
+                    rigs::sync_and_build_rig_data
+                        .run_if(resource_exists::<rigs::RigData>),
                     (
                         (   
                             spawn_skeleton::spawn_rig_scene,

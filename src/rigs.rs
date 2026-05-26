@@ -10,6 +10,7 @@ use bevy::{
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use crate::{
@@ -68,8 +69,42 @@ pub struct RigSpec {
     pub(crate) scene: Option<Handle<DynamicScene>>,
 }
 
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct RigData(pub AHashMap<RigType, RigSpec>);
+#[derive(Resource)]
+pub struct RigData {
+    rigs: AHashMap<RigType, RigSpec>,
+    config_handle: Handle<RigConfigAsset>,
+    weights_handle: Handle<RigWeightsAsset>,
+    ref_rig_handle: Handle<ReferenceRigAsset>,
+}
+
+impl RigData {
+    pub fn new(
+        asset_server: &AssetServer,
+        config_path: &'static str,
+        weights_path: &'static str,
+        ref_rig_path: &'static str,
+    ) -> Self {
+        Self {
+            rigs: default(),
+            config_handle: asset_server.load::<RigConfigAsset>(config_path),
+            weights_handle: asset_server.load::<RigWeightsAsset>(weights_path),
+            ref_rig_handle: asset_server.load::<ReferenceRigAsset>(ref_rig_path),
+        }
+    }
+}
+
+impl Deref for RigData {
+    type Target = AHashMap<RigType, RigSpec>;
+    fn deref(&self) -> &Self::Target {
+        &self.rigs
+    }
+}
+
+impl DerefMut for RigData {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.rigs
+    }
+}
 
 impl RigSpec {
     pub fn bone_index(&self, bone_name: &str) -> Option<usize> {
@@ -83,7 +118,7 @@ impl RigSpec {
 impl std::ops::Index<&RigType> for RigData {
     type Output = RigSpec;
     fn index(&self, index: &RigType) -> &Self::Output {
-        self.0.index(index)
+        self.rigs.index(index)
     }
 }
 
@@ -522,8 +557,8 @@ fn get_bone_position(bone: &BoneTransformSpec, vg: &VertexGroups, helpers: &[Vec
         (helpers[v2 as usize] + helpers[v1 as usize]) / 2.
     } else if bone.strategy == "CUBE" {
         let joint = bone.cube_name.as_ref().unwrap();
-        v1 = vg.0.get(joint).unwrap()[0][0] as u16;
-        v2 = vg.0.get(joint).unwrap()[0][1] as u16;
+        v1 = vg.get(joint).unwrap()[0][0] as u16;
+        v2 = vg.get(joint).unwrap()[0][1] as u16;
         let mut pos = Vec3::ZERO;
         for v in v1..v2 + 1 {
             pos += helpers[v as usize];

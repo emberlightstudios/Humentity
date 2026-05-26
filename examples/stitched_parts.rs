@@ -40,23 +40,14 @@ fn add_humans(
     morphs: Res<MakeHumanMorphs>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    if !morphs.is_ready(&asset_server) {
+        return;
+    }
+
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.0);
 
-    let resolved = match morphs.compute_target_weights(&morph_targets) {
-        Ok(m) => m,
-        Err(err) => {
-            error!("Error computing morph targets: {err}");
-            return;
-        }
-    };
-
-    let loaded = morphs.targets.read().unwrap();
-    for k in resolved.keys() {
-        if !loaded.contains_key(k) {
-            return;
-        }
-    }
+    let resolved = morphs.compute_target_weights(&morph_targets).unwrap();
 
     let shape = CharacterMorphShapes::new("woman", resolved);
 

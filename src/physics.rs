@@ -323,7 +323,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
 
         let template = &templates[&shape_config.template];
         let helpers =
-            match template.get_helpers(&shape_config.template_morph_targets, &basemesh, &mh_morphs) {
+            match template.get_helpers(&shape_config.template_morph_targets, &basemesh.vertices, &mh_morphs) {
                 Ok(h) => h,
                 Err(e) => {
                     error!("Failed to compute morph helpers for colliders: {}", e);
@@ -463,7 +463,7 @@ pub(crate) fn spawn_ragdoll_colliders(
 
         let template = &templates[&shape_config.template];
         let helpers =
-            match template.get_helpers(&shape_config.template_morph_targets, &*basemesh, &mh_morphs) {
+            match template.get_helpers(&shape_config.template_morph_targets, &basemesh.vertices, &mh_morphs) {
                 Ok(h) => h,
                 Err(e) => {
                     error!("Failed to compute morph helpers for ragdoll: {}", e);

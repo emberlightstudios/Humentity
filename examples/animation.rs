@@ -56,24 +56,14 @@ fn add_humans(
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
     // Set up the dynamic character resources
+    if !morphs.is_ready(&asset_server) {
+        return;
+    }
+
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
-    let baby_morphs = match morphs.compute_target_weights(&morph_targets) {
-        Ok(morphs) => morphs,
-        Err(err) => {
-            error!("Error computing morph targets for baby: {err}");
-            return;
-        }
-    };
-
-    // Make sure the morphs have loaded
-    let loaded = morphs.targets.read().unwrap();
-    for k in baby_morphs.keys() {
-        if !loaded.contains_key(k) {
-            return;
-        }
-    }
+    let baby_morphs = morphs.compute_target_weights(&morph_targets).unwrap();
 
     commands.insert_resource(CharacterTemplates::new([
         (

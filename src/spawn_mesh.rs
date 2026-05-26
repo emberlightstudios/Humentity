@@ -146,7 +146,7 @@ pub(crate) fn mesh_build(
             LoadAssetMeshJob::Single { part, template_name } => {
                 build_single_mesh_process(
                     mediator, load_state, part, template_name, &templates, &mut meshes, &mesh_verts, &mhclo_assets,
-                    &mut morphs, &basemesh.0, &rig_data, &asset_server, &mut cached_raw_meshes,
+                    &mut morphs, &basemesh.vertices, &rig_data, &asset_server, &mut cached_raw_meshes,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
@@ -159,7 +159,7 @@ pub(crate) fn mesh_build(
             LoadAssetMeshJob::Stitched{ parts, template_name } => {
                 build_stitched_meshes_process(
                     mediator, load_state, parts, template_name, &templates, &mut meshes, &mesh_verts,
-                    &mhclo_assets, &mut morphs, &basemesh.0, &rig_data, &asset_server,
+                    &mhclo_assets, &mut morphs, &basemesh.vertices, &rig_data, &asset_server,
                     &mut cached_raw_meshes,
                 );
 
