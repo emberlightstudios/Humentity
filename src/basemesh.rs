@@ -10,6 +10,7 @@ use crate::loaders::ObjVertsSettings;
 #[derive(Resource)]
 pub struct BaseMesh {
     pub vertices: Arc<Vec<Vec3>>,
+    #[allow(dead_code)]
     handle: Handle<ObjVertsAsset>,
 }
 
@@ -35,6 +36,7 @@ impl Deref for BaseMesh {
 #[derive(Resource)]
 pub struct VertexGroups {
     data: Arc<AHashMap<String, Vec<[usize; 2]>>>,
+    #[allow(dead_code)]
     handle: Handle<VertexGroupsAsset>,
 }
 
@@ -61,14 +63,12 @@ pub(crate) fn extract_basemesh_asset(
     mut meshes: ResMut<BaseMesh>,
 ) {
     for ev in basemesh_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = ev {
-            if let Some(asset) = basemesh_assets.get(*id) {
-                if asset.is_basemesh_helpers {
+        if let AssetEvent::LoadedWithDependencies { id } = ev
+            && let Some(asset) = basemesh_assets.get(*id)
+                && asset.is_basemesh_helpers {
                     meshes.vertices = Arc::new(asset.vertices.clone());
                     return;
                 }
-            }
-        }
     }
 }
 
@@ -78,10 +78,9 @@ pub(crate) fn extract_vertex_groups_asset(
     mut vg: ResMut<VertexGroups>,
 ) {
     for ev in vg_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = ev {
-            if let Some(asset) = vg_assets.get(*id) {
+        if let AssetEvent::LoadedWithDependencies { id } = ev
+            && let Some(asset) = vg_assets.get(*id) {
                 vg.data = Arc::new(asset.0.clone());
             }
-        }
     }
 }

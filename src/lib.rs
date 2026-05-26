@@ -11,7 +11,6 @@ mod spawn_mesh;
 #[cfg(feature = "physics")]
 mod physics;
 
-use bevy::app::AnimationSystems;
 use bevy::ecs::intern::Interner;
 use bevy::prelude::*;
 use bevy_obj::ObjPlugin;

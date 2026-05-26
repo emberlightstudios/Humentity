@@ -16,6 +16,8 @@ pub enum MorphError {
     CompositeNotLoaded,
     #[error("Morph target '{0}' not found in loaded targets")]
     TargetNotFound(&'static str),
+    #[error("RwLock was poisoned")]
+    LockPoisoned,
 }
 
 /// A type for storing generic morph target weights
@@ -55,7 +57,9 @@ pub struct MakeHumanMorphs {
     pub categories: RwLock<AHashMap<&'static str, Vec<&'static str>>>,
     macros: Arc<RwLock<Option<MacroDataAsset>>>,
     composites: Arc<RwLock<Option<CompositeTargetsAsset>>>,
+    #[allow(dead_code)]
     composite_handle: Handle<CompositeTargetsAsset>,
+    #[allow(dead_code)]
     macro_handle: Handle<MacroDataAsset>,
     targets_handle: Handle<LoadedFolder>,
 }
@@ -108,7 +112,7 @@ impl MakeHumanMorphs {
     }
 
     pub fn compute_target_weights(&self, morph_targets: &MorphTargets) -> Result<MorphTargets, MorphError> {
-        let targets = self.targets.read().unwrap();
+        let targets = self.targets.read().map_err(|_| MorphError::LockPoisoned)?;
         if targets
             .keys()
             .all(|&t| morph_targets.contains_key(t))
@@ -116,12 +120,12 @@ impl MakeHumanMorphs {
             return Ok(morph_targets.clone());
         }
 
-        let macros = self.macros.read().unwrap();
+        let macros = self.macros.read().map_err(|_| MorphError::LockPoisoned)?;
         let Some(macros) = macros.as_ref() else {
             return Err(MorphError::MacrosNotLoaded);
         };
 
-        let composites = self.composites.read().unwrap();
+        let composites = self.composites.read().map_err(|_| MorphError::LockPoisoned)?;
         let Some(composites) = composites.as_ref() else {
             return Err(MorphError::CompositeNotLoaded);
         };
@@ -331,9 +335,7 @@ impl MakeHumanMorphs {
         // -----------------------------------
         // 2. Resolve composite morph sliders
         // -----------------------------------
-        let flattened_composite_morphs = composites
-            .iter()
-            .flat_map(|(_category_name, category)| {
+        let flattened_composite_morphs = composites.values().flat_map(|category| {
                 category.morphs.iter().cloned().map(|m| (m.name, m))
             })
             .collect::<AHashMap<_, _>>();
@@ -345,26 +347,26 @@ impl MakeHumanMorphs {
                     if morph.has_left_and_right {
                         if *value > 0.0 {
                             *result
-                                .entry(NAME_INTERNER.intern(&opps.positive_right).leak())
+                                .entry(NAME_INTERNER.intern(opps.positive_right).leak())
                                 .or_insert(0.0) += value.abs();
                             *result
-                                .entry(NAME_INTERNER.intern(&opps.positive_left).leak())
+                                .entry(NAME_INTERNER.intern(opps.positive_left).leak())
                                 .or_insert(0.0) += value.abs();
                         } else {
                             *result
-                                .entry(NAME_INTERNER.intern(&opps.negative_right).leak())
+                                .entry(NAME_INTERNER.intern(opps.negative_right).leak())
                                 .or_insert(0.0) += value.abs();
                             *result
-                                .entry(NAME_INTERNER.intern(&opps.negative_left).leak())
+                                .entry(NAME_INTERNER.intern(opps.negative_left).leak())
                                 .or_insert(0.0) += value.abs();
                         }
                     } else if *value > 0.0 {
                         *result
-                            .entry(NAME_INTERNER.intern(&opps.positive_unsided).leak())
+                            .entry(NAME_INTERNER.intern(opps.positive_unsided).leak())
                             .or_insert(0.0) += value.abs();
                     } else {
                         *result
-                            .entry(NAME_INTERNER.intern(&opps.negative_unsided).leak())
+                            .entry(NAME_INTERNER.intern(opps.negative_unsided).leak())
                             .or_insert(0.0) += value.abs();
                     }
                     to_remove.push(slider_name);
@@ -418,8 +420,8 @@ pub(crate) fn populate_morph_resource(
     macro_assets: Res<Assets<MacroDataAsset>>,
     composite_assets: Res<Assets<CompositeTargetsAsset>>,
 ) {
-    if morphs.macros.read().unwrap().is_none() {
-        if let Some((_, asset)) = macro_assets.iter().next() {
+    if morphs.macros.read().unwrap().is_none()
+        && let Some((_, asset)) = macro_assets.iter().next() {
             let data = asset.clone();
             let mut cats = morphs.categories.write().unwrap();
             let mut macro_sliders = vec!["caucasian", "asian", "african"];
@@ -427,10 +429,9 @@ pub(crate) fn populate_morph_resource(
             cats.insert("macro", macro_sliders);
             *morphs.macros.write().unwrap() = Some(data);
         }
-    }
 
-    if morphs.composites.read().unwrap().is_none() {
-        if let Some((_, asset)) = composite_assets.iter().next() {
+    if morphs.composites.read().unwrap().is_none()
+        && let Some((_, asset)) = composite_assets.iter().next() {
             let data = asset.clone();
             let mut cats = morphs.categories.write().unwrap();
             for (&category, category_morphs) in data.iter() {
@@ -442,7 +443,6 @@ pub(crate) fn populate_morph_resource(
             }
             *morphs.composites.write().unwrap() = Some(data);
         }
-    }
 }
 
 pub(crate) fn sync_loaded_morph_targets(
@@ -483,9 +483,9 @@ pub fn adjust_helpers_to_morphs(
 ) -> Result<Vec<Vec3>, MorphError> {
     let mut helpers = basemesh_vertices.to_vec();
     for (&target_name, &value) in morph_values.iter() {
-        let targets = mh_morphs.read().unwrap();
+        let targets = mh_morphs.read().map_err(|_| MorphError::LockPoisoned)?;
         let target = targets.get(target_name)
-            .ok_or_else(|| MorphError::TargetNotFound(target_name))?;
+            .ok_or(MorphError::TargetNotFound(target_name))?;
         for TargetDelta { vertex, offset } in target.deltas.iter() {
             helpers[*vertex as usize] += offset * value;
         }
@@ -506,7 +506,7 @@ fn compute_macro_weights(
                     let range = part.highest - part.lowest;
                     let t = (value - part.lowest) / range;
 
-                    let (low, high) = (&part.low[..], &part.high[..]);
+                    let (low, high) = (part.low, part.high);
                     let low = NAME_INTERNER.intern(low).leak();
                     let high = NAME_INTERNER.intern(high).leak();
                     if !low.is_empty() {

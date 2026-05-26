@@ -26,6 +26,7 @@ pub enum TranslationTracks {
 
 /// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
 /// in realtime using data cached on the human config.
+#[allow(dead_code)]
 pub(crate) fn rescale_bone_translations(
     templates: Res<CharacterTemplates>,
     humans: Query<(Entity, &CharacterShapeConfig), Without<FitSkeleton>>,
@@ -71,6 +72,7 @@ pub(crate) fn rescale_bone_translations(
 
 /// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
 /// in realtime using data cached on the human config.  This one affects only the root bone.
+#[allow(dead_code)]
 pub(crate) fn rescale_root_bone_translation(
     templates: Res<CharacterTemplates>,
     humans: Query<(&RelatedEntities, &CharacterShapeConfig), Without<FitSkeleton>>,
@@ -93,7 +95,7 @@ pub(crate) fn rescale_root_bone_translation(
     }
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, dead_code)]
 pub(crate) fn root_motion(
     mut humans: Query<(&RelatedEntities, &RootMotion, &mut Transform), With<CharacterShapeConfig>>,
     mut root_transforms: Query<

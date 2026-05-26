@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, mesh::morph::{MeshMorphWeights, MorphTargetImage}, prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
-use crate::{NAME_INTERNER, assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset, TargetAsset}, morphs::{MakeHumanMorphs, MorphTargets}, template::{CharacterTemplate, CharacterTemplates, CharacterMorphShapes}, rigs::{BoneTranslationData, RigData, RigSpec}};
+use crate::{NAME_INTERNER, assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset, TargetAsset}, morphs::{MakeHumanMorphs, MorphTargets}, template::{CharacterTemplate, CharacterTemplates}, rigs::{BoneTranslationData, RigData, RigSpec}};
 use serde::{Deserialize, Deserializer, Serialize};
 
 
@@ -14,8 +14,10 @@ pub struct CharacterShapeConfig {
     pub template_morph_targets: MorphTargets,
     pub template: &'static str,
     #[serde(skip)]
+    #[allow(dead_code)]
     pub(crate) bone_translations: BoneTranslationData,
     #[serde(skip)]
+    #[allow(dead_code)]
     pub(crate) bone_delta_rotations: AHashMap<&'static str, Quat>,
 }
 
@@ -359,8 +361,8 @@ fn build_stitched_meshes_process(
     if *load_state == AssetLoadState::None {
         *load_state = AssetLoadState::LoadedObj;
         for StitchedPart { part, .. } in parts.iter() {
-            if !cached_raw_meshes.contains_key(&*part) {
-                let mhclo = mhclo_assets.get(&*part).expect("mhclo already checked");
+            if !cached_raw_meshes.contains_key(part) {
+                let mhclo = mhclo_assets.get(part).expect("mhclo already checked");
                 let mesh = asset_server.load::<Mesh>(mhclo.obj_file.clone());
                 let verts = asset_server.load::<ObjVertsAsset>(mhclo.obj_file.clone());
                 cached_raw_meshes.insert(part.clone(), RawMeshCache { mesh, verts });
@@ -386,19 +388,19 @@ fn build_stitched_meshes_process(
             .filter_map(|h| h.and_then(|cache| meshes.get(&cache.mesh)))
             .collect();
 
-        let mesh_verts: Vec<_> = raw_handles
-            .iter()
-            .filter_map(|h| h.and_then(|cache| mesh_verts.get(&cache.verts)))
-            .collect();
+        let loaded_mesh_count = loaded_meshes.len();
 
-        if loaded_meshes.len() != parts.len() {
+        if loaded_mesh_count != parts.len() {
             return;
         }
 
         *load_state = AssetLoadState::BuildSubmitted;
 
         let mut input_meshes: Vec<Mesh> = loaded_meshes.into_iter().cloned().collect();
-        let mesh_verts: Vec<ObjVertsAsset> = mesh_verts.into_iter().cloned().collect();
+        let mesh_verts: Vec<ObjVertsAsset> = raw_handles
+            .iter()
+            .filter_map(|h| h.and_then(|cache| mesh_verts.get(&cache.verts).cloned()))
+            .collect();
         let mhclos: Vec<_> = parts
             .iter()
             .map(|p| mhclo_assets.get(&p.part).unwrap().clone())

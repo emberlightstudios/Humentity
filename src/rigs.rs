@@ -28,6 +28,7 @@ pub enum RigType {
 }
 
 #[derive(Clone, Default, Debug)]
+#[allow(dead_code)]
 pub(crate) enum BoneTranslationData {
     #[default]
     None,
@@ -55,6 +56,7 @@ pub(crate) struct RootBone;
 
 /// Caches previous transform data for root bone, used in root motion
 #[derive(Component, Default)]
+#[allow(dead_code)]
 pub(crate) struct RootBonePrevious {
     pub(crate) translation: Vec3,
     pub(crate) yaw: f32,
@@ -72,8 +74,11 @@ pub struct RigSpec {
 #[derive(Resource)]
 pub struct RigData {
     rigs: AHashMap<RigType, RigSpec>,
+    #[allow(dead_code)]
     config_handle: Handle<RigConfigAsset>,
+    #[allow(dead_code)]
     weights_handle: Handle<RigWeightsAsset>,
+    #[allow(dead_code)]
     ref_rig_handle: Handle<ReferenceRigAsset>,
 }
 
@@ -141,13 +146,13 @@ pub(crate) fn sync_and_build_rig_data(
     reference_rig_events.read();
 
     // Collect available rigs from each asset type
-    let cfgs: Vec<_> = config_assets.iter().map(|(_, cfg)| cfg.rig).collect();
     let wts: Vec<_> = weights_assets.iter().map(|(_, wt)| wt.rig).collect();
     let ref_rigs: Vec<_> = reference_rig_assets.iter().map(|(_, r)| r.rig).collect();
 
     // Find rigs where all 3 assets are available
-    let to_load: Vec<_> = cfgs
-        .into_iter()
+    let to_load: Vec<_> = config_assets
+        .iter()
+        .map(|(_, cfg)| cfg.rig)
         .filter(|rig| wts.contains(rig))
         .filter(|rig| ref_rigs.contains(rig))
         .filter(|rig| !rig_data.contains_key(rig))
@@ -183,10 +188,10 @@ pub(crate) fn sync_and_build_rig_data(
 use bevy::ecs::system::SystemState;
 
 /// Builds skeleton scenes for rigs that have all assets but no scene yet.
-pub(crate) fn build_rig_scenes(mut world: &mut World) {
+pub(crate) fn build_rig_scenes(world: &mut World) {
     let rigs_to_build: Vec<_> = {
-        let mut state: SystemState<ResMut<RigData>> = SystemState::new(&mut world);
-        let rig_data = state.get_mut(&mut world);
+        let mut state: SystemState<ResMut<RigData>> = SystemState::new(world);
+        let rig_data = state.get_mut(world);
         rig_data
             .iter()
             .filter(|(_, spec)| spec.scene.is_none())
@@ -195,10 +200,10 @@ pub(crate) fn build_rig_scenes(mut world: &mut World) {
     };
 
     for (rig_type, reference_rig) in rigs_to_build {
-        let scene = build_skeleton_scene(&reference_rig, &mut world);
+        let scene = build_skeleton_scene(&reference_rig, world);
 
-        let mut state: SystemState<ResMut<RigData>> = SystemState::new(&mut world);
-        let mut rig_data = state.get_mut(&mut world);
+        let mut state: SystemState<ResMut<RigData>> = SystemState::new(world);
+        let mut rig_data = state.get_mut(world);
         rig_data.get_mut(&rig_type).unwrap().scene = Some(scene);
     }
 }
@@ -253,11 +258,10 @@ pub(crate) fn set_asset_rig_arrays(
 
             match helper {
                 MhcloVertexMap::SingleVertex(v) => {
-                    if let Some(&helper_wt) = bone_weights.get(v) {
-                        if helper_wt > 0.0 {
+                    if let Some(&helper_wt) = bone_weights.get(v)
+                        && helper_wt > 0.0 {
                             *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt;
                         }
-                    }
                 }
                 MhcloVertexMap::Triangle {
                     helper_verts,
@@ -265,12 +269,11 @@ pub(crate) fn set_asset_rig_arrays(
                     ..
                 } => {
                     for (i, mh_id) in helper_verts.iter().enumerate() {
-                        if let Some(&helper_wt) = bone_weights.get(mh_id) {
-                            if helper_wt > 0.0 {
+                        if let Some(&helper_wt) = bone_weights.get(mh_id)
+                            && helper_wt > 0.0 {
                                 *aggregate.entry(bone_index as u16).or_insert(0.0) +=
                                     helper_wt * helper_weights[i];
                             }
-                        }
                     }
                 }
             }
@@ -391,11 +394,10 @@ pub(crate) fn build_skeleton_scene(
     for &name in bone_order.iter() {
         let &child = bone_entities.get(&name).unwrap();
         let parent_name = ref_bone_parents.get(name).cloned().unwrap_or_default();
-        if !parent_name.is_empty() {
-            if let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak()) {
+        if !parent_name.is_empty()
+            && let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak()) {
                 scene_world.entity_mut(parent).add_child(child);
             }
-        }
     }
 
     // Attach root(s) to rig entity
@@ -445,9 +447,9 @@ pub(crate) fn build_skeleton_scene(
     scene_world.entity_mut(rig_entity).insert(skinned_mesh);
 
     let mut ds = world.resource_mut::<Assets<DynamicScene>>();
-    let scene = ds.add(DynamicScene::from_world(&scene_world));
+    
 
-    scene
+    ds.add(DynamicScene::from_world(&scene_world))
 }
 
 pub(crate) fn get_model_space_skeleton_transforms(
@@ -470,6 +472,7 @@ pub(crate) fn get_model_space_skeleton_transforms(
     global_transforms
 }
 
+#[allow(dead_code)]
 pub(crate) fn get_local_skeleton_transforms(
     bone_order: &Vec<&'static str>,
     rig_type: RigType,
@@ -503,6 +506,7 @@ pub(crate) fn get_local_skeleton_transforms(
     local_transforms
 }
 
+#[allow(dead_code)]
 pub(crate) fn get_bone_order(rig: RigType, world: &World) -> Vec<&'static str> {
     let rig_data = world.resource::<RigData>();
     let mh_config = &rig_data

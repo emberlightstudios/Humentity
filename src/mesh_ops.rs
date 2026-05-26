@@ -1,10 +1,5 @@
 use ahash::{AHashMap, AHashSet};
 use bevy::{mesh::VertexAttributeValues, prelude::*};
-use std::{
-    fs::File,
-    io::{BufRead, BufReader},
-    path::Path,
-};
 
 pub fn get_vertex_positions(mesh: &Mesh) -> Vec<Vec3> {
     let Some(VertexAttributeValues::Float32x3(verts)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)

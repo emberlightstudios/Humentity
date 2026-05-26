@@ -83,7 +83,7 @@ impl AssetLoader for TargetManifestAssetLoader {
         let interned = values
             .iter()
             .map(|(category, morphs)| {
-                let interned_category = NAME_INTERNER.intern(&category).leak();
+                let interned_category = NAME_INTERNER.intern(category).leak();
                 let interned_morphs = morphs
                     .morphs
                     .iter()
@@ -102,8 +102,8 @@ impl AssetLoader for TargetManifestAssetLoader {
                             name: interned_name,
                             opposites: interned_opposites,
                             targets: asset.targets.as_ref().map(|v| {
-                                v.into_iter()
-                                    .map(|t| NAME_INTERNER.intern(&t).leak())
+                                v.iter()
+                                    .map(|t| NAME_INTERNER.intern(t).leak())
                                     .collect()
                             }),
                         }
