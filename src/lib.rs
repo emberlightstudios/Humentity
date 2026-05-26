@@ -56,7 +56,6 @@ pub mod prelude {
         basemesh::{BaseMesh, VertexGroups},
         animation::TranslationTracks,
         assets::{
-            CharacterPart,
             StitchedParts, StitchedPart,
             shape_mesh_from_helpers_mhclo,
         },

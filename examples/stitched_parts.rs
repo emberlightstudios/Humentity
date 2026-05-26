@@ -16,7 +16,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::setup_app;
+use shared::{setup_app, CharacterPart};
 
 const STITCHED: &str = "stitched";
 const HEAD_TEMPLATE: &str = "head_template";

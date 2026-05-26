@@ -6,6 +6,10 @@ use humentity::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_egui::prelude::*;
 
+/// Marks an entity as representing a character mesh piece.
+#[derive(Component, Clone, Debug, Eq, PartialEq, Hash, Deref)]
+pub struct CharacterPart(pub Handle<MhcloAsset>);
+
 pub fn setup_app() -> App {
     // I moved target.json and macro.macro to the root of the assets folder because when trying to load
     // the target folders, the asset server tried to load them there also.

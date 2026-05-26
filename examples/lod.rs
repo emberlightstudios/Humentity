@@ -6,7 +6,7 @@ mod shared;
 
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
-use shared::setup_app;
+use shared::{setup_app, CharacterPart};
 
 const TEMPLATE: &str = "ExampleTemplate";
 const SHAPE_NAME: &str = "bigboobs";
@@ -48,18 +48,10 @@ fn add_humans(
         CharacterTemplate::new([shape], RigType::Default),
     )]));
 
-    let lod0 = CharacterPart(
-        asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy"),
-    );
-    let lod1 = CharacterPart(
-        asset_server.load::<MhcloAsset>("proxymeshes/proxy4817/proxy4817.proxy"),
-    );
-    let lod2 = CharacterPart(
-        asset_server.load::<MhcloAsset>("proxymeshes/proxy1605/proxy1605.proxy"),
-    );
-    let lod3 = CharacterPart(
-        asset_server.load::<MhcloAsset>("proxymeshes/proxy741/proxy741.proxy"),
-    );
+    let lod0 = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+    let lod1 = asset_server.load::<MhcloAsset>("proxymeshes/proxy4817/proxy4817.proxy");
+    let lod2 = asset_server.load::<MhcloAsset>("proxymeshes/proxy1605/proxy1605.proxy");
+    let lod3 = asset_server.load::<MhcloAsset>("proxymeshes/proxy741/proxy741.proxy");
 
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod0.clone(),
@@ -92,7 +84,7 @@ fn add_humans(
         InheritedVisibility::default(),
         children![
             (
-                lod0.clone(),
+                CharacterPart(lod0.clone()),
                 Name::new("basemesh"),
                 MeshMaterial3d(white.clone()),
                 VisibilityRange {
@@ -102,7 +94,7 @@ fn add_humans(
                 }
             ),
             (
-                lod1.clone(),
+                CharacterPart(lod1.clone()),
                 Name::new("proxy4817"),
                 MeshMaterial3d(white.clone()),
                 VisibilityRange {
@@ -112,7 +104,7 @@ fn add_humans(
                 }
             ),
             (
-                lod2.clone(),
+                CharacterPart(lod2.clone()),
                 Name::new("proxy1605"),
                 MeshMaterial3d(white.clone()),
                 VisibilityRange {
@@ -122,7 +114,7 @@ fn add_humans(
                 }
             ),
             (
-                lod3.clone(),
+                CharacterPart(lod3.clone()),
                 Name::new("proxy741"),
                 MeshMaterial3d(white),
                 VisibilityRange {
@@ -146,7 +138,7 @@ fn add_humans(
             Transform::from_translation(Vec3::new(x, 0., 0.)),
             CharacterShapeConfig::new(TEMPLATE, morphs.clone()),
             InheritedVisibility::default(),
-            children![(proxy, Name::new("mesh"), MeshMaterial3d(black.clone()))],
+            children![(CharacterPart(proxy), Name::new("mesh"), MeshMaterial3d(black.clone()))],
         ));
     }
 }

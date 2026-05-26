@@ -16,7 +16,7 @@ use std::f32::consts::PI;
 
 use bevy::{prelude::*, scene::SceneInstanceReady};
 use humentity::prelude::*;
-use shared::setup_app;
+use shared::{setup_app, CharacterPart};
 
 const TEMPLATE_NAME: &str = "ExampleHumanTemplate";
 const BABY: &str = "baby";
@@ -94,7 +94,7 @@ fn add_humans(
 
     // Create the morphable base mesh
     let basemesh_part =
-        CharacterPart(asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy"));
+        asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
 
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh_part.clone(),
@@ -111,7 +111,7 @@ fn add_humans(
         CharacterShapeConfig::new(TEMPLATE_NAME, morphs),
         children![(
             Name::new("Mesh"),
-            basemesh_part,
+            CharacterPart(basemesh_part),
         )],
     ));
 

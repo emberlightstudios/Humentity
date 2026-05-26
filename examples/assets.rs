@@ -2,7 +2,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::setup_app;
+use shared::{setup_app, CharacterPart};
 
 const TEMPLATE: &str = "template";
 const EYES: &str = "body_parts/Eyes/Eyeballs/high-poly-eyes.mhclo";
@@ -47,15 +47,13 @@ fn add_human(
         CharacterTemplate::new([shape], RigType::Default),
     )]));
 
-    let basemesh = CharacterPart(
-        asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy"),
-    );
-    let eyes = CharacterPart(asset_server.load::<MhcloAsset>(EYES));
-    let eyebrow = CharacterPart(asset_server.load::<MhcloAsset>(EYEBROW));
-    let eyelash = CharacterPart(asset_server.load::<MhcloAsset>(EYELASH));
-    let hair = CharacterPart(asset_server.load::<MhcloAsset>(HAIR));
-    let bra = CharacterPart(asset_server.load::<MhcloAsset>(BRA));
-    let panties = CharacterPart(asset_server.load::<MhcloAsset>(PANTIES));
+    let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+    let eyes = asset_server.load::<MhcloAsset>(EYES);
+    let eyebrow = asset_server.load::<MhcloAsset>(EYEBROW);
+    let eyelash = asset_server.load::<MhcloAsset>(EYELASH);
+    let hair = asset_server.load::<MhcloAsset>(HAIR);
+    let bra = asset_server.load::<MhcloAsset>(BRA);
+    let panties = asset_server.load::<MhcloAsset>(PANTIES);
 
     for part in [&basemesh, &eyes, &eyebrow, &eyelash, &hair, &bra, &panties] {
         mesh_builder.trigger(LoadAssetMeshJob::Single {
@@ -120,13 +118,13 @@ fn add_human(
         CharacterShapeConfig::new(TEMPLATE, morph_targets),
         InheritedVisibility::default(),
         children![
-            (basemesh, Name::new("basemesh"), MeshMaterial3d(skin_mat)),
-            (eyes, Name::new("eyes"), MeshMaterial3d(eyes_mat)),
-            (eyebrow, Name::new("eyebrow"), MeshMaterial3d(eyebrow_mat)),
-            (eyelash, Name::new("eyelash"), MeshMaterial3d(eyelash_mat)),
-            (hair, Name::new("hair"), MeshMaterial3d(hair_mat)),
-            (bra, Name::new("bra"), MeshMaterial3d(clothes_mat.clone())),
-            (panties, Name::new("panties"), MeshMaterial3d(clothes_mat)),
+            (CharacterPart(basemesh), Name::new("basemesh"), MeshMaterial3d(skin_mat)),
+            (CharacterPart(eyes), Name::new("eyes"), MeshMaterial3d(eyes_mat)),
+            (CharacterPart(eyebrow), Name::new("eyebrow"), MeshMaterial3d(eyebrow_mat)),
+            (CharacterPart(eyelash), Name::new("eyelash"), MeshMaterial3d(eyelash_mat)),
+            (CharacterPart(hair), Name::new("hair"), MeshMaterial3d(hair_mat)),
+            (CharacterPart(bra), Name::new("bra"), MeshMaterial3d(clothes_mat.clone())),
+            (CharacterPart(panties), Name::new("panties"), MeshMaterial3d(clothes_mat)),
         ],
     ));
 }

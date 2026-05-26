@@ -21,7 +21,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::setup_app;
+use shared::{setup_app, CharacterPart};
 
 const TEMPLATE_NAME: &str = "ExampleHumanTemplate";
 const BABY: &str = "baby";
@@ -76,7 +76,7 @@ fn add_humans(
     // Previously defined shapes will now appear as morph targets on the template's mesh
     // The HumanShapeConfig type controls template access and applies our morph targets.
     let basemesh_part =
-        CharacterPart(asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy"));
+        asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
 
     // Trigger the mesh to build with the new morph targets.
     mesh_builder.trigger(LoadAssetMeshJob::Single {
@@ -95,7 +95,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShapeConfig::new(TEMPLATE_NAME, morphs.clone()),
-        children![(basemesh_part.clone())],
+        children![(CharacterPart(basemesh_part.clone()))],
     ));
 
     // A baby
@@ -107,7 +107,7 @@ fn add_humans(
         InheritedVisibility::default(),
         CharacterShapeConfig::new(TEMPLATE_NAME, morphs.clone()),
         children![(
-            basemesh_part.clone(),
+            CharacterPart(basemesh_part.clone()),
             Name::new("mesh"),
         )],
     ));
@@ -122,7 +122,7 @@ fn add_humans(
         CharacterShapeConfig::new(TEMPLATE_NAME, morphs.clone()),
         children![(
             Name::new("mesh"),
-            basemesh_part.clone(),
+            CharacterPart(basemesh_part.clone()),
         )],
     ));
 
@@ -136,7 +136,7 @@ fn add_humans(
         InheritedVisibility::default(),
         CharacterShapeConfig::new(TEMPLATE_NAME, morphs.clone()),
         children![(
-            basemesh_part.clone(),
+            CharacterPart(basemesh_part.clone()),
             Name::new("mesh"),
         )],
     ));
@@ -152,7 +152,7 @@ fn add_humans(
         InheritedVisibility::default(),
         CharacterShapeConfig::new(TEMPLATE_NAME, morphs),
         children![(
-            basemesh_part,
+            CharacterPart(basemesh_part),
             Name::new("mesh"),
         )],
     ));

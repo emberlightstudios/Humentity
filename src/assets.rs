@@ -14,11 +14,6 @@ use bevy::mesh::morph::{MorphAttributes, MorphTargetImage};
 use bevy::{asset::RenderAssetUsages, prelude::*};
 use std::sync::{Arc, RwLock};
 
-/// A simple wrapper around an mhclo asset handle.
-/// This is all that's needed to generate the mesh.
-#[derive(Component, Clone, Debug, Eq, PartialEq, Hash, Deref)]
-pub struct CharacterPart(pub Handle<MhcloAsset>);
-
 /// Collection of parts that should be stitched together.  This will
 /// spawn siblings for each part then despawn this entity.
 #[derive(Component, Clone, Deref, DerefMut, Eq, PartialEq, Hash, Debug)]

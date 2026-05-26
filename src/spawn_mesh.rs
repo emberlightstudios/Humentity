@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, mesh::morph::{MeshMorphWeights, MorphTargetImage}, prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
-use crate::{NAME_INTERNER, assets::{CharacterPart, StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset, TargetAsset}, morphs::{MakeHumanMorphs, MorphTargets}, template::{CharacterTemplate, CharacterTemplates, CharacterMorphShapes}, rigs::{BoneTranslationData, RigData, RigSpec}};
+use crate::{NAME_INTERNER, assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset, TargetAsset}, morphs::{MakeHumanMorphs, MorphTargets}, template::{CharacterTemplate, CharacterTemplates, CharacterMorphShapes}, rigs::{BoneTranslationData, RigData, RigSpec}};
 use serde::{Deserialize, Deserializer, Serialize};
 
 
@@ -88,7 +88,7 @@ pub struct MhcloMeshBuilder(AHashMap<LoadAssetMeshJob, (LoadingMediator, AssetLo
 /// The type of a mesh load job, single CharacterMesh or multiple parts in a StitchedMesh
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub enum LoadAssetMeshJob {
-    Single{ part: CharacterPart, template_name: &'static str },
+    Single{ part: Handle<MhcloAsset>, template_name: &'static str },
     Stitched{ parts: StitchedParts, template_name: &'static str },
 }
 
@@ -152,7 +152,7 @@ pub(crate) fn mesh_build(
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
                     let mesh = handle_single_mesh_complete(msg, &templates[template_name], &mut images);
                     let mesh_handle = meshes.add(mesh);
-                    cached_meshes.insert((part.0.clone(), template_name), mesh_handle.clone());
+                    cached_meshes.insert((part.clone(), template_name), mesh_handle.clone());
                     *load_state = AssetLoadState::Finished;
                 }
             }
@@ -263,7 +263,7 @@ pub(crate) fn handle_stitched_mesh_complete(
 pub(crate) fn build_single_mesh_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
-    part: &CharacterPart,
+    part: &Handle<MhcloAsset>,
     template_name: &'static str,
     templates: &CharacterTemplates,
     meshes: &mut Assets<Mesh>,
@@ -278,28 +278,28 @@ pub(crate) fn build_single_mesh_process(
     let pool = AsyncComputeTaskPool::get();
     let template = templates.get(template_name).expect("No such template");
 
-    let Some(mhclo) = mhclo_assets.get(&**part) else {
+    let Some(mhclo) = mhclo_assets.get(part) else {
         return;
     };
 
     // Start loading mhclo if not already
     if *load_state == AssetLoadState::None {
         *load_state = AssetLoadState::LoadedObj;
-        if !cached_raw_meshes.contains_key(&**part) {
+        if !cached_raw_meshes.contains_key(part) {
             let mesh = asset_server.load::<Mesh>(mhclo.obj_file.clone());
             let verts = asset_server.load::<ObjVertsAsset>(mhclo.obj_file.clone());
-            cached_raw_meshes.insert(part.0.clone(), RawMeshCache { mesh, verts });
+            cached_raw_meshes.insert(part.clone(), RawMeshCache { mesh, verts });
             return;
         }
     }
 
     if *load_state == AssetLoadState::LoadedObj
-            && let Some(cache) = cached_raw_meshes.get(&**part)
+            && let Some(cache) = cached_raw_meshes.get(part)
             && let Some(input_mesh) = meshes.get(&cache.mesh)
             && let Some(mesh_verts) = mesh_verts.get(&cache.verts)
     {
         *load_state = AssetLoadState::BuildSubmitted;
-        cached_raw_meshes.remove(&**part);
+        cached_raw_meshes.remove(part);
 
         let input_mesh = input_mesh.clone();
         let mesh_verts = mesh_verts.clone();
