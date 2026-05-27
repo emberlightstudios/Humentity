@@ -1,47 +1,28 @@
 mod shared;
-use std::{f32::consts::PI, time::Duration};
 
-use bevy::{mesh::skinning::SkinnedMesh, prelude::*, render::render_resource::Texture, time::common_conditions::on_timer};
-use bevy_mod_physx::{
-    physx_sys::PxSolverType,
-    prelude::{self as bpx, *},
-};
+use std::f32::consts::PI;
+
+use bevy::{mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, prelude::*};
+use bevy_mod_physx::prelude::{self as bpx, *};
 use humentity::prelude::*;
-use shared::{add_humentity_plugin, add_material, cam_controls, setup_env};
+use shared::{setup_app, CharacterPart};
 
 fn main() {
-    let mut app = App::new();
-    add_humentity_plugin(&mut app);
+    let mut app = setup_app();
 
-    let mut settings = DebugRenderSettings::enable();
-    settings.joint_local_frames = 0.05;
-
-    app.add_plugins((
-        DefaultPlugins,
-        PhysicsPlugins.set(
-            PhysicsCore {
-                // This is what the bevy_mod_physx articulation example uses
-                // but it seems to make the ragdoll unstable
-                //scene: bpx::SceneDescriptor {
-                //    solver_type: PxSolverType::Tgs,
-                //    ..default()
-                //},
-                ..default()
-            }
-            .with_pvd(),
-        ),
-    ))
-    .insert_resource(settings)
-    .add_systems(Startup, (setup_env, floor))
-    .add_systems(Startup, setup_templates)
-    .add_systems(OnEnter(HumentityLoadState::Ready), add_human)
+    app.add_plugins(
+        PhysicsPlugins.set(PhysicsCore::default()),
+    )
+    .add_systems(Startup, floor)
     .add_systems(
         Update,
         (
-            cam_controls,
-            toggle,//.run_if(on_timer(Duration::from_secs(1))),
+            add_human
+                .run_if(resource_exists::<MakeHumanMorphs>)
+                .run_if(not(resource_exists::<CharacterTemplates>)),
+            toggle,
             setup_graph,
-            start_clip
+            start_clip,
         ),
     )
     .run();
@@ -49,36 +30,39 @@ fn main() {
 
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
+    related: Single<&RelatedEntities>,
     mut hitbox: Single<&mut CharacterColliders<HitboxCollider>>,
     mut ragdoll: Single<&mut CharacterColliders<RagdollCollider>>,
     human: Single<(&CharacterShapeConfig, &SkinnedMesh)>,
-    templates: Res<CharacterTemplates>,
-    sk_caches: Res<SkeletonCaches>,
+    inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<&mut Transform, With<SkeletalBone>>,
+    mut players: Query<&mut AnimationPlayer>,
+    controllers: Query<&AnimationController>,
 ) {
     if input.just_pressed(KeyCode::Space) {
-        // Toggle between ragdoll active and hitbox active
         let ragdoll_active = !ragdoll
             .bones_subset
             .as_ref()
             .map_or(false, |v| v.is_empty());
 
         if ragdoll_active {
-            // Switch to hitbox: ragdoll gets empty, hitbox gets all bones
             ragdoll.bones_subset = Some(vec![]);
             hitbox.bones_subset = None;
 
-            let (shape_config, skinned_mesh) = *human;
-            let rig_type = templates[&shape_config.template].rig.rig_type;
-            let cache = &sk_caches[&rig_type];
-            if let Some(pelvis_entity) = cache.bone_entity(skinned_mesh, "root")
-                && let Some(pelvis_bindpose) = cache.bone_bindpose_translation("root")
-                && let Ok(mut pelvis) = bones.get_mut(pelvis_entity)
+            let (_, skm) = *human;
+            if let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes)
+                && let Ok(mut pelvis) = bones.get_mut(skm.joints[0])
             {
-                pelvis.translation = pelvis_bindpose;
+                pelvis.translation = Transform::from_matrix(inv_bindposes[0].inverse()).translation;
             }
         } else {
-            // Switch to ragdoll: hitbox gets empty, ragdoll gets all bones
+            if let Ok(mut player) = players.get_mut(related.rig)
+                && let Ok(controller) = controllers.get(related.rig)
+            {
+                player.stop(controller.0);
+                info!("STOP");
+            }
+
             hitbox.bones_subset = Some(vec![]);
             ragdoll.bones_subset = None;
         }
@@ -102,16 +86,27 @@ fn floor(
     ));
 }
 
+#[derive(Resource)]
+struct RetargetedAnimations {
+    _clips: Handle<RetargetedAnimationAsset>,
+}
+
 fn add_human(
     mut commands: Commands,
-    mut asset_server: ResMut<AssetServer>,
-    asset_registry: Res<CharacterAssetRegistry>,
+    asset_server: Res<AssetServer>,
+    mut mesh_builder: ResMut<MhcloMeshBuilder>,
+    morphs: Res<MakeHumanMorphs>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Different filter layers so hitbox and ragdoll don't collide with each other
-    // Using PhysX filter: group in word0, mask in word1
-    // Hitbox: group=1, mask=1 (only collides with hitbox)
-    // Ragdoll: group=2, mask=2 (only collides with ragdoll)
+    if !morphs.is_ready(&asset_server) {
+        return;
+    }
+
+    commands.insert_resource(CharacterTemplates::new([(
+        "",
+        CharacterTemplate::new([], RigType::Default),
+    )]));
+
     let hitbox_filter = ShapeFilterData {
         simulation_filter_data: [1, 1, 0, 0],
         ..default()
@@ -121,66 +116,64 @@ fn add_human(
         ..default()
     };
 
-    let texture = CharacterPart::BodyMesh("basemesh").get_texture_handle(
-        "young_caucasian_male",
-        CharacterAssetTextureType::Albedo,
-        &mut asset_server,
-        &asset_registry
-    );
+    let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+
+    let texture = asset_server.load::<Image>("skin_textures/albedo/young_caucasian_female.png");
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(texture),
         ..default()
     });
 
+    mesh_builder.trigger(LoadAssetMeshJob::Single {
+        part: basemesh.clone(),
+        template_name: "",
+    });
+
+    let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
+    commands.insert_resource(RetargetedAnimations { _clips: clips });
+
     commands.spawn((
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
         CharacterShapeConfig::default(),
-        // Start with hitbox colliders (all bones), ragdoll has no bones
         CharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
         CharacterColliders::<RagdollCollider>::new(ragdoll_filter, Some(vec![])),
         children![(
-            CharacterPart::BodyMesh("basemesh"),
+            CharacterPart(basemesh),
             MeshMaterial3d(mat),
         )]
     ));
-}
-
-fn setup_templates(mut commands: Commands) {
-    // No shape morphs, just the basemesh
-    // Just for the examples.
-    commands.insert_resource(CharacterTemplates::new([(
-        "",
-        CharacterTemplate::new(
-            [],
-            CharacterAnimationArchetype::new(RigType::Default, ["assets/animation/idle.glb"]),
-        ),
-    )]));
 }
 
 #[derive(Component)]
 struct AnimationController(AnimationNodeIndex);
 
 fn setup_graph(
-    player: Query<Entity, With<AnimationPlayer>>,
-    human: Single<&RelatedEntities, Added<SkinnedMesh>>,
-    animations: Res<CharacterAnimationClips>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
     mut commands: Commands,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
+    mut character_player: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
 ) {
-    let Ok(anim_player) = player.get(human.rig) else {
-        return;
-    };
-    let animations = &animations[&RigType::Default];
-    let clip = &animations["Idle-loop"];
-    let (graph, index) = AnimationGraph::from_clip(clip.clone());
-    let graph_handle = graphs.add(graph.clone());
-    commands.entity(anim_player).insert((
+    let Ok((entity, _player)) = character_player.single_mut() else { return };
+    let Some((_id, clips_map)) = retargeted_clips.iter().next() else { return };
+    let clip_handle = clips_map.clips.get("Idle-loop").unwrap();
+    let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
+    commands.entity(entity).insert((
         AnimationController(index),
-        AnimationGraphHandle(graph_handle.clone()),
+        AnimationGraphHandle(graphs.add(graph)),
     ));
 }
 
-fn start_clip(mut anim: Single<(&mut AnimationPlayer, &AnimationController)>) {
-    let idx = anim.1 .0.clone();
-    anim.0.play(idx).repeat();
+fn start_clip(
+    ragdoll: Single<&CharacterColliders<RagdollCollider>>,
+    mut anim: Single<(&mut AnimationPlayer, &AnimationController)>,
+) {
+    let ragdoll_active = !ragdoll
+        .bones_subset
+        .as_ref()
+        .map_or(false, |v| v.is_empty());
+    if ragdoll_active {
+        return;
+    }
+    let index = anim.1.0;
+    anim.0.play(index).repeat();
 }
