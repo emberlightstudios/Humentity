@@ -2,17 +2,24 @@ mod shared;
 
 use std::f32::consts::PI;
 
-use bevy::{mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes}, prelude::*};
-use bevy_mod_physx::prelude::{self as bpx, *};
+use avian3d::prelude::*;
+use bevy::{
+    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
+    prelude::*,
+};
 use humentity::prelude::*;
 use shared::{setup_app, CharacterPart};
 
 fn main() {
     let mut app = setup_app();
 
-    app.add_plugins(
-        PhysicsPlugins.set(PhysicsCore::default()),
-    )
+    app.add_plugins((
+        PhysicsPlugins::default(),
+        PhysicsDebugPlugin,
+        FrameTimeDiagnosticsPlugin::default(),
+        LogDiagnosticsPlugin::default(),
+    ))
     .add_systems(Startup, floor)
     .add_systems(
         Update,
@@ -31,8 +38,8 @@ fn main() {
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
     related: Single<&RelatedEntities>,
-    mut hitbox: Single<&mut CharacterColliders<HitboxCollider>>,
-    mut ragdoll: Single<&mut CharacterColliders<RagdollCollider>>,
+    mut ragdoll: Single<&mut CharacterRagdoll>,
+    mut colliders: Single<&mut CharacterColliders>,
     human: Single<(&CharacterShapeConfig, &SkinnedMesh)>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<&mut Transform, With<SkeletalBone>>,
@@ -40,14 +47,9 @@ fn toggle(
     controllers: Query<&AnimationController>,
 ) {
     if input.just_pressed(KeyCode::Space) {
-        let ragdoll_active = !ragdoll
-            .bones_subset
-            .as_ref()
-            .map_or(false, |v| v.is_empty());
-
-        if ragdoll_active {
-            ragdoll.bones_subset = Some(vec![]);
-            hitbox.bones_subset = None;
+        if **ragdoll == CharacterRagdoll::Full {
+            **ragdoll = CharacterRagdoll::None;
+            colliders.bones_subset = None;
 
             let (_, skm) = *human;
             if let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes)
@@ -60,27 +62,21 @@ fn toggle(
                 && let Ok(controller) = controllers.get(related.rig)
             {
                 player.stop(controller.0);
-                info!("STOP");
             }
 
-            hitbox.bones_subset = Some(vec![]);
-            ragdoll.bones_subset = None;
+            **ragdoll = CharacterRagdoll::Full;
+            colliders.bones_subset = Some(vec![]);
         }
     }
 }
 
 fn floor(
     mut commands: Commands,
-    mut geometries: ResMut<Assets<Geometry>>,
-    mut materials: ResMut<Assets<bpx::Material>>,
-    mut physics: ResMut<Physics>,
 ) {
     commands.spawn((
-        Shape {
-            geometry: geometries.add(Plane3d::default()),
-            material: materials.add(bpx::Material::new(&mut physics, 0.5, 0.5, 0.5)),
-            ..Default::default()
-        },
+        Collider::cuboid(100.0, 0.1, 100.0),
+        Friction::new(0.5),
+        Restitution::new(0.5),
         RigidBody::Static,
         Transform::IDENTITY,
     ));
@@ -107,15 +103,6 @@ fn add_human(
         CharacterTemplate::new([], RigType::Default),
     )]));
 
-    let hitbox_filter = ShapeFilterData {
-        simulation_filter_data: [1, 1, 0, 0],
-        ..default()
-    };
-    let ragdoll_filter = ShapeFilterData {
-        simulation_filter_data: [2, 2, 0, 0],
-        ..default()
-    };
-
     let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
 
     let texture = asset_server.load::<Image>("skin_textures/albedo/young_caucasian_female.png");
@@ -135,8 +122,8 @@ fn add_human(
     commands.spawn((
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
         CharacterShapeConfig::default(),
-        CharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
-        CharacterColliders::<RagdollCollider>::new(ragdoll_filter, Some(vec![])),
+        CharacterRagdoll::None,
+        CharacterColliders::new(true),
         children![(
             CharacterPart(basemesh),
             MeshMaterial3d(mat),
@@ -164,14 +151,10 @@ fn setup_graph(
 }
 
 fn start_clip(
-    ragdoll: Single<&CharacterColliders<RagdollCollider>>,
+    ragdoll: Single<&CharacterRagdoll>,
     mut anim: Single<(&mut AnimationPlayer, &AnimationController)>,
 ) {
-    let ragdoll_active = !ragdoll
-        .bones_subset
-        .as_ref()
-        .map_or(false, |v| v.is_empty());
-    if ragdoll_active {
+    if **ragdoll == CharacterRagdoll::Full {
         return;
     }
     let index = anim.1.0;

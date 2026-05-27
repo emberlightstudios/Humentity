@@ -10,6 +10,12 @@ use bevy_egui::prelude::*;
 #[derive(Component, Clone, Debug, Eq, PartialEq, Hash, Deref)]
 pub struct CharacterPart(pub Handle<MhcloAsset>);
 
+/// Add just the [HumentityPlugin] without egui/inspector plugins.
+/// Use this in examples that add their own UI or physics plugins.
+pub fn add_humentity_plugin(app: &mut App) {
+    app.add_plugins(HumentityPlugin);
+}
+
 pub fn setup_app() -> App {
     // I moved target.json and macro.macro to the root of the assets folder because when trying to load
     // the target folders, the asset server tried to load them there also.
@@ -87,7 +93,7 @@ fn update_mesh_when_ready(
     }
 }
 
-fn cam_controls(
+pub fn cam_controls(
     mut cam: Query<&mut Transform, With<Camera3d>>,
     mut mouse_motion: MessageReader<MouseMotion>,
     kb_input: Res<ButtonInput<KeyCode>>,
@@ -134,7 +140,7 @@ fn cam_controls(
     cam.translation += Transform::from_rotation(transform.rotation) * mv;
 }
 
-fn add_material(
+pub fn add_material(
     humans: Query<Entity, (With<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -145,7 +151,7 @@ fn add_material(
     }
 }
 
-fn setup_env(
+pub fn setup_env(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,

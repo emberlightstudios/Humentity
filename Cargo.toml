@@ -8,6 +8,7 @@ ahash = { version = ">=0.8.12", features = ["serde"] }
 bevy = ">=0.18.0"
 serde = ">=1.0.228"
 walkdir = ">=2.5.0"
+avian3d = { optional = true, version = ">=0.5" }
 bevy_mod_physx = { optional = true, workspace = true }
 serde_json = ">=1.0.145"
 bytemuck = ">=1.24.0"
@@ -23,8 +24,12 @@ bevy_egui = "0.39.1"
 toml = ">=0.9.11"
 
 [[example]]
-name = "ragdoll"
-required-features = ["physics"]
+name = "ragdoll_physx"
+required-features = ["physx"]
+
+[[example]]
+name = "ragdoll_avian"
+required-features = ["avian"]
 
 [[example]]
 name = "character_creator"
@@ -33,7 +38,8 @@ required-features = ["experimental_bevy_feathers"]
 [features]
 default = []
 debug = ["bevy/debug"]
-physics = ["dep:bevy_mod_physx"]
+avian = ["dep:avian3d"]
+physx = ["dep:bevy_mod_physx"]
 experimental_bevy_feathers = ["bevy/experimental_bevy_feathers"]
 
 [profile.dev]

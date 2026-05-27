@@ -8,8 +8,10 @@ mod template;
 mod rigs;
 mod spawn_skeleton;
 mod spawn_mesh;
-#[cfg(feature = "physics")]
-mod physics;
+#[cfg(feature = "avian")]
+mod avian;
+#[cfg(feature = "physx")]
+mod physx;
 
 use bevy::ecs::intern::Interner;
 use bevy::prelude::*;
@@ -82,8 +84,10 @@ pub mod prelude {
         BoneDebugPlugin,
         NAME_INTERNER,
     };
-    #[cfg(feature = "physics")]
-    pub use crate::physics::{CharacterColliders, CharacterColliderBone, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider};
+    #[cfg(feature = "avian")]
+    pub use crate::avian::{CharacterColliderBone, CharacterColliders, CharacterRagdoll};
+    #[cfg(feature = "physx")]
+    pub use crate::physx::{CharacterColliders, CharacterColliderBone, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter};
 }
 
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
@@ -169,50 +173,68 @@ impl Plugin for HumentityPlugin {
                 ),
             )
             .add_systems(Update, rigs::build_rig_scenes);
-        
-        #[cfg(feature = "physics")]
+
+        #[cfg(feature = "avian")]
+        {
+            app.add_systems(
+                Update,
+                (
+                    avian::spawn_colliders
+                        .after(spawn_skeleton::fit_skeleton_to_shape)
+                        .run_if(resource_exists::<CharacterTemplates>)
+                        .run_if(resource_exists::<BaseMesh>)
+                        .run_if(resource_exists::<MakeHumanMorphs>)
+                        .run_if(resource_exists::<RigData>),
+                    (avian::set_ragdoll_state, avian::sync_colliders).chain(),
+                ),
+            );
+        }
+
+        #[cfg(feature = "physx")]
         {
             use bevy::app::AnimationSystems;
             use bevy_mod_physx::prelude::Physics;
 
             app.add_systems(
                     Startup,
-                    physics::create_collider_physics_material
+                    physx::create_collider_physics_material
                             .run_if(resource_exists::<Physics>),
                 )
                 .add_systems(
                     Update,
                     (
-                        physics::spawn_kinematic_colliders::<HitboxCollider>
-                            .run_if(resource_exists::<physics::ColliderMaterial>)
+                        physx::auto_add_ragdoll_colliders
+                            .after(spawn_skeleton::fit_skeleton_to_shape),
+                        physx::spawn_kinematic_colliders::<HitboxCollider>
+                            .run_if(resource_exists::<physx::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>)
                             .run_if(resource_exists::<CharacterTemplates>)
                             .run_if(resource_exists::<RigData>),
-                        physics::spawn_kinematic_colliders::<HurtboxCollider>
-                            .run_if(resource_exists::<physics::ColliderMaterial>)
+                        physx::spawn_kinematic_colliders::<HurtboxCollider>
+                            .run_if(resource_exists::<physx::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>)
                             .run_if(resource_exists::<CharacterTemplates>)
                             .run_if(resource_exists::<RigData>),
-                        physics::spawn_ragdoll_colliders
-                            .run_if(resource_exists::<physics::ColliderMaterial>)
+                        physx::spawn_ragdoll_colliders
+                            .run_if(resource_exists::<physx::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>)
                             .run_if(resource_exists::<CharacterTemplates>)
                             .run_if(resource_exists::<RigData>),
-                        physics::sync_colliders::<HitboxCollider>,
-                        physics::sync_colliders::<HurtboxCollider>,
-                        physics::on_colliders_changed::<HitboxCollider>,
-                        physics::on_colliders_changed::<HurtboxCollider>,
-                        physics::on_colliders_changed::<RagdollCollider>,
+                        physx::sync_colliders::<HitboxCollider>,
+                        physx::sync_colliders::<HurtboxCollider>,
+                        physx::on_colliders_changed::<HitboxCollider>,
+                        physx::on_colliders_changed::<HurtboxCollider>,
+                        physx::on_colliders_changed::<RagdollCollider>,
                     )
                 )
                 .add_systems(
                     PostUpdate,
-                    physics::sync_skeleton_to_ragdoll
+                    physx::sync_skeleton_to_ragdoll
                         .after(AnimationSystems)
                 )
-                .add_observer(physics::mark_entity_needs_colliders::<HitboxCollider>)
-                .add_observer(physics::mark_entity_needs_colliders::<HurtboxCollider>)
-                .add_observer(physics::mark_entity_needs_colliders::<RagdollCollider>);
+                .add_observer(physx::mark_entity_needs_colliders::<HitboxCollider>)
+                .add_observer(physx::mark_entity_needs_colliders::<HurtboxCollider>)
+                .add_observer(physx::mark_entity_needs_colliders::<RagdollCollider>);
         }
 
         /*

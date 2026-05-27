@@ -141,8 +141,6 @@ const DEFAULT_RIG_COLLIDER_BONE_NAMES: [&'static str; 15] = [
     "upperarm01.R",
     "lowerarm01.L",
     "lowerarm01.R",
-    //"metacarpal2.L",
-    //"metacarpal2.R",
     "wrist.L",
     "wrist.R",
     "head",
@@ -170,7 +168,6 @@ fn get_collider_parent(bone: CharacterColliderBone) -> Option<CharacterColliderB
 }
 
 /// Provides body colliders for characters
-/// TODO : Relationship to match entities so we can delete with despawn_related
 #[derive(Component, Default)]
 pub struct CharacterColliders<C: ColliderType + Send + Sync = HitboxCollider> {
     /// Physx collider filters/layers
@@ -200,13 +197,51 @@ pub(crate) struct NeedsColliders<C: ColliderType>(PhantomData<C>);
 #[derive(Hash, Eq, PartialEq, Clone, Resource)]
 pub(crate) struct ColliderMaterial(Handle<bpx::Material>);
 
+/// Resource for configuring the default ragdoll collider filter.
+/// Insert this resource to override the default filter used by `auto_add_ragdoll_colliders`.
+#[derive(Resource, Clone)]
+pub struct RagdollColliderFilter(pub ShapeFilterData);
+
+impl Default for RagdollColliderFilter {
+    fn default() -> Self {
+        Self(ShapeFilterData {
+            simulation_filter_data: [1 << 1, 1 << 1, 0, 0],
+            ..default()
+        })
+    }
+}
+
+/// Automatically adds `CharacterColliders<RagdollCollider>` to characters
+/// once their skeleton has been fitted (FitSkeleton removed).
+pub(crate) fn auto_add_ragdoll_colliders(
+    characters: Query<
+        Entity,
+        (
+            With<CharacterShapeConfig>,
+            With<SkinnedMesh>,
+            Without<FitSkeleton>,
+            Without<CharacterColliders<RagdollCollider>>,
+        ),
+    >,
+    filter: Option<Res<RagdollColliderFilter>>,
+    mut commands: Commands,
+) {
+    let filter = filter.as_deref().cloned().unwrap_or_default();
+    for entity in characters.iter() {
+        commands.entity(entity).insert(CharacterColliders::<RagdollCollider>::new(
+            filter.0,
+            Some(vec![]),
+        ));
+    }
+}
+
 /*--- Systems ---*/
 pub(crate) fn create_collider_physics_material(
     mut commands: Commands,
     mut materials: ResMut<Assets<bpx::Material>>,
     mut physics: ResMut<Physics>,
 ) {
-    let handle = materials.add(bpx::Material::new(&mut physics, 0., 0., 1.0));
+    let handle = materials.add(bpx::Material::new(&mut physics, 0.5, 0.5, 0.3));
     commands.insert_resource(ColliderMaterial(handle));
 }
 
