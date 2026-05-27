@@ -172,7 +172,9 @@ impl Plugin for HumentityPlugin {
         
         #[cfg(feature = "physics")]
         {
+            use bevy::app::AnimationSystems;
             use bevy_mod_physx::prelude::Physics;
+
             app.add_systems(
                     Startup,
                     physics::create_collider_physics_material
