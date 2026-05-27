@@ -14,7 +14,7 @@ use crate::{
     morphs::MakeHumanMorphs,
     template::CharacterTemplates,
     prelude::{BaseMesh, CharacterShapeConfig, RelatedEntities},
-    rigs::{RigType, SkeletalBone, SkeletonCaches},
+    rigs::{RigData, RigType, SkeletalBone},
     spawn_skeleton::FitSkeleton,
 };
 
@@ -303,7 +303,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
-    skeleton_caches: Res<SkeletonCaches>,
+    rig_data: Res<RigData>,
     mut geometries: ResMut<Assets<Geometry>>,
     mut commands: Commands,
 ) {
@@ -333,17 +333,17 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
-        let sk_cache = &skeleton_caches[&template.rig];
+        let reference_rig = &rig_data[&template.rig].reference_rig;
 
-        let bone_entities = sk_cache
-            .bone_order
+        let bone_entities = reference_rig
+            .bone_names
             .iter()
             .cloned()
             .zip(skm.joints.iter().cloned())
             .collect::<AHashMap<&str, Entity>>();
 
-        let inv_bindposes_map = sk_cache
-            .bone_order
+        let inv_bindposes_map = reference_rig
+            .bone_names
             .iter()
             .cloned()
             .zip(inv_bindposes.iter().map(|m| Transform::from_matrix(*m)))
@@ -448,11 +448,11 @@ pub(crate) fn spawn_ragdoll_colliders(
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
-    skeleton_caches: Res<SkeletonCaches>,
+    rig_data: Res<RigData>,
     mut geometries: ResMut<Assets<Geometry>>,
     mut commands: Commands,
 ) {
-    for (character_entity, shape_config, related, mut colliders, skm) in needs_colliders.iter_mut()
+    for (character_entity, shape_config, _related, mut colliders, skm) in needs_colliders.iter_mut()
     {
         let rig_type = templates[&shape_config.template].rig;
 
@@ -473,17 +473,17 @@ pub(crate) fn spawn_ragdoll_colliders(
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             return;
         };
-        let sk_cache = &skeleton_caches[&template.rig];
+        let reference_rig = &rig_data[&template.rig].reference_rig;
 
-        let bone_entities = sk_cache
-            .bone_order
+        let bone_entities = reference_rig
+            .bone_names
             .iter()
             .cloned()
             .zip(skm.joints.iter().cloned())
             .collect::<AHashMap<&str, Entity>>();
 
-        let inv_bindposes_map = sk_cache
-            .bone_order
+        let inv_bindposes_map = reference_rig
+            .bone_names
             .iter()
             .cloned()
             .zip(inv_bindposes.iter().map(|m| Transform::from_matrix(*m)))

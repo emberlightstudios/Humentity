@@ -185,13 +185,19 @@ impl Plugin for HumentityPlugin {
                     (
                         physics::spawn_kinematic_colliders::<HitboxCollider>
                             .run_if(resource_exists::<physics::ColliderMaterial>)
-                            .run_if(resource_exists::<Physics>),
+                            .run_if(resource_exists::<Physics>)
+                            .run_if(resource_exists::<CharacterTemplates>)
+                            .run_if(resource_exists::<RigData>),
                         physics::spawn_kinematic_colliders::<HurtboxCollider>
                             .run_if(resource_exists::<physics::ColliderMaterial>)
-                            .run_if(resource_exists::<Physics>),
+                            .run_if(resource_exists::<Physics>)
+                            .run_if(resource_exists::<CharacterTemplates>)
+                            .run_if(resource_exists::<RigData>),
                         physics::spawn_ragdoll_colliders
                             .run_if(resource_exists::<physics::ColliderMaterial>)
-                            .run_if(resource_exists::<Physics>),
+                            .run_if(resource_exists::<Physics>)
+                            .run_if(resource_exists::<CharacterTemplates>)
+                            .run_if(resource_exists::<RigData>),
                         physics::sync_colliders::<HitboxCollider>,
                         physics::sync_colliders::<HurtboxCollider>,
                         physics::on_colliders_changed::<HitboxCollider>,
