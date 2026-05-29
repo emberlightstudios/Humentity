@@ -1,65 +1,14 @@
 use std::sync::{Arc, RwLock};
 
 use ahash::AHashMap;
-use bevy::{ecs::intern::Internable, mesh::morph::{MeshMorphWeights, MorphTargetImage}, prelude::*, tasks::AsyncComputeTaskPool};
+use bevy::{mesh::morph::MorphTargetImage, prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
-use crate::{NAME_INTERNER, assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{MhcloAsset, ObjVertsAsset, TargetAsset}, morphs::{MakeHumanMorphs, MorphTargets}, template::{CharacterTemplate, CharacterTemplates}, rigs::{BoneTranslationData, RigData, RigSpec}};
-use serde::{Deserialize, Deserializer, Serialize};
+use crate::{assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{CharacterShapeAsset, MhcloAsset, ObjVertsAsset, TargetAsset}, morphs::MakeHumanMorphs, template::CharacterTemplate, rigs::{RigData, RigSpec}};
 
-
-/// Defines the shape of a character.  Place it at the root, with individual parts as children.
-#[derive(Component, Clone, Default, Debug, Serialize)]
+/// Component that references a [`CharacterShapeAsset`].  Place it on the root entity of a character.
+#[derive(Component, Clone, Debug)]
 #[require(Visibility)]
-pub struct CharacterShapeConfig {
-    pub template_morph_targets: MorphTargets,
-    pub template: &'static str,
-    #[serde(skip)]
-    #[allow(dead_code)]
-    pub(crate) bone_translations: BoneTranslationData,
-    #[serde(skip)]
-    #[allow(dead_code)]
-    pub(crate) bone_delta_rotations: AHashMap<&'static str, Quat>,
-}
-
-impl CharacterShapeConfig {
-    pub fn get_morph_weights_component(&self, template: &CharacterTemplate) -> MeshMorphWeights {
-        let morph_weights = template
-            .shapes
-            .iter()
-            .map(|s| *self.template_morph_targets.get(s.name).unwrap_or(&0.))
-            .collect::<Vec<_>>();
-        MeshMorphWeights::new(morph_weights).unwrap()
-    }
-}
-
-impl<'de> Deserialize<'de> for CharacterShapeConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Raw {
-            template_morph_targets: MorphTargets,
-            template: String,
-        }
-
-        let raw = Raw::deserialize(deserializer)?;
-        let template: &'static str = NAME_INTERNER.intern(&raw.template).leak();
-
-        Ok(Self::new(template, raw.template_morph_targets))
-    }
-}
-
-impl CharacterShapeConfig {
-    pub fn new(template: &'static str, morphs: MorphTargets) -> Self {
-        Self {
-            template,
-            template_morph_targets: morphs,
-            bone_translations: BoneTranslationData::None,
-            bone_delta_rotations: AHashMap::<&'static str, Quat>::default(),
-        }
-    }
-}
+pub struct CharacterShape(pub Handle<CharacterShapeAsset>);
 
 /// The state of a mesh load process for character parts
 #[derive(PartialEq, Eq, Debug, Default, Clone)]
@@ -72,7 +21,7 @@ pub enum AssetLoadState {
 }
 
 #[derive(Resource, Deref, DerefMut, Default)]
-pub struct CachedMhcloMeshHandles(AHashMap<(Handle<MhcloAsset>, &'static str), Handle<Mesh>>);
+pub struct CachedMhcloMeshHandles(AHashMap<(Handle<MhcloAsset>, Handle<CharacterTemplate>), Handle<Mesh>>);
 
 pub(crate) struct RawMeshCache {
     pub(crate) mesh: Handle<Mesh>,
@@ -90,8 +39,8 @@ pub struct MhcloMeshBuilder(AHashMap<LoadAssetMeshJob, (LoadingMediator, AssetLo
 /// The type of a mesh load job, single CharacterMesh or multiple parts in a StitchedMesh
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub enum LoadAssetMeshJob {
-    Single{ part: Handle<MhcloAsset>, template_name: &'static str },
-    Stitched{ parts: StitchedParts, template_name: &'static str },
+    Single{ part: Handle<MhcloAsset>, template_handle: Handle<CharacterTemplate> },
+    Stitched{ parts: StitchedParts, template_handle: Handle<CharacterTemplate> },
 }
 
 impl MhcloMeshBuilder {
@@ -130,7 +79,7 @@ pub(crate) struct MeshConstructedMsg {
 /// This system runs in phases, so it gets triggered multiple times to load a mesh
 /// State is tracked by [`AssetLoadState`]
 pub(crate) fn mesh_build(
-    templates: ResMut<CharacterTemplates>,
+    templates: Res<Assets<CharacterTemplate>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mesh_verts: Res<Assets<ObjVertsAsset>>,
     mhclo_assets: Res<Assets<MhcloAsset>>,
@@ -145,43 +94,49 @@ pub(crate) fn mesh_build(
 ) {
     for (key, (mediator, load_state)) in mediators.0.iter_mut() {
         match key {
-            LoadAssetMeshJob::Single { part, template_name } => {
+            LoadAssetMeshJob::Single { part, template_handle } => {
+                let Some(template) = templates.get(template_handle) else {
+                    continue;
+                };
+
                 build_single_mesh_process(
-                    mediator, load_state, part, template_name, &templates, &mut meshes, &mesh_verts, &mhclo_assets,
+                    mediator, load_state, part, template_handle, template, &mut meshes, &mesh_verts, &mhclo_assets,
                     &mut morphs, &basemesh.vertices, &rig_data, &asset_server, &mut cached_raw_meshes,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
-                    let mesh = handle_single_mesh_complete(msg, &templates[template_name], &mut images);
+                    let mesh = handle_single_mesh_complete(msg, template, &mut images);
                     let mesh_handle = meshes.add(mesh);
-                    cached_meshes.insert((part.clone(), template_name), mesh_handle.clone());
+                    cached_meshes.insert((part.clone(), template_handle.clone()), mesh_handle.clone());
                     *load_state = AssetLoadState::Finished;
                 }
             }
-            LoadAssetMeshJob::Stitched{ parts, template_name } => {
+            LoadAssetMeshJob::Stitched{ parts, template_handle } => {
+                let Some(template) = templates.get(template_handle) else {
+                    continue;
+                };
+
                 build_stitched_meshes_process(
-                    mediator, load_state, parts, template_name, &templates, &mut meshes, &mesh_verts,
+                    mediator, load_state, parts, template_handle, template, &templates, &mut meshes, &mesh_verts,
                     &mhclo_assets, &mut morphs, &basemesh.vertices, &rig_data, &asset_server,
                     &mut cached_raw_meshes,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
-                    let template_names = parts
+                    let resolved_templates: Vec<&CharacterTemplate> = parts
                         .iter()
-                        .map(|p| p.template_override.as_ref().map_or(*template_name, |ov| ov.0))
-                        .collect::<Vec<_>>();
-                    
-                    let templates = template_names
-                        .iter()
-                        .map(|p| &templates[p])
-                        .collect::<Vec<_>>();
+                        .map(|p| {
+                            let h = p.template_override.as_ref().map_or(template_handle, |ov| &ov.0);
+                            templates.get(h).unwrap_or(template)
+                        })
+                        .collect();
 
-                    let new_meshes = handle_stitched_mesh_complete(msg, &templates, &mut images);
+                    let new_meshes = handle_stitched_mesh_complete(msg, &resolved_templates, &mut images);
 
                     for (i_mesh, mesh) in new_meshes.into_iter().enumerate() {
                         let handle = parts[i_mesh].part.clone();
                         let mesh_handle = meshes.add(mesh);
-                        cached_meshes.insert((handle, template_name), mesh_handle.clone());
+                        cached_meshes.insert((handle, template_handle.clone()), mesh_handle.clone());
                     }
                     *load_state = AssetLoadState::Finished;
                 }
@@ -266,8 +221,8 @@ pub(crate) fn build_single_mesh_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
     part: &Handle<MhcloAsset>,
-    template_name: &'static str,
-    templates: &CharacterTemplates,
+    _template_handle: &Handle<CharacterTemplate>,
+    template: &CharacterTemplate,
     meshes: &mut Assets<Mesh>,
     mesh_verts: &Assets<ObjVertsAsset>,
     mhclo_assets: &Assets<MhcloAsset>,
@@ -278,7 +233,6 @@ pub(crate) fn build_single_mesh_process(
     cached_raw_meshes: &mut CachedMhcloRawMeshHandles,
 ) {
     let pool = AsyncComputeTaskPool::get();
-    let template = templates.get(template_name).expect("No such template");
 
     let Some(mhclo) = mhclo_assets.get(part) else {
         return;
@@ -334,8 +288,9 @@ fn build_stitched_meshes_process(
     mediator: &LoadingMediator,
     load_state: &mut AssetLoadState,
     parts: &StitchedParts,
-    template_name: &'static str,
-    templates: &CharacterTemplates,
+    template_handle: &Handle<CharacterTemplate>,
+    parent_template: &CharacterTemplate,
+    templates: &Assets<CharacterTemplate>,
     meshes: &mut Assets<Mesh>,
     mesh_verts: &Assets<ObjVertsAsset>,
     mhclo_assets: &Assets<MhcloAsset>,
@@ -406,15 +361,18 @@ fn build_stitched_meshes_process(
             .map(|p| mhclo_assets.get(&p.part).unwrap().clone())
             .collect();
 
-        let template_names: Vec<&'static str> = parts
+        let resolved_templates: Vec<&CharacterTemplate> = parts
             .iter()
-            .map(|p| p.template_override.as_ref().map_or(template_name, |ov| ov.0))
+            .map(|p| {
+                let h = p.template_override.as_ref().map_or(template_handle, |ov| &ov.0);
+                templates.get(h).unwrap_or(parent_template)
+            })
             .collect();
 
-        let rig = templates[template_names[0]].rig;
-        let templates_for_build: Vec<_> = template_names
-            .iter()
-            .map(|p| templates[*p].clone())
+        let rig = resolved_templates[0].rig;
+        let templates_for_build: Vec<_> = resolved_templates
+            .into_iter()
+            .cloned()
             .collect();
 
         let mh_morphs = morphs.targets.clone();

@@ -8,45 +8,33 @@ use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
 use shared::{setup_app, CharacterPart};
 
-const TEMPLATE: &str = "ExampleTemplate";
 const SHAPE_NAME: &str = "bigboobs";
 
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(
-        Update,
-        add_humans
-            .run_if(resource_exists::<MakeHumanMorphs>)
-            .run_if(not(resource_exists::<CharacterTemplates>)),
-    )
-    .run();
+    app.add_observer(add_humans).run();
 }
 
 fn add_humans(
+    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     morphs: Res<MakeHumanMorphs>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut template_assets: ResMut<Assets<CharacterTemplate>>,
+    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
-    if !morphs.is_ready(&asset_server) {
-        return;
-    }
-
     let mut morph_targets = MorphTargets::default();
-    morph_targets.insert("age", 0.5);
-    morph_targets.insert("gender", 1.0);
-    morph_targets.insert("caucasian", 1.0);
+    morph_targets.insert("gender", 0.0);
+    morph_targets.insert("cupsize", 1.0);
 
     let resolved = morphs.compute_target_weights(&morph_targets).unwrap();
 
-    let shape = CharacterMorphShapes::new(SHAPE_NAME, resolved);
+    let shape = CharacterMorphShape::new(SHAPE_NAME, resolved);
 
-    commands.insert_resource(CharacterTemplates::new([(
-        TEMPLATE,
-        CharacterTemplate::new([shape], RigType::Default),
-    )]));
+    let template_handle = template_assets.add(CharacterTemplate::new([shape], RigType::Default));
 
     let lod0 = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     let lod1 = asset_server.load::<MhcloAsset>("proxymeshes/proxy4817/proxy4817.proxy");
@@ -55,19 +43,19 @@ fn add_humans(
 
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod0.clone(),
-        template_name: TEMPLATE,
+        template_handle: template_handle.clone(),
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod1.clone(),
-        template_name: TEMPLATE,
+        template_handle: template_handle.clone(),
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod2.clone(),
-        template_name: TEMPLATE,
+        template_handle: template_handle.clone(),
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod3.clone(),
-        template_name: TEMPLATE,
+        template_handle: template_handle.clone(),
     });
 
     let mut morphs = MorphTargets::default();
@@ -80,7 +68,10 @@ fn add_humans(
     commands.spawn((
         Name::new("LOD Character"),
         Transform::from_translation(Vec3::new(0., 0., -1.)),
-        CharacterShapeConfig::new(TEMPLATE, morphs.clone()),
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+            template_handle.clone(),
+            morphs.clone(),
+        ))),
         InheritedVisibility::default(),
         children![
             (
@@ -136,9 +127,16 @@ fn add_humans(
         commands.spawn((
             Name::new(name),
             Transform::from_translation(Vec3::new(x, 0., 0.)),
-            CharacterShapeConfig::new(TEMPLATE, morphs.clone()),
+            CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+                template_handle.clone(),
+                morphs.clone(),
+            ))),
             InheritedVisibility::default(),
-            children![(CharacterPart(proxy), Name::new("mesh"), MeshMaterial3d(black.clone()))],
+            children![(
+                CharacterPart(proxy),
+                Name::new("mesh"),
+                MeshMaterial3d(black.clone())
+            )],
         ));
     }
 }

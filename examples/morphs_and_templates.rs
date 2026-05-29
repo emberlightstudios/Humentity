@@ -8,8 +8,8 @@
 //! To overcome these problems Humentity uses a "template" system.
 //!
 //! Makehuman has something like 1000 distinct morph targets.  This
-//! is too many to be used at runtime.  The Humentity template system
-//! allows you to bake an entire set of makehuman morph weights down to a
+//! is too many to be on a mesh at runtime.  The Humentity template system
+//! allows you to bake an arbitrary set of makehuman morph weights down to a
 //! single morph target in bevy. In order to make variable humans we can define
 //! a few basic human archetypes, and perhaps a set of distinct faces that we can
 //! use to blend between at runtime.  This allows us to dramatically reduce the
@@ -23,69 +23,56 @@ use bevy::prelude::*;
 use humentity::prelude::*;
 use shared::{setup_app, CharacterPart};
 
-const TEMPLATE_NAME: &str = "ExampleHumanTemplate";
 const BABY: &str = "baby";
 const BODYBUILDER: &str = "bodybuilder";
-
 
 fn main() {
     let mut app = setup_app();
 
-    app
-        .add_systems(
-            Update,
-            add_humans
-                .run_if(resource_exists::<MakeHumanMorphs>)
-                .run_if(not(resource_exists::<CharacterTemplates>))
-        )
-        .run();
+    app.add_observer(add_humans).run();
 }
 
 fn add_humans(
+    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     morphs: Res<MakeHumanMorphs>,
+    mut template_assets: ResMut<Assets<CharacterTemplate>>,
+    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
-    if !morphs.is_ready(&asset_server) {
-        return;
-    }
+    let mut baby_targets = MorphTargets::default();
+    baby_targets.insert("age", 0.);
 
-    let mut morph_targets = MorphTargets::default();
-    morph_targets.insert("age", 0.);
-    morph_targets.insert("baby", 0.60);
-    morph_targets.insert("child", 0.40);
+    let mut bodybuilder_targets = MorphTargets::default();
+    bodybuilder_targets.insert("muscle", 1.);
+    bodybuilder_targets.insert("weight", 1.);
 
-    let baby_morphs = morphs.compute_target_weights(&morph_targets).unwrap();
+    let baby_morphs = morphs.compute_target_weights(&baby_targets).unwrap();
+    let bodybuilder_morphs = morphs.compute_target_weights(&bodybuilder_targets).unwrap();
 
-    let bodybuilder_morphs = morphs.compute_target_weights(&morph_targets).unwrap();
-
-    commands.insert_resource(
-        CharacterTemplates::new([(
-            TEMPLATE_NAME,
-            CharacterTemplate::new(
-                [
-                    CharacterMorphShapes::new(BODYBUILDER, bodybuilder_morphs),
-                    CharacterMorphShapes::new(BABY, baby_morphs),
-                ],
-                RigType::Default,
-            ),
-        )]),
-    );
+    // Templates can be created at runtime or loaded from toml
+    let template_handle = template_assets.add(CharacterTemplate::new(
+        [
+            CharacterMorphShape::new(BODYBUILDER, bodybuilder_morphs),
+            CharacterMorphShape::new(BABY, baby_morphs),
+        ],
+        RigType::Default,
+    ));
 
     // Previously defined shapes will now appear as morph targets on the template's mesh
     // The HumanShapeConfig type controls template access and applies our morph targets.
-    let basemesh_part =
-        asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+    let basemesh_part = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
 
     // Trigger the mesh to build with the new morph targets.
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh_part.clone(),
-        template_name: TEMPLATE_NAME,
+        template_handle: template_handle.clone(),
     });
 
     // Spawn some characters with different morph values.  They will all share the same mesh handle, but look different!
-    
+    // CharacterShapeCOnfig can be loaded from toml or created at runtime
+
     // The base mesh
     let mut morphs = MorphTargets::default();
     morphs.insert(BABY, 0.);
@@ -94,7 +81,10 @@ fn add_humans(
         Name::new("Basemesh"),
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(TEMPLATE_NAME, morphs.clone()),
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+            template_handle.clone(),
+            morphs.clone(),
+        ))),
         children![(CharacterPart(basemesh_part.clone()))],
     ));
 
@@ -105,11 +95,11 @@ fn add_humans(
         Name::new("Baby"),
         Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(TEMPLATE_NAME, morphs.clone()),
-        children![(
-            CharacterPart(basemesh_part.clone()),
-            Name::new("mesh"),
-        )],
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+            template_handle.clone(),
+            morphs.clone(),
+        ))),
+        children![(CharacterPart(basemesh_part.clone()), Name::new("mesh"),)],
     ));
 
     // A bodybuilder
@@ -119,11 +109,11 @@ fn add_humans(
         Name::new("Bodybuilder"),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(TEMPLATE_NAME, morphs.clone()),
-        children![(
-            Name::new("mesh"),
-            CharacterPart(basemesh_part.clone()),
-        )],
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+            template_handle.clone(),
+            morphs.clone(),
+        ))),
+        children![(Name::new("mesh"), CharacterPart(basemesh_part.clone()),)],
     ));
 
     // Half baby/half bodybuilder, ha!
@@ -134,11 +124,11 @@ fn add_humans(
         Name::new("Hybrid normalized"),
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(TEMPLATE_NAME, morphs.clone()),
-        children![(
-            CharacterPart(basemesh_part.clone()),
-            Name::new("mesh"),
-        )],
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+            template_handle.clone(),
+            morphs.clone(),
+        ))),
+        children![(CharacterPart(basemesh_part.clone()), Name::new("mesh"),)],
     ));
 
     // You have to be careful with normalization of mixed shapekeys sometimes
@@ -150,10 +140,7 @@ fn add_humans(
         Name::new("Hybrid unnormalized"),
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShapeConfig::new(TEMPLATE_NAME, morphs),
-        children![(
-            CharacterPart(basemesh_part),
-            Name::new("mesh"),
-        )],
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
+        children![(CharacterPart(basemesh_part), Name::new("mesh"),)],
     ));
 }

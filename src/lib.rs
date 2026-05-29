@@ -49,6 +49,9 @@ pub mod prelude {
             RigWeightsAssetLoader,
             ReferenceRigAsset,
             ReferenceRigAssetLoader,
+            CharacterTemplateAssetLoader,
+            CharacterShapeAsset,
+            CharacterShapeConfigLoader,
             TargetAsset,
             TargetAssetLoader,
             TargetDelta,
@@ -60,10 +63,9 @@ pub mod prelude {
             StitchedParts, StitchedPart,
             shape_mesh_from_helpers_mhclo,
         },
-        morphs::{MakeHumanMorphs, MorphTargets, MorphError, adjust_helpers_to_morphs},
+        morphs::{MakeHumanMorphs, MorphTargets, MorphError, MorphsReady, adjust_helpers_to_morphs},
         template::{
-            CharacterTemplate, CharacterTemplates,
-            CharacterMorphShapes, TemplateOverride,
+            CharacterTemplate, CharacterMorphShape, TemplateOverride,
         },
         mesh_ops::{
             get_vertex_positions,
@@ -77,7 +79,7 @@ pub mod prelude {
             RigType,
             RootMotion,
         },
-        spawn_mesh::{CharacterShapeConfig, MhcloMeshBuilder, LoadAssetMeshJob, CachedMhcloMeshHandles, build_single_mesh_direct},
+        spawn_mesh::{CharacterShape, MhcloMeshBuilder, LoadAssetMeshJob, CachedMhcloMeshHandles, build_single_mesh_direct},
         spawn_skeleton::{FitSkeleton, RelatedEntities},
         HumentityGlobalConfig,
         HumentityPlugin,
@@ -140,6 +142,10 @@ impl Plugin for HumentityPlugin {
             .register_asset_loader(RigConfigAssetLoader)
             .init_asset::<ReferenceRigAsset>()
             .register_asset_loader(ReferenceRigAssetLoader)
+            .init_asset::<template::CharacterTemplate>()
+            .register_asset_loader(loaders::CharacterTemplateAssetLoader)
+            .init_asset::<loaders::CharacterShapeAsset>()
+            .register_asset_loader(loaders::CharacterShapeConfigLoader)
 
             .add_systems(
                 Update,
@@ -151,6 +157,10 @@ impl Plugin for HumentityPlugin {
                     morphs::populate_morph_resource
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     morphs::sync_loaded_morph_targets
+                        .run_if(resource_exists::<morphs::MakeHumanMorphs>),
+                    morphs::check_morphs_ready
+                        .after(morphs::populate_morph_resource)
+                        .after(morphs::sync_loaded_morph_targets)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     rigs::sync_and_build_rig_data
                         .run_if(resource_exists::<rigs::RigData>),
@@ -166,7 +176,6 @@ impl Plugin for HumentityPlugin {
                     )
                         .chain()
                         .run_if(resource_exists::<basemesh::BaseMesh>)
-                        .run_if(resource_exists::<template::CharacterTemplates>)
                         .run_if(resource_exists::<basemesh::VertexGroups>)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>)
                         .run_if(resource_exists::<rigs::RigData>)
@@ -181,7 +190,6 @@ impl Plugin for HumentityPlugin {
                 (
                     avian::spawn_colliders
                         .after(spawn_skeleton::fit_skeleton_to_shape)
-                        .run_if(resource_exists::<CharacterTemplates>)
                         .run_if(resource_exists::<BaseMesh>)
                         .run_if(resource_exists::<MakeHumanMorphs>)
                         .run_if(resource_exists::<RigData>),
@@ -208,17 +216,14 @@ impl Plugin for HumentityPlugin {
                         physx::spawn_kinematic_colliders::<HitboxCollider>
                             .run_if(resource_exists::<physx::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>)
-                            .run_if(resource_exists::<CharacterTemplates>)
                             .run_if(resource_exists::<RigData>),
                         physx::spawn_kinematic_colliders::<HurtboxCollider>
                             .run_if(resource_exists::<physx::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>)
-                            .run_if(resource_exists::<CharacterTemplates>)
                             .run_if(resource_exists::<RigData>),
                         physx::spawn_ragdoll_colliders
                             .run_if(resource_exists::<physx::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>)
-                            .run_if(resource_exists::<CharacterTemplates>)
                             .run_if(resource_exists::<RigData>),
                         physx::sync_colliders::<HitboxCollider>,
                         physx::sync_colliders::<HurtboxCollider>,
@@ -238,6 +243,7 @@ impl Plugin for HumentityPlugin {
         }
 
         /*
+        // Root Motion
         if matches!(self.config.translation_tracks, TranslationTracks::Root) {
             app.add_systems(
                 PostUpdate,

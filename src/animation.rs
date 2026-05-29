@@ -28,21 +28,28 @@ pub enum TranslationTracks {
 /// in realtime using data cached on the human config.
 #[allow(dead_code)]
 pub(crate) fn rescale_bone_translations(
-    templates: Res<CharacterTemplates>,
-    humans: Query<(Entity, &CharacterShapeConfig), Without<FitSkeleton>>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<CharacterTemplate>>,
+    humans: Query<(Entity, &CharacterShape), Without<FitSkeleton>>,
     children: Query<&Children>,
     names: Query<&Name>,
     mut transforms: Query<&mut Transform>,
     rig_data: Res<RigData>,
 ) {
     for (entity, human) in humans {
-        let rig_type = &templates[human.template].rig;
-        let rig_spec = &rig_data[rig_type];
-        let ref_translations = &rig_spec.reference_rig.local_bindpose;
-        let BoneTranslationData::Full(shape_translations) = &human.bone_translations else {
+        let Some(asset) = shape_assets.get(&human.0) else {
             continue;
         };
-        let rotation_deltas = &human.bone_delta_rotations;
+        let Some(template) = templates.get(&asset.template) else {
+            continue;
+        };
+        let rig_type = &template.rig;
+        let rig_spec = &rig_data[rig_type];
+        let ref_translations = &rig_spec.reference_rig.local_bindpose;
+        let BoneTranslationData::Full(shape_translations) = &asset.bone_translations else {
+            continue;
+        };
+        let rotation_deltas = &asset.bone_delta_rotations;
 
         for child in children.iter_descendants(entity) {
             let Ok(name) = names.get(child) else { continue };
@@ -74,16 +81,23 @@ pub(crate) fn rescale_bone_translations(
 /// in realtime using data cached on the human config.  This one affects only the root bone.
 #[allow(dead_code)]
 pub(crate) fn rescale_root_bone_translation(
-    templates: Res<CharacterTemplates>,
-    humans: Query<(&RelatedEntities, &CharacterShapeConfig), Without<FitSkeleton>>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<CharacterTemplate>>,
+    humans: Query<(&RelatedEntities, &CharacterShape), Without<FitSkeleton>>,
     mut transforms: Query<&mut Transform>,
     rig_data: Res<RigData>,
 ) {
     for (related, human) in humans {
-        let rig_type = &templates[human.template].rig;
+        let Some(asset) = shape_assets.get(&human.0) else {
+            continue;
+        };
+        let Some(template) = templates.get(&asset.template) else {
+            continue;
+        };
+        let rig_type = &template.rig;
         let rig_spec = &rig_data[rig_type];
         let &root_bone = &rig_spec.reference_rig.bone_names[0];
-        let BoneTranslationData::Root(shape_trans) = &human.bone_translations else {
+        let BoneTranslationData::Root(shape_trans) = &asset.bone_translations else {
             continue;
         };
         let ref_trans = &rig_spec.reference_rig.local_bindpose;
@@ -97,10 +111,10 @@ pub(crate) fn rescale_root_bone_translation(
 
 #[allow(clippy::type_complexity, dead_code)]
 pub(crate) fn root_motion(
-    mut humans: Query<(&RelatedEntities, &RootMotion, &mut Transform), With<CharacterShapeConfig>>,
+    mut humans: Query<(&RelatedEntities, &RootMotion, &mut Transform), With<CharacterShape>>,
     mut root_transforms: Query<
         (&mut Transform, &mut RootBonePrevious),
-        (With<RootBone>, Without<CharacterShapeConfig>),
+        (With<RootBone>, Without<CharacterShape>),
     >,
     players: Query<&AnimationPlayer>,
     time: Res<Time>,

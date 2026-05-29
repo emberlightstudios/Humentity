@@ -14,12 +14,10 @@ fn main() {
         PhysicsPlugins.set(PhysicsCore::default()),
     )
     .add_systems(Startup, floor)
+    .add_observer(add_human)
     .add_systems(
         Update,
         (
-            add_human
-                .run_if(resource_exists::<MakeHumanMorphs>)
-                .run_if(not(resource_exists::<CharacterTemplates>)),
             toggle,
             setup_graph,
             start_clip,
@@ -33,7 +31,7 @@ fn toggle(
     related: Single<&RelatedEntities>,
     mut hitbox: Single<&mut CharacterColliders<HitboxCollider>>,
     mut ragdoll: Single<&mut CharacterColliders<RagdollCollider>>,
-    human: Single<(&CharacterShapeConfig, &SkinnedMesh)>,
+    human: Single<(&CharacterShape, &SkinnedMesh)>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<&mut Transform, With<SkeletalBone>>,
     mut players: Query<&mut AnimationPlayer>,
@@ -92,20 +90,19 @@ struct RetargetedAnimations {
 }
 
 fn add_human(
+    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
-    morphs: Res<MakeHumanMorphs>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut template_assets: ResMut<Assets<CharacterTemplate>>,
+    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
-    if !morphs.is_ready(&asset_server) {
-        return;
-    }
 
-    commands.insert_resource(CharacterTemplates::new([(
-        "",
-        CharacterTemplate::new([], RigType::Default),
-    )]));
+    let template_handle = template_assets.add(CharacterTemplate::new(
+        [],
+        RigType::Default,
+    ));
 
     let hitbox_filter = ShapeFilterData {
         simulation_filter_data: [1, 1, 0, 0],
@@ -122,7 +119,7 @@ fn add_human(
 
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh.clone(),
-        template_name: "",
+        template_handle: template_handle.clone(),
     });
 
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
@@ -130,7 +127,7 @@ fn add_human(
 
     commands.spawn((
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
-        CharacterShapeConfig::default(),
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, MorphTargets::default()))),
         CharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
         children![(
             CharacterPart(basemesh),

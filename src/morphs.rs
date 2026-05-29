@@ -180,6 +180,12 @@ impl MakeHumanMorphs {
         if !morph_targets.contains_key("proportions") {
             morph_targets.insert("proportions", 0.5);
         }
+        if !morph_targets.contains_key("cupsize") {
+            morph_targets.insert("cupsize", 0.0);
+        }
+        if !morph_targets.contains_key("firmness") {
+            morph_targets.insert("firmness", 0.0);
+        }
 
         // --- 3️⃣ Compute macro morphs ---
         let macro_values = compute_macro_weights(macros, &morph_targets);
@@ -412,6 +418,25 @@ impl MakeHumanMorphs {
         }
 
         Ok(result)
+    }
+}
+
+/// Fired once as a trigger when all morph assets have finished loading.
+#[derive(Event)]
+pub struct MorphsReady;
+
+pub(crate) fn check_morphs_ready(
+    morphs: Res<MakeHumanMorphs>,
+    asset_server: Res<AssetServer>,
+    mut ready: Local<bool>,
+    mut commands: Commands,
+) {
+    if *ready {
+        return;
+    }
+    if morphs.is_ready(&asset_server) {
+        *ready = true;
+        commands.trigger(MorphsReady);
     }
 }
 

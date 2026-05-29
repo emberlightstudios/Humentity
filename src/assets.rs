@@ -5,9 +5,9 @@ use crate::{
         get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents,
     },
     morphs::adjust_helpers_to_morphs,
-    template::TemplateOverride,
     prelude::*,
     rigs::{set_asset_rig_arrays, RigSpec},
+    template::TemplateOverride,
 };
 use ahash::{AHashMap, AHashSet};
 use bevy::mesh::morph::{MorphAttributes, MorphTargetImage};
@@ -35,7 +35,7 @@ impl From<Handle<MhcloAsset>> for StitchedPart {
 }
 
 impl StitchedPart {
-    pub const fn with_template_override(mut self, template: &'static str) -> Self {
+    pub fn with_template_override(mut self, template: Handle<CharacterTemplate>) -> Self {
         self.template_override = Some(TemplateOverride(template));
         self
     }
@@ -144,12 +144,7 @@ pub(crate) fn build_final_mesh_mhclo(
     )
     .expect("failed to create morph target image");
 
-    set_asset_rig_arrays(
-        &mut input_mesh,
-        &mhid_lookup,
-        &mhclo.helper_map,
-        rig_spec,
-    );
+    set_asset_rig_arrays(&mut input_mesh, &mhid_lookup, &mhclo.helper_map, rig_spec);
 
     (input_mesh, morph_names, image)
 }

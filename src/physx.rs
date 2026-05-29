@@ -12,10 +12,10 @@ use bevy_mod_physx::{
 
 use crate::{
     morphs::MakeHumanMorphs,
-    template::CharacterTemplates,
-    prelude::{BaseMesh, CharacterShapeConfig, RelatedEntities},
+    prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, RelatedEntities},
     rigs::{RigData, RigType, SkeletalBone},
     spawn_skeleton::FitSkeleton,
+    template::CharacterTemplate,
 };
 
 /// Use to find radius and center of sphere
@@ -217,7 +217,7 @@ pub(crate) fn auto_add_ragdoll_colliders(
     characters: Query<
         Entity,
         (
-            With<CharacterShapeConfig>,
+            With<CharacterShape>,
             With<SkinnedMesh>,
             Without<FitSkeleton>,
             Without<CharacterColliders<RagdollCollider>>,
@@ -228,10 +228,12 @@ pub(crate) fn auto_add_ragdoll_colliders(
 ) {
     let filter = filter.as_deref().cloned().unwrap_or_default();
     for entity in characters.iter() {
-        commands.entity(entity).insert(CharacterColliders::<RagdollCollider>::new(
-            filter.0,
-            Some(vec![]),
-        ));
+        commands
+            .entity(entity)
+            .insert(CharacterColliders::<RagdollCollider>::new(
+                filter.0,
+                Some(vec![]),
+            ));
     }
 }
 
@@ -321,7 +323,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
     mut needs_colliders: Query<
         (
             Entity,
-            &CharacterShapeConfig,
+            &CharacterShape,
             &RelatedEntities,
             &mut CharacterColliders<C>,
             &SkinnedMesh,
@@ -333,7 +335,8 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
         ),
     >,
     _global_transforms: Query<&GlobalTransform>,
-    templates: Res<CharacterTemplates>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<CharacterTemplate>>,
     basemesh: Res<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
@@ -342,9 +345,16 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
     mut geometries: ResMut<Assets<Geometry>>,
     mut commands: Commands,
 ) {
-    for (character_entity, shape_config, related, mut colliders, skm) in needs_colliders.iter_mut()
+    for (character_entity, character_shape, related, mut colliders, skm) in
+        needs_colliders.iter_mut()
     {
-        let rig_type = templates[&shape_config.template].rig;
+        let Some(asset) = shape_assets.get(&character_shape.0) else {
+            continue;
+        };
+        let Some(template) = templates.get(&asset.template) else {
+            continue;
+        };
+        let rig_type = template.rig;
         let model_to_world = Transform::from(
             _global_transforms
                 .get(related.rig)
@@ -355,16 +365,17 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
             RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
             _ => continue,
         };
-
-        let template = &templates[&shape_config.template];
-        let helpers =
-            match template.get_helpers(&shape_config.template_morph_targets, &basemesh.vertices, &mh_morphs) {
-                Ok(h) => h,
-                Err(e) => {
-                    error!("Failed to compute morph helpers for colliders: {}", e);
-                    continue;
-                }
-            };
+        let helpers = match template.get_helpers(
+            &asset.template_morph_targets,
+            &basemesh.vertices,
+            &mh_morphs,
+        ) {
+            Ok(h) => h,
+            Err(e) => {
+                error!("Failed to compute morph helpers for colliders: {}", e);
+                continue;
+            }
+        };
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
@@ -466,7 +477,7 @@ pub(crate) fn spawn_ragdoll_colliders(
     mut needs_colliders: Query<
         (
             Entity,
-            &CharacterShapeConfig,
+            &CharacterShape,
             &RelatedEntities,
             &mut CharacterColliders<RagdollCollider>,
             &SkinnedMesh,
@@ -477,8 +488,9 @@ pub(crate) fn spawn_ragdoll_colliders(
             With<NeedsColliders<RagdollCollider>>,
         ),
     >,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
     global_transforms: Query<&GlobalTransform>,
-    templates: Res<CharacterTemplates>,
+    templates: Res<Assets<CharacterTemplate>>,
     basemesh: Res<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
@@ -487,24 +499,32 @@ pub(crate) fn spawn_ragdoll_colliders(
     mut geometries: ResMut<Assets<Geometry>>,
     mut commands: Commands,
 ) {
-    for (character_entity, shape_config, _related, mut colliders, skm) in needs_colliders.iter_mut()
+    for (character_entity, character_shape, _related, mut colliders, skm) in
+        needs_colliders.iter_mut()
     {
-        let rig_type = templates[&shape_config.template].rig;
+        let Some(asset) = shape_assets.get(&character_shape.0) else {
+            continue;
+        };
+        let Some(template) = templates.get(&asset.template) else {
+            continue;
+        };
+        let rig_type = template.rig;
 
         let collider_bone_map = match rig_type {
             RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
             _ => todo!("impl more rigs"),
         };
-
-        let template = &templates[&shape_config.template];
-        let helpers =
-            match template.get_helpers(&shape_config.template_morph_targets, &basemesh.vertices, &mh_morphs) {
-                Ok(h) => h,
-                Err(e) => {
-                    error!("Failed to compute morph helpers for ragdoll: {}", e);
-                    return;
-                }
-            };
+        let helpers = match template.get_helpers(
+            &asset.template_morph_targets,
+            &basemesh.vertices,
+            &mh_morphs,
+        ) {
+            Ok(h) => h,
+            Err(e) => {
+                error!("Failed to compute morph helpers for ragdoll: {}", e);
+                return;
+            }
+        };
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             return;
         };

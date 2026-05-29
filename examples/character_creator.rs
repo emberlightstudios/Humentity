@@ -103,12 +103,7 @@ fn main() {
 
     app.add_plugins(FeathersPlugins)
         .insert_resource(UiTheme(create_dark_theme()))
-        .add_systems(
-            Update,
-            setup_and_add_human
-                .run_if(resource_exists::<MakeHumanMorphs>)
-                .run_if(not(resource_exists::<CreatorAssets>)),
-        )
+        .add_observer(setup_and_add_human)
         .add_systems(
             Update,
             update_character_mesh.run_if(resource_exists::<CreatorAssets>),
@@ -125,13 +120,11 @@ fn main() {
 }
 
 fn setup_and_add_human(
+    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mh_morphs: Res<MakeHumanMorphs>,
 ) {
-    if !mh_morphs.is_ready(&asset_server) {
-        return;
-    }
 
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.5);

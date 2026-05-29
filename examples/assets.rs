@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use humentity::prelude::*;
 use shared::{setup_app, CharacterPart};
 
-const TEMPLATE: &str = "template";
 const EYES: &str = "body_parts/Eyes/Eyeballs/high-poly-eyes.mhclo";
 const EYEBROW: &str = "body_parts/eyebrows/eyebrows001/eyebrow001.mhclo";
 const EYELASH: &str = "body_parts/Eyelashes/false_eyelashes/false_eyelashes.mhclo";
@@ -15,37 +14,27 @@ const PANTIES: &str = "clothes/underwear/simple_briefs/simple_briefs.mhclo";
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(
-        Update,
-        add_human
-            .run_if(resource_exists::<MakeHumanMorphs>)
-            .run_if(not(resource_exists::<CharacterTemplates>)),
-    )
-    .run();
+    app.add_observer(add_human).run();
 }
 
 fn add_human(
+    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     morphs: Res<MakeHumanMorphs>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut template_assets: ResMut<Assets<CharacterTemplate>>,
+    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
-    if !morphs.is_ready(&asset_server) {
-        return;
-    }
-
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.);
 
     let resolved = morphs.compute_target_weights(&morph_targets).unwrap();
 
-    let shape = CharacterMorphShapes::new("female", resolved);
+    let shape = CharacterMorphShape::new("female", resolved);
 
-    commands.insert_resource(CharacterTemplates::new([(
-        TEMPLATE,
-        CharacterTemplate::new([shape], RigType::Default),
-    )]));
+    let template_handle = template_assets.add(CharacterTemplate::new([shape], RigType::Default));
 
     let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     let eyes = asset_server.load::<MhcloAsset>(EYES);
@@ -58,17 +47,16 @@ fn add_human(
     for part in [&basemesh, &eyes, &eyebrow, &eyelash, &hair, &bra, &panties] {
         mesh_builder.trigger(LoadAssetMeshJob::Single {
             part: part.clone(),
-            template_name: TEMPLATE,
+            template_handle: template_handle.clone(),
         });
     }
 
-    let skin_albedo =
-        asset_server.load::<Image>("skin_textures/albedo/young_caucasian_female.png");
+    let skin_albedo = asset_server.load::<Image>("skin_textures/albedo/young_caucasian_female.png");
     let eyes_albedo = asset_server.load::<Image>("body_parts/Eyes/Eyeballs/albedo/blue_eye.png");
     let eyebrow_albedo =
         asset_server.load::<Image>("body_parts/eyebrows/eyebrows001/albedo/eyebrow001.png");
-    let eyelash_albedo =
-        asset_server.load::<Image>("body_parts/Eyelashes/false_eyelashes/albedo/false_eyelashes.png");
+    let eyelash_albedo = asset_server
+        .load::<Image>("body_parts/Eyelashes/false_eyelashes/albedo/false_eyelashes.png");
     let hair_albedo =
         asset_server.load::<Image>("body_parts/Hair/ponytail01/albedo/ponytail01.png");
 
@@ -112,19 +100,52 @@ fn add_human(
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("female", 1.);
 
+    let shape_handle = shape_assets.add(CharacterShapeAsset::new(
+        template_handle.clone(),
+        morph_targets,
+    ));
+
     commands.spawn((
         Name::new("Character"),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
-        CharacterShapeConfig::new(TEMPLATE, morph_targets),
+        CharacterShape(shape_handle),
         InheritedVisibility::default(),
         children![
-            (CharacterPart(basemesh), Name::new("basemesh"), MeshMaterial3d(skin_mat)),
-            (CharacterPart(eyes), Name::new("eyes"), MeshMaterial3d(eyes_mat)),
-            (CharacterPart(eyebrow), Name::new("eyebrow"), MeshMaterial3d(eyebrow_mat)),
-            (CharacterPart(eyelash), Name::new("eyelash"), MeshMaterial3d(eyelash_mat)),
-            (CharacterPart(hair), Name::new("hair"), MeshMaterial3d(hair_mat)),
-            (CharacterPart(bra), Name::new("bra"), MeshMaterial3d(clothes_mat.clone())),
-            (CharacterPart(panties), Name::new("panties"), MeshMaterial3d(clothes_mat)),
+            (
+                CharacterPart(basemesh),
+                Name::new("basemesh"),
+                MeshMaterial3d(skin_mat)
+            ),
+            (
+                CharacterPart(eyes),
+                Name::new("eyes"),
+                MeshMaterial3d(eyes_mat)
+            ),
+            (
+                CharacterPart(eyebrow),
+                Name::new("eyebrow"),
+                MeshMaterial3d(eyebrow_mat)
+            ),
+            (
+                CharacterPart(eyelash),
+                Name::new("eyelash"),
+                MeshMaterial3d(eyelash_mat)
+            ),
+            (
+                CharacterPart(hair),
+                Name::new("hair"),
+                MeshMaterial3d(hair_mat)
+            ),
+            (
+                CharacterPart(bra),
+                Name::new("bra"),
+                MeshMaterial3d(clothes_mat.clone())
+            ),
+            (
+                CharacterPart(panties),
+                Name::new("panties"),
+                MeshMaterial3d(clothes_mat)
+            ),
         ],
     ));
 }

@@ -8,7 +8,7 @@ use bevy::{
 
 use crate::{
     morphs::MakeHumanMorphs,
-    prelude::{BaseMesh, CharacterShapeConfig, CharacterTemplates},
+    prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, CharacterTemplate},
     rigs::{RigData, RigType},
     spawn_skeleton::FitSkeleton,
 };
@@ -121,30 +121,43 @@ pub(crate) struct KinematicCollider;
 pub(crate) fn spawn_colliders(
     mut commands: Commands,
     mut characters: Query<
-        (Entity, &CharacterShapeConfig, &SkinnedMesh, &mut CharacterColliders),
+        (
+            Entity,
+            &CharacterShape,
+            &SkinnedMesh,
+            &mut CharacterColliders,
+        ),
         (Without<FitSkeleton>, Without<RigidBody>),
     >,
-    templates: Res<CharacterTemplates>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<CharacterTemplate>>,
     basemesh: Res<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     rig_data: Res<RigData>,
 ) {
-    for (_character_entity, shape_config, skm, mut colliders) in characters.iter_mut() {
+    for (_character_entity, character_shape, skm, mut colliders) in characters.iter_mut() {
         if !colliders.collider_entities.is_empty() {
             continue;
         }
 
-        let rig_type = templates[&shape_config.template].rig;
+        let Some(asset) = shape_assets.get(&character_shape.0) else {
+            continue;
+        };
+        let Some(template) = templates.get(&asset.template) else {
+            continue;
+        };
+        let rig_type = template.rig;
         let collider_bone_map = match rig_type {
             RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
             _ => continue,
         };
 
-        let template = &templates[&shape_config.template];
-        let Ok(helpers) =
-            template.get_helpers(&shape_config.template_morph_targets, &basemesh.vertices, &mh_morphs)
-        else {
+        let Ok(helpers) = template.get_helpers(
+            &asset.template_morph_targets,
+            &basemesh.vertices,
+            &mh_morphs,
+        ) else {
             continue;
         };
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
@@ -178,12 +191,8 @@ pub(crate) fn spawn_colliders(
 
         for &collider in &target_bones {
             let i_collider = COLLIDERS.iter().position(|&c| c == collider).unwrap();
-            let (geometry, collider_to_model) = get_collider_geometry(
-                collider,
-                &helpers,
-                i_collider,
-                &inv_bindposes_map,
-            );
+            let (geometry, collider_to_model) =
+                get_collider_geometry(collider, &helpers, i_collider, &inv_bindposes_map);
 
             let joint_name = collider_bone_map[i_collider];
             let model_to_joint = inv_bindposes_map[joint_name];
@@ -248,19 +257,22 @@ pub(crate) fn set_ragdoll_state(
         for (_bone, &collider_entity) in char_colliders.collider_entities.iter() {
             match *ragdoll {
                 CharacterRagdoll::Full => {
-                    commands.entity(collider_entity)
+                    commands
+                        .entity(collider_entity)
                         .insert(RigidBody::Dynamic)
                         .remove::<KinematicCollider>();
                 }
                 CharacterRagdoll::None => {
-                    commands.entity(collider_entity)
+                    commands
+                        .entity(collider_entity)
                         .insert(RigidBody::Kinematic)
                         .insert(KinematicCollider);
                 }
             }
         }
     }
-}fn get_collider_geometry(
+}
+fn get_collider_geometry(
     collider: CharacterColliderBone,
     helpers: &[Vec3],
     i_collider: usize,
@@ -291,7 +303,10 @@ pub(crate) fn set_ragdoll_state(
 fn get_head_collider(helpers: &[Vec3]) -> (Collider, Transform) {
     let center = (helpers[HEAD_VERTICES[0]] + helpers[HEAD_VERTICES[1]]) * 0.5;
     let radius = (helpers[HEAD_VERTICES[0]] - center).length();
-    (Collider::sphere(radius), Transform::from_translation(center))
+    (
+        Collider::sphere(radius),
+        Transform::from_translation(center),
+    )
 }
 
 fn get_midsection_collider(
@@ -325,10 +340,7 @@ fn get_midsection_collider(
     )
 }
 
-fn get_limb_collider(
-    helpers: &[Vec3],
-    joint: CharacterColliderBone,
-) -> (Collider, Transform) {
+fn get_limb_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collider, Transform) {
     let ref_verts = match joint {
         CharacterColliderBone::LowerLeftArm => LOWER_LEFT_ARM_VERTICES,
         CharacterColliderBone::LowerRightArm => LOWER_RIGHT_ARM_VERTICES,
@@ -357,10 +369,7 @@ fn get_limb_collider(
     )
 }
 
-fn get_extremity_collider(
-    helpers: &[Vec3],
-    joint: CharacterColliderBone,
-) -> (Collider, Transform) {
+fn get_extremity_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collider, Transform) {
     let ref_verts = match joint {
         CharacterColliderBone::LeftHand => LEFT_HAND_VERTICES,
         CharacterColliderBone::RightHand => RIGHT_HAND_VERTICES,

@@ -7,6 +7,8 @@ mod rig_weights;
 mod target;
 mod composite_target_manifest;
 mod reference_rig;
+mod template_asset;
+mod shape_config;
 
 pub use obj_verts::{
     ObjVertsAsset,
@@ -33,3 +35,6 @@ pub use composite_target_manifest::{
     TargetManifestAssetLoader,
 };
 pub use reference_rig::{ReferenceRigAsset, ReferenceRigAssetLoader};
+
+pub use template_asset::CharacterTemplateAssetLoader;
+pub use shape_config::{CharacterShapeAsset, CharacterShapeConfigLoader};

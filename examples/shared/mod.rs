@@ -1,10 +1,11 @@
 #![allow(dead_code)]
 use bevy::{
-    input::mouse::MouseMotion, mesh::skinning::SkinnedMesh, prelude::*,
+    input::mouse::MouseMotion, mesh::morph::MeshMorphWeights, mesh::skinning::SkinnedMesh,
+    prelude::*,
 };
-use humentity::prelude::*;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_egui::prelude::*;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use humentity::prelude::*;
 
 /// Marks an entity as representing a character mesh piece.
 #[derive(Component, Clone, Debug, Eq, PartialEq, Hash, Deref)]
@@ -26,14 +27,7 @@ pub fn setup_app() -> App {
         .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
         .add_systems(Startup, load_assets)
         .add_systems(Startup, setup_env)
-        .add_systems(
-            Update,
-            (
-                update_mesh_when_ready.run_if(resource_exists::<CharacterTemplates>),
-                cam_controls,
-                add_material,
-            ),
-        );
+        .add_systems(Update, (update_mesh_when_ready, cam_controls, add_material));
 
     app
 }
@@ -53,27 +47,34 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
         "skeletons/default.glb",
     ));
     commands.insert_resource(BaseMesh::new(&asset_server, "base.obj"));
-    commands.insert_resource(VertexGroups::new(&asset_server, "basemesh_vertex_groups.json"));
+    commands.insert_resource(VertexGroups::new(
+        &asset_server,
+        "basemesh_vertex_groups.json",
+    ));
 }
 
 fn update_mesh_when_ready(
     character_parts: Query<(Entity, &ChildOf, &CharacterPart), Without<Mesh3d>>,
-    characters: Query<(&CharacterShapeConfig, &SkinnedMesh)>,
+    characters: Query<(&CharacterShape, &SkinnedMesh)>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
     template_overrides: Query<&TemplateOverride>,
     cached_meshes: Res<CachedMhcloMeshHandles>,
     meshes: Res<Assets<Mesh>>,
-    templates: Res<CharacterTemplates>,
+    template_assets: Res<Assets<CharacterTemplate>>,
     mut commands: Commands,
 ) {
     for (entity, parent, part) in character_parts.iter() {
         let mhclo_handle = part.0.clone();
-        let Ok((shape_config, skm)) = characters.get(parent.parent()) else {
+        let Ok((character_shape, skm)) = characters.get(parent.parent()) else {
             continue;
         };
-        let template = shape_config.template;
+        let Some(asset) = shape_assets.get(&character_shape.0) else {
+            continue;
+        };
+        let template = &asset.template;
 
         // After you trigger a mesh build it will be put in this cache
-        if let Some(mesh_handle) = cached_meshes.get(&(mhclo_handle, template)) {
+        if let Some(mesh_handle) = cached_meshes.get(&(mhclo_handle, template.clone())) {
             commands.entity(entity).insert((
                 Mesh3d(mesh_handle.clone()),
                 Transform::IDENTITY, // I think this is necessary
@@ -84,10 +85,17 @@ fn update_mesh_when_ready(
                 let active_template = template_overrides
                     .get(entity)
                     .ok()
-                    .map_or(template, |o| o.0);
-                commands
-                    .entity(entity)
-                    .insert(shape_config.get_morph_weights_component(&templates[active_template]));
+                    .map_or(template.clone(), |o| o.0.clone());
+                if let Some(template_data) = template_assets.get(&active_template) {
+                    let morph_weights = template_data
+                        .shapes
+                        .iter()
+                        .map(|s| *asset.template_morph_targets.get(s.name).unwrap_or(&0.))
+                        .collect::<Vec<_>>();
+                    commands
+                        .entity(entity)
+                        .insert(MeshMorphWeights::new(morph_weights).unwrap());
+                }
             }
         }
     }
@@ -97,13 +105,13 @@ pub fn cam_controls(
     mut cam: Query<&mut Transform, With<Camera3d>>,
     mut mouse_motion: MessageReader<MouseMotion>,
     kb_input: Res<ButtonInput<KeyCode>>,
-    mut pitch: Local<f32>,
-    mut yaw: Local<f32>,
+    mut _pitch: Local<f32>,
+    mut _yaw: Local<f32>,
     mut init: Local<bool>,
 ) {
     if !*init {
         *init = true;
-        *yaw = std::f32::consts::PI;
+        *_yaw = std::f32::consts::PI;
     }
     const MS: f32 = 1e-1;
     const LS: f32 = 5e-3;
@@ -113,11 +121,11 @@ pub fn cam_controls(
     let Ok(mut cam) = cam.single_mut() else {
         return;
     };
-    for ev in mouse_motion.read() {
-        //*yaw -= ev.delta.x * LS;
-        //*pitch -= ev.delta.y * LS;
+    for _ev in mouse_motion.read() {
+        //*_yaw -= ev.delta.x * LS;
+        //*_pitch -= ev.delta.y * LS;
     }
-    cam.rotation = Quat::from_euler(EulerRot::YXZ, *yaw, *pitch, 0.);
+    cam.rotation = Quat::from_euler(EulerRot::YXZ, *_yaw, *_pitch, 0.);
     let mut mv = Vec3::ZERO;
     if kb_input.pressed(KeyCode::KeyD) {
         mv.x += MS
@@ -161,6 +169,7 @@ pub fn setup_env(
     let material = materials.add(Color::WHITE);
 
     commands.spawn((
+        Name::new("Floor"),
         Mesh3d(mesh),
         MeshMaterial3d(material.clone()),
         Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),

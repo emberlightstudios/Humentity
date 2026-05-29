@@ -1,8 +1,4 @@
-use crate::{
-    morphs::adjust_helpers_to_morphs,
-    prelude::*,
-};
-use ahash::AHashMap;
+use crate::{morphs::adjust_helpers_to_morphs, prelude::*};
 use bevy::{ecs::intern::Internable, prelude::*};
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use serde::{Deserializer, Serializer};
@@ -12,12 +8,12 @@ use serde::{Deserializer, Serializer};
 /// mesh, and the rest of the makehuman shapekeys are removed.  Use this for distinct faces or body types.
 /// You can also blend between them, since they are just shapekeys.
 #[derive(Clone, Debug)]
-pub struct CharacterMorphShapes {
+pub struct CharacterMorphShape {
     pub name: &'static str,
     pub morphs: MorphTargets,
 }
 
-impl CharacterMorphShapes {
+impl CharacterMorphShape {
     pub fn new(name: impl AsRef<str>, morphs: MorphTargets) -> Self {
         Self {
             name: NAME_INTERNER.intern(name.as_ref()).leak(),
@@ -26,7 +22,7 @@ impl CharacterMorphShapes {
     }
 }
 
-impl Serialize for CharacterMorphShapes {
+impl Serialize for CharacterMorphShape {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -40,7 +36,7 @@ impl Serialize for CharacterMorphShapes {
     }
 }
 
-impl<'de> Deserialize<'de> for CharacterMorphShapes {
+impl<'de> Deserialize<'de> for CharacterMorphShape {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -55,7 +51,7 @@ impl<'de> Deserialize<'de> for CharacterMorphShapes {
 
         // Convert name to &'static str via leak (safe if fixed names)
         let name: &'static str = NAME_INTERNER.intern(&tmp.name).leak();
-        Ok(CharacterMorphShapes {
+        Ok(CharacterMorphShape {
             name,
             morphs: tmp.morphs,
         })
@@ -63,23 +59,24 @@ impl<'de> Deserialize<'de> for CharacterMorphShapes {
 }
 
 /// A collection of base shapes and animation properties.  The shapes will be baked into a
-/// new Mesh as morph targets.
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+/// new Mesh as morph targets. Loadable from `.toml` files via [`CharacterTemplateAssetLoader`].
+#[derive(Asset, TypePath, Default, Serialize, Deserialize, Clone, Debug)]
 pub struct CharacterTemplate {
-    pub shapes: Vec<CharacterMorphShapes>,
+    /// Set by the asset loader from the file stem. Empty for code-constructed templates.
+    #[serde(skip)]
+    pub name: &'static str,
+    pub shapes: Vec<CharacterMorphShape>,
     pub rig: RigType,
 }
 
 impl CharacterTemplate {
-    pub fn new(
-        shapes: impl IntoIterator<Item = CharacterMorphShapes>,
-        rig: RigType,
-    ) -> Self {
+    pub fn new(shapes: impl IntoIterator<Item = CharacterMorphShape>, rig: RigType) -> Self {
         Self {
+            name: "",
             shapes: shapes.into_iter().collect(),
             rig,
+        }
     }
-}
 
     pub(crate) fn get_helpers(
         &self,
@@ -102,37 +99,5 @@ impl CharacterTemplate {
 }
 
 /// Overrides the template shapes for a part
-#[derive(Component, Deref, Serialize, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct TemplateOverride(pub &'static str);
-
-impl<'de> Deserialize<'de> for TemplateOverride {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(Self(NAME_INTERNER.intern(&s).leak()))
-    }
-}
-
-#[derive(Resource, Deref, DerefMut, Default)]
-pub struct CharacterTemplates(AHashMap<&'static str, CharacterTemplate>);
-
-impl CharacterTemplates {
-    pub fn new(
-        templates: impl IntoIterator<Item = (&'static str, CharacterTemplate)>,
-    ) -> Self {
-        Self(
-            templates
-                .into_iter()
-                .collect::<AHashMap<&'static str, CharacterTemplate>>(),
-        )
-    }
-
-    /// This is just for testing, no shapes are added
-    pub fn basemesh() -> Self {
-        let mut templates = AHashMap::default();
-        templates.insert("", CharacterTemplate::default());
-        Self(templates)
-    }
-}
+#[derive(Component, Deref, Clone, Eq, PartialEq, Hash, Debug)]
+pub struct TemplateOverride(pub Handle<CharacterTemplate>);

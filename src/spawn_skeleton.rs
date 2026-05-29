@@ -1,7 +1,7 @@
 use crate::{
     basemesh::{BaseMesh, VertexGroups},
     prelude::*,
-    rigs::{get_model_space_skeleton_transforms, RigData, RootBonePrevious},
+    rigs::{get_model_space_skeleton_transforms, BoneTranslationData, RigData, RootBonePrevious},
 };
 use ahash::AHashMap;
 use bevy::{
@@ -24,53 +24,60 @@ pub struct RelatedEntities {
 }
 
 pub(crate) fn spawn_rig_scene(
-    new_humans: Query<
-        (Entity, &CharacterShapeConfig),
-        (Without<SkinnedMesh>, Without<FitSkeleton>),
-    >,
-    templates: Res<CharacterTemplates>,
+    new_humans: Query<(Entity, &CharacterShape), (Without<SkinnedMesh>, Without<FitSkeleton>)>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<CharacterTemplate>>,
     rig_data: Res<RigData>,
     mut commands: Commands,
 ) {
     for (human, config) in new_humans {
-        if let Some(template) = templates.get(&config.template) {
-            let rig_type = template.rig;
-            let rig_spec = rig_data.get(&rig_type).expect("Rig not loaded");
-            let scene = rig_spec.scene.clone().expect("Scene not built yet");
-            let cached_scene = commands
-                .spawn((DynamicSceneRoot::from(scene), Name::new("RigScene")))
-                .id();
-            commands
-                .entity(human)
-                .insert(FitSkeleton)
-                .add_child(cached_scene);
-        } else {
-            error!("No such template named {}", config.template);
-            commands.entity(human).despawn();
-        }
+        let Some(asset) = shape_assets.get(&config.0) else {
+            continue;
+        };
+        let Some(template) = templates.get(&asset.template) else {
+            continue;
+        };
+        let rig_type = template.rig;
+        let rig_spec = rig_data.get(&rig_type).expect("Rig not loaded");
+        let scene = rig_spec.scene.clone().expect("Scene not built yet");
+        let cached_scene = commands
+            .spawn((DynamicSceneRoot::from(scene), Name::new("RigScene")))
+            .id();
+        commands
+            .entity(human)
+            .insert(FitSkeleton)
+            .add_child(cached_scene);
     }
 }
 
 #[allow(clippy::type_complexity)]
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
-    templates: Res<CharacterTemplates>,
+    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<CharacterTemplate>>,
     skinned_meshes: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>)>,
     children: Query<&Children>,
-    mut configs: Query<(Entity, &mut CharacterShapeConfig, Option<&RootMotion>), With<FitSkeleton>>,
+    configs: Query<(Entity, &CharacterShape, Option<&RootMotion>), With<FitSkeleton>>,
     names: Query<&Name, With<SkeletalBone>>,
-    mut local_transforms: Query<&mut Transform, Without<CharacterShapeConfig>>,
+    mut local_transforms: Query<&mut Transform, Without<CharacterShape>>,
     mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     basemesh: Res<BaseMesh>,
     morph_targets: Res<MakeHumanMorphs>,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
 ) {
-    for (character_entity, config, root_motion) in configs.iter_mut() {
-        let template = &templates[&config.template];
-        let Ok(helpers) =
-            template.get_helpers(&config.template_morph_targets, &basemesh.vertices, &morph_targets)
-        else {
+    for (character_entity, config, root_motion) in configs.iter() {
+        let Some(asset) = shape_assets.get_mut(&config.0) else {
+            continue;
+        };
+        let Some(template) = templates.get(&asset.template) else {
+            continue;
+        };
+        let Ok(helpers) = template.get_helpers(
+            &asset.template_morph_targets,
+            &basemesh.vertices,
+            &morph_targets,
+        ) else {
             continue;
         };
 
@@ -144,6 +151,16 @@ pub(crate) fn fit_skeleton_to_shape(
                 let mut local_transform = local_transforms.get_mut(joint).unwrap();
                 *local_transform = new_local;
             }
+        }
+
+        // Cache per-bone translation data for animation rescaling (computed once per asset).
+        if matches!(asset.bone_translations, BoneTranslationData::None) {
+            let translations = model_space_bindposes
+                .iter()
+                .map(|(&bone, xform)| (bone, xform.translation))
+                .collect();
+            asset.bone_translations = BoneTranslationData::Full(translations);
+            asset.bone_delta_rotations = AHashMap::<&'static str, Quat>::default();
         }
 
         let model_space_inv_bindposes = model_space_bindposes
