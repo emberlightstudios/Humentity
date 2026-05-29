@@ -34,7 +34,9 @@ fn add_humans(
 
     let shape = CharacterMorphShape::new(SHAPE_NAME, resolved);
 
-    let template_handle = template_assets.add(CharacterTemplate::new([shape], RigType::Default));
+    let template_handle = template_assets.add(
+        CharacterTemplate::new([shape], RigType::Default)
+    );
 
     let lod0 = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     let lod1 = asset_server.load::<MhcloAsset>("proxymeshes/proxy4817/proxy4817.proxy");
