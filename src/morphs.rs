@@ -4,7 +4,7 @@ use crate::{
     loaders::{CompositeTargetsAsset, MacroDataAsset, TargetAsset}, prelude::*
 };
 use ahash::AHashMap;
-use bevy::{asset::{LoadState, LoadedFolder}, ecs::intern::Internable, prelude::*};
+use bevy::{asset::{AssetPath, LoadState, LoadedFolder}, ecs::intern::Internable, prelude::*};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
@@ -67,9 +67,9 @@ pub struct MakeHumanMorphs {
 impl MakeHumanMorphs {
     pub fn new(
         asset_server: &AssetServer,
-        composite_path: &'static str,
-        macro_path: &'static str,
-        targets_folder: &'static str,
+        composite_path: impl Into<AssetPath<'static>>,
+        macro_path: impl Into<AssetPath<'static>>,
+        targets_folder: impl Into<AssetPath<'static>>,
     ) -> Self {
         Self {
             targets: default(),

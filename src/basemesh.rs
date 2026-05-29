@@ -2,6 +2,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use ahash::AHashMap;
+use bevy::asset::AssetPath;
 use bevy::prelude::*;
 
 use crate::loaders::{ObjVertsAsset, VertexGroupsAsset};
@@ -15,7 +16,7 @@ pub struct BaseMesh {
 }
 
 impl BaseMesh {
-    pub fn new(asset_server: &AssetServer, path: &'static str) -> Self {
+    pub fn new(asset_server: &AssetServer, path: impl Into<AssetPath<'static>>) -> Self {
         let handle = asset_server.load_with_settings(path, |settings: &mut ObjVertsSettings| {
             settings.is_basemesh_helpers = true;
         });
@@ -41,7 +42,7 @@ pub struct VertexGroups {
 }
 
 impl VertexGroups {
-    pub fn new(asset_server: &AssetServer, path: &'static str) -> Self {
+    pub fn new(asset_server: &AssetServer, path: impl Into<AssetPath<'static>>) -> Self {
         let handle = asset_server.load::<VertexGroupsAsset>(path);
         Self {
             data: default(),

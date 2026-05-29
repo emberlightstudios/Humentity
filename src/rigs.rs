@@ -1,4 +1,5 @@
 use ahash::AHashMap;
+use bevy::asset::AssetPath;
 use bevy::{
     animation::{AnimatedBy, AnimationTargetId},
     color::palettes::css::RED,
@@ -85,9 +86,9 @@ pub struct RigData {
 impl RigData {
     pub fn new(
         asset_server: &AssetServer,
-        config_path: &'static str,
-        weights_path: &'static str,
-        ref_rig_path: &'static str,
+        config_path: impl Into<AssetPath<'static>>,
+        weights_path: impl Into<AssetPath<'static>>,
+        ref_rig_path: impl Into<AssetPath<'static>>,
     ) -> Self {
         Self {
             rigs: default(),
