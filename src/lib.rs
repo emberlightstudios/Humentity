@@ -8,10 +8,7 @@ mod template;
 mod rigs;
 mod spawn_skeleton;
 mod spawn_mesh;
-#[cfg(feature = "avian")]
-mod avian;
-#[cfg(feature = "physx")]
-mod physx;
+mod physics;
 
 use bevy::ecs::intern::Interner;
 use bevy::prelude::*;
@@ -86,10 +83,11 @@ pub mod prelude {
         BoneDebugPlugin,
         NAME_INTERNER,
     };
+    pub use crate::physics::ColliderBone;
     #[cfg(feature = "avian")]
-    pub use crate::avian::{CharacterColliderBone, CharacterColliders, CharacterRagdoll};
+    pub use crate::physics::avian::{CharacterColliders, CharacterRagdoll};
     #[cfg(feature = "physx")]
-    pub use crate::physx::{PhysxCharacterColliders, PhysxCharacterColliderBone, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter};
+    pub use crate::physics::physx::{PhysxCharacterColliders, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter};
 }
 
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
@@ -188,12 +186,16 @@ impl Plugin for HumentityPlugin {
             app.add_systems(
                 Update,
                 (
-                    avian::spawn_colliders
-                        .after(spawn_skeleton::fit_skeleton_to_shape)
-                        .run_if(resource_exists::<BaseMesh>)
-                        .run_if(resource_exists::<MakeHumanMorphs>)
-                        .run_if(resource_exists::<RigData>),
-                    (avian::set_ragdoll_state, avian::sync_colliders, avian::sync_bones_to_ragdoll).chain(),
+                    physics::avian::mark_needs_colliders,
+                    physics::avian::spawn_colliders.after(physics::avian::mark_needs_colliders).after(spawn_skeleton::fit_skeleton_to_shape),
+                    physics::avian::set_ragdoll_state,
+                ),
+            )
+            .add_systems(
+                FixedUpdate,
+                (
+                    physics::avian::sync_colliders,
+                    physics::avian::sync_bones_to_ragdoll,
                 ),
             );
         }
@@ -205,41 +207,41 @@ impl Plugin for HumentityPlugin {
 
             app.add_systems(
                     Startup,
-                    physx::create_collider_physics_material
+                    physics::physx::create_collider_physics_material
                             .run_if(resource_exists::<Physics>),
                 )
                 .add_systems(
                     Update,
                     (
-                        physx::auto_add_ragdoll_colliders
+                        physics::physx::auto_add_ragdoll_colliders
                             .after(spawn_skeleton::fit_skeleton_to_shape),
-                        physx::spawn_kinematic_colliders::<HitboxCollider>
-                            .run_if(resource_exists::<physx::ColliderMaterial>)
+                        physics::physx::spawn_kinematic_colliders::<HitboxCollider>
+                            .run_if(resource_exists::<physics::physx::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>)
                             .run_if(resource_exists::<RigData>),
-                        physx::spawn_kinematic_colliders::<HurtboxCollider>
-                            .run_if(resource_exists::<physx::ColliderMaterial>)
+                        physics::physx::spawn_kinematic_colliders::<HurtboxCollider>
+                            .run_if(resource_exists::<physics::physx::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>)
                             .run_if(resource_exists::<RigData>),
-                        physx::spawn_ragdoll_colliders
-                            .run_if(resource_exists::<physx::ColliderMaterial>)
+                        physics::physx::spawn_ragdoll_colliders
+                            .run_if(resource_exists::<physics::physx::ColliderMaterial>)
                             .run_if(resource_exists::<Physics>)
                             .run_if(resource_exists::<RigData>),
-                        physx::sync_colliders::<HitboxCollider>,
-                        physx::sync_colliders::<HurtboxCollider>,
-                        physx::on_colliders_changed::<HitboxCollider>,
-                        physx::on_colliders_changed::<HurtboxCollider>,
-                        physx::on_colliders_changed::<RagdollCollider>,
+                        physics::physx::sync_colliders::<HitboxCollider>,
+                        physics::physx::sync_colliders::<HurtboxCollider>,
+                        physics::physx::on_colliders_changed::<HitboxCollider>,
+                        physics::physx::on_colliders_changed::<HurtboxCollider>,
+                        physics::physx::on_colliders_changed::<RagdollCollider>,
                     )
                 )
                 .add_systems(
                     PostUpdate,
-                    physx::sync_skeleton_to_ragdoll
+                    physics::physx::sync_skeleton_to_ragdoll
                         .after(AnimationSystems)
                 )
-                .add_observer(physx::mark_entity_needs_colliders::<HitboxCollider>)
-                .add_observer(physx::mark_entity_needs_colliders::<HurtboxCollider>)
-                .add_observer(physx::mark_entity_needs_colliders::<RagdollCollider>);
+                .add_observer(physics::physx::mark_entity_needs_colliders::<HitboxCollider>)
+                .add_observer(physics::physx::mark_entity_needs_colliders::<HurtboxCollider>)
+                .add_observer(physics::physx::mark_entity_needs_colliders::<RagdollCollider>);
         }
 
         /*

@@ -10,24 +10,15 @@ use crate::{
     morphs::MakeHumanMorphs,
     prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, CharacterTemplate},
     rigs::{RigData, RigType, SkeletalBone},
-    spawn_skeleton::FitSkeleton,
 };
 
-const HEAD_VERTICES: [usize; 2] = [5063, 5389];
-const TORSO_VERTICES: [usize; 4] = [1553, 3753, 4097, 4049];
-const PELVIS_VERTICES: [usize; 4] = [4174, 4243, 4353, 4170];
-const UPPER_RIGHT_LEG_VERTICES: [usize; 4] = [4407, 4268, 4567, 4565];
-const LOWER_RIGHT_LEG_VERTICES: [usize; 4] = [4662, 4664, 6385, 6375];
-const UPPER_RIGHT_ARM_VERTICES: [usize; 4] = [1630, 1432, 3330, 3323];
-const LOWER_RIGHT_ARM_VERTICES: [usize; 4] = [3412, 3877, 3552, 3906];
-const UPPER_LEFT_ARM_VERTICES: [usize; 4] = [8302, 8120, 9998, 9991];
-const LOWER_LEFT_ARM_VERTICES: [usize; 4] = [10080, 10542, 10220, 10571];
-const UPPER_LEFT_LEG_VERTICES: [usize; 4] = [11025, 10898, 11185, 11183];
-const LOWER_LEFT_LEG_VERTICES: [usize; 4] = [11280, 11282, 12982, 12972];
-const RIGHT_HAND_VERTICES: [usize; 6] = [2776, 3189, 2119, 3909, 3247, 3650];
-const RIGHT_FOOT_VERTICES: [usize; 6] = [6251, 6705, 4972, 5845, 6214, 6298];
-const LEFT_HAND_VERTICES: [usize; 6] = [9444, 9857, 8787, 10574, 9915, 10318];
-const LEFT_FOOT_VERTICES: [usize; 6] = [12848, 13301, 11590, 12442, 12811, 12895];
+use super::{
+    get_collider_parent, ColliderBone, COLLIDERS, DEFAULT_RIG_COLLIDER_BONE_NAMES, HEAD_VERTICES,
+    LEFT_FOOT_VERTICES, LEFT_HAND_VERTICES, LOWER_LEFT_ARM_VERTICES, LOWER_LEFT_LEG_VERTICES,
+    LOWER_RIGHT_ARM_VERTICES, LOWER_RIGHT_LEG_VERTICES, PELVIS_VERTICES, RIGHT_FOOT_VERTICES,
+    RIGHT_HAND_VERTICES, TORSO_VERTICES, UPPER_LEFT_ARM_VERTICES, UPPER_LEFT_LEG_VERTICES,
+    UPPER_RIGHT_ARM_VERTICES, UPPER_RIGHT_LEG_VERTICES,
+};
 
 /// Describes whether ragdoll physics is active
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -37,67 +28,11 @@ pub enum CharacterRagdoll {
     Full,
 }
 
-/// The set of colliders on a character
-#[derive(Component, Hash, Copy, Clone, Eq, PartialEq, Debug)]
-pub enum CharacterColliderBone {
-    Head,
-    Chest,
-    Pelvis,
-    UpperRightArm,
-    UpperLeftArm,
-    LowerRightArm,
-    LowerLeftArm,
-    UpperRightLeg,
-    UpperLeftLeg,
-    LowerRightLeg,
-    LowerLeftLeg,
-    LeftHand,
-    RightHand,
-    LeftFoot,
-    RightFoot,
-}
-
-const COLLIDERS: [CharacterColliderBone; 15] = [
-    CharacterColliderBone::Pelvis,
-    CharacterColliderBone::Chest,
-    CharacterColliderBone::UpperLeftLeg,
-    CharacterColliderBone::UpperRightLeg,
-    CharacterColliderBone::LowerLeftLeg,
-    CharacterColliderBone::LowerRightLeg,
-    CharacterColliderBone::LeftFoot,
-    CharacterColliderBone::RightFoot,
-    CharacterColliderBone::UpperLeftArm,
-    CharacterColliderBone::UpperRightArm,
-    CharacterColliderBone::LowerLeftArm,
-    CharacterColliderBone::LowerRightArm,
-    CharacterColliderBone::LeftHand,
-    CharacterColliderBone::RightHand,
-    CharacterColliderBone::Head,
-];
-
-const DEFAULT_RIG_COLLIDER_BONE_NAMES: [&str; 15] = [
-    "root",
-    "spine03",
-    "upperleg01.L",
-    "upperleg01.R",
-    "lowerleg01.L",
-    "lowerleg01.R",
-    "foot.L",
-    "foot.R",
-    "upperarm01.L",
-    "upperarm01.R",
-    "lowerarm01.L",
-    "lowerarm01.R",
-    "wrist.L",
-    "wrist.R",
-    "head",
-];
-
 #[derive(Component, Default)]
 pub struct CharacterColliders {
-    pub bones_subset: Option<Vec<CharacterColliderBone>>,
-    pub(crate) collider_entities: AHashMap<CharacterColliderBone, Entity>,
-    pub(crate) bone_entities: AHashMap<CharacterColliderBone, Entity>,
+    pub bones_subset: Option<Vec<ColliderBone>>,
+    pub(crate) collider_entities: AHashMap<ColliderBone, Entity>,
+    pub(crate) bone_entities: AHashMap<ColliderBone, Entity>,
     pub(crate) joint_entities: Vec<Entity>,
 }
 
@@ -112,26 +47,6 @@ impl CharacterColliders {
     }
 }
 
-const fn get_collider_parent(bone: CharacterColliderBone) -> Option<CharacterColliderBone> {
-    match bone {
-        CharacterColliderBone::Head => Some(CharacterColliderBone::Chest),
-        CharacterColliderBone::Chest => Some(CharacterColliderBone::Pelvis),
-        CharacterColliderBone::Pelvis => None,
-        CharacterColliderBone::UpperRightArm => Some(CharacterColliderBone::Chest),
-        CharacterColliderBone::UpperLeftArm => Some(CharacterColliderBone::Chest),
-        CharacterColliderBone::LowerRightArm => Some(CharacterColliderBone::UpperRightArm),
-        CharacterColliderBone::LowerLeftArm => Some(CharacterColliderBone::UpperLeftArm),
-        CharacterColliderBone::UpperRightLeg => Some(CharacterColliderBone::Pelvis),
-        CharacterColliderBone::UpperLeftLeg => Some(CharacterColliderBone::Pelvis),
-        CharacterColliderBone::LowerRightLeg => Some(CharacterColliderBone::UpperRightLeg),
-        CharacterColliderBone::LowerLeftLeg => Some(CharacterColliderBone::UpperLeftLeg),
-        CharacterColliderBone::LeftHand => Some(CharacterColliderBone::LowerLeftArm),
-        CharacterColliderBone::RightHand => Some(CharacterColliderBone::LowerRightArm),
-        CharacterColliderBone::LeftFoot => Some(CharacterColliderBone::LowerLeftLeg),
-        CharacterColliderBone::RightFoot => Some(CharacterColliderBone::LowerRightLeg),
-    }
-}
-
 /// Offset from a collider's parent bone to the collider itself.
 #[derive(Component)]
 pub(crate) struct ColliderOffset(pub(crate) Transform);
@@ -139,6 +54,52 @@ pub(crate) struct ColliderOffset(pub(crate) Transform);
 /// Marker for colliders that are currently in kinematic (animation-following) mode.
 #[derive(Component)]
 pub(crate) struct KinematicCollider;
+
+/// Links a collider entity to its owning character entity.
+#[derive(Component)]
+#[relationship(relationship_target = ColliderList)]
+pub(crate) struct ColliderForCharacter(pub(crate) Entity);
+
+/// Auto-maintained list of collider entities belonging to a character.
+#[derive(Component)]
+#[relationship_target(relationship = ColliderForCharacter)]
+pub(crate) struct ColliderList(Vec<Entity>);
+
+/// Links a joint entity to its owning character entity.
+#[derive(Component)]
+#[relationship(relationship_target = JointList)]
+pub(crate) struct JointForCharacter(pub(crate) Entity);
+
+/// Auto-maintained list of joint entities belonging to a character.
+#[derive(Component)]
+#[relationship_target(relationship = JointForCharacter)]
+pub(crate) struct JointList(Vec<Entity>);
+
+/// Marker for characters whose skeleton is fitted but colliders haven't been spawned yet.
+#[derive(Component)]
+pub(crate) struct NeedsColliders;
+
+pub(crate) fn mark_needs_colliders(
+    mut commands: Commands,
+    characters: Query<
+        Entity,
+        (
+            With<CharacterColliders>,
+            With<SkinnedMesh>,
+            Without<NeedsColliders>,
+        ),
+    >,
+    collider_data: Query<&CharacterColliders>,
+) {
+    for entity in characters.iter() {
+        if collider_data
+            .get(entity)
+            .is_ok_and(|c| c.collider_entities.is_empty())
+        {
+            commands.entity(entity).insert(NeedsColliders);
+        }
+    }
+}
 
 pub(crate) fn spawn_colliders(
     mut commands: Commands,
@@ -149,7 +110,7 @@ pub(crate) fn spawn_colliders(
             &SkinnedMesh,
             &mut CharacterColliders,
         ),
-        (Without<FitSkeleton>, Without<RigidBody>),
+        With<NeedsColliders>,
     >,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
@@ -158,11 +119,7 @@ pub(crate) fn spawn_colliders(
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     rig_data: Res<RigData>,
 ) {
-    for (_character_entity, character_shape, skm, mut colliders) in characters.iter_mut() {
-        if !colliders.collider_entities.is_empty() {
-            continue;
-        }
-
+    for (character_entity, character_shape, skm, mut colliders) in characters.iter_mut() {
         let Some(asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
@@ -201,7 +158,7 @@ pub(crate) fn spawn_colliders(
             .zip(inv_bindposes.iter().map(|m| Transform::from_matrix(*m)))
             .collect();
 
-        let target_bones: Vec<CharacterColliderBone> = match &colliders.bones_subset {
+        let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {
             Some(bones) if !bones.is_empty() => bones.clone(),
             Some(_) => vec![],
             None => COLLIDERS.to_vec(),
@@ -229,6 +186,7 @@ pub(crate) fn spawn_colliders(
                     ColliderOffset(collider_to_joint),
                     ColliderDensity(1.0),
                     Transform::IDENTITY,
+                    ColliderForCharacter(character_entity),
                 ))
                 .id();
 
@@ -239,16 +197,20 @@ pub(crate) fn spawn_colliders(
                 .bone_entities
                 .insert(collider, bone_entities[joint_name]);
         }
+
+        commands.entity(character_entity).remove::<NeedsColliders>();
     }
 }
 
+/// This function syncs kinematic character colliders to align with the skeletal bones
 pub(crate) fn sync_colliders(
     characters: Query<&CharacterColliders>,
     bones: Query<&GlobalTransform>,
     mut collider_data: Query<(&mut Transform, &ColliderOffset), With<KinematicCollider>>,
 ) {
+    // Why does this tank performance?
     for colliders in characters.iter() {
-        let target_bones: Vec<CharacterColliderBone> = match &colliders.bones_subset {
+        let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {
             Some(bones) if !bones.is_empty() => bones.clone(),
             Some(_) => vec![],
             None => COLLIDERS.to_vec(),
@@ -272,11 +234,14 @@ pub(crate) fn sync_colliders(
 }
 
 pub(crate) fn set_ragdoll_state(
-    mut characters: Query<(&CharacterRagdoll, &mut CharacterColliders), Changed<CharacterRagdoll>>,
+    mut characters: Query<
+        (Entity, &CharacterRagdoll, &mut CharacterColliders),
+        Changed<CharacterRagdoll>,
+    >,
     mut commands: Commands,
     bones: Query<&GlobalTransform>,
 ) {
-    for (ragdoll, mut char_colliders) in characters.iter_mut() {
+    for (character_entity, ragdoll, mut char_colliders) in characters.iter_mut() {
         match *ragdoll {
             CharacterRagdoll::Full => {
                 for (_bone, &collider_entity) in char_colliders.collider_entities.iter() {
@@ -288,21 +253,27 @@ pub(crate) fn set_ragdoll_state(
                         .insert(AngularDamping(1.0));
                 }
 
-                let joints_to_spawn: Vec<(CharacterColliderBone, Entity, Entity, Vec3)> =
-                    char_colliders
-                        .collider_entities
-                        .iter()
-                        .filter_map(|(bone, &child)| {
-                            let parent_bone = get_collider_parent(*bone)?;
-                            let parent = *char_colliders.collider_entities.get(&parent_bone)?;
-                            let bone_entity = *char_colliders.bone_entities.get(bone)?;
-                            let bone_transform = bones.get(bone_entity).ok()?;
-                            Some((*bone, parent, child, bone_transform.translation()))
-                        })
-                        .collect();
+                let joints_to_spawn: Vec<(ColliderBone, Entity, Entity, Vec3)> = char_colliders
+                    .collider_entities
+                    .iter()
+                    .filter_map(|(bone, &child)| {
+                        let parent_bone = get_collider_parent(*bone)?;
+                        let parent = *char_colliders.collider_entities.get(&parent_bone)?;
+                        let bone_entity = *char_colliders.bone_entities.get(bone)?;
+                        let bone_transform = bones.get(bone_entity).ok()?;
+                        Some((*bone, parent, child, bone_transform.translation()))
+                    })
+                    .collect();
 
                 for (bone, parent, child, anchor) in joints_to_spawn {
-                    let joint = spawn_ragdoll_joint(&mut commands, bone, parent, child, anchor);
+                    let joint = spawn_ragdoll_joint(
+                        &mut commands,
+                        bone,
+                        parent,
+                        child,
+                        anchor,
+                        character_entity,
+                    );
                     char_colliders.joint_entities.push(joint);
                 }
             }
@@ -327,13 +298,10 @@ pub(crate) fn set_ragdoll_state(
 
 pub(crate) fn sync_bones_to_ragdoll(
     characters: Query<(&CharacterRagdoll, &CharacterColliders)>,
-    colliders: Query<
-        (&Transform, &ColliderOffset),
-        (With<CharacterColliderBone>, Without<SkeletalBone>),
-    >,
+    colliders: Query<(&Transform, &ColliderOffset), (With<ColliderBone>, Without<SkeletalBone>)>,
     mut bones: Query<
         (&mut Transform, Option<&ChildOf>),
-        (With<SkeletalBone>, Without<CharacterColliderBone>),
+        (With<SkeletalBone>, Without<ColliderBone>),
     >,
     global_transforms: Query<&GlobalTransform>,
 ) {
@@ -342,7 +310,7 @@ pub(crate) fn sync_bones_to_ragdoll(
             continue;
         }
 
-        let mut desired_joint_world = AHashMap::<CharacterColliderBone, Transform>::default();
+        let mut desired_joint_world = AHashMap::<ColliderBone, Transform>::default();
         for (bone_type, &collider_entity) in char_colliders.collider_entities.iter() {
             let Ok((collider_transform, offset)) = colliders.get(collider_entity) else {
                 continue;
@@ -385,30 +353,30 @@ pub(crate) fn sync_bones_to_ragdoll(
 }
 
 fn get_collider_geometry(
-    collider: CharacterColliderBone,
+    collider: ColliderBone,
     helpers: &[Vec3],
     i_collider: usize,
     inv_bindposes: &AHashMap<&str, Transform>,
 ) -> (Collider, Transform) {
     match collider {
-        CharacterColliderBone::Head => get_head_collider(helpers),
-        CharacterColliderBone::Chest | CharacterColliderBone::Pelvis => {
+        ColliderBone::Head => get_head_collider(helpers),
+        ColliderBone::Chest | ColliderBone::Pelvis => {
             let bone_name = DEFAULT_RIG_COLLIDER_BONE_NAMES[i_collider];
             let inv_bindpose_rot = inv_bindposes[bone_name].rotation;
             get_midsection_collider(helpers, collider, inv_bindpose_rot)
         }
-        CharacterColliderBone::UpperRightArm
-        | CharacterColliderBone::UpperLeftArm
-        | CharacterColliderBone::LowerRightArm
-        | CharacterColliderBone::LowerLeftArm
-        | CharacterColliderBone::UpperRightLeg
-        | CharacterColliderBone::UpperLeftLeg
-        | CharacterColliderBone::LowerRightLeg
-        | CharacterColliderBone::LowerLeftLeg => get_limb_collider(helpers, collider),
-        CharacterColliderBone::LeftHand
-        | CharacterColliderBone::RightHand
-        | CharacterColliderBone::LeftFoot
-        | CharacterColliderBone::RightFoot => get_extremity_collider(helpers, collider),
+        ColliderBone::UpperRightArm
+        | ColliderBone::UpperLeftArm
+        | ColliderBone::LowerRightArm
+        | ColliderBone::LowerLeftArm
+        | ColliderBone::UpperRightLeg
+        | ColliderBone::UpperLeftLeg
+        | ColliderBone::LowerRightLeg
+        | ColliderBone::LowerLeftLeg => get_limb_collider(helpers, collider),
+        ColliderBone::LeftHand
+        | ColliderBone::RightHand
+        | ColliderBone::LeftFoot
+        | ColliderBone::RightFoot => get_extremity_collider(helpers, collider),
     }
 }
 
@@ -423,12 +391,12 @@ fn get_head_collider(helpers: &[Vec3]) -> (Collider, Transform) {
 
 fn get_midsection_collider(
     helpers: &[Vec3],
-    joint: CharacterColliderBone,
+    joint: ColliderBone,
     inv_bindpose_rot: Quat,
 ) -> (Collider, Transform) {
     let ref_verts = match joint {
-        CharacterColliderBone::Chest => TORSO_VERTICES,
-        CharacterColliderBone::Pelvis => PELVIS_VERTICES,
+        ColliderBone::Chest => TORSO_VERTICES,
+        ColliderBone::Pelvis => PELVIS_VERTICES,
         _ => unreachable!(),
     };
 
@@ -452,16 +420,16 @@ fn get_midsection_collider(
     )
 }
 
-fn get_limb_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collider, Transform) {
+fn get_limb_collider(helpers: &[Vec3], joint: ColliderBone) -> (Collider, Transform) {
     let ref_verts = match joint {
-        CharacterColliderBone::LowerLeftArm => LOWER_LEFT_ARM_VERTICES,
-        CharacterColliderBone::LowerRightArm => LOWER_RIGHT_ARM_VERTICES,
-        CharacterColliderBone::UpperLeftArm => UPPER_LEFT_ARM_VERTICES,
-        CharacterColliderBone::UpperRightArm => UPPER_RIGHT_ARM_VERTICES,
-        CharacterColliderBone::LowerLeftLeg => LOWER_LEFT_LEG_VERTICES,
-        CharacterColliderBone::LowerRightLeg => LOWER_RIGHT_LEG_VERTICES,
-        CharacterColliderBone::UpperLeftLeg => UPPER_LEFT_LEG_VERTICES,
-        CharacterColliderBone::UpperRightLeg => UPPER_RIGHT_LEG_VERTICES,
+        ColliderBone::LowerLeftArm => LOWER_LEFT_ARM_VERTICES,
+        ColliderBone::LowerRightArm => LOWER_RIGHT_ARM_VERTICES,
+        ColliderBone::UpperLeftArm => UPPER_LEFT_ARM_VERTICES,
+        ColliderBone::UpperRightArm => UPPER_RIGHT_ARM_VERTICES,
+        ColliderBone::LowerLeftLeg => LOWER_LEFT_LEG_VERTICES,
+        ColliderBone::LowerRightLeg => LOWER_RIGHT_LEG_VERTICES,
+        ColliderBone::UpperLeftLeg => UPPER_LEFT_LEG_VERTICES,
+        ColliderBone::UpperRightLeg => UPPER_RIGHT_LEG_VERTICES,
         _ => unreachable!(),
     };
     let verts: Vec<Vec3> = ref_verts.iter().map(|&i| helpers[i]).collect();
@@ -481,12 +449,12 @@ fn get_limb_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collide
     )
 }
 
-fn get_extremity_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Collider, Transform) {
+fn get_extremity_collider(helpers: &[Vec3], joint: ColliderBone) -> (Collider, Transform) {
     let ref_verts = match joint {
-        CharacterColliderBone::LeftHand => LEFT_HAND_VERTICES,
-        CharacterColliderBone::RightHand => RIGHT_HAND_VERTICES,
-        CharacterColliderBone::LeftFoot => LEFT_FOOT_VERTICES,
-        CharacterColliderBone::RightFoot => RIGHT_FOOT_VERTICES,
+        ColliderBone::LeftHand => LEFT_HAND_VERTICES,
+        ColliderBone::RightHand => RIGHT_HAND_VERTICES,
+        ColliderBone::LeftFoot => LEFT_FOOT_VERTICES,
+        ColliderBone::RightFoot => RIGHT_FOOT_VERTICES,
         _ => unreachable!(),
     };
     let verts: Vec<Vec3> = ref_verts.iter().map(|&i| helpers[i]).collect();
@@ -511,13 +479,14 @@ fn get_extremity_collider(helpers: &[Vec3], joint: CharacterColliderBone) -> (Co
 
 fn spawn_ragdoll_joint(
     commands: &mut Commands,
-    bone: CharacterColliderBone,
+    bone: ColliderBone,
     parent: Entity,
     child: Entity,
     anchor: Vec3,
+    character: Entity,
 ) -> Entity {
     match bone {
-        CharacterColliderBone::LowerRightArm | CharacterColliderBone::LowerLeftArm => commands
+        ColliderBone::LowerRightArm | ColliderBone::LowerLeftArm => commands
             .spawn((
                 RevoluteJoint::new(parent, child)
                     .with_anchor(anchor)
@@ -526,9 +495,10 @@ fn spawn_ragdoll_joint(
                     .with_align_compliance(0.05)
                     .with_limit_compliance(0.05),
                 JointCollisionDisabled,
+                JointForCharacter(character),
             ))
             .id(),
-        CharacterColliderBone::LowerRightLeg | CharacterColliderBone::LowerLeftLeg => commands
+        ColliderBone::LowerRightLeg | ColliderBone::LowerLeftLeg => commands
             .spawn((
                 RevoluteJoint::new(parent, child)
                     .with_anchor(anchor)
@@ -537,6 +507,7 @@ fn spawn_ragdoll_joint(
                     .with_align_compliance(0.05)
                     .with_limit_compliance(0.05),
                 JointCollisionDisabled,
+                JointForCharacter(character),
             ))
             .id(),
         _ => {
@@ -551,21 +522,22 @@ fn spawn_ragdoll_joint(
                         .with_swing_compliance(0.05)
                         .with_twist_compliance(0.05),
                     JointCollisionDisabled,
+                    JointForCharacter(character),
                 ))
                 .id()
         }
     }
 }
 
-const fn get_spherical_limits(bone: CharacterColliderBone) -> (f32, f32) {
+const fn get_spherical_limits(bone: ColliderBone) -> (f32, f32) {
     match bone {
-        CharacterColliderBone::Pelvis => (0.3, 0.3),
-        CharacterColliderBone::Chest => (0.5, 0.3),
-        CharacterColliderBone::Head => (0.5, 0.3),
-        CharacterColliderBone::UpperRightArm | CharacterColliderBone::UpperLeftArm => (1.5, 0.5),
-        CharacterColliderBone::UpperRightLeg | CharacterColliderBone::UpperLeftLeg => (1.5, 0.3),
-        CharacterColliderBone::LeftHand | CharacterColliderBone::RightHand => (0.8, 0.8),
-        CharacterColliderBone::LeftFoot | CharacterColliderBone::RightFoot => (0.5, 0.2),
+        ColliderBone::Pelvis => (0.3, 0.3),
+        ColliderBone::Chest => (0.5, 0.3),
+        ColliderBone::Head => (0.5, 0.3),
+        ColliderBone::UpperRightArm | ColliderBone::UpperLeftArm => (1.5, 0.5),
+        ColliderBone::UpperRightLeg | ColliderBone::UpperLeftLeg => (1.5, 0.3),
+        ColliderBone::LeftHand | ColliderBone::RightHand => (0.8, 0.8),
+        ColliderBone::LeftFoot | ColliderBone::RightFoot => (0.5, 0.2),
         _ => unreachable!(),
     }
 }
