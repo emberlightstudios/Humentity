@@ -89,7 +89,7 @@ pub mod prelude {
     #[cfg(feature = "avian")]
     pub use crate::avian::{CharacterColliderBone, CharacterColliders, CharacterRagdoll};
     #[cfg(feature = "physx")]
-    pub use crate::physx::{CharacterColliders, CharacterColliderBone, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter};
+    pub use crate::physx::{PhysxCharacterColliders, PhysxCharacterColliderBone, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter};
 }
 
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
@@ -193,7 +193,7 @@ impl Plugin for HumentityPlugin {
                         .run_if(resource_exists::<BaseMesh>)
                         .run_if(resource_exists::<MakeHumanMorphs>)
                         .run_if(resource_exists::<RigData>),
-                    (avian::set_ragdoll_state, avian::sync_colliders).chain(),
+                    (avian::set_ragdoll_state, avian::sync_colliders, avian::sync_bones_to_ragdoll).chain(),
                 ),
             );
         }

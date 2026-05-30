@@ -1,3 +1,6 @@
+//! bevy_mod_physx hasn't been updated in a while.
+//! You'll have to update it to use the latest version of bevy before this will work
+
 mod shared;
 
 use std::f32::consts::PI;
@@ -29,8 +32,8 @@ fn main() {
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
     related: Single<&RelatedEntities>,
-    mut hitbox: Single<&mut CharacterColliders<HitboxCollider>>,
-    mut ragdoll: Single<&mut CharacterColliders<RagdollCollider>>,
+    mut hitbox: Single<&mut PhysxCharacterColliders<HitboxCollider>>,
+    mut ragdoll: Single<&mut PhysxCharacterColliders<RagdollCollider>>,
     human: Single<(&CharacterShape, &SkinnedMesh)>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<&mut Transform, With<SkeletalBone>>,
@@ -128,7 +131,7 @@ fn add_human(
     commands.spawn((
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, MorphTargets::default()))),
-        CharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
+        PhysxCharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
         children![(
             CharacterPart(basemesh),
             MeshMaterial3d(mat),
@@ -156,7 +159,7 @@ fn setup_graph(
 }
 
 fn start_clip(
-    ragdoll: Single<&CharacterColliders<RagdollCollider>>,
+    ragdoll: Single<&PhysxCharacterColliders<RagdollCollider>>,
     mut anim: Single<(&mut AnimationPlayer, &AnimationController)>,
 ) {
     let ragdoll_active = !ragdoll

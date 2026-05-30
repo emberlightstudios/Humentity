@@ -14,7 +14,8 @@ use shared::{setup_app, CharacterPart};
 fn main() {
     let mut app = setup_app();
 
-    app.add_plugins((
+    app.insert_resource(SubstepCount(3))
+        .add_plugins((
         PhysicsPlugins::default(),
         PhysicsDebugPlugin,
         FrameTimeDiagnosticsPlugin::default(),
@@ -37,7 +38,7 @@ fn toggle(
     input: Res<ButtonInput<KeyCode>>,
     related: Single<&RelatedEntities>,
     mut ragdoll: Single<&mut CharacterRagdoll>,
-    mut colliders: Single<&mut CharacterColliders>,
+    mut colliders: Single<&mut PhysxCharacterColliders>,
     human: Single<(&CharacterShape, &SkinnedMesh)>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<&mut Transform, With<SkeletalBone>>,
@@ -80,11 +81,6 @@ fn floor(
     ));
 }
 
-#[derive(Resource)]
-struct RetargetedAnimations {
-    _clips: Handle<RetargetedAnimationAsset>,
-}
-
 fn add_human(
     _trigger: On<MorphsReady>,
     mut commands: Commands,
@@ -120,12 +116,17 @@ fn add_human(
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, MorphTargets::default()))),
         CharacterRagdoll::None,
-        CharacterColliders::new(true),
+        PhysxCharacterColliders::new(true),
         children![(
             CharacterPart(basemesh),
             MeshMaterial3d(mat),
         )]
     ));
+}
+
+#[derive(Resource)]
+struct RetargetedAnimations {
+    _clips: Handle<RetargetedAnimationAsset>,
 }
 
 #[derive(Component)]
