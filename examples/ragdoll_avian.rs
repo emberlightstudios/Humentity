@@ -116,7 +116,7 @@ fn add_human(
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, MorphTargets::default()))),
         CharacterRagdoll::None,
-        CharacterColliders::new(true),
+        CharacterColliders::new(None),
         children![(
             CharacterPart(basemesh),
             MeshMaterial3d(mat),

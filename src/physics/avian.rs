@@ -37,9 +37,9 @@ pub struct CharacterColliders {
 }
 
 impl CharacterColliders {
-    pub fn new(include_all: bool) -> Self {
+    pub fn new(bones_subset: Option<Vec<ColliderBone>>) -> Self {
         Self {
-            bones_subset: if include_all { None } else { Some(vec![]) },
+            bones_subset,
             collider_entities: AHashMap::default(),
             bone_entities: AHashMap::default(),
             joint_entities: Vec::new(),
