@@ -206,9 +206,11 @@ pub(crate) fn spawn_colliders(
 pub(crate) fn sync_colliders(
     characters: Query<&CharacterColliders>,
     bones: Query<&GlobalTransform>,
-    mut collider_data: Query<(&mut Transform, &ColliderOffset), With<KinematicCollider>>,
+    mut collider_data: Query<
+        (&mut Position, &mut Rotation, &ColliderOffset),
+        With<KinematicCollider>,
+    >,
 ) {
-    // Why does this tank performance?
     for colliders in characters.iter() {
         let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {
             Some(bones) if !bones.is_empty() => bones.clone(),
@@ -219,7 +221,8 @@ pub(crate) fn sync_colliders(
             let Some(collider_entity) = colliders.collider_entities.get(&bone_type) else {
                 continue;
             };
-            let Ok((mut transform, offset)) = collider_data.get_mut(*collider_entity) else {
+            let Ok((mut position, mut rotation, offset)) = collider_data.get_mut(*collider_entity)
+            else {
                 continue;
             };
             let Some(bone_entity) = colliders.bone_entities.get(&bone_type) else {
@@ -228,7 +231,9 @@ pub(crate) fn sync_colliders(
             let Ok(joint_to_world) = bones.get(*bone_entity) else {
                 continue;
             };
-            *transform = Transform::from(*joint_to_world) * offset.0;
+            let world = Transform::from(*joint_to_world) * offset.0;
+            *position = Position(world.translation);
+            *rotation = Rotation(world.rotation);
         }
     }
 }
