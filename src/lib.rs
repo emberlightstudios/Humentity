@@ -87,7 +87,7 @@ pub mod prelude {
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::{CharacterColliders, CharacterRagdoll};
     #[cfg(feature = "physx")]
-    pub use crate::physics::physx::{PhysxCharacterColliders, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter};
+    pub use crate::physics::physx::{PhysxCharacterColliders, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter, ColliderForCharacter, ColliderList};
 }
 
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.

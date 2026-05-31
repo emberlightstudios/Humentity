@@ -66,12 +66,12 @@ pub(crate) struct PoseOffset(Transform);
 /// Tracks which character a physx entity belongs to
 #[derive(Component)]
 #[relationship(relationship_target = ColliderList)]
-struct ColliderForCharacter(Entity);
+pub struct ColliderForCharacter(pub Entity);
 
 /// Tracks which colliders belong to this character
 #[derive(Component)]
 #[relationship_target(relationship = ColliderForCharacter)]
-struct ColliderList(Vec<Entity>);
+pub struct ColliderList(Vec<Entity>);
 
 /// Provides body colliders for characters
 #[derive(Component, Default)]
@@ -80,8 +80,10 @@ pub struct PhysxCharacterColliders<C: ColliderType + Send + Sync = HitboxCollide
     pub filter: ShapeFilterData,
     /// Subset of bones to create colliders for. None = all bones
     pub bones_subset: Option<Vec<ColliderBone>>,
-    collider_entities: AHashMap<ColliderBone, Entity>,
-    bone_entities: AHashMap<ColliderBone, Entity>,
+    /// Map from ColliderBone to collider entity. Remove entries here to detach limbs.
+    pub collider_entities: AHashMap<ColliderBone, Entity>,
+    /// Map from ColliderBone to the skeletal bone entity it tracks.
+    pub bone_entities: AHashMap<ColliderBone, Entity>,
     _phantom: PhantomData<C>,
 }
 
@@ -352,6 +354,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
 
             let collider_entity = commands
                 .spawn((
+                    Name::from(format!("KinematicCollider_{:?}", collider)),
                     RigidBody::Dynamic,
                     Kinematic::new(collider_to_world),
                     Transform::IDENTITY,
@@ -506,6 +509,7 @@ pub(crate) fn spawn_ragdoll_colliders(
 
             let collider_entity = commands
                 .spawn((
+                    Name::from(format!("Ragdoll_{:?}", collider)),
                     RigidBody::ArticulationLink,
                     collider_to_world,
                     *collider,
@@ -530,28 +534,36 @@ pub(crate) fn spawn_ragdoll_colliders(
 
             if *collider == ColliderBone::Pelvis {
                 commands.entity(collider_entity).insert(ArticulationRoot {
+                    fix_base: false,
                     ..Default::default()
                 });
             } else {
                 let parent_collider = get_collider_parent(*collider).unwrap();
-                let parent_collider_to_model = collider_to_world_transforms[&parent_collider];
-                let parent_collider_to_joint = world_to_joint * parent_collider_to_model;
+                if !colliders.collider_entities.contains_key(&parent_collider) {
+                    commands.entity(collider_entity).insert(ArticulationRoot {
+                        fix_base: false,
+                        ..Default::default()
+                    });
+                } else {
+                    let parent_collider_to_model = collider_to_world_transforms[&parent_collider];
+                    let parent_collider_to_joint = world_to_joint * parent_collider_to_model;
 
-                let parent = colliders.collider_entities[&parent_collider];
-                let child_pose = collider_to_joint;
+                    let parent = colliders.collider_entities[&parent_collider];
+                    let child_pose = collider_to_joint;
 
-                let child_pose = Transform::from_matrix(child_pose.to_matrix().inverse());
-                let parent_pose =
-                    Transform::from_matrix(parent_collider_to_joint.to_matrix().inverse());
+                    let child_pose = Transform::from_matrix(child_pose.to_matrix().inverse());
+                    let parent_pose =
+                        Transform::from_matrix(parent_collider_to_joint.to_matrix().inverse());
 
-                commands
-                    .entity(collider_entity)
-                    .insert(get_articulation_joint(
-                        *collider,
-                        parent,
-                        parent_pose,
-                        child_pose,
-                    ));
+                    commands
+                        .entity(collider_entity)
+                        .insert(get_articulation_joint(
+                            *collider,
+                            parent,
+                            parent_pose,
+                            child_pose,
+                        ));
+                }
             }
         }
 
@@ -645,7 +657,7 @@ fn get_articulation_joint(
                 min: -0.5,
                 max: 0.5,
             },
-            friction_coefficient: 1.0,
+            friction_coefficient: 0.05,
             ..default()
         },
         ColliderBone::LowerRightArm | ColliderBone::LowerLeftArm => ArticulationJoint {
@@ -654,7 +666,7 @@ fn get_articulation_joint(
             child_pose,
             joint_type: PxArticulationJointType::Revolute,
             motion_twist: ArticulationJointMotion::Limited { min: 0.0, max: 2.5 },
-            friction_coefficient: 1.0,
+            friction_coefficient: 0.05,
             ..default()
         },
         ColliderBone::UpperRightLeg | ColliderBone::UpperLeftLeg => ArticulationJoint {

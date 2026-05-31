@@ -13,20 +13,24 @@ use shared::{setup_app, CharacterPart};
 fn main() {
     let mut app = setup_app();
 
-    app.add_plugins(
-        PhysicsPlugins.set(PhysicsCore::default()),
-    )
-    .add_systems(Startup, floor)
-    .add_observer(add_human)
-    .add_systems(
-        Update,
-        (
-            toggle,
-            setup_graph,
-            start_clip,
-        ),
-    )
-    .run();
+    app
+        .add_plugins(
+            PhysicsPlugins.set(PhysicsCore::default()),
+        )
+        .insert_resource(DebugRenderSettings {
+            ..DebugRenderSettings::enable()
+        })
+        .add_systems(Startup, floor)
+        .add_observer(add_human)
+        .add_systems(
+            Update,
+            (
+                toggle,
+                setup_graph,
+                start_clip,
+            ),
+        )
+        .run();
 }
 
 fn toggle(
@@ -61,7 +65,6 @@ fn toggle(
                 && let Ok(controller) = controllers.get(related.rig)
             {
                 player.stop(controller.0);
-                info!("STOP");
             }
 
             hitbox.bones_subset = Some(vec![]);
