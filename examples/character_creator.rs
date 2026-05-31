@@ -123,16 +123,7 @@ fn setup_and_add_human(
     _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mh_morphs: Res<MakeHumanMorphs>,
 ) {
-
-    let mut morph_targets = MorphTargets::default();
-    morph_targets.insert("age", 0.5);
-    morph_targets.insert("gender", 1.0);
-    morph_targets.insert("caucasian", 1.0);
-
-    let resolved = mh_morphs.compute_target_weights(&morph_targets).unwrap();
-
     let mhclo_handle = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     let entity = commands.spawn((
         Name::new("Character"),

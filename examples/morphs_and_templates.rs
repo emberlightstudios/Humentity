@@ -37,7 +37,6 @@ fn add_humans(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
-    morphs: Res<MakeHumanMorphs>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
@@ -48,14 +47,11 @@ fn add_humans(
     bodybuilder_targets.insert("muscle", 1.);
     bodybuilder_targets.insert("weight", 1.);
 
-    let baby_morphs = morphs.compute_target_weights(&baby_targets).unwrap();
-    let bodybuilder_morphs = morphs.compute_target_weights(&bodybuilder_targets).unwrap();
-
     // Templates can be created at runtime or loaded from toml
     let template_handle = template_assets.add(CharacterTemplate::new(
         [
-            CharacterMorphShape::new(BODYBUILDER, bodybuilder_morphs),
-            CharacterMorphShape::new(BABY, baby_morphs),
+            CharacterMorphShape::new(BODYBUILDER, bodybuilder_targets),
+            CharacterMorphShape::new(BABY, baby_targets),
         ],
         RigType::Default,
     ));

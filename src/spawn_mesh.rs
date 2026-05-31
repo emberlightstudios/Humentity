@@ -254,6 +254,10 @@ pub(crate) fn build_single_mesh_process(
             && let Some(input_mesh) = meshes.get(&cache.mesh)
             && let Some(mesh_verts) = mesh_verts.get(&cache.verts)
     {
+        if !morphs.is_ready(asset_server) {
+            return;
+        }
+
         *load_state = AssetLoadState::BuildSubmitted;
         cached_raw_meshes.remove(part);
 
@@ -346,6 +350,10 @@ fn build_stitched_meshes_process(
         let loaded_mesh_count = loaded_meshes.len();
 
         if loaded_mesh_count != parts.len() {
+            return;
+        }
+
+        if !morphs.is_ready(asset_server) {
             return;
         }
 

@@ -160,6 +160,9 @@ impl Plugin for HumentityPlugin {
                         .after(morphs::populate_morph_resource)
                         .after(morphs::sync_loaded_morph_targets)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
+                    template::resolve_template_morphs
+                        .after(morphs::check_morphs_ready)
+                        .run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     rigs::sync_and_build_rig_data
                         .run_if(resource_exists::<rigs::RigData>),
                     (

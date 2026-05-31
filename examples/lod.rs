@@ -21,7 +21,6 @@ fn add_humans(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
-    morphs: Res<MakeHumanMorphs>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
@@ -30,13 +29,9 @@ fn add_humans(
     morph_targets.insert("gender", 0.0);
     morph_targets.insert("cupsize", 1.0);
 
-    let resolved = morphs.compute_target_weights(&morph_targets).unwrap();
+    let shape = CharacterMorphShape::new(SHAPE_NAME, morph_targets);
 
-    let shape = CharacterMorphShape::new(SHAPE_NAME, resolved);
-
-    let template_handle = template_assets.add(
-        CharacterTemplate::new([shape], RigType::Default)
-    );
+    let template_handle = template_assets.add(CharacterTemplate::new([shape], RigType::Default));
 
     let lod0 = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     let lod1 = asset_server.load::<MhcloAsset>("proxymeshes/proxy4817/proxy4817.proxy");

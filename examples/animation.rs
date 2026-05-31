@@ -43,7 +43,6 @@ fn add_humans(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
-    morphs: Res<MakeHumanMorphs>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
@@ -51,10 +50,8 @@ fn add_humans(
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
-    let baby_morphs = morphs.compute_target_weights(&morph_targets).unwrap();
-
     let template_handle = template_assets.add(CharacterTemplate::new(
-        [CharacterMorphShape::new(BABY, baby_morphs)],
+        [CharacterMorphShape::new(BABY, morph_targets)],
         RigType::Default,
     ));
     info!("GLB scene loaded");

@@ -22,7 +22,6 @@ fn add_human(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
-    morphs: Res<MakeHumanMorphs>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
@@ -30,9 +29,7 @@ fn add_human(
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.);
 
-    let resolved = morphs.compute_target_weights(&morph_targets).unwrap();
-
-    let shape = CharacterMorphShape::new("female", resolved);
+    let shape = CharacterMorphShape::new("female", morph_targets);
 
     let template_handle = template_assets.add(CharacterTemplate::new([shape], RigType::Default));
 

@@ -98,6 +98,30 @@ impl CharacterTemplate {
     }
 }
 
+/// Resolves macro morph sliders (e.g. "gender") into direct morph targets
+/// once the morph system is fully loaded. Runs once.
+pub(crate) fn resolve_template_morphs(
+    morphs: Res<MakeHumanMorphs>,
+    asset_server: Res<AssetServer>,
+    mut templates: ResMut<Assets<CharacterTemplate>>,
+    mut done: Local<bool>,
+) {
+    if *done {
+        return;
+    }
+    if !morphs.is_ready(&asset_server) {
+        return;
+    }
+    for (_, template) in templates.iter_mut() {
+        for shape in template.shapes.iter_mut() {
+            if let Ok(resolved) = morphs.compute_target_weights(&shape.morphs) {
+                shape.morphs = resolved;
+            }
+        }
+    }
+    *done = true;
+}
+
 /// Overrides the template shapes for a part
 #[derive(Component, Deref, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TemplateOverride(pub Handle<CharacterTemplate>);

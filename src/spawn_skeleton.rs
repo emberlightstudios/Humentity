@@ -38,8 +38,12 @@ pub(crate) fn spawn_rig_scene(
             continue;
         };
         let rig_type = template.rig;
-        let rig_spec = rig_data.get(&rig_type).expect("Rig not loaded");
-        let scene = rig_spec.scene.clone().expect("Scene not built yet");
+        let Some(rig_spec) = rig_data.get(&rig_type) else {
+            continue;
+        };
+        let Some(scene) = rig_spec.scene.clone() else {
+            continue;
+        };
         let cached_scene = commands
             .spawn((DynamicSceneRoot::from(scene), Name::new("RigScene")))
             .id();
@@ -82,7 +86,9 @@ pub(crate) fn fit_skeleton_to_shape(
         };
 
         let rig_type = template.rig;
-        let rig_spec = rig_data.get(&rig_type).expect("Rig not loaded");
+        let Some(rig_spec) = rig_data.get(&rig_type) else {
+            continue;
+        };
 
         let mut rig_entity: Option<Entity> = None;
         let mut skinned_mesh: Option<SkinnedMesh> = None;
