@@ -34,23 +34,18 @@ pub fn setup_app() -> App {
 
 /// These assets are necessary to get the plugin to work.
 fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
-    commands.insert_resource(MakeHumanMorphs::new(
+    load_and_insert_humentity_assets(
+        &mut commands,
         &asset_server,
+        "base.obj",
+        "basemesh_vertex_groups.json",
         "target.json",
         "macro.macro",
         "targets",
-    ));
-    commands.insert_resource(RigData::new(
-        &asset_server,
         "rigs/rig.default.json",
         "rigs/weights.default.json",
         "skeletons/default.glb",
-    ));
-    commands.insert_resource(BaseMesh::new(&asset_server, "base.obj"));
-    commands.insert_resource(VertexGroups::new(
-        &asset_server,
-        "basemesh_vertex_groups.json",
-    ));
+    );
 }
 
 fn update_mesh_when_ready(

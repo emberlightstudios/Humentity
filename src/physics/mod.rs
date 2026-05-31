@@ -1,3 +1,6 @@
+// These are used conditionally by the `avian` and `physx` feature-gated submodules.
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 
 pub const HEAD_VERTICES: [usize; 2] = [5063, 5389];
@@ -71,7 +74,7 @@ pub(crate) const DEFAULT_RIG_COLLIDER_BONE_NAMES: [&str; 15] = [
     "head",
 ];
 
-pub(crate) fn get_collider_parent(bone: ColliderBone) -> Option<ColliderBone> {
+pub(crate) const fn get_collider_parent(bone: ColliderBone) -> Option<ColliderBone> {
     match bone {
         ColliderBone::Head => Some(ColliderBone::Chest),
         ColliderBone::Chest => Some(ColliderBone::Pelvis),

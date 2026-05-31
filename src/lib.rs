@@ -10,6 +10,7 @@ mod spawn_skeleton;
 mod spawn_mesh;
 mod physics;
 
+use bevy::asset::AssetPath;
 use bevy::ecs::intern::Interner;
 use bevy::prelude::*;
 use bevy_obj::ObjPlugin;
@@ -81,6 +82,7 @@ pub mod prelude {
         HumentityGlobalConfig,
         HumentityPlugin,
         BoneDebugPlugin,
+        load_and_insert_humentity_assets,
         NAME_INTERNER,
     };
     pub use crate::physics::ColliderBone;
@@ -88,6 +90,36 @@ pub mod prelude {
     pub use crate::physics::avian::{CharacterColliders, CharacterRagdoll};
     #[cfg(feature = "physx")]
     pub use crate::physics::physx::{PhysxCharacterColliders, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter, ColliderForCharacter, ColliderList};
+}
+
+/// Loads and inserts all 4 core resources (BaseMesh, VertexGroups, MakeHumanMorphs, RigData)
+/// as separate ECS resources. Each asset path must be explicitly specified — nothing is inferred.
+pub fn load_and_insert_humentity_assets(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    base_mesh_path: impl Into<AssetPath<'static>>,
+    vertex_groups_path: impl Into<AssetPath<'static>>,
+    target_composites_path: impl Into<AssetPath<'static>>,
+    target_macros_path: impl Into<AssetPath<'static>>,
+    targets_folder_path: impl Into<AssetPath<'static>>,
+    rig_config_path: impl Into<AssetPath<'static>>,
+    rig_weights_path: impl Into<AssetPath<'static>>,
+    ref_rig_path: impl Into<AssetPath<'static>>,
+) {
+    commands.insert_resource(basemesh::BaseMesh::new(asset_server, base_mesh_path));
+    commands.insert_resource(basemesh::VertexGroups::new(asset_server, vertex_groups_path));
+    commands.insert_resource(morphs::MakeHumanMorphs::new(
+        asset_server,
+        target_composites_path,
+        target_macros_path,
+        targets_folder_path,
+    ));
+    commands.insert_resource(rigs::RigData::new(
+        asset_server,
+        rig_config_path,
+        rig_weights_path,
+        ref_rig_path,
+    ));
 }
 
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
