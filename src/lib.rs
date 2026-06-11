@@ -85,9 +85,11 @@ pub mod prelude {
         load_and_insert_humentity_assets,
         NAME_INTERNER,
     };
-    pub use crate::physics::ColliderBone;
+    pub use crate::physics::{ColliderBone, RagdollDamping, RagdollDensity, RagdollMobility};
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::{CharacterColliders, CharacterRagdoll};
+    #[cfg(feature = "rapier")]
+    pub use crate::physics::rapier::{CharacterColliders, Ragdoll};
     #[cfg(feature = "physx")]
     pub use crate::physics::physx::{PhysxCharacterColliders, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter, ColliderForCharacter, ColliderList};
 }
@@ -234,6 +236,29 @@ impl Plugin for HumentityPlugin {
                     physics::avian::sync_colliders,
                     physics::avian::sync_bones_to_ragdoll,
                 ),
+            );
+        }
+
+        #[cfg(feature = "rapier")]
+        {
+            app.add_systems(
+                Update,
+                (
+                    physics::rapier::mark_needs_colliders,
+                    physics::rapier::spawn_colliders.after(physics::rapier::mark_needs_colliders).after(spawn_skeleton::fit_skeleton_to_shape),
+                    physics::rapier::activate_ragdoll,
+                    physics::rapier::deactivate_ragdoll,
+                    physics::rapier::force_sleep_ragdoll,
+                ),
+            )
+            .add_systems(
+                FixedUpdate,
+                physics::rapier::sync_colliders,
+            )
+            .add_systems(
+                PostUpdate,
+                physics::rapier::sync_bones_to_ragdoll
+                    .before(TransformSystems::Propagate),
             );
         }
 

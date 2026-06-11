@@ -143,3 +143,5 @@ impl Default for RagdollMobility {
 pub mod avian;
 #[cfg(feature = "physx")]
 pub mod physx;
+#[cfg(feature = "rapier")]
+pub mod rapier;

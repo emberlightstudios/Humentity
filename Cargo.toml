@@ -10,6 +10,7 @@ serde = ">=1.0.228"
 walkdir = ">=2.5.0"
 avian3d = { optional = true, version = ">=0.5" }
 bevy_mod_physx = { optional = true, workspace = true }
+bevy_rapier3d = { optional = true, version = ">=0.34" }
 serde_json = ">=1.0.145"
 bytemuck = ">=1.24.0"
 gltf = ">=1.4.1"
@@ -32,6 +33,10 @@ name = "ragdoll_avian"
 required-features = ["avian"]
 
 [[example]]
+name = "ragdoll_rapier"
+required-features = ["rapier"]
+
+[[example]]
 name = "character_creator"
 required-features = ["experimental_bevy_feathers"]
 
@@ -40,6 +45,7 @@ default = []
 debug = ["bevy/debug"]
 avian = ["dep:avian3d"]
 physx = ["dep:bevy_mod_physx"]
+rapier = ["dep:bevy_rapier3d"]
 experimental_bevy_feathers = ["bevy/experimental_bevy_feathers"]
 
 [lints.clippy]
