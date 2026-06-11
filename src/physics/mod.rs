@@ -94,6 +94,51 @@ pub(crate) const fn get_collider_parent(bone: ColliderBone) -> Option<ColliderBo
     }
 }
 
+/// Scales the mass of all ragdoll colliders on this character.
+///
+/// This is the `ColliderDensity` used on each collider bone.
+/// Default: `100.0`.
+#[derive(Component, Clone, Copy, Debug, Reflect)]
+#[reflect(Component, Debug)]
+pub struct RagdollDensity(pub f32);
+
+impl Default for RagdollDensity {
+    fn default() -> Self {
+        Self(100.0)
+    }
+}
+
+/// Linear and angular damping applied to each joint when the ragdoll activates.
+///
+/// Both `JointDamping.linear` and `JointDamping.angular` are set to this value.
+/// Default: `5.0`.
+#[derive(Component, Clone, Copy, Debug, Reflect)]
+#[reflect(Component, Debug)]
+pub struct RagdollDamping(pub f32);
+
+impl Default for RagdollDamping {
+    fn default() -> Self {
+        Self(5.0)
+    }
+}
+
+/// Controls the fraction of full joint range the ragdoll can use.
+///
+/// The joint limits are scaled by this value:
+///   - `1.0` = full anatomical range (default)
+///   - `0.5` = half the anatomical range
+///   - `0.0` = fully locked (no movement)
+///
+/// Apply to your character entity.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RagdollMobility(pub f32);
+
+impl Default for RagdollMobility {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
 #[cfg(feature = "avian")]
 pub mod avian;
 #[cfg(feature = "physx")]

@@ -42,12 +42,6 @@ avian = ["dep:avian3d"]
 physx = ["dep:bevy_mod_physx"]
 experimental_bevy_feathers = ["bevy/experimental_bevy_feathers"]
 
-[profile.dev]
-opt-level = 1
-
-[profile.dev.package."*"]
-opt-level = 3
-
 [lints.clippy]
 all = "deny"
 missing_const_for_fn = "deny"

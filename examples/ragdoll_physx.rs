@@ -40,7 +40,7 @@ fn toggle(
     mut ragdoll: Single<&mut PhysxCharacterColliders<RagdollCollider>>,
     human: Single<(&CharacterShape, &SkinnedMesh)>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
-    mut bones: Query<&mut Transform, With<SkeletalBone>>,
+    mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,
     mut players: Query<&mut AnimationPlayer>,
     controllers: Query<&AnimationController>,
 ) {
@@ -55,10 +55,34 @@ fn toggle(
             hitbox.bones_subset = None;
 
             let (_, skm) = *human;
-            if let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes)
-                && let Ok(mut pelvis) = bones.get_mut(skm.joints[0])
+            if let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) {
+                let model_bind_poses: Vec<Mat4> = inv_bindposes
+                    .iter()
+                    .map(|m| m.inverse())
+                    .collect();
+
+                for (i, &joint_entity) in skm.joints.iter().enumerate() {
+                    if let Ok((mut transform, child_of)) = bones.get_mut(joint_entity) {
+                        if let Some(parent) = child_of
+                            && let Some(parent_idx) = skm.joints
+                                .iter()
+                                .position(|&e| e == parent.parent())
+                        {
+                            *transform = Transform::from_matrix(
+                                model_bind_poses[parent_idx].inverse()
+                                    * model_bind_poses[i],
+                            );
+                        } else {
+                            *transform = Transform::from_matrix(model_bind_poses[i]);
+                        }
+                    }
+                }
+            }
+
+            if let Ok(mut player) = players.get_mut(related.rig)
+                && let Ok(controller) = controllers.get(related.rig)
             {
-                pelvis.translation = Transform::from_matrix(inv_bindposes[0].inverse()).translation;
+                player.play(controller.0).repeat();
             }
         } else {
             if let Ok(mut player) = players.get_mut(related.rig)
@@ -164,14 +188,19 @@ fn setup_graph(
 fn start_clip(
     ragdoll: Single<&PhysxCharacterColliders<RagdollCollider>>,
     mut anim: Single<(&mut AnimationPlayer, &AnimationController)>,
+    mut started: Local<bool>,
 ) {
     let ragdoll_active = !ragdoll
         .bones_subset
         .as_ref()
         .map_or(false, |v| v.is_empty());
     if ragdoll_active {
+        *started = false;
         return;
     }
     let index = anim.1.0;
-    anim.0.play(index).repeat();
+    if !*started {
+        anim.0.play(index).repeat();
+        *started = true;
+    }
 }

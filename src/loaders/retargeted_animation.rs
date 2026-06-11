@@ -5,7 +5,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{TranslationTracks, animation::get_animation_clips_from_bytes};
+use crate::animation::{get_animation_clips_from_bytes, TranslationTracks};
 
 #[derive(Asset, TypePath, Clone)]
 pub struct RetargetedAnimationAsset {

@@ -218,7 +218,9 @@ impl Plugin for HumentityPlugin {
 
         #[cfg(feature = "avian")]
         {
-            app.add_systems(
+            app.register_type::<RagdollDensity>()
+                .register_type::<RagdollDamping>()
+                .add_systems(
                 Update,
                 (
                     physics::avian::mark_needs_colliders,
