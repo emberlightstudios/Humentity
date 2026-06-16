@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use avian3d::prelude::*;
 use bevy::{
-    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    //diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
 };
@@ -206,7 +206,6 @@ fn auto_sleep_ragdoll(
     mut angular_velocity_query: Query<&mut AngularVelocity>,
     mut commands: Commands,
 ) {
-    return;
     for (entity, mut timer, colliders) in characters.iter_mut() {
         timer.0.tick(time.delta());
         if !timer.0.just_finished() {
