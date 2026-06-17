@@ -41,7 +41,7 @@ struct SleepTimer(Timer);
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
-    related: Single<&RelatedEntities>,
+    related: Single<&SkeletonEntities>,
     character: Single<(Entity, &mut CharacterRagdoll, &mut CharacterColliders)>,
     human: Single<(&CharacterShape, &SkinnedMesh)>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
@@ -72,7 +72,7 @@ fn toggle(
                         {
                             *transform = Transform::from_matrix(
                                 model_bind_poses[parent_idx].inverse()
-                                    * model_bind_poses[i],
+                                    * model_bind_poses[i]
                             );
                         } else {
                             *transform = Transform::from_matrix(model_bind_poses[i]);
@@ -144,7 +144,7 @@ fn add_human(
     commands.insert_resource(RetargetedAnimations { _clips: clips });
 
     commands.spawn((
-        Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
+        Transform::from_rotation(Quat::from_rotation_y(PI / 4.)).with_translation(Vec3::new(1., 0., 0.)),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, MorphTargets::default()))),
         CharacterRagdoll::None,
         CharacterColliders::new(None),

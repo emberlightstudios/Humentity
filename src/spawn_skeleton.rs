@@ -17,7 +17,7 @@ pub struct FitSkeleton;
 
 /// For storing refs to commonly needed entities so that you don't have to iter_descendants to find them.
 #[derive(Component)]
-pub struct RelatedEntities {
+pub struct SkeletonEntities {
     #[allow(dead_code)]
     pub rig: Entity,
     pub root_bone: Entity,
@@ -185,7 +185,7 @@ pub(crate) fn fit_skeleton_to_shape(
         }
 
         let root_bone = bone_entities[rig_spec.reference_rig.bone_names[0]];
-        let related = RelatedEntities {
+        let related = SkeletonEntities {
             rig: rig_entity,
             root_bone,
         };

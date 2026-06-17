@@ -35,7 +35,7 @@ fn main() {
 
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
-    related: Single<&RelatedEntities>,
+    related: Single<&SkeletonEntities>,
     human: Single<(&CharacterShape, &SkinnedMesh)>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,

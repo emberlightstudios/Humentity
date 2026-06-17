@@ -6,6 +6,11 @@ use bevy::{
     prelude::*,
 };
 
+/// Collision layer bits (must match rpg_core::layers)
+const RAGDOLL: u32 = 1 << 3;
+const WORLD: u32 = 1 << 0;
+const CHARACTER: u32 = 1 << 1;
+
 use crate::{
     morphs::MakeHumanMorphs,
     prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, CharacterTemplate},
@@ -186,6 +191,7 @@ pub(crate) fn spawn_colliders(
                     geometry,
                     ColliderOffset(collider_to_joint),
                     ColliderDensity(density),
+                    CollisionLayers::new(RAGDOLL, WORLD | CHARACTER),
                     Transform::IDENTITY,
                     ColliderForCharacter(character_entity),
                 ))

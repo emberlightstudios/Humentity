@@ -12,7 +12,7 @@ use crate::{
     prelude::*,
     rigs::{BoneTranslationData, RigData, RootBone, RootBonePrevious},
     spawn_skeleton::FitSkeleton,
-    spawn_skeleton::RelatedEntities,
+    spawn_skeleton::SkeletonEntities,
 };
 
 /// Which translation tracks should be kept on animation clips
@@ -83,7 +83,7 @@ pub(crate) fn rescale_bone_translations(
 pub(crate) fn rescale_root_bone_translation(
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
-    humans: Query<(&RelatedEntities, &CharacterShape), Without<FitSkeleton>>,
+    humans: Query<(&SkeletonEntities, &CharacterShape), Without<FitSkeleton>>,
     mut transforms: Query<&mut Transform>,
     rig_data: Res<RigData>,
 ) {
@@ -111,7 +111,7 @@ pub(crate) fn rescale_root_bone_translation(
 
 #[allow(clippy::type_complexity, dead_code)]
 pub(crate) fn root_motion(
-    mut humans: Query<(&RelatedEntities, &RootMotion, &mut Transform), With<CharacterShape>>,
+    mut humans: Query<(&SkeletonEntities, &RootMotion, &mut Transform), With<CharacterShape>>,
     mut root_transforms: Query<
         (&mut Transform, &mut RootBonePrevious),
         (With<RootBone>, Without<CharacterShape>),

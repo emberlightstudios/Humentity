@@ -12,7 +12,7 @@ use bevy_mod_physx::{
 
 use crate::{
     morphs::MakeHumanMorphs,
-    prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, RelatedEntities},
+    prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, SkeletonEntities},
     rigs::{RigData, RigType, SkeletalBone},
     spawn_skeleton::FitSkeleton,
     template::CharacterTemplate,
@@ -235,7 +235,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
         (
             Entity,
             &CharacterShape,
-            &RelatedEntities,
+            &SkeletonEntities,
             &mut PhysxCharacterColliders<C>,
             &SkinnedMesh,
         ),
@@ -390,7 +390,7 @@ pub(crate) fn spawn_ragdoll_colliders(
         (
             Entity,
             &CharacterShape,
-            &RelatedEntities,
+            &SkeletonEntities,
             &mut PhysxCharacterColliders<RagdollCollider>,
             &SkinnedMesh,
         ),

@@ -78,14 +78,14 @@ pub mod prelude {
             RootMotion,
         },
         spawn_mesh::{CharacterShape, MhcloMeshBuilder, LoadAssetMeshJob, CachedMhcloMeshHandles, build_single_mesh_direct},
-        spawn_skeleton::{FitSkeleton, RelatedEntities},
+        spawn_skeleton::{FitSkeleton, SkeletonEntities},
         HumentityGlobalConfig,
         HumentityPlugin,
         BoneDebugPlugin,
         load_and_insert_humentity_assets,
         NAME_INTERNER,
     };
-    pub use crate::physics::{ColliderBone, RagdollDamping, RagdollDensity, RagdollMobility};
+    pub use crate::physics::{ColliderBone, RagdollDamping, RagdollDensity, RagdollMobility, COLLIDERS};
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::{CharacterColliders, CharacterRagdoll};
     #[cfg(feature = "rapier")]

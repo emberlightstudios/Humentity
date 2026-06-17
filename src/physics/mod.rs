@@ -38,7 +38,7 @@ pub enum ColliderBone {
     RightFoot,
 }
 
-pub(crate) const COLLIDERS: [ColliderBone; 15] = [
+pub const COLLIDERS: [ColliderBone; 15] = [
     ColliderBone::Pelvis,
     ColliderBone::Chest,
     ColliderBone::UpperLeftLeg,

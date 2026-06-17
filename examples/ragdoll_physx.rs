@@ -35,7 +35,7 @@ fn main() {
 
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
-    related: Single<&RelatedEntities>,
+    related: Single<&SkeletonEntities>,
     mut hitbox: Single<&mut PhysxCharacterColliders<HitboxCollider>>,
     mut ragdoll: Single<&mut PhysxCharacterColliders<RagdollCollider>>,
     human: Single<(&CharacterShape, &SkinnedMesh)>,
