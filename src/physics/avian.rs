@@ -412,8 +412,18 @@ pub(crate) fn sync_bones_to_ragdoll(
             continue;
         }
 
+        let partial_bones: Option<&[ColliderBone]> = match ragdoll {
+            CharacterRagdoll::Partial(bones) => Some(bones.as_slice()),
+            _ => None,
+        };
+
         let mut desired_joint_world = AHashMap::<ColliderBone, Transform>::default();
         for (bone_type, &collider_entity) in char_colliders.collider_entities.iter() {
+            if let Some(bones) = partial_bones
+                && !bones.contains(bone_type)
+            {
+                continue;
+            }
             let Ok((position, rotation, offset)) = colliders.get(collider_entity) else {
                 continue;
             };
