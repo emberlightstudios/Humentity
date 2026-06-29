@@ -4,12 +4,16 @@ use std::f32::consts::PI;
 
 use avian3d::prelude::*;
 use bevy::{
-    //diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    animation::AnimationTargetId,
     mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
 };
 use humentity::prelude::*;
 use shared::{setup_app, CharacterPart};
+
+const RAGDOLL_LAYER: u32 = 1 << 3;
+const WORLD_LAYER: u32 = 1 << 0;
+const CHARACTER_LAYER: u32 = 1 << 1;
 
 fn main() {
     let mut app = setup_app();
@@ -18,10 +22,8 @@ fn main() {
         .add_plugins((
             PhysicsPlugins::default(),
             PhysicsDebugPlugin,
-            //FrameTimeDiagnosticsPlugin::default(),
-            //LogDiagnosticsPlugin::default(),
         ))
-        .add_systems(Startup, floor)
+        .add_systems(Startup, (floor, spawn_ui))
         .add_observer(add_human)
         .add_systems(
             Update,
@@ -29,32 +31,40 @@ fn main() {
                 toggle,
                 setup_graph,
                 start_clip,
-                auto_sleep_ragdoll,
+                oscillate,
             ),
         )
         .run();
 }
 
 #[derive(Component)]
-struct SleepTimer(Timer);
+struct AnimationController(AnimationNodeIndex);
 
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
-    mut commands: Commands,
-    related: Single<&SkeletonEntities>,
-    character: Single<(Entity, &mut CharacterRagdoll, &mut CharacterColliders)>,
     human: Single<(&CharacterShape, &SkinnedMesh)>,
+    character: Single<(Entity, &mut CharacterRagdoll, &mut CharacterColliders)>,
+    related: Single<&SkeletonEntities>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,
+    rig: Query<(&AnimationGraphHandle, &AnimationController)>,
     mut players: Query<&mut AnimationPlayer>,
-    controllers: Query<&AnimationController>,
 ) {
-    let (entity, mut ragdoll, mut colliders) = character.into_inner();
+    let (_entity, mut ragdoll, mut colliders) = character.into_inner();
+    let related = related.into_inner();
+    let Ok((graph_handle, controller)) = rig.get(related.rig) else { return };
+
     if input.just_pressed(KeyCode::Space) {
-        if matches!(&*ragdoll, CharacterRagdoll::Full) {
+        if matches!(&*ragdoll, CharacterRagdoll::Partial(_)) {
             *ragdoll = CharacterRagdoll::None;
             colliders.bones_subset = None;
-            commands.entity(entity).remove::<SleepTimer>();
+
+            if let Some(graph) = graphs.get_mut(&graph_handle.0) {
+                if let Some(node) = graph.graph.node_weight_mut(controller.0) {
+                    node.mask = 0;
+                }
+            }
 
             let (_, skm) = *human;
             if let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) {
@@ -81,28 +91,44 @@ fn toggle(
                 }
             }
 
-            if let Ok(mut player) = players.get_mut(related.rig)
-                && let Ok(controller) = controllers.get(related.rig)
-            {
+            if let Ok(mut player) = players.get_mut(related.rig) {
+                player.stop(controller.0);
                 player.play(controller.0).repeat();
             }
         } else {
-            if let Ok(mut player) = players.get_mut(related.rig)
-                && let Ok(controller) = controllers.get(related.rig)
-            {
-                player.stop(controller.0);
-            }
+            *ragdoll = CharacterRagdoll::Partial(vec![
+                ColliderBone::UpperRightArm,
+                ColliderBone::UpperLeftArm,
+                ColliderBone::LowerRightArm,
+                ColliderBone::LowerLeftArm,
+                ColliderBone::RightHand,
+                ColliderBone::LeftHand,
+            ]);
+            colliders.bones_subset = None;
 
-            *ragdoll = CharacterRagdoll::Full;
-            colliders.bones_subset = Some(vec![]);
-            commands.entity(entity).insert(SleepTimer(Timer::from_seconds(3.0, TimerMode::Once)));
+            if let Some(graph) = graphs.get_mut(&graph_handle.0) {
+                if let Some(node) = graph.graph.node_weight_mut(controller.0) {
+                    node.mask = 1;
+                }
+            }
         }
     }
 }
 
-fn floor(
-    mut commands: Commands,
-) {
+fn spawn_ui(mut commands: Commands) {
+    commands.spawn((
+        Text::new("Press SPACEBAR to toggle ragdoll arms"),
+        TextFont::from_font_size(24.0),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(12.),
+            left: Val::Px(12.),
+            ..default()
+        },
+    ));
+}
+
+fn floor(mut commands: Commands) {
     commands.spawn((
         Collider::cuboid(100.0, 0.1, 100.0),
         Friction::new(0.5),
@@ -148,7 +174,8 @@ fn add_human(
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, MorphTargets::default()))),
         CharacterRagdoll::None,
         CharacterColliders::new(None),
-        RagdollMobility(0.1),
+        RagdollCollisionLayers(CollisionLayers::new(RAGDOLL_LAYER, WORLD_LAYER | CHARACTER_LAYER | RAGDOLL_LAYER)),
+        RagdollMobility(1.0),
         RagdollDensity(100.0),
         RagdollDamping(5.0),
         children![(
@@ -163,19 +190,32 @@ struct RetargetedAnimations {
     _clips: Handle<RetargetedAnimationAsset>,
 }
 
-#[derive(Component)]
-struct AnimationController(AnimationNodeIndex);
-
 fn setup_graph(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
     mut character_player: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
+    skeleton_bones: Query<(&Name, &AnimationTargetId), With<SkeletalBone>>,
 ) {
     let Ok((entity, _player)) = character_player.single_mut() else { return };
     let Some((_id, clips_map)) = retargeted_clips.iter().next() else { return };
     let clip_handle = clips_map.clips.get("Idle-loop").unwrap();
-    let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
+    let (mut graph, index) = AnimationGraph::from_clip(clip_handle.clone());
+
+    let arm_bone_names = [
+        "upperarm01.L",
+        "upperarm01.R",
+        "lowerarm01.L",
+        "lowerarm01.R",
+        "wrist.L",
+        "wrist.R",
+    ];
+    for (name, target_id) in skeleton_bones.iter() {
+        if arm_bone_names.contains(&name.as_str()) {
+            graph.mask_groups.insert(*target_id, 1);
+        }
+    }
+
     commands.entity(entity).insert((
         AnimationController(index),
         AnimationGraphHandle(graphs.add(graph)),
@@ -183,46 +223,23 @@ fn setup_graph(
 }
 
 fn start_clip(
-    ragdoll: Single<&CharacterRagdoll>,
-    mut anim: Single<(&mut AnimationPlayer, &AnimationController)>,
+    anim: Single<(&mut AnimationPlayer, &AnimationController)>,
     mut started: Local<bool>,
 ) {
-    if !matches!(*ragdoll, CharacterRagdoll::None) {
-        *started = false;
-        return;
-    }
-    let index = anim.1.0;
     if !*started {
-        anim.0.play(index).repeat();
+        let (mut player, controller) = anim.into_inner();
+        player.play(controller.0).repeat();
         *started = true;
     }
 }
 
-fn auto_sleep_ragdoll(
+fn oscillate(
     time: Res<Time>,
-    mut characters: Query<(Entity, &mut SleepTimer, &CharacterColliders), With<CharacterRagdoll>>,
-    mut sleep_query: Query<&mut SleepThreshold>,
-    mut linear_velocity_query: Query<&mut LinearVelocity>,
-    mut angular_velocity_query: Query<&mut AngularVelocity>,
-    mut commands: Commands,
+    mut query: Query<&mut Transform, With<CharacterRagdoll>>,
 ) {
-    for (entity, mut timer, colliders) in characters.iter_mut() {
-        timer.0.tick(time.delta());
-        if !timer.0.just_finished() {
-            continue;
-        }
-        commands.entity(entity).remove::<SleepTimer>();
-        for (_, &collider_entity) in colliders.collider_entities.iter() {
-            if let Ok(mut threshold) = sleep_query.get_mut(collider_entity) {
-                threshold.linear = 100.0;
-                threshold.angular = 100.0;
-            }
-            if let Ok(mut linear_velocity) = linear_velocity_query.get_mut(collider_entity) {
-                linear_velocity.0 = Vec3::ZERO;
-            }
-            if let Ok(mut angular_velocity) = angular_velocity_query.get_mut(collider_entity) {
-                angular_velocity.0 = Vec3::ZERO;
-            }
-        }
+    let amplitude = 0.15;
+    let frequency = 1.0;
+    for mut transform in query.iter_mut() {
+        transform.translation.z = (time.elapsed_secs() * frequency * std::f32::consts::TAU).sin() * amplitude;
     }
 }

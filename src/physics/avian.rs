@@ -6,11 +6,6 @@ use bevy::{
     prelude::*,
 };
 
-/// Collision layer bits (must match rpg_core::layers)
-const RAGDOLL: u32 = 1 << 3;
-const WORLD: u32 = 1 << 0;
-const CHARACTER: u32 = 1 << 1;
-
 use crate::{
     morphs::MakeHumanMorphs,
     prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, CharacterTemplate},
@@ -25,6 +20,15 @@ use super::{
     TORSO_VERTICES, UPPER_LEFT_ARM_VERTICES, UPPER_LEFT_LEG_VERTICES, UPPER_RIGHT_ARM_VERTICES,
     UPPER_RIGHT_LEG_VERTICES,
 };
+
+/// Collision layers for ragdoll/hitbox colliders on this character.
+///
+/// Set this on your character entity to control which physics layers
+/// the collider bones belong to and which layers they collide with.
+/// When changed at runtime, all existing collider entities are updated
+/// automatically.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RagdollCollisionLayers(pub CollisionLayers);
 
 /// Describes whether ragdoll physics is active
 #[derive(Component, Debug, Clone, PartialEq, Eq, Default)]
@@ -66,6 +70,43 @@ pub(crate) struct ColliderOffset(pub(crate) Transform);
 /// Marker for colliders that are currently in kinematic (animation-following) mode.
 #[derive(Component)]
 pub(crate) struct KinematicCollider;
+
+/// Marker for colliders that follow animation via velocity control.
+/// Used during partial ragdolls for non-ragdoll bones.
+#[derive(Component)]
+pub(crate) struct AnimatedCollider;
+
+/// Target position and rotation for velocity-based animation following.
+#[derive(Component)]
+pub(crate) struct VelocityTarget {
+    pub position: Vec3,
+    pub rotation: Quat,
+}
+
+impl Default for VelocityTarget {
+    fn default() -> Self {
+        Self {
+            position: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
+        }
+    }
+}
+
+/// Stiffness for velocity-based tracking toward the target.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct VelocityStiffness {
+    pub position: f32,
+    pub rotation: f32,
+}
+
+impl Default for VelocityStiffness {
+    fn default() -> Self {
+        Self {
+            position: 10.0,
+            rotation: 5.0,
+        }
+    }
+}
 
 /// Links a collider entity to its owning character entity.
 #[derive(Component)]
@@ -113,6 +154,7 @@ pub(crate) fn spawn_colliders(
             &SkinnedMesh,
             &mut CharacterColliders,
             &RagdollDensity,
+            Option<&RagdollCollisionLayers>,
         ),
         With<NeedsColliders>,
     >,
@@ -123,7 +165,10 @@ pub(crate) fn spawn_colliders(
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     rig_data: Res<RigData>,
 ) {
-    for (character_entity, character_shape, skm, mut colliders, density) in characters.iter_mut() {
+    for (character_entity, character_shape, skm, mut colliders, density, collision_layers) in characters.iter_mut() {
+        let Some(collision_layers) = collision_layers else {
+            continue;
+        };
         let density = density.0;
         let Some(asset) = shape_assets.get(&character_shape.0) else {
             continue;
@@ -191,8 +236,9 @@ pub(crate) fn spawn_colliders(
                     geometry,
                     ColliderOffset(collider_to_joint),
                     ColliderDensity(density),
-                    CollisionLayers::new(RAGDOLL, WORLD | CHARACTER),
+                    collision_layers.0,
                     Transform::IDENTITY,
+                    VelocityStiffness::default(),
                     ColliderForCharacter(character_entity),
                 ))
                 .id();
@@ -245,6 +291,76 @@ pub(crate) fn sync_colliders(
     }
 }
 
+/// Updates VelocityTarget on AnimatedCollider entities from bone transforms.
+/// Only runs for characters in Partial ragdoll state.
+pub(crate) fn update_velocity_targets(
+    characters: Query<(&CharacterRagdoll, &CharacterColliders)>,
+    bones: Query<&GlobalTransform>,
+    mut animated: Query<(&mut VelocityTarget, &ColliderOffset), With<AnimatedCollider>>,
+) {
+    for (ragdoll, colliders) in characters.iter() {
+        let partial_bones = match ragdoll {
+            CharacterRagdoll::Partial(bones) => bones,
+            _ => continue,
+        };
+        let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {
+            Some(bones) if !bones.is_empty() => bones.clone(),
+            Some(_) => vec![],
+            None => COLLIDERS.to_vec(),
+        };
+        for bone_type in target_bones {
+            if partial_bones.contains(&bone_type) {
+                continue;
+            }
+            let Some(&collider_entity) = colliders.collider_entities.get(&bone_type) else {
+                continue;
+            };
+            let Ok((mut target, offset)) = animated.get_mut(collider_entity) else {
+                continue;
+            };
+            let Some(&bone_entity) = colliders.bone_entities.get(&bone_type) else {
+                continue;
+            };
+            let Ok(joint_to_world) = bones.get(bone_entity) else {
+                continue;
+            };
+            let world = Transform::from(*joint_to_world) * offset.0;
+            target.position = world.translation;
+            target.rotation = world.rotation;
+        }
+    }
+}
+
+/// Applies velocity toward the stored VelocityTarget on AnimatedCollider entities.
+/// This smoothly pulls animated colliders toward their target bone transforms
+/// instead of teleporting them, avoiding explosive constraint forces.
+pub(crate) fn apply_velocity_targets(
+    mut query: Query<(
+        &VelocityTarget,
+        &Position,
+        &Rotation,
+        &mut LinearVelocity,
+        &mut AngularVelocity,
+        &VelocityStiffness,
+    ), With<AnimatedCollider>>,
+) {
+    let max_linear = 20.0;
+    let max_angular = 10.0;
+    for (target, position, rotation, mut linear_velocity, mut angular_velocity, stiffness) in query.iter_mut() {
+        let delta = target.position - position.0;
+        linear_velocity.0 = (delta * stiffness.position).clamp_length_max(max_linear);
+
+        let diff = target.rotation * rotation.0.inverse();
+        let (axis, angle) = diff.to_axis_angle();
+        if angle > 0.001 {
+            let ang_vel = axis * angle * stiffness.rotation;
+            angular_velocity.0 = ang_vel.clamp_length_max(max_angular);
+        } else {
+            angular_velocity.0 = Vec3::ZERO;
+        }
+    }
+}
+
 pub(crate) fn set_ragdoll_state(
     mut characters: Query<
         (Entity, &CharacterRagdoll, &mut CharacterColliders, &RagdollDamping),
@@ -280,7 +396,9 @@ pub(crate) fn set_ragdoll_state(
                         .entity(collider_entity)
                         .insert(RigidBody::Dynamic)
                         .remove::<KinematicCollider>()
-                        .remove::<SleepingDisabled>();
+                        .remove::<SleepingDisabled>()
+                        .remove::<AnimatedCollider>()
+                        .remove::<VelocityTarget>();
                 }
             }
             CharacterRagdoll::Partial(bones) => {
@@ -290,13 +408,18 @@ pub(crate) fn set_ragdoll_state(
                             .entity(collider_entity)
                             .insert(RigidBody::Dynamic)
                             .remove::<KinematicCollider>()
-                            .remove::<SleepingDisabled>();
+                            .remove::<SleepingDisabled>()
+                            .remove::<AnimatedCollider>()
+                            .remove::<VelocityTarget>();
                     } else {
                         commands
                             .entity(collider_entity)
-                            .insert(RigidBody::Kinematic)
-                            .insert(KinematicCollider)
-                            .insert(SleepingDisabled);
+                            .insert(RigidBody::Dynamic)
+                            .insert(AnimatedCollider)
+                            .insert(VelocityTarget::default())
+                            .insert(GravityScale(0.0))
+                            .remove::<KinematicCollider>()
+                            .remove::<SleepingDisabled>();
                     }
                 }
             }
@@ -306,7 +429,9 @@ pub(crate) fn set_ragdoll_state(
                         .entity(collider_entity)
                         .insert(RigidBody::Kinematic)
                         .insert(KinematicCollider)
-                        .insert(SleepingDisabled);
+                        .insert(SleepingDisabled)
+                        .remove::<AnimatedCollider>()
+                        .remove::<VelocityTarget>();
                 }
                 return;
             }
@@ -644,6 +769,22 @@ fn spawn_ragdoll_joint(
                     JointForCharacter(character),
                 ))
                 .id()
+        }
+    }
+}
+
+/// Propagates [`RagdollCollisionLayers`] changes from the character entity
+/// to all of its spawned collider entities at runtime.
+pub(crate) fn update_collision_layers(
+    characters: Query<
+        (&RagdollCollisionLayers, &ColliderList),
+        Changed<RagdollCollisionLayers>,
+    >,
+    mut commands: Commands,
+) {
+    for (layers, collider_list) in characters.iter() {
+        for &collider_entity in collider_list.0.iter() {
+            commands.entity(collider_entity).insert(layers.0);
         }
     }
 }
