@@ -62,7 +62,7 @@ pub struct ColliderOffset(pub Transform);
 
 /// Marker for colliders that are currently in kinematic (animation-following) mode.
 #[derive(Component)]
-pub(crate) struct KinematicCollider;
+pub struct KinematicCollider;
 
 /// Marker for colliders that follow animation via velocity control.
 /// Used during partial ragdolls for non-ragdoll bones.
@@ -436,6 +436,7 @@ pub(crate) fn set_ragdoll_state(
                 .filter_map(|(bone, &child)| {
                     if let Some(bones) = partial_bones
                         && !bones.contains(bone)
+                        && !get_collider_parent(*bone).map_or(false, |p| bones.contains(&p))
                     {
                         return None;
                     }
