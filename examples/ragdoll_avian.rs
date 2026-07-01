@@ -177,7 +177,7 @@ fn add_human(
         RagdollCollisionLayers(CollisionLayers::new(RAGDOLL_LAYER, WORLD_LAYER | CHARACTER_LAYER | RAGDOLL_LAYER)),
         RagdollMobility(1.0),
         RagdollDensity(100.0),
-        RagdollDamping(5.0),
+        RagdollDamping(15.0),
         children![(
             CharacterPart(basemesh),
             MeshMaterial3d(mat),
@@ -238,8 +238,10 @@ fn oscillate(
     mut query: Query<&mut Transform, With<CharacterRagdoll>>,
 ) {
     let amplitude = 0.15;
-    let frequency = 1.0;
+    let frequency = 0.5;
+    let rot_speed = 0.5;
     for mut transform in query.iter_mut() {
         transform.translation.z = (time.elapsed_secs() * frequency * std::f32::consts::TAU).sin() * amplitude;
+        transform.rotate_y(time.delta_secs() * rot_speed);
     }
 }

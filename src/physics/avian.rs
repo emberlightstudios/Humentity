@@ -12,14 +12,7 @@ use crate::{
     rigs::{RigData, RigType, SkeletalBone},
 };
 
-use super::{
-    get_collider_parent, ColliderBone, RagdollDamping, RagdollDensity, RagdollMobility, COLLIDERS,
-    DEFAULT_RIG_COLLIDER_BONE_NAMES, HEAD_VERTICES, LEFT_FOOT_VERTICES, LEFT_HAND_VERTICES,
-    LOWER_LEFT_ARM_VERTICES, LOWER_LEFT_LEG_VERTICES, LOWER_RIGHT_ARM_VERTICES,
-    LOWER_RIGHT_LEG_VERTICES, PELVIS_VERTICES, RIGHT_FOOT_VERTICES, RIGHT_HAND_VERTICES,
-    TORSO_VERTICES, UPPER_LEFT_ARM_VERTICES, UPPER_LEFT_LEG_VERTICES, UPPER_RIGHT_ARM_VERTICES,
-    UPPER_RIGHT_LEG_VERTICES,
-};
+use super::*;
 
 /// Collision layers for ragdoll/hitbox colliders on this character.
 ///
@@ -45,7 +38,7 @@ pub enum CharacterRagdoll {
 pub struct CharacterColliders {
     pub bones_subset: Option<Vec<ColliderBone>>,
     pub collider_entities: AHashMap<ColliderBone, Entity>,
-    pub(crate) bone_entities: AHashMap<ColliderBone, Entity>,
+    pub bone_entities: AHashMap<ColliderBone, Entity>,
     pub(crate) joint_entities: Vec<Entity>,
 }
 
@@ -65,7 +58,7 @@ pub(crate) struct NeedsColliders;
 
 /// Offset from a collider's parent bone to the collider itself.
 #[derive(Component)]
-pub(crate) struct ColliderOffset(pub(crate) Transform);
+pub struct ColliderOffset(pub Transform);
 
 /// Marker for colliders that are currently in kinematic (animation-following) mode.
 #[derive(Component)]
@@ -74,11 +67,11 @@ pub(crate) struct KinematicCollider;
 /// Marker for colliders that follow animation via velocity control.
 /// Used during partial ragdolls for non-ragdoll bones.
 #[derive(Component)]
-pub(crate) struct AnimatedCollider;
+pub struct AnimatedCollider;
 
 /// Target position and rotation for velocity-based animation following.
 #[derive(Component)]
-pub(crate) struct VelocityTarget {
+pub struct VelocityTarget {
     pub position: Vec3,
     pub rotation: Quat,
 }
@@ -94,7 +87,7 @@ impl Default for VelocityTarget {
 
 /// Stiffness for velocity-based tracking toward the target.
 #[derive(Component, Clone, Copy)]
-pub(crate) struct VelocityStiffness {
+pub struct VelocityStiffness {
     pub position: f32,
     pub rotation: f32,
 }
@@ -414,12 +407,11 @@ pub(crate) fn set_ragdoll_state(
                     } else {
                         commands
                             .entity(collider_entity)
-                            .insert(RigidBody::Dynamic)
-                            .insert(AnimatedCollider)
-                            .insert(VelocityTarget::default())
-                            .insert(GravityScale(0.0))
-                            .remove::<KinematicCollider>()
-                            .remove::<SleepingDisabled>();
+                            .insert(RigidBody::Kinematic)
+                            .insert(KinematicCollider)
+                            .insert(SleepingDisabled)
+                            .remove::<AnimatedCollider>()
+                            .remove::<VelocityTarget>();
                     }
                 }
             }
@@ -606,7 +598,8 @@ fn get_collider_geometry(
         ColliderBone::Chest | ColliderBone::Pelvis => {
             let bone_name = DEFAULT_RIG_COLLIDER_BONE_NAMES[i_collider];
             let inv_bindpose_rot = inv_bindposes[bone_name].rotation;
-            get_midsection_collider(helpers, collider, inv_bindpose_rot)
+            let bind_rot = inv_bindpose_rot.inverse();
+            get_midsection_collider(helpers, collider, bind_rot)
         }
         ColliderBone::UpperRightArm
         | ColliderBone::UpperLeftArm
@@ -635,7 +628,7 @@ fn get_head_collider(helpers: &[Vec3]) -> (Collider, Transform) {
 fn get_midsection_collider(
     helpers: &[Vec3],
     joint: ColliderBone,
-    inv_bindpose_rot: Quat,
+    bind_rot: Quat,
 ) -> (Collider, Transform) {
     let ref_verts = match joint {
         ColliderBone::Chest => TORSO_VERTICES,
@@ -659,7 +652,7 @@ fn get_midsection_collider(
 
     (
         Collider::cuboid(xmax - xmin, ymax - ymin, zmax - zmin),
-        Transform::from_translation(center).with_rotation(inv_bindpose_rot),
+        Transform::from_translation(center).with_rotation(bind_rot),
     )
 }
 
