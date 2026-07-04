@@ -193,8 +193,10 @@ fn add_human(
             WORLD_LAYER | CHARACTER_LAYER | RAGDOLL_LAYER,
         )),
         RagdollMobility(1.0),
-        RagdollDensity(100.0),
-        RagdollDamping(15.0),
+        // Ragdolls tend to twitch without higher density settings in my findings
+        RagdollDensity(10.0),
+        RagdollDamping::default(),
+        RagdollCompliance(0.2),
         children![(CharacterPart(basemesh), MeshMaterial3d(mat))],
     ));
 }

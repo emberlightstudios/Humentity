@@ -81,7 +81,10 @@ pub(crate) struct NeedsColliders;
 /// precomputed inverse (joint → collider) to avoid matrix inversion
 /// in the per-frame sync hot path.
 #[derive(Component)]
-pub struct ColliderOffset(pub Transform, pub Transform);
+pub struct ColliderOffset {
+    pub collider_to_bone: Transform,
+    pub bone_to_collider: Transform,
+}
 
 /// Marker for colliders that are currently in kinematic (animation-following) mode.
 #[derive(Component)]
@@ -214,7 +217,7 @@ pub(crate) fn spawn_colliders(
                     SleepingDisabled,
                     collider,
                     geometry,
-                    ColliderOffset(collider_to_joint, joint_to_collider),
+                    ColliderOffset { collider_to_bone: collider_to_joint, bone_to_collider: joint_to_collider },
                     ColliderDensity(density),
                     collision_layers.0,
                     Transform::IDENTITY,
@@ -265,7 +268,7 @@ pub(crate) fn sync_colliders(
             let Ok(joint_to_world) = bones.get(*bone_entity) else {
                 continue;
             };
-            let world = Transform::from(*joint_to_world) * offset.0;
+            let world = Transform::from(*joint_to_world) * offset.collider_to_bone;
             *position = Position(world.translation);
             *rotation = Rotation(world.rotation);
         }
@@ -364,8 +367,8 @@ pub(crate) fn set_ragdoll_state(
                     let parent_offset = collider_offsets.get(parent).ok()?;
                     let child_offset = collider_offsets.get(child).ok()?;
 
-                    let parent_collider = Transform::from(*parent_bone_world) * parent_offset.0;
-                    let child_collider = Transform::from(*child_bone_world) * child_offset.0;
+                    let parent_collider = Transform::from(*parent_bone_world) * parent_offset.collider_to_bone;
+                    let child_collider = Transform::from(*child_bone_world) * child_offset.collider_to_bone;
 
                     // Basis for body2's joint frame so the bindpose relative
                     // rotation is the rest position and axes align.
@@ -463,7 +466,7 @@ pub(crate) fn sync_bones_to_ragdoll(
             };
             let collider_transform =
                 Transform::from_translation(position.0).with_rotation(rotation.0);
-            let joint_to_world = collider_transform * offset.1;
+            let joint_to_world = collider_transform * offset.bone_to_collider;
             desired_joint_world.insert(*bone_type, joint_to_world);
         }
 
@@ -495,8 +498,12 @@ pub(crate) fn sync_bones_to_ragdoll(
 
             let dp = (local.translation - local_transform.translation).length();
             let dr = local.rotation.angle_between(local_transform.rotation);
-            if dp > 0.0005 || dr > 0.0005 {
-                *local_transform = local;
+            if dp > 0.0001 || dr > 0.0001 {
+                const LERP_FACTOR: f32 = 0.85;
+                local_transform.translation =
+                    local_transform.translation.lerp(local.translation, LERP_FACTOR);
+                local_transform.rotation =
+                    local_transform.rotation.slerp(local.rotation, LERP_FACTOR);
             }
             applied_joint_world.insert(bone_entity, joint_to_world);
         }

@@ -48,7 +48,10 @@ pub struct Ragdoll {
 }
 
 #[derive(Component)]
-pub(crate) struct ColliderOffset(pub(crate) Transform, pub(crate) Transform);
+pub(crate) struct ColliderOffset {
+    pub(crate) collider_to_bone: Transform,
+    pub(crate) bone_to_collider: Transform,
+}
 
 #[derive(Component)]
 pub(crate) struct KinematicCollider;
@@ -168,7 +171,10 @@ pub(crate) fn spawn_colliders(
                     KinematicCollider,
                     collider,
                     geometry,
-                    ColliderOffset(collider_to_joint, joint_to_collider),
+                    ColliderOffset {
+                        collider_to_bone: collider_to_joint,
+                        bone_to_collider: joint_to_collider,
+                    },
                     ColliderMassProperties::Density(1.0),
                     CollisionGroups::new(Group::GROUP_1, Group::GROUP_2),
                     Transform::IDENTITY,
@@ -212,7 +218,7 @@ pub(crate) fn sync_colliders(
             let Ok(joint_to_world) = bones.get(*bone_entity) else {
                 continue;
             };
-            *transform = Transform::from(*joint_to_world) * offset.0;
+            *transform = Transform::from(*joint_to_world) * offset.collider_to_bone;
         }
     }
 }
@@ -253,8 +259,10 @@ pub(crate) fn activate_ragdoll(
                     let parent_offset = collider_offsets.get(parent).ok()?;
                     let child_offset = collider_offsets.get(child).ok()?;
 
-                    let parent_collider = Transform::from(*parent_bone_world) * parent_offset.0;
-                    let child_collider = Transform::from(*child_bone_world) * child_offset.0;
+                    let parent_collider =
+                        Transform::from(*parent_bone_world) * parent_offset.collider_to_bone;
+                    let child_collider =
+                        Transform::from(*child_bone_world) * child_offset.collider_to_bone;
 
                     let parent_matrix = parent_collider.to_matrix();
                     let child_matrix = child_collider.to_matrix();
@@ -372,7 +380,7 @@ pub(crate) fn sync_bones_to_ragdoll(
             let Ok((collider_transform, offset)) = colliders.get(collider_entity) else {
                 continue;
             };
-            let joint_to_world = *collider_transform * offset.1;
+            let joint_to_world = *collider_transform * offset.bone_to_collider;
             desired_joint_world.insert(*bone_type, joint_to_world);
         }
 
@@ -402,12 +410,15 @@ pub(crate) fn sync_bones_to_ragdoll(
                 joint_to_world
             };
 
-            // Noise gate: only write if the change exceeds a threshold,
-            // preventing micro-jitter from the solver from twitching the visual skeleton.
             let dp = (local.translation - local_transform.translation).length();
             let dr = local.rotation.angle_between(local_transform.rotation);
-            if dp > 0.0005 || dr > 0.0005 {
-                *local_transform = local;
+            if dp > 0.0001 || dr > 0.0001 {
+                const LERP_FACTOR: f32 = 0.85;
+                local_transform.translation = local_transform
+                    .translation
+                    .lerp(local.translation, LERP_FACTOR);
+                local_transform.rotation =
+                    local_transform.rotation.slerp(local.rotation, LERP_FACTOR);
             }
             applied_joint_world.insert(bone_entity, joint_to_world);
         }
