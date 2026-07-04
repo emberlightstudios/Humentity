@@ -25,12 +25,31 @@ pub struct RagdollCollisionLayers(pub CollisionLayers);
 
 /// Describes whether ragdoll physics is active
 #[derive(Component, Debug, Clone, PartialEq, Eq, Default)]
-#[require(RagdollDensity, RagdollDamping)]
+#[require(RagdollDensity, RagdollDamping, RagdollCompliance)]
 pub enum CharacterRagdoll {
     #[default]
     None,
     Full,
     /// Only the listed bones are made dynamic; all others stay kinematic.
+    ///
+    /// ## Warning: kinematic colliders whose corresponding skeleton bone is a child
+    ///     of a bone whose cooresponding collider is dynamic 
+    ///
+    /// If a kinematic collider's corresponding skeletal bone is a descendant of a
+    /// dynamically controlled bone in the skeleton hierarchy, then directly setting 
+    /// `Position`/`Rotation` or transform component values
+    /// on the kinematic collider can cause unpredictable behavior including crashes.
+    /// 
+    /// For example:
+    /// Ragdolling a branch (e.g. arms) while the root of the skeletal tree is kinematic should be safe
+    /// Ragdolling the root of the tree while trying to control child bones kinematically can be dangerous.
+    /// For example, a character whose head is kinematic attached to a dynamic body.
+    ///
+    /// This occurs because:
+    /// 1. `sync_bones_to_ragdoll` (PostUpdate) writes the dynamic collider's physics
+    ///    position back to its skeletal bone's local transform.
+    /// 2. `TransformSystems::Propagate` (PostUpdate) recomputes all descendant bone
+    ///    globals — including the kinematic bone — using the dynamic parent's new local.
     Partial(Vec<ColliderBone>),
 }
 
@@ -57,49 +76,16 @@ impl CharacterColliders {
 pub(crate) struct NeedsColliders;
 
 /// Offset from a collider's parent bone to the collider itself.
+///
+/// Stores both the forward transform (collider → joint) and its
+/// precomputed inverse (joint → collider) to avoid matrix inversion
+/// in the per-frame sync hot path.
 #[derive(Component)]
-pub struct ColliderOffset(pub Transform);
+pub struct ColliderOffset(pub Transform, pub Transform);
 
 /// Marker for colliders that are currently in kinematic (animation-following) mode.
 #[derive(Component)]
 pub struct KinematicCollider;
-
-/// Marker for colliders that follow animation via velocity control.
-/// Used during partial ragdolls for non-ragdoll bones.
-#[derive(Component)]
-pub struct AnimatedCollider;
-
-/// Target position and rotation for velocity-based animation following.
-#[derive(Component)]
-pub struct VelocityTarget {
-    pub position: Vec3,
-    pub rotation: Quat,
-}
-
-impl Default for VelocityTarget {
-    fn default() -> Self {
-        Self {
-            position: Vec3::ZERO,
-            rotation: Quat::IDENTITY,
-        }
-    }
-}
-
-/// Stiffness for velocity-based tracking toward the target.
-#[derive(Component, Clone, Copy)]
-pub struct VelocityStiffness {
-    pub position: f32,
-    pub rotation: f32,
-}
-
-impl Default for VelocityStiffness {
-    fn default() -> Self {
-        Self {
-            position: 10.0,
-            rotation: 5.0,
-        }
-    }
-}
 
 /// Links a collider entity to its owning character entity.
 #[derive(Component)]
@@ -219,6 +205,7 @@ pub(crate) fn spawn_colliders(
             let joint_name = collider_bone_map[i_collider];
             let model_to_joint = inv_bindposes_map[joint_name];
             let collider_to_joint = model_to_joint * collider_to_model;
+            let joint_to_collider = Transform::from_matrix(collider_to_joint.to_matrix().inverse());
 
             let collider_entity = commands
                 .spawn((
@@ -227,12 +214,13 @@ pub(crate) fn spawn_colliders(
                     SleepingDisabled,
                     collider,
                     geometry,
-                    ColliderOffset(collider_to_joint),
+                    ColliderOffset(collider_to_joint, joint_to_collider),
                     ColliderDensity(density),
                     collision_layers.0,
                     Transform::IDENTITY,
-                    VelocityStiffness::default(),
                     ColliderForCharacter(character_entity),
+                    LinearDamping(0.1),
+                    AngularDamping(0.1),
                 ))
                 .id();
 
@@ -284,76 +272,6 @@ pub(crate) fn sync_colliders(
     }
 }
 
-/// Updates VelocityTarget on AnimatedCollider entities from bone transforms.
-/// Only runs for characters in Partial ragdoll state.
-pub(crate) fn update_velocity_targets(
-    characters: Query<(&CharacterRagdoll, &CharacterColliders)>,
-    bones: Query<&GlobalTransform>,
-    mut animated: Query<(&mut VelocityTarget, &ColliderOffset), With<AnimatedCollider>>,
-) {
-    for (ragdoll, colliders) in characters.iter() {
-        let partial_bones = match ragdoll {
-            CharacterRagdoll::Partial(bones) => bones,
-            _ => continue,
-        };
-        let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {
-            Some(bones) if !bones.is_empty() => bones.clone(),
-            Some(_) => vec![],
-            None => COLLIDERS.to_vec(),
-        };
-        for bone_type in target_bones {
-            if partial_bones.contains(&bone_type) {
-                continue;
-            }
-            let Some(&collider_entity) = colliders.collider_entities.get(&bone_type) else {
-                continue;
-            };
-            let Ok((mut target, offset)) = animated.get_mut(collider_entity) else {
-                continue;
-            };
-            let Some(&bone_entity) = colliders.bone_entities.get(&bone_type) else {
-                continue;
-            };
-            let Ok(joint_to_world) = bones.get(bone_entity) else {
-                continue;
-            };
-            let world = Transform::from(*joint_to_world) * offset.0;
-            target.position = world.translation;
-            target.rotation = world.rotation;
-        }
-    }
-}
-
-/// Applies velocity toward the stored VelocityTarget on AnimatedCollider entities.
-/// This smoothly pulls animated colliders toward their target bone transforms
-/// instead of teleporting them, avoiding explosive constraint forces.
-pub(crate) fn apply_velocity_targets(
-    mut query: Query<(
-        &VelocityTarget,
-        &Position,
-        &Rotation,
-        &mut LinearVelocity,
-        &mut AngularVelocity,
-        &VelocityStiffness,
-    ), With<AnimatedCollider>>,
-) {
-    let max_linear = 20.0;
-    let max_angular = 10.0;
-    for (target, position, rotation, mut linear_velocity, mut angular_velocity, stiffness) in query.iter_mut() {
-        let delta = target.position - position.0;
-        linear_velocity.0 = (delta * stiffness.position).clamp_length_max(max_linear);
-
-        let diff = target.rotation * rotation.0.inverse();
-        let (axis, angle) = diff.to_axis_angle();
-        if angle > 0.001 {
-            let ang_vel = axis * angle * stiffness.rotation;
-            angular_velocity.0 = ang_vel.clamp_length_max(max_angular);
-        } else {
-            angular_velocity.0 = Vec3::ZERO;
-        }
-    }
-}
-
 pub(crate) fn set_ragdoll_state(
     mut characters: Query<
         (Entity, &CharacterRagdoll, &mut CharacterColliders, &RagdollDamping),
@@ -363,6 +281,7 @@ pub(crate) fn set_ragdoll_state(
     bones: Query<&GlobalTransform>,
     collider_offsets: Query<&ColliderOffset>,
     mobility_query: Query<&RagdollMobility>,
+    compliance_query: Query<&RagdollCompliance>,
 ) {
     for (character_entity, ragdoll, mut char_colliders, damping) in characters.iter_mut() {
         let damping = damping.0;
@@ -389,9 +308,7 @@ pub(crate) fn set_ragdoll_state(
                         .entity(collider_entity)
                         .insert(RigidBody::Dynamic)
                         .remove::<KinematicCollider>()
-                        .remove::<SleepingDisabled>()
-                        .remove::<AnimatedCollider>()
-                        .remove::<VelocityTarget>();
+                        .remove::<SleepingDisabled>();
                 }
             }
             CharacterRagdoll::Partial(bones) => {
@@ -401,17 +318,13 @@ pub(crate) fn set_ragdoll_state(
                             .entity(collider_entity)
                             .insert(RigidBody::Dynamic)
                             .remove::<KinematicCollider>()
-                            .remove::<SleepingDisabled>()
-                            .remove::<AnimatedCollider>()
-                            .remove::<VelocityTarget>();
+                            .remove::<SleepingDisabled>();
                     } else {
                         commands
                             .entity(collider_entity)
                             .insert(RigidBody::Kinematic)
                             .insert(KinematicCollider)
-                            .insert(SleepingDisabled)
-                            .remove::<AnimatedCollider>()
-                            .remove::<VelocityTarget>();
+                            .insert(SleepingDisabled);
                     }
                 }
             }
@@ -421,9 +334,7 @@ pub(crate) fn set_ragdoll_state(
                         .entity(collider_entity)
                         .insert(RigidBody::Kinematic)
                         .insert(KinematicCollider)
-                        .insert(SleepingDisabled)
-                        .remove::<AnimatedCollider>()
-                        .remove::<VelocityTarget>();
+                        .insert(SleepingDisabled);
                 }
                 return;
             }
@@ -477,6 +388,10 @@ pub(crate) fn set_ragdoll_state(
             .get(character_entity)
             .ok()
             .map_or(1.0, |m| m.0.clamp(0.0, 1.0));
+        let c = compliance_query
+            .get(character_entity)
+            .ok()
+            .map_or(1.0, |m| m.0.max(0.0));
         for (bone, parent, child, anchor, local_basis2, parent_collider, child_collider) in
             joints_to_spawn
         {
@@ -506,6 +421,7 @@ pub(crate) fn set_ragdoll_state(
                 joint_damping,
                 knee_damping,
                 r,
+                c,
                 character_entity,
             );
             char_colliders.joint_entities.push(joint);
@@ -547,8 +463,7 @@ pub(crate) fn sync_bones_to_ragdoll(
             };
             let collider_transform =
                 Transform::from_translation(position.0).with_rotation(rotation.0);
-            let joint_to_world =
-                collider_transform * Transform::from_matrix(offset.0.to_matrix().inverse());
+            let joint_to_world = collider_transform * offset.1;
             desired_joint_world.insert(*bone_type, joint_to_world);
         }
 
@@ -724,6 +639,7 @@ fn spawn_ragdoll_joint(
     joint_damping: JointDamping,
     knee_damping: JointDamping,
     r: f32,
+    c: f32,
     character: Entity,
 ) -> Entity {
     match bone {
@@ -732,7 +648,9 @@ fn spawn_ragdoll_joint(
                 RevoluteJoint::new(parent, child)
                     .with_anchor(anchor)
                     .with_local_basis2(local_basis2)
-                    .with_angle_limits(-0.17 * r, 2.5 * r),
+                    .with_angle_limits(-0.17 * r, 2.5 * r)
+                    .with_point_compliance(0.0005 * c)
+                    .with_align_compliance(0.0005 * c),
                 JointCollisionDisabled,
                 joint_damping,
                 JointForCharacter(character),
@@ -743,7 +661,9 @@ fn spawn_ragdoll_joint(
                 RevoluteJoint::new(parent, child)
                     .with_anchor(anchor)
                     .with_local_basis2(local_basis2)
-                    .with_angle_limits(-2.4 * r, 0.0),
+                    .with_angle_limits(-2.4 * r, 0.0)
+                    .with_point_compliance(0.0005 * c)
+                    .with_align_compliance(0.0005 * c),
                 JointCollisionDisabled,
                 knee_damping,
                 JointForCharacter(character),
@@ -757,7 +677,10 @@ fn spawn_ragdoll_joint(
                         .with_anchor(anchor)
                         .with_local_basis2(local_basis2)
                         .with_swing_limits(-swing * r, swing * r)
-                        .with_twist_limits(-twist * r, twist * r),
+                        .with_twist_limits(-twist * r, twist * r)
+                        .with_point_compliance(0.0005 * c)
+                        .with_swing_compliance(0.0005 * c)
+                        .with_twist_compliance(0.0005 * c),
                     JointCollisionDisabled,
                     joint_damping,
                     JointForCharacter(character),

@@ -17,7 +17,7 @@ toml = ">=1.1.2"
 thiserror = ">=2.0.18"
 avian3d = { optional = true, version = "0.6.1" }
 
-bevy_mod_physx = { optional = true, path = "../bevy_mod_physx" }
+bevy_mod_physx = { optional = true, workspace = true }
 bevy_rapier3d = { optional = true, version = "0.34.0" }
 
 [dev-dependencies]
@@ -35,6 +35,10 @@ required-features = ["rapier"]
 
 [[example]]
 name = "ragdoll_avian"
+required-features = ["avian"]
+
+[[example]]
+name = "ragdoll_avian_partial"
 required-features = ["avian"]
 
 [features]

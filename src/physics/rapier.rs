@@ -48,7 +48,7 @@ pub struct Ragdoll {
 }
 
 #[derive(Component)]
-pub(crate) struct ColliderOffset(pub(crate) Transform);
+pub(crate) struct ColliderOffset(pub(crate) Transform, pub(crate) Transform);
 
 #[derive(Component)]
 pub(crate) struct KinematicCollider;
@@ -160,6 +160,7 @@ pub(crate) fn spawn_colliders(
             let joint_name = collider_bone_map[i_collider];
             let model_to_joint = inv_bindposes_map[joint_name];
             let collider_to_joint = model_to_joint * collider_to_model;
+            let joint_to_collider = Transform::from_matrix(collider_to_joint.to_matrix().inverse());
 
             let collider_entity = commands
                 .spawn((
@@ -167,7 +168,7 @@ pub(crate) fn spawn_colliders(
                     KinematicCollider,
                     collider,
                     geometry,
-                    ColliderOffset(collider_to_joint),
+                    ColliderOffset(collider_to_joint, joint_to_collider),
                     ColliderMassProperties::Density(1.0),
                     CollisionGroups::new(Group::GROUP_1, Group::GROUP_2),
                     Transform::IDENTITY,
@@ -371,8 +372,7 @@ pub(crate) fn sync_bones_to_ragdoll(
             let Ok((collider_transform, offset)) = colliders.get(collider_entity) else {
                 continue;
             };
-            let joint_to_world =
-                *collider_transform * Transform::from_matrix(offset.0.to_matrix().inverse());
+            let joint_to_world = *collider_transform * offset.1;
             desired_joint_world.insert(*bone_type, joint_to_world);
         }
 

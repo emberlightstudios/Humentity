@@ -1,7 +1,10 @@
 mod shared;
 
+use std::f32::consts::PI;
+
 use avian3d::prelude::*;
 use bevy::{
+    animation::AnimationTargetId,
     mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
 };
@@ -21,7 +24,6 @@ fn main() {
             PhysicsDebugPlugin,
         ))
         .insert_resource(SubstepCount(10))
-        .insert_resource(PendingRagdollToggle(false))
         .add_systems(Startup, (floor, spawn_ui))
         .add_observer(add_human)
         .add_systems(
@@ -30,6 +32,7 @@ fn main() {
                 toggle,
                 setup_graph,
                 start_clip,
+                oscillate,
             ),
         )
         .run();
@@ -38,53 +41,49 @@ fn main() {
 #[derive(Component)]
 struct AnimationController(AnimationNodeIndex);
 
-/// Buffers a Space press until the character entity is ready to receive it.
-#[derive(Resource, Default)]
-struct PendingRagdollToggle(bool);
-
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
-    mut pending: ResMut<PendingRagdollToggle>,
-    mut character: Query<(
-        Entity,
-        &mut CharacterRagdoll,
-        &mut CharacterColliders,
-        &SkeletonEntities,
-        &SkinnedMesh,
-    )>,
+    human: Single<(&CharacterShape, &SkinnedMesh)>,
+    character: Single<(Entity, &mut CharacterRagdoll, &mut CharacterColliders)>,
+    related: Single<&SkeletonEntities>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,
+    rig: Query<(&AnimationGraphHandle, &AnimationController)>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
+    let (_entity, mut ragdoll, mut colliders) = character.into_inner();
+    let related = related.into_inner();
+    let Ok((graph_handle, controller)) = rig.get(related.rig) else { return };
+
     if input.just_pressed(KeyCode::Space) {
-        pending.0 = true;
-    }
-    if !pending.0 {
-        return;
-    }
-
-    let Ok((_entity, mut ragdoll, _colliders, related, skm)) = character.single_mut()
-    else {
-        return;
-    };
-
-    match &*ragdoll {
-        CharacterRagdoll::Full => {
+        if matches!(&*ragdoll, CharacterRagdoll::Partial(_)) {
             *ragdoll = CharacterRagdoll::None;
+            colliders.bones_subset = None;
 
-            // Reset bones to bind poses
+            if let Some(graph) = graphs.get_mut(&graph_handle.0) {
+                if let Some(node) = graph.graph.node_weight_mut(controller.0) {
+                    node.mask = 0;
+                }
+            }
+
+            let (_, skm) = *human;
             if let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) {
-                let model_bind_poses: Vec<Mat4> =
-                    inv_bindposes.iter().map(|m| m.inverse()).collect();
+                let model_bind_poses: Vec<Mat4> = inv_bindposes
+                    .iter()
+                    .map(|m| m.inverse())
+                    .collect();
 
                 for (i, &joint_entity) in skm.joints.iter().enumerate() {
                     if let Ok((mut transform, child_of)) = bones.get_mut(joint_entity) {
                         if let Some(parent) = child_of
-                            && let Some(parent_idx) =
-                                skm.joints.iter().position(|&e| e == parent.parent())
+                            && let Some(parent_idx) = skm.joints
+                                .iter()
+                                .position(|&e| e == parent.parent())
                         {
                             *transform = Transform::from_matrix(
-                                model_bind_poses[parent_idx].inverse() * model_bind_poses[i],
+                                model_bind_poses[parent_idx].inverse()
+                                    * model_bind_poses[i]
                             );
                         } else {
                             *transform = Transform::from_matrix(model_bind_poses[i]);
@@ -94,44 +93,32 @@ fn toggle(
             }
 
             if let Ok(mut player) = players.get_mut(related.rig) {
-                player.stop(AnimationNodeIndex::new(0));
-                player.play(AnimationNodeIndex::new(0)).repeat();
+                player.stop(controller.0);
+                player.play(controller.0).repeat();
             }
+        } else {
+            *ragdoll = CharacterRagdoll::Partial(vec![
+                ColliderBone::UpperRightArm,
+                ColliderBone::UpperLeftArm,
+                ColliderBone::LowerRightArm,
+                ColliderBone::LowerLeftArm,
+                ColliderBone::RightHand,
+                ColliderBone::LeftHand,
+            ]);
+            colliders.bones_subset = None;
 
-            pending.0 = false;
-        }
-        _ => {
-            *ragdoll = CharacterRagdoll::Full;
-
-            // Stop animation so it doesn't compete with physics
-            if let Ok(mut player) = players.get_mut(related.rig) {
-                player.stop(AnimationNodeIndex::new(0));
+            if let Some(graph) = graphs.get_mut(&graph_handle.0) {
+                if let Some(node) = graph.graph.node_weight_mut(controller.0) {
+                    node.mask = 1;
+                }
             }
-
-            // Give each collider a small nudge so the collapse is interesting.
-            // Deterministic per-collider using entity index bits.
-            //for (bone, &collider_entity) in colliders.collider_entities.iter() {
-            //    if let Ok(mut vel) = collider_data.get_mut(collider_entity) {
-            //        let i = *bone as usize;
-            //        let h = (i.wrapping_mul(0x9e3779b9) as f32).sin();
-            //        let dir = Vec3::new(
-            //            ((h * 43758.5453).fract() - 0.5) * 2.0,
-            //            ((h * 27118.3129).fract()) * 0.5,
-            //            ((h * 30903.5511).fract() - 0.5) * 2.0,
-            //        )
-            //        .normalize_or_zero();
-            //        vel.0 += dir * 2.0;
-            //    }
-            //}
-
-            pending.0 = false;
         }
     }
 }
 
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
-        Text::new("SPACE: toggle full ragdoll\nARROW KEYS: nudge character"),
+        Text::new("Press SPACEBAR to toggle ragdoll arms"),
         TextFont::from_font_size(24.0),
         Node {
             position_type: PositionType::Absolute,
@@ -146,7 +133,7 @@ fn floor(mut commands: Commands) {
     commands.spawn((
         Collider::cuboid(100.0, 0.1, 100.0),
         Friction::new(0.5),
-        Restitution::new(0.1),
+        Restitution::new(0.5),
         RigidBody::Static,
         Transform::IDENTITY,
     ));
@@ -161,12 +148,15 @@ fn add_human(
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
-    let template_handle = template_assets.add(CharacterTemplate::new([], RigType::Default));
+
+    let template_handle = template_assets.add(CharacterTemplate::new(
+        [],
+        RigType::Default,
+    ));
 
     let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
 
-    let texture =
-        asset_server.load::<Image>("skin_textures/albedo/young_caucasian_female.png");
+    let texture = asset_server.load::<Image>("skin_textures/albedo/young_caucasian_female.png");
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(texture),
         ..default()
@@ -181,21 +171,18 @@ fn add_human(
     commands.insert_resource(RetargetedAnimations { _clips: clips });
 
     commands.spawn((
-        Transform::from_xyz(0.0, 0.0, 0.0),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
-            template_handle,
-            MorphTargets::default(),
-        ))),
+        Transform::from_rotation(Quat::from_rotation_y(PI / 4.)).with_translation(Vec3::new(1., 0., 0.)),
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, MorphTargets::default()))),
         CharacterRagdoll::None,
         CharacterColliders::new(None),
-        RagdollCollisionLayers(CollisionLayers::new(
-            RAGDOLL_LAYER,
-            WORLD_LAYER | CHARACTER_LAYER | RAGDOLL_LAYER,
-        )),
+        RagdollCollisionLayers(CollisionLayers::new(RAGDOLL_LAYER, WORLD_LAYER | CHARACTER_LAYER | RAGDOLL_LAYER)),
         RagdollMobility(1.0),
         RagdollDensity(100.0),
         RagdollDamping(15.0),
-        children![(CharacterPart(basemesh), MeshMaterial3d(mat))],
+        children![(
+            CharacterPart(basemesh),
+            MeshMaterial3d(mat),
+        )]
     ));
 }
 
@@ -208,19 +195,27 @@ fn setup_graph(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
-    mut character_player: Query<
-        (Entity, &mut AnimationPlayer),
-        Without<AnimationGraphHandle>,
-    >,
+    mut character_player: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
+    skeleton_bones: Query<(&Name, &AnimationTargetId), With<SkeletalBone>>,
 ) {
-    let Ok((entity, _player)) = character_player.single_mut() else {
-        return;
-    };
-    let Some((_id, clips_map)) = retargeted_clips.iter().next() else {
-        return;
-    };
+    let Ok((entity, _player)) = character_player.single_mut() else { return };
+    let Some((_id, clips_map)) = retargeted_clips.iter().next() else { return };
     let clip_handle = clips_map.clips.get("Idle-loop").unwrap();
-    let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
+    let (mut graph, index) = AnimationGraph::from_clip(clip_handle.clone());
+
+    let arm_bone_names = [
+        "upperarm01.L",
+        "upperarm01.R",
+        "lowerarm01.L",
+        "lowerarm01.R",
+        "wrist.L",
+        "wrist.R",
+    ];
+    for (name, target_id) in skeleton_bones.iter() {
+        if arm_bone_names.contains(&name.as_str()) {
+            graph.mask_groups.insert(*target_id, 1);
+        }
+    }
 
     commands.entity(entity).insert((
         AnimationController(index),
@@ -236,5 +231,18 @@ fn start_clip(
         let (mut player, controller) = anim.into_inner();
         player.play(controller.0).repeat();
         *started = true;
+    }
+}
+
+fn oscillate(
+    time: Res<Time>,
+    mut query: Query<&mut Transform, With<CharacterRagdoll>>,
+) {
+    let amplitude = 0.15;
+    let frequency = 0.5;
+    let rot_speed = 0.5;
+    for mut transform in query.iter_mut() {
+        transform.translation.z = (time.elapsed_secs() * frequency * std::f32::consts::TAU).sin() * amplitude;
+        transform.rotate_y(time.delta_secs() * rot_speed);
     }
 }

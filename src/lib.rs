@@ -85,13 +85,12 @@ pub mod prelude {
         load_and_insert_humentity_assets,
         NAME_INTERNER,
     };
-    pub use crate::physics::{ColliderBone, RagdollDamping, RagdollDensity, RagdollMobility, COLLIDERS};
+    pub use crate::physics::{ColliderBone, RagdollCompliance, RagdollDamping, RagdollDensity, RagdollMobility, COLLIDERS};
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::RagdollCollisionLayers;
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::{
-        AnimatedCollider, CharacterColliders, CharacterRagdoll, ColliderOffset, KinematicCollider,
-        VelocityStiffness, VelocityTarget,
+        CharacterColliders, CharacterRagdoll, ColliderOffset, KinematicCollider,
     };
     #[cfg(feature = "rapier")]
     pub use crate::physics::rapier::{CharacterColliders, Ragdoll};
@@ -225,8 +224,11 @@ impl Plugin for HumentityPlugin {
 
         #[cfg(feature = "avian")]
         {
+            use bevy::app::AnimationSystems;
+
             app.register_type::<RagdollDensity>()
                 .register_type::<RagdollDamping>()
+                .register_type::<RagdollCompliance>()
                 .add_systems(
                 Update,
                 (
@@ -238,15 +240,12 @@ impl Plugin for HumentityPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (
-                    physics::avian::sync_colliders,
-                    physics::avian::update_velocity_targets,
-                    physics::avian::apply_velocity_targets,
-                ),
+                physics::avian::sync_colliders,
             )
             .add_systems(
                 PostUpdate,
                 physics::avian::sync_bones_to_ragdoll
+                    .after(AnimationSystems)
                     .before(TransformSystems::Propagate),
             );
         }
