@@ -239,16 +239,47 @@ pub(crate) fn spawn_colliders(
     }
 }
 
+/// Switches all dynamic colliders to kinematic and zeros velocities when
+/// `RagdollSleep` is added, freezing the character in place.
+pub(crate) fn put_ragdoll_to_sleep(
+    characters: Query<&CharacterColliders, Added<RagdollSleep>>,
+    mut commands: Commands,
+    mut colliders: Query<(
+        &mut LinearVelocity,
+        &mut AngularVelocity,
+        Option<&KinematicCollider>,
+    )>,
+) {
+    for char_colliders in characters.iter() {
+        for &collider_entity in char_colliders.collider_entities.values() {
+            if let Ok((mut linvel, mut angvel, kinematic)) = colliders.get_mut(collider_entity) {
+                if kinematic.is_none() {
+                    commands.entity(collider_entity).insert(RigidBody::Kinematic);
+                }
+                linvel.0 = Vec3::ZERO;
+                angvel.0 = Vec3::ZERO;
+            }
+        }
+    }
+}
+
 /// This function syncs kinematic character colliders to align with the skeletal bones
 pub(crate) fn sync_colliders(
-    characters: Query<&CharacterColliders>,
+    characters: Query<(Entity, &CharacterColliders, Option<&CharacterRagdoll>)>,
     bones: Query<&GlobalTransform>,
     mut collider_data: Query<
         (&mut Position, &mut Rotation, &ColliderOffset),
         With<KinematicCollider>,
     >,
+    sleep_query: Query<(), With<RagdollSleep>>,
 ) {
-    for colliders in characters.iter() {
+    for (entity, colliders, ragdoll) in characters.iter() {
+        if sleep_query.contains(entity) {
+            continue;
+        }
+        if ragdoll == Some(&CharacterRagdoll::None) {
+            continue;
+        }
         let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {
             Some(bones) if !bones.is_empty() => bones.clone(),
             Some(_) => vec![],
@@ -433,7 +464,7 @@ pub(crate) fn set_ragdoll_state(
 }
 
 pub(crate) fn sync_bones_to_ragdoll(
-    characters: Query<(&CharacterRagdoll, &CharacterColliders)>,
+    characters: Query<(&CharacterRagdoll, &CharacterColliders), Without<RagdollSleep>>,
     colliders: Query<
         (&Position, &Rotation, &ColliderOffset),
         (With<ColliderBone>, Without<SkeletalBone>),

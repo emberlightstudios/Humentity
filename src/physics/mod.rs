@@ -158,6 +158,17 @@ impl Default for RagdollMobility {
     }
 }
 
+/// Marker component that puts the ragdoll to sleep and freezes it.
+///
+/// When added to a character entity, all collider velocities are zeroed
+/// and both sync directions are disabled:
+///   - `sync_colliders` (bone → collider for kinematic) is skipped
+///   - `sync_bones_to_ragdoll` (collider → bone for dynamic) is skipped
+///
+/// Remove this component to re-enable normal ragdoll syncing.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RagdollSleep;
+
 #[cfg(feature = "avian")]
 pub mod avian;
 #[cfg(feature = "physx")]
