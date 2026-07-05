@@ -12,9 +12,6 @@ const RAGDOLL_LAYER: u32 = 1 << 3;
 const WORLD_LAYER: u32 = 1 << 0;
 const CHARACTER_LAYER: u32 = 1 << 1;
 
-#[derive(Component)]
-struct RagdollSleepTimer(Timer);
-
 fn main() {
     let mut app = setup_app();
 
@@ -33,7 +30,6 @@ fn main() {
                 toggle,
                 setup_graph,
                 start_clip,
-                tick_ragdoll_sleep,
             ),
         )
         .run();
@@ -47,7 +43,6 @@ struct AnimationController(AnimationNodeIndex);
 struct PendingRagdollToggle(bool);
 
 fn toggle(
-    mut commands: Commands,
     input: Res<ButtonInput<KeyCode>>,
     mut pending: ResMut<PendingRagdollToggle>,
     mut character: Query<(
@@ -68,14 +63,13 @@ fn toggle(
         return;
     }
 
-    let Ok((entity, mut ragdoll, _colliders, related, skm)) = character.single_mut()
+    let Ok((_entity, mut ragdoll, _colliders, related, skm)) = character.single_mut()
     else {
         return;
     };
 
     match &*ragdoll {
         CharacterRagdoll::Full => {
-            commands.entity(entity).remove::<(RagdollSleepTimer, RagdollSleep)>();
             *ragdoll = CharacterRagdoll::None;
 
             // Reset bones to bind poses
@@ -108,9 +102,6 @@ fn toggle(
         }
         _ => {
             *ragdoll = CharacterRagdoll::Full;
-            commands.entity(entity).insert((
-                RagdollSleepTimer(Timer::from_seconds(5.0, TimerMode::Once)),
-            ));
 
             // Stop animation so it doesn't compete with physics
             if let Ok(mut player) = players.get_mut(related.rig) {
@@ -135,49 +126,6 @@ fn toggle(
 
             pending.0 = false;
         }
-    }
-}
-
-fn tick_ragdoll_sleep(
-    time: Res<Time>,
-    mut characters: Query<(
-        Entity,
-        &mut RagdollSleepTimer,
-        &mut CharacterRagdoll,
-        &CharacterColliders,
-    )>,
-    mut commands: Commands,
-    mut colliders: Query<(
-        &mut LinearVelocity,
-        &mut AngularVelocity,
-        Option<&KinematicCollider>,
-    )>,
-) {
-    for (entity, mut timer, mut ragdoll, char_colliders) in characters.iter_mut() {
-        if !timer.0.tick(time.delta()).just_finished() {
-            continue;
-        }
-
-        *ragdoll = CharacterRagdoll::None;
-
-        for &collider_entity in char_colliders.collider_entities.values() {
-            if let Ok((mut linvel, mut angvel, kinematic)) =
-                colliders.get_mut(collider_entity)
-            {
-                if kinematic.is_none() {
-                    commands
-                        .entity(collider_entity)
-                        .insert(RigidBody::Kinematic);
-                }
-                linvel.0 = Vec3::ZERO;
-                angvel.0 = Vec3::ZERO;
-            }
-        }
-
-        commands
-            .entity(entity)
-            .insert(RagdollSleep)
-            .remove::<RagdollSleepTimer>();
     }
 }
 
