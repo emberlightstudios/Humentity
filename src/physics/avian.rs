@@ -25,7 +25,7 @@ pub struct RagdollCollisionLayers(pub CollisionLayers);
 
 /// Describes whether ragdoll physics is active
 #[derive(Component, Debug, Clone, PartialEq, Eq, Default)]
-#[require(RagdollDensity, RagdollDamping, RagdollCompliance)]
+#[require(RagdollDensity, RagdollDamping)]
 pub enum CharacterRagdoll {
     #[default]
     None,
@@ -293,7 +293,6 @@ pub(crate) fn set_ragdoll_state(
     bones: Query<&GlobalTransform>,
     collider_offsets: Query<&ColliderOffset>,
     mobility_query: Query<&RagdollMobility>,
-    compliance_query: Query<&RagdollCompliance>,
 ) {
     for (character_entity, ragdoll, mut char_colliders, damping) in characters.iter_mut() {
         let damping = damping.0;
@@ -404,10 +403,6 @@ pub(crate) fn set_ragdoll_state(
             .get(character_entity)
             .ok()
             .map_or(1.0, |m| m.0.clamp(0.0, 1.0));
-        let c = compliance_query
-            .get(character_entity)
-            .ok()
-            .map_or(1.0, |m| m.0.max(0.0));
         for (bone, parent, child, anchor, local_basis2, parent_collider, child_collider) in
             joints_to_spawn
         {
@@ -437,7 +432,6 @@ pub(crate) fn set_ragdoll_state(
                 joint_damping,
                 knee_damping,
                 r,
-                c,
                 character_entity,
             );
             char_colliders.joint_entities.push(joint);
@@ -659,7 +653,6 @@ fn spawn_ragdoll_joint(
     joint_damping: JointDamping,
     knee_damping: JointDamping,
     r: f32,
-    c: f32,
     character: Entity,
 ) -> Entity {
     match bone {
@@ -669,8 +662,8 @@ fn spawn_ragdoll_joint(
                     .with_anchor(anchor)
                     .with_local_basis2(local_basis2)
                     .with_angle_limits(-0.17 * r, 2.5 * r)
-                    .with_point_compliance(0.0005 * c)
-                    .with_align_compliance(0.0005 * c),
+                        .with_point_compliance(0.0)
+                        .with_align_compliance(0.0),
                 JointCollisionDisabled,
                 joint_damping,
                 JointForCharacter(character),
@@ -682,13 +675,31 @@ fn spawn_ragdoll_joint(
                     .with_anchor(anchor)
                     .with_local_basis2(local_basis2)
                     .with_angle_limits(-2.4 * r, 0.0)
-                    .with_point_compliance(0.0005 * c)
-                    .with_align_compliance(0.0005 * c),
+                    .with_point_compliance(0.0)
+                    .with_align_compliance(0.0),
                 JointCollisionDisabled,
                 knee_damping,
                 JointForCharacter(character),
             ))
             .id(),
+        ColliderBone::Head => {
+            let (swing, twist) = get_spherical_limits(bone);
+            commands
+                .spawn((
+                    SphericalJoint::new(parent, child)
+                        .with_anchor(anchor)
+                        .with_local_basis2(local_basis2)
+                        .with_swing_limits(-swing * r, swing * r)
+                        .with_twist_limits(-twist * r, twist * r)
+                        .with_point_compliance(0.0)
+                        .with_swing_compliance(0.0)
+                        .with_twist_compliance(0.0),
+                    JointCollisionDisabled,
+                    joint_damping,
+                    JointForCharacter(character),
+                ))
+                .id()
+        }
         _ => {
             let (swing, twist) = get_spherical_limits(bone);
             commands
@@ -698,9 +709,9 @@ fn spawn_ragdoll_joint(
                         .with_local_basis2(local_basis2)
                         .with_swing_limits(-swing * r, swing * r)
                         .with_twist_limits(-twist * r, twist * r)
-                        .with_point_compliance(0.0005 * c)
-                        .with_swing_compliance(0.0005 * c)
-                        .with_twist_compliance(0.0005 * c),
+                        .with_point_compliance(0.0)
+                        .with_swing_compliance(0.0)
+                        .with_twist_compliance(0.0),
                     JointCollisionDisabled,
                     joint_damping,
                     JointForCharacter(character),

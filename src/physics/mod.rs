@@ -139,25 +139,6 @@ impl Default for RagdollDamping {
     }
 }
 
-/// Multiplier for joint compliance on this character's ragdoll.
-///
-/// The joint compliance values (point, align, swing, twist) are all
-/// multiplied by this value:
-///   - `1.0` = default compliance (default)
-///   - `0.5` = stiffer joints (half the compliance)
-///   - `2.0` = softer joints (double the compliance)
-///
-/// Apply to your character entity.
-#[derive(Component, Clone, Copy, Debug, Reflect)]
-#[reflect(Component, Debug)]
-pub struct RagdollCompliance(pub f32);
-
-impl Default for RagdollCompliance {
-    fn default() -> Self {
-        Self(1.0)
-    }
-}
-
 /// Controls the fraction of full joint range the ragdoll can use.
 ///
 /// The joint limits are scaled by this value:
