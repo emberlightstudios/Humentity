@@ -236,19 +236,23 @@ pub(crate) fn spawn_colliders(
         }
 
         commands.entity(character_entity).remove::<NeedsColliders>();
+        commands.entity(character_entity).insert(ColliderSync(true));
     }
 }
 
 /// This function syncs kinematic character colliders to align with the skeletal bones
 pub(crate) fn sync_colliders(
-    characters: Query<&CharacterColliders>,
+    characters: Query<(&CharacterColliders, Option<&ColliderSync>)>,
     bones: Query<&GlobalTransform>,
     mut collider_data: Query<
         (&mut Position, &mut Rotation, &ColliderOffset),
         With<KinematicCollider>,
     >,
 ) {
-    for colliders in characters.iter() {
+    for (colliders, sync) in characters.iter() {
+        if sync.is_some_and(|s| !s.0) {
+            continue;
+        }
         let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {
             Some(bones) if !bones.is_empty() => bones.clone(),
             Some(_) => vec![],
@@ -277,7 +281,12 @@ pub(crate) fn sync_colliders(
 
 pub(crate) fn set_ragdoll_state(
     mut characters: Query<
-        (Entity, &CharacterRagdoll, &mut CharacterColliders, &RagdollDamping),
+        (
+            Entity,
+            &CharacterRagdoll,
+            &mut CharacterColliders,
+            &RagdollDamping,
+        ),
         Changed<CharacterRagdoll>,
     >,
     mut commands: Commands,
@@ -311,7 +320,8 @@ pub(crate) fn set_ragdoll_state(
                         .entity(collider_entity)
                         .insert(RigidBody::Dynamic)
                         .remove::<KinematicCollider>()
-                        .remove::<SleepingDisabled>();
+                        .remove::<SleepingDisabled>()
+                        .remove::<Sleeping>();
                 }
             }
             CharacterRagdoll::Partial(bones) => {
@@ -321,13 +331,15 @@ pub(crate) fn set_ragdoll_state(
                             .entity(collider_entity)
                             .insert(RigidBody::Dynamic)
                             .remove::<KinematicCollider>()
-                            .remove::<SleepingDisabled>();
+                            .remove::<SleepingDisabled>()
+                            .remove::<Sleeping>();
                     } else {
                         commands
                             .entity(collider_entity)
                             .insert(RigidBody::Kinematic)
                             .insert(KinematicCollider)
-                            .insert(SleepingDisabled);
+                            .insert(SleepingDisabled)
+                            .remove::<Sleeping>();
                     }
                 }
             }
@@ -337,7 +349,8 @@ pub(crate) fn set_ragdoll_state(
                         .entity(collider_entity)
                         .insert(RigidBody::Kinematic)
                         .insert(KinematicCollider)
-                        .insert(SleepingDisabled);
+                        .insert(SleepingDisabled)
+                        .remove::<Sleeping>();
                 }
                 return;
             }

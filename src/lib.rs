@@ -85,14 +85,14 @@ pub mod prelude {
         load_and_insert_humentity_assets,
         NAME_INTERNER,
     };
-    pub use crate::physics::{ColliderBone, RagdollCompliance, RagdollDamping, RagdollDensity, RagdollMobility, COLLIDERS};
+    pub use crate::physics::{ColliderBone, ColliderSync, RagdollCompliance, RagdollDamping, RagdollDensity, RagdollMobility, COLLIDERS};
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::RagdollCollisionLayers;
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::{
         CharacterColliders, CharacterRagdoll, ColliderOffset, KinematicCollider,
     };
-    #[cfg(feature = "rapier")]
+    #[cfg(all(feature = "rapier", not(feature = "avian")))]
     pub use crate::physics::rapier::{CharacterColliders, Ragdoll};
     #[cfg(feature = "physx")]
     pub use crate::physics::physx::{PhysxCharacterColliders, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter, ColliderForCharacter, ColliderList};
@@ -229,6 +229,7 @@ impl Plugin for HumentityPlugin {
             app.register_type::<RagdollDensity>()
                 .register_type::<RagdollDamping>()
                 .register_type::<RagdollCompliance>()
+                .register_type::<ColliderSync>()
                 .add_systems(
                 Update,
                 (

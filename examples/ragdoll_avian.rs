@@ -21,13 +21,14 @@ fn main() {
             PhysicsDebugPlugin,
         ))
         .insert_resource(SubstepCount(10))
-        .insert_resource(PendingRagdollToggle(false))
         .add_systems(Startup, (floor, spawn_ui))
         .add_observer(add_human)
         .add_systems(
             Update,
             (
                 toggle,
+                toggle_sync,
+                sleep_ragdoll,
                 setup_graph,
                 start_clip,
             ),
@@ -38,13 +39,9 @@ fn main() {
 #[derive(Component)]
 struct AnimationController(AnimationNodeIndex);
 
-/// Buffers a Space press until the character entity is ready to receive it.
-#[derive(Resource, Default)]
-struct PendingRagdollToggle(bool);
-
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
-    mut pending: ResMut<PendingRagdollToggle>,
+    time: Res<Time>,
     mut character: Query<(
         Entity,
         &mut CharacterRagdoll,
@@ -55,21 +52,20 @@ fn toggle(
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,
     mut players: Query<&mut AnimationPlayer>,
+    mut collider_data: Query<&mut LinearVelocity>,
 ) {
-    if input.just_pressed(KeyCode::Space) {
-        pending.0 = true;
-    }
-    if !pending.0 {
+    if !input.just_pressed(KeyCode::Space) {
         return;
     }
 
-    let Ok((_entity, mut ragdoll, _colliders, related, skm)) = character.single_mut()
+    let Ok((_entity, mut ragdoll, colliders, related, skm)) = character.single_mut()
     else {
         return;
     };
 
     match &*ragdoll {
         CharacterRagdoll::Full => {
+            // Toggle ragdoll off
             *ragdoll = CharacterRagdoll::None;
 
             // Reset bones to bind poses
@@ -97,10 +93,9 @@ fn toggle(
                 player.stop(AnimationNodeIndex::new(0));
                 player.play(AnimationNodeIndex::new(0)).repeat();
             }
-
-            pending.0 = false;
         }
         _ => {
+            // Toggle ragdoll on
             *ragdoll = CharacterRagdoll::Full;
 
             // Stop animation so it doesn't compete with physics
@@ -109,37 +104,81 @@ fn toggle(
             }
 
             // Give each collider a small nudge so the collapse is interesting.
-            // Deterministic per-collider using entity index bits.
-            //for (bone, &collider_entity) in colliders.collider_entities.iter() {
-            //    if let Ok(mut vel) = collider_data.get_mut(collider_entity) {
-            //        let i = *bone as usize;
-            //        let h = (i.wrapping_mul(0x9e3779b9) as f32).sin();
-            //        let dir = Vec3::new(
-            //            ((h * 43758.5453).fract() - 0.5) * 2.0,
-            //            ((h * 27118.3129).fract()) * 0.5,
-            //            ((h * 30903.5511).fract() - 0.5) * 2.0,
-            //        )
-            //        .normalize_or_zero();
-            //        vel.0 += dir * 2.0;
-            //    }
-            //}
-
-            pending.0 = false;
+            // Varies with time so each activation is unique.
+            for (bone, &collider_entity) in colliders.collider_entities.iter() {
+                if let Ok(mut vel) = collider_data.get_mut(collider_entity) {
+                    let i = *bone as usize;
+                    let t = time.elapsed_secs();
+                    let seed = (t * 100.0).floor() / 100.0;
+                    let h = ((i as f32 + seed) * 0x9e3779b9u32 as f32).sin();
+                    let dir = Vec3::new(
+                        ((h * 43758.5453).fract() - 0.5) * 2.0,
+                        ((h * 27118.3129).fract()) * 0.5,
+                        ((h * 30903.5511).fract() - 0.5) * 2.0,
+                    )
+                    .normalize_or_zero();
+                    vel.0 += dir * 2.0;
+                }
+            }
         }
     }
 }
 
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
-        Text::new("SPACE: toggle full ragdoll\nARROW KEYS: nudge character"),
+        Text::new("SPACE: toggle full ragdoll\nC: toggle collider sync"),
         TextFont::from_font_size(24.0),
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(12.),
-            left: Val::Px(12.),
+            right: Val::Px(12.),
             ..default()
         },
     ));
+}
+
+#[derive(Component)]
+struct RagdollSleepTimer(Timer);
+
+fn sleep_ragdoll(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut timers: Query<(Entity, &mut RagdollSleepTimer, &CharacterColliders)>,
+    changed_ragdolls: Query<(Entity, &CharacterRagdoll), Changed<CharacterRagdoll>>,
+) {
+    for (entity, ragdoll) in changed_ragdolls.iter() {
+        match ragdoll {
+            CharacterRagdoll::Full | CharacterRagdoll::Partial(_) => {
+                commands.entity(entity).insert(RagdollSleepTimer(
+                    Timer::from_seconds(2.0, TimerMode::Once),
+                ));
+            }
+            CharacterRagdoll::None => {
+                commands.entity(entity).remove::<RagdollSleepTimer>();
+            }
+        }
+    }
+
+    for (entity, mut timer, colliders) in timers.iter_mut() {
+        timer.0.tick(time.delta());
+        if timer.0.just_finished() {
+            for &collider_entity in colliders.collider_entities.values() {
+                commands.entity(collider_entity).insert(Sleeping);
+            }
+            commands.entity(entity).remove::<RagdollSleepTimer>();
+        }
+    }
+}
+
+fn toggle_sync(
+    input: Res<ButtonInput<KeyCode>>,
+    mut characters: Query<&mut ColliderSync>,
+) {
+    if input.just_pressed(KeyCode::KeyC) {
+        for mut sync in characters.iter_mut() {
+            sync.0 = !sync.0;
+        }
+    }
 }
 
 fn floor(mut commands: Commands) {
