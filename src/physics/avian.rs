@@ -236,23 +236,19 @@ pub(crate) fn spawn_colliders(
         }
 
         commands.entity(character_entity).remove::<NeedsColliders>();
-        commands.entity(character_entity).insert(ColliderSync(true));
     }
 }
 
 /// This function syncs kinematic character colliders to align with the skeletal bones
 pub(crate) fn sync_colliders(
-    characters: Query<(&CharacterColliders, Option<&ColliderSync>)>,
+    characters: Query<&CharacterColliders>,
     bones: Query<&GlobalTransform>,
     mut collider_data: Query<
         (&mut Position, &mut Rotation, &ColliderOffset),
         With<KinematicCollider>,
     >,
 ) {
-    for (colliders, sync) in characters.iter() {
-        if sync.is_some_and(|s| !s.0) {
-            continue;
-        }
+    for colliders in characters.iter() {
         let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {
             Some(bones) if !bones.is_empty() => bones.clone(),
             Some(_) => vec![],
@@ -362,7 +358,7 @@ pub(crate) fn set_ragdoll_state(
                 .filter_map(|(bone, &child)| {
                     if let Some(bones) = partial_bones
                         && !bones.contains(bone)
-                        && !get_collider_parent(*bone).map_or(false, |p| bones.contains(&p))
+                        && !get_collider_parent(*bone).is_some_and(|p| bones.contains(&p))
                     {
                         return None;
                     }

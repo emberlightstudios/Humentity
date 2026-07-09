@@ -74,23 +74,6 @@ pub(crate) const DEFAULT_RIG_COLLIDER_BONE_NAMES: [&str; 15] = [
     "head",
 ];
 
-/// Controls whether this character's kinematic colliders sync to bone transforms.
-///
-/// When `false`, `sync_colliders` skips this character entirely — useful for
-/// off-screen or culled characters. Set on the character entity.
-///
-/// Default: `true` (sync enabled). Characters without this component also sync
-/// for backward compatibility.
-#[derive(Component, Clone, Copy, Debug, Reflect)]
-#[reflect(Component, Debug)]
-pub struct ColliderSync(pub bool);
-
-impl Default for ColliderSync {
-    fn default() -> Self {
-        Self(true)
-    }
-}
-
 pub(crate) const fn get_collider_parent(bone: ColliderBone) -> Option<ColliderBone> {
     match bone {
         ColliderBone::Head => Some(ColliderBone::Chest),

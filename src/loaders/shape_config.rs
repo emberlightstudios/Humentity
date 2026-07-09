@@ -32,7 +32,7 @@ impl CharacterShapeAsset {
             .iter()
             .map(|s| *self.template_morph_targets.get(s.name).unwrap_or(&0.))
             .collect::<Vec<_>>();
-        Some(MeshMorphWeights::new(morph_weights).unwrap())
+        Some(MeshMorphWeights::Value { weights: morph_weights })
     }
 
     pub fn new(template: Handle<CharacterTemplate>, morphs: MorphTargets) -> Self {

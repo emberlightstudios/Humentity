@@ -27,7 +27,6 @@ fn main() {
             Update,
             (
                 toggle,
-                toggle_sync,
                 sleep_ragdoll,
                 setup_graph,
                 start_clip,
@@ -126,7 +125,7 @@ fn toggle(
 
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
-        Text::new("SPACE: toggle full ragdoll\nC: toggle collider sync"),
+        Text::new("SPACE: toggle full ragdoll"),
         TextFont::from_font_size(24.0),
         Node {
             position_type: PositionType::Absolute,
@@ -170,17 +169,6 @@ fn sleep_ragdoll(
     }
 }
 
-fn toggle_sync(
-    input: Res<ButtonInput<KeyCode>>,
-    mut characters: Query<&mut ColliderSync>,
-) {
-    if input.just_pressed(KeyCode::KeyC) {
-        for mut sync in characters.iter_mut() {
-            sync.0 = !sync.0;
-        }
-    }
-}
-
 fn floor(mut commands: Commands) {
     commands.spawn((
         Collider::cuboid(100.0, 0.1, 100.0),
@@ -196,20 +184,12 @@ fn add_human(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
     let template_handle = template_assets.add(CharacterTemplate::new([], RigType::Default));
 
     let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
-
-    let texture =
-        asset_server.load::<Image>("skin_textures/albedo/young_caucasian_female.png");
-    let mat = materials.add(StandardMaterial {
-        base_color_texture: Some(texture),
-        ..default()
-    });
 
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh.clone(),
@@ -235,7 +215,7 @@ fn add_human(
         // Ragdolls tend to twitch without higher density settings in my findings
         RagdollDensity(10.0),
         RagdollDamping::default(),
-        children![(CharacterPart(basemesh), MeshMaterial3d(mat))],
+        children![(CharacterPart(basemesh),)],
     ));
 }
 

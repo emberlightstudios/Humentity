@@ -14,7 +14,7 @@ mod shared;
 
 use std::f32::consts::PI;
 
-use bevy::{prelude::*, scene::SceneInstanceReady};
+use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 use humentity::prelude::*;
 use shared::{setup_app, CharacterPart};
 
@@ -64,7 +64,9 @@ fn add_humans(
 
     commands
         .spawn((
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("animation/idle.glb"))),
+            WorldAssetRoot(
+                asset_server.load(GltfAssetLabel::Scene(0).from_asset("animation/idle.glb")),
+            ),
             Transform::from_translation(Vec3::new(-1., 0., 0.))
                 .with_rotation(Quat::from_rotation_y(PI)),
             AnimationIndex(index),
@@ -104,7 +106,7 @@ fn add_humans(
 }
 
 fn on_gltf_scene_ready(
-    trigger: On<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     q: Query<(&AnimationIndex, &AnimationGraphHandle)>,
     mut players: Query<&mut AnimationPlayer>,
     children: Query<&Children>,

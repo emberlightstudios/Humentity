@@ -10,7 +10,7 @@ use crate::{
     template::TemplateOverride,
 };
 use ahash::{AHashMap, AHashSet};
-use bevy::mesh::morph::{MorphAttributes, MorphTargetImage};
+use bevy::mesh::morph::MorphAttributes;
 use bevy::{asset::RenderAssetUsages, prelude::*};
 use std::sync::{Arc, RwLock};
 
@@ -96,7 +96,7 @@ pub(crate) fn build_final_mesh_mhclo(
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_spec: &RigSpec,
-) -> (Mesh, Vec<String>, MorphTargetImage) {
+) -> (Mesh, Vec<String>) {
     let vertices = get_vertex_positions(input_mesh);
     let vertex_map = generate_vertex_map(&mesh_verts.vertices, &vertices);
     let mhid_lookup = generate_mhid_lookup(&vertex_map);
@@ -113,40 +113,38 @@ pub(crate) fn build_final_mesh_mhclo(
         meshes.push(mesh);
     }
 
-    let base_positions = get_vertex_positions(&input_mesh);
-    let base_normals = get_vertex_normals(&input_mesh);
-    let base_tangents = get_vertex_tangents(&input_mesh).expect("Failed to get tangents");
     let mut morph_names = vec![];
-    let mut morphs = vec![];
+    if !template.shapes.is_empty() {
+        let base_positions = get_vertex_positions(&input_mesh);
+        let base_normals = get_vertex_normals(&input_mesh);
+        let base_tangents = get_vertex_tangents(&input_mesh).expect("Failed to get tangents");
+        let mut morphs = vec![];
 
-    for (is, shape_mesh) in meshes.iter().enumerate() {
-        let mut morph = Vec::<MorphAttributes>::new();
-        let shape_positions = get_vertex_positions(shape_mesh);
-        let shape_normals = get_vertex_normals(shape_mesh);
-        let shape_tangents =
-            get_vertex_tangents(shape_mesh).expect("Shape meshes should always have tangents");
+        for (is, shape_mesh) in meshes.iter().enumerate() {
+            let mut morph = Vec::<MorphAttributes>::new();
+            let shape_positions = get_vertex_positions(shape_mesh);
+            let shape_normals = get_vertex_normals(shape_mesh);
+            let shape_tangents =
+                get_vertex_tangents(shape_mesh).expect("Shape meshes should always have tangents");
 
-        for vtx in 0..base_positions.len() {
-            morph.push(MorphAttributes::from([
-                shape_positions[vtx] - base_positions[vtx],
-                shape_normals[vtx] - base_normals[vtx],
-                shape_tangents[vtx] - base_tangents[vtx],
-            ]));
+            for vtx in 0..base_positions.len() {
+                morph.push(MorphAttributes::from([
+                    shape_positions[vtx] - base_positions[vtx],
+                    shape_normals[vtx] - base_normals[vtx],
+                    shape_tangents[vtx] - base_tangents[vtx],
+                ]));
+            }
+
+            morph_names.push(template.shapes[is].name.to_string());
+            morphs.push(morph.into_iter());
         }
-
-        morph_names.push(template.shapes[is].name.to_string());
-        morphs.push(morph.into_iter());
+        let morph_attributes: Vec<MorphAttributes> = morphs.into_iter().flatten().collect();
+        input_mesh.set_morph_targets(morph_attributes);
     }
-    let image = MorphTargetImage::new(
-        morphs.into_iter(),
-        base_positions.len(),
-        RenderAssetUsages::default(),
-    )
-    .expect("failed to create morph target image");
 
     set_asset_rig_arrays(&mut input_mesh, &mhid_lookup, &mhclo.helper_map, rig_spec);
 
-    (input_mesh, morph_names, image)
+    (input_mesh, morph_names)
 }
 
 pub(crate) fn build_final_meshes_mhclo(
@@ -157,7 +155,7 @@ pub(crate) fn build_final_meshes_mhclo(
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_spec: &RigSpec,
-) -> (Vec<Mesh>, Vec<Vec<String>>, Vec<MorphTargetImage>) {
+) -> (Vec<Mesh>, Vec<Vec<String>>) {
     let mut mhid_lookup = vec![];
     let mut vertex_map = vec![];
 
@@ -216,47 +214,45 @@ pub(crate) fn build_final_meshes_mhclo(
         shape_meshes.insert(shape, meshes);
     }
 
-    let mut morph_imgs = vec![];
     let mut morph_names = vec![];
 
     for i_mesh in 0..n_meshes {
-        let mesh = &input_meshes[i_mesh];
-        let base_positions = get_vertex_positions(mesh);
-        let base_normals = get_vertex_normals(mesh);
-        let base_tangents = get_vertex_tangents(mesh).expect("Failed to get tangents");
         let mut names = vec![];
-        let mut morph_attrs = vec![];
         let template = &templates[i_mesh];
 
-        for shape in template.shapes.iter() {
-            let Some(shape_mesh) = &shape_meshes[shape.name][i_mesh] else {
-                continue;
-            };
-            let mut morph = Vec::<MorphAttributes>::new();
+        if !template.shapes.is_empty() {
+            let base_positions = get_vertex_positions(&input_meshes[i_mesh]);
+            let base_normals = get_vertex_normals(&input_meshes[i_mesh]);
+            let base_tangents =
+                get_vertex_tangents(&input_meshes[i_mesh]).expect("Failed to get tangents");
+            let mut morph_attrs = vec![];
 
-            let shape_positions = get_vertex_positions(shape_mesh);
-            let shape_normals = get_vertex_normals(shape_mesh);
-            let shape_tangents =
-                get_vertex_tangents(shape_mesh).expect("Shape meshes should always have tangents");
+            for shape in template.shapes.iter() {
+                let Some(shape_mesh) = &shape_meshes[shape.name][i_mesh] else {
+                    continue;
+                };
+                let mut morph = Vec::<MorphAttributes>::new();
 
-            for vtx in 0..base_positions.len() {
-                morph.push(MorphAttributes::from([
-                    shape_positions[vtx] - base_positions[vtx],
-                    shape_normals[vtx] - base_normals[vtx],
-                    shape_tangents[vtx] - base_tangents[vtx],
-                ]));
+                let shape_positions = get_vertex_positions(shape_mesh);
+                let shape_normals = get_vertex_normals(shape_mesh);
+                let shape_tangents = get_vertex_tangents(shape_mesh)
+                    .expect("Shape meshes should always have tangents");
+
+                for vtx in 0..base_positions.len() {
+                    morph.push(MorphAttributes::from([
+                        shape_positions[vtx] - base_positions[vtx],
+                        shape_normals[vtx] - base_normals[vtx],
+                        shape_tangents[vtx] - base_tangents[vtx],
+                    ]));
+                }
+
+                names.push(shape.name.to_string());
+                morph_attrs.push(morph.into_iter());
             }
-
-            names.push(shape.name.to_string());
-            morph_attrs.push(morph.into_iter());
+            let morph_attributes: Vec<MorphAttributes> =
+                morph_attrs.into_iter().flatten().collect();
+            input_meshes[i_mesh].set_morph_targets(morph_attributes);
         }
-        let image = MorphTargetImage::new(
-            morph_attrs.into_iter(),
-            base_positions.len(),
-            RenderAssetUsages::default(),
-        )
-        .expect("failed to create morph target image");
-        morph_imgs.push(image);
         morph_names.push(names);
 
         set_asset_rig_arrays(
@@ -267,5 +263,5 @@ pub(crate) fn build_final_meshes_mhclo(
         );
     }
 
-    (input_meshes.to_vec(), morph_names, morph_imgs)
+    (input_meshes.to_vec(), morph_names)
 }

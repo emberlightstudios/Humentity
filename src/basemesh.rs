@@ -17,9 +17,11 @@ pub struct BaseMesh {
 
 impl BaseMesh {
     pub fn new(asset_server: &AssetServer, path: impl Into<AssetPath<'static>>) -> Self {
-        let handle = asset_server.load_with_settings(path, |settings: &mut ObjVertsSettings| {
-            settings.is_basemesh_helpers = true;
-        });
+        let handle: Handle<ObjVertsAsset> = asset_server.load_builder()
+            .with_settings(|settings: &mut ObjVertsSettings| {
+                settings.is_basemesh_helpers = true;
+            })
+            .load(path);
         Self {
             vertices: default(),
             handle,

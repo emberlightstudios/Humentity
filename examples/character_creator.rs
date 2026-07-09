@@ -6,10 +6,10 @@
 
 mod shared;
 
-use bevy::feathers::controls::button;
-use bevy::feathers::controls::slider;
-use bevy::feathers::controls::ButtonProps;
-use bevy::feathers::controls::SliderProps;
+use bevy::feathers::controls::button_bundle;
+use bevy::feathers::controls::slider_bundle;
+use bevy::feathers::controls::ButtonBundleProps;
+use bevy::feathers::controls::FeathersSliderProps;
 use bevy::feathers::dark_theme::create_dark_theme;
 use bevy::feathers::theme::ThemedText;
 use bevy::feathers::theme::UiTheme;
@@ -283,8 +283,8 @@ fn init_ui(
         let btn = commands
             .spawn((
                 ButtonCategory(category),
-                button(
-                    ButtonProps::default(),
+                button_bundle(
+                    ButtonBundleProps::default(),
                     (),
                     Spawn((Text::new(category), ThemedText)),
                 ),
@@ -307,8 +307,8 @@ fn init_ui(
         let btn = commands
             .spawn((
                 ButtonCategory(category),
-                button(
-                    ButtonProps::default(),
+                button_bundle(
+                    ButtonBundleProps::default(),
                     (),
                     Spawn((Text::new(category), ThemedText)),
                 ),
@@ -353,8 +353,8 @@ fn category_selected(
                 children![
                     (
                         SliderMetadata(category, name),
-                        slider(
-                            SliderProps {
+                        slider_bundle(
+                            FeathersSliderProps {
                                 min: min_values[name],
                                 max: 1.0,
                                 value: *morph,

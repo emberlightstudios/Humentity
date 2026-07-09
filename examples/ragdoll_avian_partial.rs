@@ -61,7 +61,7 @@ fn toggle(
             *ragdoll = CharacterRagdoll::None;
             colliders.bones_subset = None;
 
-            if let Some(graph) = graphs.get_mut(&graph_handle.0) {
+            if let Some(mut graph) = graphs.get_mut(&graph_handle.0) {
                 if let Some(node) = graph.graph.node_weight_mut(controller.0) {
                     node.mask = 0;
                 }
@@ -107,7 +107,7 @@ fn toggle(
             ]);
             colliders.bones_subset = None;
 
-            if let Some(graph) = graphs.get_mut(&graph_handle.0) {
+            if let Some(mut graph) = graphs.get_mut(&graph_handle.0) {
                 if let Some(node) = graph.graph.node_weight_mut(controller.0) {
                     node.mask = 1;
                 }

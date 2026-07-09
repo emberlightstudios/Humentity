@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use ahash::AHashMap;
-use bevy::{mesh::morph::MorphTargetImage, prelude::*, tasks::AsyncComputeTaskPool};
+use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
 use crate::{assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, loaders::{CharacterShapeAsset, MhcloAsset, ObjVertsAsset, TargetAsset}, morphs::MakeHumanMorphs, template::CharacterTemplate, rigs::{RigData, RigSpec}};
 
@@ -73,7 +73,6 @@ impl Default for LoadingMediator {
 pub(crate) struct MeshConstructedMsg {
     pub(crate) final_meshes: Vec<Mesh>,
     pub(crate) morph_names: Vec<Vec<String>>,
-    pub(crate) morph_images: Vec<MorphTargetImage>, 
 }
 
 /// This system runs in phases, so it gets triggered multiple times to load a mesh
@@ -83,7 +82,6 @@ pub(crate) fn mesh_build(
     mut meshes: ResMut<Assets<Mesh>>,
     mesh_verts: Res<Assets<ObjVertsAsset>>,
     mhclo_assets: Res<Assets<MhcloAsset>>,
-    mut images: ResMut<Assets<Image>>,
     mut morphs: ResMut<MakeHumanMorphs>,
     basemesh: Res<BaseMesh>,
     rig_data: Res<RigData>,
@@ -105,7 +103,7 @@ pub(crate) fn mesh_build(
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
-                    let mesh = handle_single_mesh_complete(msg, template, &mut images);
+                    let mesh = handle_single_mesh_complete(msg, template);
                     let mesh_handle = meshes.add(mesh);
                     cached_meshes.insert((part.clone(), template_handle.clone()), mesh_handle.clone());
                     *load_state = AssetLoadState::Finished;
@@ -131,7 +129,7 @@ pub(crate) fn mesh_build(
                         })
                         .collect();
 
-                    let new_meshes = handle_stitched_mesh_complete(msg, &resolved_templates, &mut images);
+                    let new_meshes = handle_stitched_mesh_complete(msg, &resolved_templates);
 
                     for (i_mesh, mesh) in new_meshes.into_iter().enumerate() {
                         let handle = parts[i_mesh].part.clone();
@@ -149,18 +147,13 @@ pub(crate) fn mesh_build(
 pub(crate) fn handle_single_mesh_complete(
     msg: MeshConstructedMsg,
     template: &CharacterTemplate,
-    images: &mut Assets<Image>,
 ) -> Mesh {
-    let MeshConstructedMsg { final_meshes, morph_names, morph_images } = msg;
+    let MeshConstructedMsg { final_meshes, morph_names } = msg;
     let mut mesh = final_meshes.into_iter().next().unwrap();
 
     if !template.shapes.is_empty() {
         let morph_names = morph_names.into_iter().next().unwrap();
-        let morph_image = morph_images.into_iter().next().unwrap();
-        let image = images.add(morph_image.0);
-        mesh = mesh
-            .with_morph_target_names(morph_names)
-            .with_morph_targets(image);
+        mesh = mesh.with_morph_target_names(morph_names);
     }
     mesh
 }
@@ -175,42 +168,36 @@ pub fn build_single_mesh_direct(
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_spec: &RigSpec,
-    images: &mut Assets<Image>,
 ) -> Mesh {
-    let (mesh, morph_names, morph_image) = build_final_mesh_mhclo(
+    let (mesh, morph_names) = build_final_mesh_mhclo(
         mhclo, input_mesh, mesh_verts, template, mh_morphs, basemesh, rig_spec,
     );
     let msg = MeshConstructedMsg {
         final_meshes: vec![mesh],
         morph_names: vec![morph_names],
-        morph_images: vec![morph_image],
     };
-    handle_single_mesh_complete(msg, template, images)
+    handle_single_mesh_complete(msg, template)
 }
 
 /// Handles the message for a completed stitched mesh and builds the final meshes
 pub(crate) fn handle_stitched_mesh_complete(
     msg: MeshConstructedMsg,
     templates: &[&CharacterTemplate],
-    images: &mut Assets<Image>,
 ) -> Vec<Mesh> {
-    let MeshConstructedMsg { final_meshes, morph_names, morph_images } = msg;
+    let MeshConstructedMsg { final_meshes, morph_names } = msg;
     let mut meshes = vec![];
 
-    for (i_mesh, ((mut mesh, image), names)) in final_meshes
+    for (i_mesh, (mesh, names)) in final_meshes
             .into_iter()
-            .zip(morph_images)
             .zip(morph_names)
             .enumerate()
     {
         let template = templates[i_mesh];
-        if !template.shapes.is_empty() {
-            let morph_names = names;
-            let image = images.add(image.0);
-            mesh = mesh
-                .with_morph_target_names(morph_names)
-                .with_morph_targets(image);
-        }
+        let mesh = if !template.shapes.is_empty() {
+            mesh.with_morph_target_names(names)
+        } else {
+            mesh
+        };
         meshes.push(mesh);
     }
     meshes
@@ -275,13 +262,12 @@ pub(crate) fn build_single_mesh_process(
         let basemesh = basemesh.clone();
 
         pool.spawn(async move {
-            let (mesh, morph_names, morph_image) = build_final_mesh_mhclo(
+            let (mesh, morph_names) = build_final_mesh_mhclo(
                 &mhclo, &input_mesh, &mesh_verts, &template, mh_morphs, basemesh, &rig_spec
             );
             sender.send(MeshConstructedMsg {
                 final_meshes: vec![mesh],
                 morph_names: vec![morph_names],
-                morph_images: vec![morph_image],
             })
         }).detach()
     }
@@ -396,7 +382,7 @@ fn build_stitched_meshes_process(
 
         let sender = mediator.mesh_building_msg_sender.clone();
         pool.spawn(async move {
-            let (final_meshes, morph_names, morph_images) = build_final_meshes_mhclo(
+            let (final_meshes, morph_names) = build_final_meshes_mhclo(
                 &mhclos,
                 &mut input_meshes,
                 &mesh_verts,
@@ -408,7 +394,6 @@ fn build_stitched_meshes_process(
             sender.send(MeshConstructedMsg {
                 final_meshes,
                 morph_names,
-                morph_images,
             })
         }).detach();
     }

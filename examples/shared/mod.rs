@@ -60,16 +60,19 @@ fn update_mesh_when_ready(
 ) {
     for (entity, parent, part) in character_parts.iter() {
         let mhclo_handle = part.0.clone();
-        let Ok((character_shape, skm)) = characters.get(parent.parent()) else {
+        let parent_entity = parent.parent();
+        let Ok((character_shape, skm)) = characters.get(parent_entity) else {
+            info!("[update_mesh_when_ready] entity={entity:?} parent={parent_entity:?} — parent missing CharacterShape or SkinnedMesh, skipping");
             continue;
         };
         let Some(asset) = shape_assets.get(&character_shape.0) else {
+            info!("[update_mesh_when_ready] entity={entity:?} — CharacterShapeAsset not loaded yet, skipping");
             continue;
         };
         let template = &asset.template;
 
         // After you trigger a mesh build it will be put in this cache
-        if let Some(mesh_handle) = cached_meshes.get(&(mhclo_handle, template.clone())) {
+        if let Some(mesh_handle) = cached_meshes.get(&(mhclo_handle.clone(), template.clone())) {
             commands.entity(entity).insert((
                 Mesh3d(mesh_handle.clone()),
                 Transform::IDENTITY, // I think this is necessary
@@ -87,11 +90,13 @@ fn update_mesh_when_ready(
                         .iter()
                         .map(|s| *asset.template_morph_targets.get(s.name).unwrap_or(&0.))
                         .collect::<Vec<_>>();
-                    commands
-                        .entity(entity)
-                        .insert(MeshMorphWeights::new(morph_weights).unwrap());
+                    commands.entity(entity).insert(MeshMorphWeights::Value {
+                        weights: morph_weights,
+                    });
                 }
             }
+        } else {
+            info!("[update_mesh_when_ready] entity={entity:?} — cached mesh NOT found for (mhclo={mhclo_handle:?}, template={template:?}), waiting...");
         }
     }
 }
@@ -176,7 +181,7 @@ pub fn setup_env(
             intensity: 8_000_0.0,
             radius: 19.,
             range: 19.,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             ..default()
         },
         Transform::from_xyz(-1.0, 3.0, -5.0),

@@ -69,7 +69,7 @@ pub struct RigSpec {
     pub(crate) weights: Arc<RigWeightsAsset>,
     pub(crate) config: Arc<RigConfigAsset>,
     pub(crate) reference_rig: Arc<ReferenceRigAsset>,
-    pub(crate) scene: Option<Handle<DynamicScene>>,
+    pub(crate) scene: Option<Handle<DynamicWorld>>,
 }
 
 #[derive(Resource)]
@@ -192,7 +192,9 @@ use bevy::ecs::system::SystemState;
 pub(crate) fn build_rig_scenes(world: &mut World) {
     let rigs_to_build: Vec<_> = {
         let mut state: SystemState<ResMut<RigData>> = SystemState::new(world);
-        let rig_data = state.get_mut(world);
+        let Ok(rig_data) = state.get_mut(world) else {
+            return;
+        };
         rig_data
             .iter()
             .filter(|(_, spec)| spec.scene.is_none())
@@ -204,7 +206,9 @@ pub(crate) fn build_rig_scenes(world: &mut World) {
         let scene = build_skeleton_scene(&reference_rig, world);
 
         let mut state: SystemState<ResMut<RigData>> = SystemState::new(world);
-        let mut rig_data = state.get_mut(world);
+        let Ok(mut rig_data) = state.get_mut(world) else {
+            return;
+        };
         rig_data.get_mut(&rig_type).unwrap().scene = Some(scene);
     }
 }
@@ -338,7 +342,7 @@ pub(crate) fn set_asset_rig_arrays(
 pub(crate) fn build_skeleton_scene(
     reference_rig: &Arc<ReferenceRigAsset>,
     world: &mut World,
-) -> Handle<DynamicScene> {
+) -> Handle<DynamicWorld> {
     let bone_order = &reference_rig.bone_names;
     let ref_bone_parents = &reference_rig.bone_parents;
     let ref_local_bindpose = &reference_rig.local_bindpose;
@@ -447,10 +451,10 @@ pub(crate) fn build_skeleton_scene(
     };
     scene_world.entity_mut(rig_entity).insert(skinned_mesh);
 
-    let mut ds = world.resource_mut::<Assets<DynamicScene>>();
+    let mut ds = world.resource_mut::<Assets<DynamicWorld>>();
     
 
-    ds.add(DynamicScene::from_world(&scene_world))
+    ds.add(DynamicWorld::from_world(&scene_world))
 }
 
 pub(crate) fn get_model_space_skeleton_transforms(

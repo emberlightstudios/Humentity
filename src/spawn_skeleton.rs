@@ -45,7 +45,7 @@ pub(crate) fn spawn_rig_scene(
             continue;
         };
         let cached_scene = commands
-            .spawn((DynamicSceneRoot::from(scene), Name::new("RigScene")))
+            .spawn((DynamicWorldRoot::from(scene), Name::new("RigScene")))
             .id();
         commands
             .entity(human)
@@ -71,7 +71,7 @@ pub(crate) fn fit_skeleton_to_shape(
     vg: Res<VertexGroups>,
 ) {
     for (character_entity, config, root_motion) in configs.iter() {
-        let Some(asset) = shape_assets.get_mut(&config.0) else {
+        let Some(mut asset) = shape_assets.get_mut(&config.0) else {
             continue;
         };
         let Some(template) = templates.get(&asset.template) else {
