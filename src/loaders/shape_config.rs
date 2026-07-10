@@ -45,6 +45,12 @@ impl CharacterShapeAsset {
     }
 }
 
+impl From<Handle<CharacterTemplate>> for CharacterShapeAsset {
+    fn from(template: Handle<CharacterTemplate>) -> Self {
+        Self { template, ..default() }
+    }
+}
+
 #[derive(Default, TypePath)]
 pub struct CharacterShapeConfigLoader;
 

@@ -70,21 +70,16 @@ fn add_humans(
     // CharacterShapeCOnfig can be loaded from toml or created at runtime
 
     // The base mesh
-    let mut morphs = MorphTargets::default();
-    morphs.insert(BABY, 0.);
-    morphs.insert(BODYBUILDER, 0.);
     commands.spawn((
         Name::new("Basemesh"),
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
-            template_handle.clone(),
-            morphs.clone(),
-        ))),
+        CharacterShape(shape_assets.add(template_handle.clone())),
         children![(CharacterPart(basemesh_part.clone()))],
     ));
 
     // A baby
+    let mut morphs = MorphTargets::default();
     morphs.insert(BABY, 1.);
     morphs.insert(BODYBUILDER, 0.);
     commands.spawn((

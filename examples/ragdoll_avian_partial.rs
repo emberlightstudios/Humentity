@@ -172,7 +172,7 @@ fn add_human(
 
     commands.spawn((
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)).with_translation(Vec3::new(1., 0., 0.)),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, MorphTargets::default()))),
+        CharacterShape(shape_assets.add(template_handle)),
         CharacterRagdoll::None,
         CharacterColliders::new(Some(vec![
             ColliderBone::Chest,

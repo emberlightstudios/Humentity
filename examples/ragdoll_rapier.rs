@@ -145,7 +145,7 @@ fn add_human(
 
     commands.spawn((
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, MorphTargets::default()))),
+        CharacterShape(shape_assets.add(template_handle)),
         CharacterColliders::new(None),
 
         children![(

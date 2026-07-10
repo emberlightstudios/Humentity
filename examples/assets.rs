@@ -94,13 +94,10 @@ fn add_human(
         ..default()
     });
 
-    let mut morph_targets = MorphTargets::default();
-    morph_targets.insert("female", 1.);
-
-    let shape_handle = shape_assets.add(CharacterShapeAsset::new(
-        template_handle.clone(),
-        morph_targets,
-    ));
+    // A CharacterShapeAsset can be constructed from just a template handle without specifying morph
+    // targets.  Single-shape templates like this one bake that shape down into the base mesh. 
+    // In that case there are no morph targets on the final mesh.
+    let shape_handle = shape_assets.add(template_handle.clone());
 
     commands.spawn((
         Name::new("Character"),

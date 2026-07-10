@@ -34,7 +34,6 @@ fn add_humans(
 ) {
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.0);
-
     let shape = CharacterMorphShape::new("woman", morph_targets);
 
     // Expression morph — only defined on the head-portion template so it never touches the body mesh
@@ -42,7 +41,7 @@ fn add_humans(
     expression_targets.insert("jawOpen", 1.0);
     let expression_shape = CharacterMorphShape::new("jawOpen", expression_targets);
 
-    let template_handle =
+    let body_template_handle =
         template_assets.add(CharacterTemplate::new([shape.clone()], RigType::Default));
     let head_template_handle = template_assets.add(CharacterTemplate::new(
         [shape, expression_shape],
@@ -61,7 +60,7 @@ fn add_humans(
             StitchedPart::from(headless.clone()),
             StitchedPart::from(head.clone()).with_template_override(head_template_handle.clone()),
         ]),
-        template_handle: template_handle.clone(),
+        template_handle: body_template_handle.clone(),
     });
 
     let white = materials.add(StandardMaterial::from_color(Color::WHITE));
@@ -73,7 +72,7 @@ fn add_humans(
     commands.spawn((
         Name::new("Stitched"),
         Transform::from_translation(Vec3::new(0., 0., -1.)),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(body_template_handle, morphs))),
         InheritedVisibility::default(),
         children![
             (

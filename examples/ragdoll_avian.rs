@@ -201,10 +201,7 @@ fn add_human(
 
     commands.spawn((
         Transform::from_xyz(0.0, 0.0, 0.0),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
-            template_handle,
-            MorphTargets::default(),
-        ))),
+        CharacterShape(shape_assets.add(template_handle)),
         CharacterRagdoll::None,
         CharacterColliders::new(None),
         RagdollCollisionLayers(CollisionLayers::new(
