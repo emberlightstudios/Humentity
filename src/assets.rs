@@ -114,7 +114,7 @@ pub(crate) fn build_final_mesh_mhclo(
     }
 
     let mut morph_names = vec![];
-    if !template.shapes.is_empty() {
+    if template.shapes.len() > 1 {
         let base_positions = get_vertex_positions(&input_mesh);
         let base_normals = get_vertex_normals(&input_mesh);
         let base_tangents = get_vertex_tangents(&input_mesh).expect("Failed to get tangents");
@@ -140,6 +140,8 @@ pub(crate) fn build_final_mesh_mhclo(
         }
         let morph_attributes: Vec<MorphAttributes> = morphs.into_iter().flatten().collect();
         input_mesh.set_morph_targets(morph_attributes);
+    } else if template.shapes.len() == 1 {
+        input_mesh = meshes.into_iter().next().unwrap();
     }
 
     set_asset_rig_arrays(&mut input_mesh, &mhid_lookup, &mhclo.helper_map, rig_spec);
@@ -220,7 +222,7 @@ pub(crate) fn build_final_meshes_mhclo(
         let mut names = vec![];
         let template = &templates[i_mesh];
 
-        if !template.shapes.is_empty() {
+        if template.shapes.len() > 1 {
             let base_positions = get_vertex_positions(&input_meshes[i_mesh]);
             let base_normals = get_vertex_normals(&input_meshes[i_mesh]);
             let base_tangents =
@@ -252,6 +254,11 @@ pub(crate) fn build_final_meshes_mhclo(
             let morph_attributes: Vec<MorphAttributes> =
                 morph_attrs.into_iter().flatten().collect();
             input_meshes[i_mesh].set_morph_targets(morph_attributes);
+        } else if template.shapes.len() == 1 {
+            let Some(shape_mesh) = &shape_meshes[template.shapes[0].name][i_mesh] else {
+                continue;
+            };
+            input_meshes[i_mesh] = shape_mesh.clone();
         }
         morph_names.push(names);
 
