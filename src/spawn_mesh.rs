@@ -73,6 +73,7 @@ impl Default for LoadingMediator {
 pub(crate) struct MeshConstructedMsg {
     pub(crate) final_meshes: Vec<Mesh>,
     pub(crate) morph_names: Vec<Vec<String>>,
+    pub(crate) templates: Vec<CharacterTemplate>,
 }
 
 /// This system runs in phases, so it gets triggered multiple times to load a mesh
@@ -103,7 +104,7 @@ pub(crate) fn mesh_build(
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
-                    let mesh = handle_single_mesh_complete(msg, template);
+                    let mesh = handle_single_mesh_complete(msg);
                     let mesh_handle = meshes.add(mesh);
                     cached_meshes.insert((part.clone(), template_handle.clone()), mesh_handle.clone());
                     *load_state = AssetLoadState::Finished;
@@ -121,15 +122,7 @@ pub(crate) fn mesh_build(
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
-                    let resolved_templates: Vec<&CharacterTemplate> = parts
-                        .iter()
-                        .map(|p| {
-                            let h = p.template_override.as_ref().map_or(template_handle, |ov| &ov.0);
-                            templates.get(h).unwrap_or(template)
-                        })
-                        .collect();
-
-                    let new_meshes = handle_stitched_mesh_complete(msg, &resolved_templates);
+                    let new_meshes = handle_stitched_mesh_complete(msg);
 
                     for (i_mesh, mesh) in new_meshes.into_iter().enumerate() {
                         let handle = parts[i_mesh].part.clone();
@@ -146,12 +139,11 @@ pub(crate) fn mesh_build(
 /// Handles the message for a completed single mesh and builds the final mesh
 pub(crate) fn handle_single_mesh_complete(
     msg: MeshConstructedMsg,
-    template: &CharacterTemplate,
 ) -> Mesh {
-    let MeshConstructedMsg { final_meshes, morph_names } = msg;
+    let MeshConstructedMsg { final_meshes, morph_names, templates } = msg;
     let mut mesh = final_meshes.into_iter().next().unwrap();
 
-    if !template.shapes.is_empty() {
+    if templates[0].shapes.len() > 1 {
         let morph_names = morph_names.into_iter().next().unwrap();
         mesh = mesh.with_morph_target_names(morph_names);
     }
@@ -175,16 +167,16 @@ pub fn build_single_mesh_direct(
     let msg = MeshConstructedMsg {
         final_meshes: vec![mesh],
         morph_names: vec![morph_names],
+        templates: vec![template.clone()],
     };
-    handle_single_mesh_complete(msg, template)
+    handle_single_mesh_complete(msg)
 }
 
 /// Handles the message for a completed stitched mesh and builds the final meshes
 pub(crate) fn handle_stitched_mesh_complete(
     msg: MeshConstructedMsg,
-    templates: &[&CharacterTemplate],
 ) -> Vec<Mesh> {
-    let MeshConstructedMsg { final_meshes, morph_names } = msg;
+    let MeshConstructedMsg { final_meshes, morph_names, templates } = msg;
     let mut meshes = vec![];
 
     for (i_mesh, (mesh, names)) in final_meshes
@@ -192,8 +184,8 @@ pub(crate) fn handle_stitched_mesh_complete(
             .zip(morph_names)
             .enumerate()
     {
-        let template = templates[i_mesh];
-        let mesh = if !template.shapes.is_empty() {
+        let template = &templates[i_mesh];
+        let mesh = if template.shapes.len() > 1 {
             mesh.with_morph_target_names(names)
         } else {
             mesh
@@ -268,6 +260,7 @@ pub(crate) fn build_single_mesh_process(
             sender.send(MeshConstructedMsg {
                 final_meshes: vec![mesh],
                 morph_names: vec![morph_names],
+                templates: vec![template],
             })
         }).detach()
     }
@@ -394,6 +387,7 @@ fn build_stitched_meshes_process(
             sender.send(MeshConstructedMsg {
                 final_meshes,
                 morph_names,
+                templates: templates_for_build,
             })
         }).detach();
     }
