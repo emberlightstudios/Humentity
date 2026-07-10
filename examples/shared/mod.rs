@@ -62,11 +62,9 @@ fn update_mesh_when_ready(
         let mhclo_handle = part.0.clone();
         let parent_entity = parent.parent();
         let Ok((character_shape, skm)) = characters.get(parent_entity) else {
-            info!("[update_mesh_when_ready] entity={entity:?} parent={parent_entity:?} — parent missing CharacterShape or SkinnedMesh, skipping");
             continue;
         };
         let Some(asset) = shape_assets.get(&character_shape.0) else {
-            info!("[update_mesh_when_ready] entity={entity:?} — CharacterShapeAsset not loaded yet, skipping");
             continue;
         };
         let template = &asset.template;
@@ -95,8 +93,6 @@ fn update_mesh_when_ready(
                     });
                 }
             }
-        } else {
-            info!("[update_mesh_when_ready] entity={entity:?} — cached mesh NOT found for (mhclo={mhclo_handle:?}, template={template:?}), waiting...");
         }
     }
 }
@@ -190,6 +186,6 @@ pub fn setup_env(
     // A camera:
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(-1.0, 2.0, -4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
+        Transform::from_xyz(0.0, 1.0, -4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
     ));
 }
