@@ -93,12 +93,12 @@ pub struct KinematicCollider;
 /// Links a collider entity to its owning character entity.
 #[derive(Component)]
 #[relationship(relationship_target = ColliderList)]
-pub(crate) struct ColliderForCharacter(pub(crate) Entity);
+pub struct ColliderForCharacter(pub Entity);
 
 /// Auto-maintained list of collider entities belonging to a character.
 #[derive(Component)]
 #[relationship_target(relationship = ColliderForCharacter)]
-pub(crate) struct ColliderList(Vec<Entity>);
+pub struct ColliderList(Vec<Entity>);
 
 /// Links a joint entity to its owning character entity.
 #[derive(Component)]

@@ -35,6 +35,7 @@ fn toggle(
         &mut CharacterColliders,
         &mut AnimationPlayer,
         &SkinnedMesh,
+        Option<&AnimationController>,
     )>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,
@@ -44,9 +45,13 @@ fn toggle(
         return;
     }
 
-    let Ok((_entity, mut ragdoll, colliders, mut player, skm)) = character.single_mut() else {
+    let Ok((_entity, mut ragdoll, colliders, mut player, skm, controller)) =
+        character.single_mut()
+    else {
         return;
     };
+
+    let clip_index = controller.map_or(AnimationNodeIndex::new(0), |c| c.0);
 
     match &*ragdoll {
         CharacterRagdoll::Full => {
@@ -74,15 +79,15 @@ fn toggle(
                 }
             }
 
-            player.stop(AnimationNodeIndex::new(0));
-            player.play(AnimationNodeIndex::new(0)).repeat();
+            player.stop(clip_index);
+            player.play(clip_index).repeat();
         }
         _ => {
             // Toggle ragdoll on
             *ragdoll = CharacterRagdoll::Full;
 
             // Stop animation so it doesn't compete with physics
-            player.stop(AnimationNodeIndex::new(0));
+            player.stop(clip_index);
 
             // Give each collider a small nudge so the collapse is interesting.
             // Varies with time so each activation is unique.
@@ -121,22 +126,37 @@ fn spawn_ui(mut commands: Commands) {
 #[derive(Component)]
 struct RagdollSleepTimer(Timer);
 
+impl Default for RagdollSleepTimer {
+    fn default() -> Self {
+        Self(Timer::from_seconds(2., TimerMode::Once))
+    }
+}
+
 fn sleep_ragdoll(
     time: Res<Time>,
     mut commands: Commands,
     mut timers: Query<(Entity, &mut RagdollSleepTimer, &CharacterColliders)>,
     changed_ragdolls: Query<(Entity, &CharacterRagdoll), Changed<CharacterRagdoll>>,
+    mut woke: RemovedComponents<Sleeping>,
+    collider_owner: Query<&ColliderForCharacter>,
 ) {
     for (entity, ragdoll) in changed_ragdolls.iter() {
         match ragdoll {
             CharacterRagdoll::Full | CharacterRagdoll::Partial(_) => {
                 commands
                     .entity(entity)
-                    .insert(RagdollSleepTimer(Timer::from_seconds(2.0, TimerMode::Once)));
+                    .insert(RagdollSleepTimer::default());
             }
             CharacterRagdoll::None => {
                 commands.entity(entity).remove::<RagdollSleepTimer>();
             }
+        }
+    }
+
+    // Sometimes ragdoll jitter wakes the ragdoll back up.  Give it another timer.
+    for entity in woke.read() {
+        if let Ok(owner) = collider_owner.get(entity) {
+            commands.entity(owner.0).insert(RagdollSleepTimer::default());
         }
     }
 

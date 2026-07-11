@@ -23,7 +23,8 @@ pub mod prelude {
     pub use crate::physics::avian::RagdollCollisionLayers;
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::{
-        CharacterColliders, CharacterRagdoll, ColliderOffset, KinematicCollider,
+        CharacterColliders, CharacterRagdoll, ColliderForCharacter, ColliderOffset,
+        KinematicCollider,
     };
     #[cfg(feature = "physx")]
     pub use crate::physics::physx::{
