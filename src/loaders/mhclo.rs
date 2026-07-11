@@ -1,6 +1,6 @@
 use bevy::{
     asset::AssetPath,
-    asset::{io::Reader, AssetLoader, LoadContext},
+    asset::{AssetLoader, LoadContext, io::Reader},
     prelude::*,
 };
 use std::collections::BTreeSet;
@@ -58,9 +58,8 @@ impl AssetLoader for MhcloAssetLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let raw_text = String::from_utf8(bytes).map_err(|err| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string())
-        })?;
+        let raw_text = String::from_utf8(bytes)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
         let mut name = "".to_string();
         let mut obj_file = AssetPath::default();
@@ -102,7 +101,8 @@ impl AssetLoader for MhcloAssetLoader {
                     }
                     "obj_file" => {
                         if let Some(value) = parts.next()
-                            && let Ok(path) = load_context.path()
+                            && let Ok(path) = load_context
+                                .path()
                                 .parent()
                                 .expect("Failed to get folder")
                                 .resolve_str(value)
@@ -153,7 +153,9 @@ impl AssetLoader for MhcloAssetLoader {
                         }
                     }
                     "z_depth" => {
-                        if let Some(value) = parts.next() && let Ok(parsed) = value.parse::<i8>() {
+                        if let Some(value) = parts.next()
+                            && let Ok(parsed) = value.parse::<i8>()
+                        {
                             z_depth = parsed;
                         }
                     }
@@ -216,7 +218,9 @@ impl AssetLoader for MhcloAssetLoader {
 
                     for value in values {
                         if grouping {
-                            if let Some(s) = start && let Ok(end) = value.parse::<u16>() {
+                            if let Some(s) = start
+                                && let Ok(end) = value.parse::<u16>()
+                            {
                                 for idx in s..=end {
                                     delete_verts.insert(idx);
                                 }
@@ -280,5 +284,4 @@ impl MhcloAsset {
             }),
         )
     }
-
 }

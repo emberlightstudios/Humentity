@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
 use ahash::AHashMap;
-use bevy::{asset::{io::Reader, AssetLoader, LoadContext}, mesh::morph::MeshMorphWeights, prelude::*};
-use serde::{Serialize, Deserialize};
+use bevy::{
+    asset::{AssetLoader, LoadContext, io::Reader},
+    mesh::morph::MeshMorphWeights,
+    prelude::*,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::morphs::MorphTargets;
 use crate::rigs::BoneTranslationData;
@@ -25,14 +29,19 @@ pub struct CharacterShapeAsset {
 }
 
 impl CharacterShapeAsset {
-    pub fn get_morph_weights_component(&self, templates: &Assets<CharacterTemplate>) -> Option<MeshMorphWeights> {
+    pub fn get_morph_weights_component(
+        &self,
+        templates: &Assets<CharacterTemplate>,
+    ) -> Option<MeshMorphWeights> {
         let template = templates.get(&self.template)?;
         let morph_weights = template
             .shapes
             .iter()
             .map(|s| *self.template_morph_targets.get(s.name).unwrap_or(&0.))
             .collect::<Vec<_>>();
-        Some(MeshMorphWeights::Value { weights: morph_weights })
+        Some(MeshMorphWeights::Value {
+            weights: morph_weights,
+        })
     }
 
     pub fn new(template: Handle<CharacterTemplate>, morphs: MorphTargets) -> Self {
@@ -47,7 +56,10 @@ impl CharacterShapeAsset {
 
 impl From<Handle<CharacterTemplate>> for CharacterShapeAsset {
     fn from(template: Handle<CharacterTemplate>) -> Self {
-        Self { template, ..default() }
+        Self {
+            template,
+            ..default()
+        }
     }
 }
 
@@ -81,7 +93,10 @@ impl AssetLoader for CharacterShapeConfigLoader {
 
         let template: Handle<CharacterTemplate> = load_context.load(raw.template);
 
-        Ok(CharacterShapeAsset::new(template, raw.template_morph_targets))
+        Ok(CharacterShapeAsset::new(
+            template,
+            raw.template_morph_targets,
+        ))
     }
 
     fn extensions(&self) -> &[&str] {

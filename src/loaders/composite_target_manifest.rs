@@ -1,9 +1,11 @@
+use crate::prelude::NAME_INTERNER;
 use ahash::AHashMap;
 use bevy::{
-    asset::{AssetLoader, LoadContext, io::Reader}, ecs::intern::Internable, prelude::*
+    asset::{AssetLoader, LoadContext, io::Reader},
+    ecs::intern::Internable,
+    prelude::*,
 };
 use serde::Deserialize;
-use crate::prelude::NAME_INTERNER;
 
 #[derive(Asset, TypePath, Clone, Debug, Deref, Default)]
 pub struct CompositeTargetsAsset(pub AHashMap<&'static str, CategoryMorphsAsset>);
@@ -89,27 +91,31 @@ impl AssetLoader for TargetManifestAssetLoader {
                     .iter()
                     .map(|asset| {
                         let interned_name = NAME_INTERNER.intern(&asset.name).leak();
-                        let interned_opposites = asset.opposites.as_ref().map(|op| OppositesAsset {
-                            negative_left: NAME_INTERNER.intern(&op.negative_left).leak(),
-                            negative_right: NAME_INTERNER.intern(&op.negative_right).leak(),
-                            negative_unsided: NAME_INTERNER.intern(&op.negative_unsided).leak(),
-                            positive_left: NAME_INTERNER.intern(&op.positive_left).leak(),
-                            positive_right: NAME_INTERNER.intern(&op.positive_right).leak(),
-                            positive_unsided: NAME_INTERNER.intern(&op.positive_unsided).leak(),
-                        });
+                        let interned_opposites =
+                            asset.opposites.as_ref().map(|op| OppositesAsset {
+                                negative_left: NAME_INTERNER.intern(&op.negative_left).leak(),
+                                negative_right: NAME_INTERNER.intern(&op.negative_right).leak(),
+                                negative_unsided: NAME_INTERNER.intern(&op.negative_unsided).leak(),
+                                positive_left: NAME_INTERNER.intern(&op.positive_left).leak(),
+                                positive_right: NAME_INTERNER.intern(&op.positive_right).leak(),
+                                positive_unsided: NAME_INTERNER.intern(&op.positive_unsided).leak(),
+                            });
                         CompositeTarget {
                             has_left_and_right: asset.has_left_and_right,
                             name: interned_name,
                             opposites: interned_opposites,
                             targets: asset.targets.as_ref().map(|v| {
-                                v.iter()
-                                    .map(|t| NAME_INTERNER.intern(t).leak())
-                                    .collect()
+                                v.iter().map(|t| NAME_INTERNER.intern(t).leak()).collect()
                             }),
                         }
                     })
                     .collect::<Vec<_>>();
-                (interned_category, CategoryMorphsAsset { morphs: interned_morphs })
+                (
+                    interned_category,
+                    CategoryMorphsAsset {
+                        morphs: interned_morphs,
+                    },
+                )
             })
             .collect::<AHashMap<_, _>>();
 

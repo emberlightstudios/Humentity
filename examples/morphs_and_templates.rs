@@ -21,7 +21,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{setup_app, CharacterPart};
+use shared::{CharacterPart, setup_app};
 
 const BABY: &str = "baby";
 const BODYBUILDER: &str = "bodybuilder";

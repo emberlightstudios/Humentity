@@ -2,7 +2,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{setup_app, CharacterPart};
+use shared::{CharacterPart, setup_app};
 
 const EYES: &str = "body_parts/Eyes/Eyeballs/high-poly-eyes.mhclo";
 const EYEBROW: &str = "body_parts/eyebrows/eyebrows001/eyebrow001.mhclo";
@@ -95,7 +95,7 @@ fn add_human(
     });
 
     // A CharacterShapeAsset can be constructed from just a template handle without specifying morph
-    // targets.  Single-shape templates like this one bake that shape down into the base mesh. 
+    // targets.  Single-shape templates like this one bake that shape down into the base mesh.
     // In that case there are no morph targets on the final mesh.
     let shape_handle = shape_assets.add(template_handle.clone());
 

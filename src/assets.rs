@@ -6,7 +6,7 @@ use crate::{
     },
     morphs::adjust_helpers_to_morphs,
     prelude::*,
-    rigs::{set_asset_rig_arrays, RigSpec},
+    rigs::{RigSpec, set_asset_rig_arrays},
     template::TemplateOverride,
 };
 use ahash::{AHashMap, AHashSet};

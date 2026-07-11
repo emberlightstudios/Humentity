@@ -5,8 +5,8 @@ use ahash::AHashMap;
 use bevy::asset::AssetPath;
 use bevy::prelude::*;
 
-use crate::loaders::{ObjVertsAsset, VertexGroupsAsset};
 use crate::loaders::ObjVertsSettings;
+use crate::loaders::{ObjVertsAsset, VertexGroupsAsset};
 
 #[derive(Resource)]
 pub struct BaseMesh {
@@ -17,7 +17,8 @@ pub struct BaseMesh {
 
 impl BaseMesh {
     pub fn new(asset_server: &AssetServer, path: impl Into<AssetPath<'static>>) -> Self {
-        let handle: Handle<ObjVertsAsset> = asset_server.load_builder()
+        let handle: Handle<ObjVertsAsset> = asset_server
+            .load_builder()
             .with_settings(|settings: &mut ObjVertsSettings| {
                 settings.is_basemesh_helpers = true;
             })
@@ -68,10 +69,11 @@ pub(crate) fn extract_basemesh_asset(
     for ev in basemesh_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = ev
             && let Some(asset) = basemesh_assets.get(*id)
-                && asset.is_basemesh_helpers {
-                    meshes.vertices = Arc::new(asset.vertices.clone());
-                    return;
-                }
+            && asset.is_basemesh_helpers
+        {
+            meshes.vertices = Arc::new(asset.vertices.clone());
+            return;
+        }
     }
 }
 
@@ -82,8 +84,9 @@ pub(crate) fn extract_vertex_groups_asset(
 ) {
     for ev in vg_events.read() {
         if let AssetEvent::LoadedWithDependencies { id } = ev
-            && let Some(asset) = vg_assets.get(*id) {
-                vg.data = Arc::new(asset.0.clone());
-            }
+            && let Some(asset) = vg_assets.get(*id)
+        {
+            vg.data = Arc::new(asset.0.clone());
+        }
     }
 }

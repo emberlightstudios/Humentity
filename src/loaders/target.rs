@@ -1,5 +1,7 @@
 use bevy::{
-    asset::{AssetLoader, LoadContext, io::Reader}, ecs::intern::Internable, prelude::*
+    asset::{AssetLoader, LoadContext, io::Reader},
+    ecs::intern::Internable,
+    prelude::*,
 };
 
 use crate::NAME_INTERNER;
@@ -35,9 +37,8 @@ impl AssetLoader for TargetAssetLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let raw_text = String::from_utf8(bytes).map_err(|err| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string())
-        })?;
+        let raw_text = String::from_utf8(bytes)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
         let mut deltas = Vec::new();
         for line in raw_text.lines() {
@@ -66,7 +67,10 @@ impl AssetLoader for TargetAssetLoader {
             }
         }
 
-        let name = _load_context.path().path().file_stem()
+        let name = _load_context
+            .path()
+            .path()
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown_target");
         let name = NAME_INTERNER.intern(name).leak();

@@ -1,6 +1,8 @@
 use ahash::AHashMap;
 use bevy::{
-    asset::{AssetLoader, LoadContext, io::Reader}, ecs::intern::Internable, prelude::*
+    asset::{AssetLoader, LoadContext, io::Reader},
+    ecs::intern::Internable,
+    prelude::*,
 };
 use serde::{Deserialize, Serialize};
 
@@ -35,7 +37,7 @@ impl AssetLoader for RigWeightsAssetLoader {
         reader.read_to_end(&mut bytes).await?;
         let weights = serde_json::from_slice::<WeightsFormat>(&bytes)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
-            
+
         let path = load_context.path().to_string();
         let rig = if path.contains("mixamo") {
             RigType::Mixamo
@@ -47,18 +49,18 @@ impl AssetLoader for RigWeightsAssetLoader {
             unimplemented!("Unrecognized rig type in path: {}", path);
         };
 
-        let weights = weights.weights
+        let weights = weights
+            .weights
             .into_iter()
-            .map(|(k, v)| (
-                NAME_INTERNER.intern(&k).leak(),
-                v.iter().copied().collect::<AHashMap<_, _>>()
-            ))
+            .map(|(k, v)| {
+                (
+                    NAME_INTERNER.intern(&k).leak(),
+                    v.iter().copied().collect::<AHashMap<_, _>>(),
+                )
+            })
             .collect::<AHashMap<_, _>>();
 
-        Ok(RigWeightsAsset {
-            weights,
-            rig,
-        })
+        Ok(RigWeightsAsset { weights, rig })
     }
 
     fn extensions(&self) -> &[&str] {

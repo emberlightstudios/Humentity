@@ -1,8 +1,8 @@
+use ahash::AHashMap;
 use bevy::{
-    asset::{io::Reader, AssetLoader, LoadContext},
+    asset::{AssetLoader, LoadContext, io::Reader},
     prelude::*,
 };
-use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Asset, TypePath, Clone, Debug)]
@@ -34,9 +34,8 @@ impl AssetLoader for ObjVertsAssetLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let content = String::from_utf8(bytes).map_err(|err| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string())
-        })?;
+        let content = String::from_utf8(bytes)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
         let mut vertices = Vec::new();
         for line in content.lines() {

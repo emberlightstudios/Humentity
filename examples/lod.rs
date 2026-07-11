@@ -6,7 +6,7 @@ mod shared;
 
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
-use shared::{setup_app, CharacterPart};
+use shared::{CharacterPart, setup_app};
 
 const SHAPE_NAME: &str = "bigboobs";
 

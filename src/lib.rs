@@ -4,11 +4,11 @@ mod basemesh;
 mod loaders;
 mod mesh_ops;
 mod morphs;
-mod template;
-mod rigs;
-mod spawn_skeleton;
-mod spawn_mesh;
 mod physics;
+mod rigs;
+mod spawn_mesh;
+mod spawn_skeleton;
+mod template;
 
 use bevy::asset::AssetPath;
 use bevy::ecs::intern::Interner;
@@ -19,83 +19,52 @@ use prelude::*;
 pub static NAME_INTERNER: Interner<str> = Interner::new();
 
 pub mod prelude {
-    pub use crate::{
-        loaders::{
-            ObjVertsAsset,
-            ObjVertsAssetLoader,
-            ObjVertsSettings,
-            VertexGroupsAsset,
-            VertexGroupsAssetLoader,
-            CategoryMorphsAsset,
-            CompositeTarget,
-            CompositeTargetsAsset,
-            MacroBoundString,
-            MacroBounds,
-            MacroDataAsset,
-            MacroDataAssetLoader,
-            MhcloAsset,
-            MhcloAssetLoader,
-            OppositesAsset,
-            RetargetedAnimationAsset,
-            RetargetedAnimationAssetLoader,
-            RetargetedAnimationSettings,
-            BoneJsonConfig,
-            BoneTransformSpec,
-            RigConfigAsset,
-            RigConfigAssetLoader,
-            RigWeightsAsset,
-            RigWeightsAssetLoader,
-            ReferenceRigAsset,
-            ReferenceRigAssetLoader,
-            CharacterTemplateAssetLoader,
-            CharacterShapeAsset,
-            CharacterShapeConfigLoader,
-            TargetAsset,
-            TargetAssetLoader,
-            TargetDelta,
-            TargetManifestAssetLoader,
-        },
-        basemesh::{BaseMesh, VertexGroups},
-        animation::TranslationTracks,
-        assets::{
-            StitchedParts, StitchedPart,
-            shape_mesh_from_helpers_mhclo,
-        },
-        morphs::{MakeHumanMorphs, MorphTargets, MorphError, MorphsReady, adjust_helpers_to_morphs},
-        template::{
-            CharacterTemplate, CharacterMorphShape, TemplateOverride,
-        },
-        mesh_ops::{
-            get_vertex_positions,
-            generate_vertex_map,
-            generate_mhid_lookup,
-        },
-        rigs::{
-            RigData,
-            RigSpec,
-            SkeletalBone,
-            RigType,
-            RootMotion,
-        },
-        spawn_mesh::{CharacterShape, MhcloMeshBuilder, LoadAssetMeshJob, CachedMhcloMeshHandles, build_single_mesh_direct},
-        spawn_skeleton::{FitSkeleton, SkeletonEntities},
-        HumentityGlobalConfig,
-        HumentityPlugin,
-        BoneDebugPlugin,
-        load_and_insert_humentity_assets,
-        NAME_INTERNER,
-    };
-    pub use crate::physics::{ColliderBone, RagdollDamping, RagdollDensity, RagdollMobility, COLLIDERS};
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::RagdollCollisionLayers;
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::{
         CharacterColliders, CharacterRagdoll, ColliderOffset, KinematicCollider,
     };
-    #[cfg(all(feature = "rapier", not(feature = "avian")))]
-    pub use crate::physics::rapier::{CharacterColliders, Ragdoll};
     #[cfg(feature = "physx")]
-    pub use crate::physics::physx::{PhysxCharacterColliders, ColliderType, HitboxCollider, HurtboxCollider, RagdollCollider, RagdollColliderFilter, ColliderForCharacter, ColliderList};
+    pub use crate::physics::physx::{
+        ColliderForCharacter, ColliderList, ColliderType, HitboxCollider, HurtboxCollider,
+        PhysxCharacterColliders, RagdollCollider, RagdollColliderFilter,
+    };
+    pub use crate::physics::{
+        COLLIDERS, ColliderBone, RagdollDamping, RagdollDensity, RagdollMobility,
+    };
+    pub use crate::{
+        BoneDebugPlugin,
+        // HumentityGlobalConfig, // commented out - depends on TranslationTracks from animation.rs
+        HumentityPlugin,
+        NAME_INTERNER,
+        animation::TranslationTracks,
+        assets::{StitchedPart, StitchedParts, shape_mesh_from_helpers_mhclo},
+        basemesh::{BaseMesh, VertexGroups},
+        load_and_insert_humentity_assets,
+        loaders::{
+            BoneJsonConfig, BoneTransformSpec, CategoryMorphsAsset, CharacterShapeAsset,
+            CharacterShapeConfigLoader, CharacterTemplateAssetLoader, CompositeTarget,
+            CompositeTargetsAsset, MacroBoundString, MacroBounds, MacroDataAsset,
+            MacroDataAssetLoader, MhcloAsset, MhcloAssetLoader, ObjVertsAsset, ObjVertsAssetLoader,
+            ObjVertsSettings, OppositesAsset, ReferenceRigAsset, ReferenceRigAssetLoader,
+            RetargetedAnimationAsset, RetargetedAnimationAssetLoader, RetargetedAnimationSettings,
+            RigConfigAsset, RigConfigAssetLoader, RigWeightsAsset, RigWeightsAssetLoader,
+            TargetAsset, TargetAssetLoader, TargetDelta, TargetManifestAssetLoader,
+            VertexGroupsAsset, VertexGroupsAssetLoader,
+        },
+        mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_vertex_positions},
+        morphs::{
+            MakeHumanMorphs, MorphError, MorphTargets, MorphsReady, adjust_helpers_to_morphs,
+        },
+        rigs::{RigData, RigSpec, RigType, RootMotion, SkeletalBone},
+        spawn_mesh::{
+            CachedMhcloMeshHandles, CharacterShape, LoadAssetMeshJob, MhcloMeshBuilder,
+            build_single_mesh_direct,
+        },
+        spawn_skeleton::FitSkeleton,
+        template::{CharacterMorphShape, CharacterTemplate, TemplateOverride},
+    };
 }
 
 /// Loads and inserts all 4 core resources (BaseMesh, VertexGroups, MakeHumanMorphs, RigData)
@@ -113,7 +82,10 @@ pub fn load_and_insert_humentity_assets(
     ref_rig_path: impl Into<AssetPath<'static>>,
 ) {
     commands.insert_resource(basemesh::BaseMesh::new(asset_server, base_mesh_path));
-    commands.insert_resource(basemesh::VertexGroups::new(asset_server, vertex_groups_path));
+    commands.insert_resource(basemesh::VertexGroups::new(
+        asset_server,
+        vertex_groups_path,
+    ));
     commands.insert_resource(morphs::MakeHumanMorphs::new(
         asset_server,
         target_composites_path,
@@ -131,6 +103,7 @@ pub fn load_and_insert_humentity_assets(
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
 pub(crate) const MODEL_ROTATION_FIX: Quat = Quat::from_xyzw(0., 1., 0., 0.);
 
+/*
 #[derive(Resource, Default, Clone)]
 pub struct HumentityGlobalConfig {
     /// Use animation postprocessing to rescale position tracks to mesh size
@@ -143,6 +116,7 @@ pub struct HumentityGlobalConfig {
 /// animatin post-processing you can set it after this.
 #[derive(SystemSet, Debug, Hash, Copy, Clone, Eq, PartialEq)]
 pub struct HumentityAnimationSystems;
+*/
 
 /// The plugin struct
 pub struct HumentityPlugin;
@@ -153,11 +127,9 @@ impl Plugin for HumentityPlugin {
             app.add_plugins(ObjPlugin);
         }
 
-        app
-            .insert_resource(spawn_mesh::MhcloMeshBuilder::default())
+        app.insert_resource(spawn_mesh::MhcloMeshBuilder::default())
             .insert_resource(spawn_mesh::CachedMhcloMeshHandles::default())
             .insert_resource(spawn_mesh::CachedMhcloRawMeshHandles::default())
-
             .init_asset::<ObjVertsAsset>()
             .register_asset_loader(ObjVertsAssetLoader)
             .init_asset::<VertexGroupsAsset>()
@@ -182,12 +154,10 @@ impl Plugin for HumentityPlugin {
             .register_asset_loader(loaders::CharacterTemplateAssetLoader)
             .init_asset::<loaders::CharacterShapeAsset>()
             .register_asset_loader(loaders::CharacterShapeConfigLoader)
-
             .add_systems(
                 Update,
                 (
-                    basemesh::extract_basemesh_asset
-                        .run_if(resource_exists::<basemesh::BaseMesh>),
+                    basemesh::extract_basemesh_asset.run_if(resource_exists::<basemesh::BaseMesh>),
                     basemesh::extract_vertex_groups_asset
                         .run_if(resource_exists::<basemesh::VertexGroups>),
                     morphs::populate_morph_resource
@@ -202,23 +172,20 @@ impl Plugin for HumentityPlugin {
                         .after(morphs::check_morphs_ready)
                         .before(spawn_mesh::mesh_build)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
-                    rigs::sync_and_build_rig_data
-                        .run_if(resource_exists::<rigs::RigData>),
+                    rigs::sync_and_build_rig_data.run_if(resource_exists::<rigs::RigData>),
                     (
-                        (   
+                        (
                             spawn_skeleton::spawn_rig_scene,
                             spawn_skeleton::fit_skeleton_to_shape,
-                        ).chain(),
-                        (
-                            spawn_mesh::mesh_build,
-                            spawn_mesh::mediators_clean_up,
-                        ).chain(),
+                        )
+                            .chain(),
+                        (spawn_mesh::mesh_build, spawn_mesh::mediators_clean_up).chain(),
                     )
                         .chain()
                         .run_if(resource_exists::<basemesh::BaseMesh>)
                         .run_if(resource_exists::<basemesh::VertexGroups>)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>)
-                        .run_if(resource_exists::<rigs::RigData>)
+                        .run_if(resource_exists::<rigs::RigData>),
                 ),
             )
             .add_systems(Update, rigs::build_rig_scenes);
@@ -230,47 +197,23 @@ impl Plugin for HumentityPlugin {
             app.register_type::<RagdollDensity>()
                 .register_type::<RagdollDamping>()
                 .add_systems(
-                Update,
-                (
-                    physics::avian::mark_needs_colliders,
-                    physics::avian::spawn_colliders.after(physics::avian::mark_needs_colliders).after(spawn_skeleton::fit_skeleton_to_shape),
-                    physics::avian::set_ragdoll_state,
-                    physics::avian::update_collision_layers,
-                ),
-            )
-            .add_systems(
-                FixedUpdate,
-                physics::avian::sync_colliders,
-            )
-            .add_systems(
-                PostUpdate,
-                physics::avian::sync_bones_to_ragdoll
-                    .after(AnimationSystems)
-                    .before(TransformSystems::Propagate),
-            );
-        }
-
-        #[cfg(feature = "rapier")]
-        {
-            app.add_systems(
-                Update,
-                (
-                    physics::rapier::mark_needs_colliders,
-                    physics::rapier::spawn_colliders.after(physics::rapier::mark_needs_colliders).after(spawn_skeleton::fit_skeleton_to_shape),
-                    physics::rapier::activate_ragdoll,
-                    physics::rapier::deactivate_ragdoll,
-                    physics::rapier::force_sleep_ragdoll,
-                ),
-            )
-            .add_systems(
-                FixedUpdate,
-                physics::rapier::sync_colliders,
-            )
-            .add_systems(
-                PostUpdate,
-                physics::rapier::sync_bones_to_ragdoll
-                    .before(TransformSystems::Propagate),
-            );
+                    Update,
+                    (
+                        physics::avian::mark_needs_colliders,
+                        physics::avian::spawn_colliders
+                            .after(physics::avian::mark_needs_colliders)
+                            .after(spawn_skeleton::fit_skeleton_to_shape),
+                        physics::avian::set_ragdoll_state,
+                        physics::avian::update_collision_layers,
+                    ),
+                )
+                .add_systems(FixedUpdate, physics::avian::sync_colliders)
+                .add_systems(
+                    PostUpdate,
+                    physics::avian::sync_bones_to_ragdoll
+                        .after(AnimationSystems)
+                        .before(TransformSystems::Propagate),
+                );
         }
 
         #[cfg(feature = "physx")]
@@ -279,42 +222,40 @@ impl Plugin for HumentityPlugin {
             use bevy_mod_physx::prelude::Physics;
 
             app.add_systems(
-                    Startup,
-                    physics::physx::create_collider_physics_material
-                            .run_if(resource_exists::<Physics>),
-                )
-                .add_systems(
-                    Update,
-                    (
-                        physics::physx::auto_add_ragdoll_colliders
-                            .after(spawn_skeleton::fit_skeleton_to_shape),
-                        physics::physx::spawn_kinematic_colliders::<HitboxCollider>
-                            .run_if(resource_exists::<physics::physx::ColliderMaterial>)
-                            .run_if(resource_exists::<Physics>)
-                            .run_if(resource_exists::<RigData>),
-                        physics::physx::spawn_kinematic_colliders::<HurtboxCollider>
-                            .run_if(resource_exists::<physics::physx::ColliderMaterial>)
-                            .run_if(resource_exists::<Physics>)
-                            .run_if(resource_exists::<RigData>),
-                        physics::physx::spawn_ragdoll_colliders
-                            .run_if(resource_exists::<physics::physx::ColliderMaterial>)
-                            .run_if(resource_exists::<Physics>)
-                            .run_if(resource_exists::<RigData>),
-                        physics::physx::sync_colliders::<HitboxCollider>,
-                        physics::physx::sync_colliders::<HurtboxCollider>,
-                        physics::physx::on_colliders_changed::<HitboxCollider>,
-                        physics::physx::on_colliders_changed::<HurtboxCollider>,
-                        physics::physx::on_colliders_changed::<RagdollCollider>,
-                    )
-                )
-                .add_systems(
-                    PostUpdate,
-                    physics::physx::sync_skeleton_to_ragdoll
-                        .after(AnimationSystems)
-                )
-                .add_observer(physics::physx::mark_entity_needs_colliders::<HitboxCollider>)
-                .add_observer(physics::physx::mark_entity_needs_colliders::<HurtboxCollider>)
-                .add_observer(physics::physx::mark_entity_needs_colliders::<RagdollCollider>);
+                Startup,
+                physics::physx::create_collider_physics_material.run_if(resource_exists::<Physics>),
+            )
+            .add_systems(
+                Update,
+                (
+                    physics::physx::auto_add_ragdoll_colliders
+                        .after(spawn_skeleton::fit_skeleton_to_shape),
+                    physics::physx::spawn_kinematic_colliders::<HitboxCollider>
+                        .run_if(resource_exists::<physics::physx::ColliderMaterial>)
+                        .run_if(resource_exists::<Physics>)
+                        .run_if(resource_exists::<RigData>),
+                    physics::physx::spawn_kinematic_colliders::<HurtboxCollider>
+                        .run_if(resource_exists::<physics::physx::ColliderMaterial>)
+                        .run_if(resource_exists::<Physics>)
+                        .run_if(resource_exists::<RigData>),
+                    physics::physx::spawn_ragdoll_colliders
+                        .run_if(resource_exists::<physics::physx::ColliderMaterial>)
+                        .run_if(resource_exists::<Physics>)
+                        .run_if(resource_exists::<RigData>),
+                    physics::physx::sync_colliders::<HitboxCollider>,
+                    physics::physx::sync_colliders::<HurtboxCollider>,
+                    physics::physx::on_colliders_changed::<HitboxCollider>,
+                    physics::physx::on_colliders_changed::<HurtboxCollider>,
+                    physics::physx::on_colliders_changed::<RagdollCollider>,
+                ),
+            )
+            .add_systems(
+                PostUpdate,
+                physics::physx::sync_skeleton_to_ragdoll.after(AnimationSystems),
+            )
+            .add_observer(physics::physx::mark_entity_needs_colliders::<HitboxCollider>)
+            .add_observer(physics::physx::mark_entity_needs_colliders::<HurtboxCollider>)
+            .add_observer(physics::physx::mark_entity_needs_colliders::<RagdollCollider>);
         }
 
         /*
@@ -344,7 +285,6 @@ impl Plugin for HumentityPlugin {
         }
          */
     }
-
 }
 
 pub struct BoneDebugPlugin;
@@ -353,4 +293,4 @@ impl Plugin for BoneDebugPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, rigs::bone_debug_draw);
     }
-}   
+}

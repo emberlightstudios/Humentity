@@ -1,10 +1,11 @@
 use crate::{
     basemesh::{BaseMesh, VertexGroups},
     prelude::*,
-    rigs::{get_model_space_skeleton_transforms, BoneTranslationData, RigData, RootBonePrevious},
+    rigs::{BoneTranslationData, RigData, RootBonePrevious, get_model_space_skeleton_transforms},
 };
 use ahash::AHashMap;
 use bevy::{
+    animation::AnimatedBy,
     ecs::intern::Internable,
     mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
@@ -15,6 +16,7 @@ use bevy::{
 #[derive(Component)]
 pub struct FitSkeleton;
 
+/*
 /// For storing refs to commonly needed entities so that you don't have to iter_descendants to find them.
 #[derive(Component)]
 pub struct SkeletonEntities {
@@ -22,6 +24,7 @@ pub struct SkeletonEntities {
     pub rig: Entity,
     pub root_bone: Entity,
 }
+*/
 
 pub(crate) fn spawn_rig_scene(
     new_humans: Query<(Entity, &CharacterShape), (Without<SkinnedMesh>, Without<FitSkeleton>)>,
@@ -61,7 +64,15 @@ pub(crate) fn fit_skeleton_to_shape(
     templates: Res<Assets<CharacterTemplate>>,
     skinned_meshes: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>)>,
     children: Query<&Children>,
-    configs: Query<(Entity, &CharacterShape, Option<&RootMotion>), With<FitSkeleton>>,
+    configs: Query<
+        (
+            Entity,
+            &CharacterShape,
+            Option<&RootMotion>,
+            Option<&AnimationPlayer>,
+        ),
+        With<FitSkeleton>,
+    >,
     names: Query<&Name, With<SkeletalBone>>,
     mut local_transforms: Query<&mut Transform, Without<CharacterShape>>,
     mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
@@ -70,7 +81,7 @@ pub(crate) fn fit_skeleton_to_shape(
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
 ) {
-    for (character_entity, config, root_motion) in configs.iter() {
+    for (character_entity, config, root_motion, animation_player) in configs.iter() {
         let Some(mut asset) = shape_assets.get_mut(&config.0) else {
             continue;
         };
@@ -117,6 +128,14 @@ pub(crate) fn fit_skeleton_to_shape(
 
         if bone_entities.is_empty() {
             continue;
+        }
+
+        if animation_player.is_some() {
+            for &bone_entity in bone_entities.values() {
+                commands
+                    .entity(bone_entity)
+                    .insert(AnimatedBy(character_entity));
+            }
         }
 
         // Re-fit skeleton to mesh shape.
@@ -185,10 +204,12 @@ pub(crate) fn fit_skeleton_to_shape(
         }
 
         let root_bone = bone_entities[rig_spec.reference_rig.bone_names[0]];
+        /*
         let related = SkeletonEntities {
             rig: rig_entity,
             root_bone,
         };
+        */
 
         commands
             .entity(character_entity)
@@ -197,7 +218,7 @@ pub(crate) fn fit_skeleton_to_shape(
                     joints: skm.joints.clone(),
                     inverse_bindposes: inv_bindpose_assets.add(inv_bindposes),
                 },
-                related,
+                // related,
             ))
             .remove::<FitSkeleton>();
 

@@ -4,21 +4,20 @@ version = "0.18.1"
 edition = "2024"
 
 [dependencies]
-bevy = "0.19.0"
-ahash = { version = ">=0.8.12", features = ["serde"] }
-serde = { version = ">=1.0.228", features = ["derive"] }
-walkdir = ">=2.5.0"
-serde_json = ">=1.0.150"
-bytemuck = ">=1.25.0"
-gltf = ">=1.4.1"
-bevy_obj = "0.19.0"
-crossbeam-channel = ">=0.5.15"
-toml = ">=1.1.2"
-thiserror = ">=2.0.18"
-avian3d = { optional = true, version = "0.7.0" }
+bevy.workspace = true
+ahash.workspace = true
+serde.workspace = true
+walkdir.workspace = true
+serde_json.workspace = true
+bytemuck.workspace = true
+gltf.workspace = true
+bevy_obj.workspace = true
+crossbeam-channel.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+avian3d = { optional = true, workspace = true }
 
-bevy_mod_physx = { optional = true, path = "../bevy_mod_physx" }
-bevy_rapier3d = { optional = true, version = "0.34.0" }
+bevy_mod_physx = { optional = true, workspace = true }
 
 [dev-dependencies]
 bevy = { version = "0.19.0", features = ["bevy_feathers"] }
@@ -28,10 +27,6 @@ bevy_egui = "0.40.0"
 [[example]]
 name = "ragdoll_physx"
 required-features = ["physx"]
-
-[[example]]
-name = "ragdoll_rapier"
-required-features = ["rapier"]
 
 [[example]]
 name = "ragdoll_avian"
@@ -46,7 +41,6 @@ default = []
 debug = ["bevy/debug"]
 avian = ["dep:avian3d"]
 physx = ["dep:bevy_mod_physx"]
-rapier = ["dep:bevy_rapier3d"]
 
 [lints.clippy]
 all = "deny"

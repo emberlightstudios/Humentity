@@ -33,13 +33,13 @@ pub enum CharacterRagdoll {
     /// Only the listed bones are made dynamic; all others stay kinematic.
     ///
     /// ## Warning: kinematic colliders whose corresponding skeleton bone is a child
-    ///     of a bone whose cooresponding collider is dynamic 
+    ///     of a bone whose cooresponding collider is dynamic
     ///
     /// If a kinematic collider's corresponding skeletal bone is a descendant of a
-    /// dynamically controlled bone in the skeleton hierarchy, then directly setting 
+    /// dynamically controlled bone in the skeleton hierarchy, then directly setting
     /// `Position`/`Rotation` or transform component values
     /// on the kinematic collider can cause unpredictable behavior including crashes.
-    /// 
+    ///
     /// For example:
     /// Ragdolling a branch (e.g. arms) while the root of the skeletal tree is kinematic should be safe
     /// Ragdolling the root of the tree while trying to control child bones kinematically can be dangerous.
@@ -147,7 +147,9 @@ pub(crate) fn spawn_colliders(
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     rig_data: Res<RigData>,
 ) {
-    for (character_entity, character_shape, skm, mut colliders, density, collision_layers) in characters.iter_mut() {
+    for (character_entity, character_shape, skm, mut colliders, density, collision_layers) in
+        characters.iter_mut()
+    {
         let Some(collision_layers) = collision_layers else {
             continue;
         };
@@ -217,7 +219,10 @@ pub(crate) fn spawn_colliders(
                     SleepingDisabled,
                     collider,
                     geometry,
-                    ColliderOffset { collider_to_bone: collider_to_joint, bone_to_collider: joint_to_collider },
+                    ColliderOffset {
+                        collider_to_bone: collider_to_joint,
+                        bone_to_collider: joint_to_collider,
+                    },
                     ColliderDensity(density),
                     collision_layers.0,
                     Transform::IDENTITY,
@@ -351,49 +356,57 @@ pub(crate) fn set_ragdoll_state(
             }
         }
 
-        let joints_to_spawn: Vec<(ColliderBone, Entity, Entity, Vec3, Quat, Transform, Transform)> =
-            char_colliders
-                .collider_entities
-                .iter()
-                .filter_map(|(bone, &child)| {
-                    if let Some(bones) = partial_bones
-                        && !bones.contains(bone)
-                        && !get_collider_parent(*bone).is_some_and(|p| bones.contains(&p))
-                    {
-                        return None;
-                    }
-                    let parent_bone_type = get_collider_parent(*bone)?;
-                    let parent = *char_colliders.collider_entities.get(&parent_bone_type)?;
+        let joints_to_spawn: Vec<(
+            ColliderBone,
+            Entity,
+            Entity,
+            Vec3,
+            Quat,
+            Transform,
+            Transform,
+        )> = char_colliders
+            .collider_entities
+            .iter()
+            .filter_map(|(bone, &child)| {
+                if let Some(bones) = partial_bones
+                    && !bones.contains(bone)
+                    && !get_collider_parent(*bone).is_some_and(|p| bones.contains(&p))
+                {
+                    return None;
+                }
+                let parent_bone_type = get_collider_parent(*bone)?;
+                let parent = *char_colliders.collider_entities.get(&parent_bone_type)?;
 
-                    let child_bone = *char_colliders.bone_entities.get(bone)?;
-                    let parent_bone = *char_colliders.bone_entities.get(&parent_bone_type)?;
+                let child_bone = *char_colliders.bone_entities.get(bone)?;
+                let parent_bone = *char_colliders.bone_entities.get(&parent_bone_type)?;
 
-                    let child_bone_world = bones.get(child_bone).ok()?;
-                    let parent_bone_world = bones.get(parent_bone).ok()?;
-                    let anchor_world = child_bone_world.translation();
+                let child_bone_world = bones.get(child_bone).ok()?;
+                let parent_bone_world = bones.get(parent_bone).ok()?;
+                let anchor_world = child_bone_world.translation();
 
-                    let parent_offset = collider_offsets.get(parent).ok()?;
-                    let child_offset = collider_offsets.get(child).ok()?;
+                let parent_offset = collider_offsets.get(parent).ok()?;
+                let child_offset = collider_offsets.get(child).ok()?;
 
-                    let parent_collider = Transform::from(*parent_bone_world) * parent_offset.collider_to_bone;
-                    let child_collider = Transform::from(*child_bone_world) * child_offset.collider_to_bone;
+                let parent_collider =
+                    Transform::from(*parent_bone_world) * parent_offset.collider_to_bone;
+                let child_collider =
+                    Transform::from(*child_bone_world) * child_offset.collider_to_bone;
 
-                    // Basis for body2's joint frame so the bindpose relative
-                    // rotation is the rest position and axes align.
-                    let local_basis2 =
-                        child_collider.rotation.inverse() * parent_collider.rotation;
+                // Basis for body2's joint frame so the bindpose relative
+                // rotation is the rest position and axes align.
+                let local_basis2 = child_collider.rotation.inverse() * parent_collider.rotation;
 
-                    Some((
-                        *bone,
-                        parent,
-                        child,
-                        anchor_world,
-                        local_basis2,
-                        parent_collider,
-                        child_collider,
-                    ))
-                })
-                .collect();
+                Some((
+                    *bone,
+                    parent,
+                    child,
+                    anchor_world,
+                    local_basis2,
+                    parent_collider,
+                    child_collider,
+                ))
+            })
+            .collect();
 
         let r = mobility_query
             .get(character_entity)
@@ -412,7 +425,7 @@ pub(crate) fn set_ragdoll_state(
                 Position(child_collider.translation),
                 Rotation(child_collider.rotation),
             ));
-            // If we don't increase the damping at the knee the whole ragdoll collapses very quickly at 
+            // If we don't increase the damping at the knee the whole ragdoll collapses very quickly at
             // the knees.  I guess we need this to support all the weight above
             let knee_damping = JointDamping {
                 linear: damping * 20.0,
@@ -503,8 +516,9 @@ pub(crate) fn sync_bones_to_ragdoll(
             let dr = local.rotation.angle_between(local_transform.rotation);
             if dp > 0.0001 || dr > 0.0001 {
                 const LERP_FACTOR: f32 = 0.85;
-                local_transform.translation =
-                    local_transform.translation.lerp(local.translation, LERP_FACTOR);
+                local_transform.translation = local_transform
+                    .translation
+                    .lerp(local.translation, LERP_FACTOR);
                 local_transform.rotation =
                     local_transform.rotation.slerp(local.rotation, LERP_FACTOR);
             }
@@ -658,8 +672,8 @@ fn spawn_ragdoll_joint(
                     .with_anchor(anchor)
                     .with_local_basis2(local_basis2)
                     .with_angle_limits(-0.17 * r, 2.5 * r)
-                        .with_point_compliance(0.0)
-                        .with_align_compliance(0.0),
+                    .with_point_compliance(0.0)
+                    .with_align_compliance(0.0),
                 JointCollisionDisabled,
                 joint_damping,
                 JointForCharacter(character),
@@ -720,10 +734,7 @@ fn spawn_ragdoll_joint(
 /// Propagates [`RagdollCollisionLayers`] changes from the character entity
 /// to all of its spawned collider entities at runtime.
 pub(crate) fn update_collision_layers(
-    characters: Query<
-        (&RagdollCollisionLayers, &ColliderList),
-        Changed<RagdollCollisionLayers>,
-    >,
+    characters: Query<(&RagdollCollisionLayers, &ColliderList), Changed<RagdollCollisionLayers>>,
     mut commands: Commands,
 ) {
     for (layers, collider_list) in characters.iter() {

@@ -33,7 +33,7 @@ impl AssetLoader for ReferenceRigAssetLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        
+
         let (document, _buffers, _) = gltf::import_slice(&bytes)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
 
@@ -95,9 +95,7 @@ impl AssetLoader for ReferenceRigAssetLoader {
 
             let parent_idx = node_to_parent.get(&joint.index());
             let parent_name = parent_idx
-                .and_then(|&idx| {
-                    document.nodes().find(|n| n.index() == idx)
-                })
+                .and_then(|&idx| document.nodes().find(|n| n.index() == idx))
                 .and_then(|p| p.name())
                 .map(|s| s.to_string())
                 .unwrap_or_default();
@@ -110,7 +108,8 @@ impl AssetLoader for ReferenceRigAssetLoader {
             .map(|(i, &name)| (name, i))
             .collect();
 
-        let model_space_bindpose = compute_model_space_from_local(&bone_names, &bone_parents, &local_bindpose);
+        let model_space_bindpose =
+            compute_model_space_from_local(&bone_names, &bone_parents, &local_bindpose);
 
         Ok(ReferenceRigAsset {
             bone_names,
@@ -121,7 +120,6 @@ impl AssetLoader for ReferenceRigAssetLoader {
             rig,
         })
     }
-
 }
 
 fn compute_model_space_from_local(
@@ -130,17 +128,18 @@ fn compute_model_space_from_local(
     local_transforms: &AHashMap<&'static str, Transform>,
 ) -> AHashMap<&'static str, Transform> {
     let mut model_space = AHashMap::default();
-    
+
     for &name in bone_order {
         let local = &local_transforms[name];
-        
+
         if let Some(parent_name) = bone_parents.get(name) {
             if parent_name.is_empty() {
                 model_space.insert(name, *local);
             } else {
                 let parent_name_interned = NAME_INTERNER.intern(parent_name).leak();
                 if let Some(&parent_global) = model_space.get(parent_name_interned) {
-                    let global = Transform::from_matrix(parent_global.to_matrix() * local.to_matrix());
+                    let global =
+                        Transform::from_matrix(parent_global.to_matrix() * local.to_matrix());
                     model_space.insert(name, global);
                 } else {
                     model_space.insert(name, *local);
@@ -150,6 +149,6 @@ fn compute_model_space_from_local(
             model_space.insert(name, *local);
         }
     }
-    
+
     model_space
 }

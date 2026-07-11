@@ -69,9 +69,7 @@ pub fn fix_normals(mesh: &mut Mesh, groups: &AHashMap<u16, Vec<u16>>) {
     let mut normals = get_vertex_normals(mesh);
 
     // Average normals per group with duplicates
-    for group in groups.values()
-        .filter(|&v| v.len() > 1)
-    {
+    for group in groups.values().filter(|&v| v.len() > 1) {
         let mut sum = Vec3::ZERO;
         for &i in group {
             sum += normals[i as usize];
@@ -119,14 +117,18 @@ pub fn fix_normals_multiple(meshes: &mut [&mut Mesh]) {
     let mut visited = vec![false; all_vertices.len()];
 
     for i in 0..all_vertices.len() {
-        if visited[i] { continue; }
+        if visited[i] {
+            continue;
+        }
 
         let (pos_i, ref_i) = &all_vertices[i];
         let mut group = vec![ref_i.clone()];
         visited[i] = true;
 
-        for j in (i+1)..all_vertices.len() {
-            if visited[j] { continue; }
+        for j in (i + 1)..all_vertices.len() {
+            if visited[j] {
+                continue;
+            }
             let (pos_j, ref_j) = &all_vertices[j];
             if *pos_i == *pos_j {
                 group.push(ref_j.clone());
@@ -161,10 +163,7 @@ pub fn fix_normals_multiple(meshes: &mut [&mut Mesh]) {
 }
 
 // Maps mh vertex ids to vec of bevy ids
-pub fn generate_vertex_map(
-    mh_vertices: &[Vec3],
-    vertices: &[Vec3],
-) -> AHashMap<u16, Vec<u16>> {
+pub fn generate_vertex_map(mh_vertices: &[Vec3], vertices: &[Vec3]) -> AHashMap<u16, Vec<u16>> {
     let mut vertex_map = AHashMap::<u16, Vec<u16>>::default();
     let mut matched = AHashSet::<usize>::default();
 

@@ -1,6 +1,8 @@
 use ahash::AHashMap;
 use bevy::{
-    asset::{AssetLoader, LoadContext, io::Reader}, ecs::intern::Internable, prelude::*
+    asset::{AssetLoader, LoadContext, io::Reader},
+    ecs::intern::Internable,
+    prelude::*,
 };
 use serde::Deserialize;
 
@@ -69,21 +71,28 @@ impl AssetLoader for MacroDataAssetLoader {
         let mut macros = MacroDataAsset::default();
         for (macro_name, bounds) in values.macrotargets.iter() {
             let name = NAME_INTERNER.intern(macro_name).leak();
-            let parts = bounds.parts.iter().map(|part| {
-                let low = NAME_INTERNER.intern(&part.low).leak();
-                let high = NAME_INTERNER.intern(&part.high).leak();
-                MacroBound {
-                    lowest: part.lowest,
-                    highest: part.highest,
-                    low,
-                    high,
-                }
-            }).collect();
+            let parts = bounds
+                .parts
+                .iter()
+                .map(|part| {
+                    let low = NAME_INTERNER.intern(&part.low).leak();
+                    let high = NAME_INTERNER.intern(&part.high).leak();
+                    MacroBound {
+                        lowest: part.lowest,
+                        highest: part.highest,
+                        low,
+                        high,
+                    }
+                })
+                .collect();
 
             macros.macrotargets.insert(name, MacroBounds { parts });
 
             let mut morph_names: Vec<&'static str> = macros.macrotargets[name]
-                .parts.iter().flat_map(|part| [part.low, part.high]).collect();
+                .parts
+                .iter()
+                .flat_map(|part| [part.low, part.high])
+                .collect();
             morph_names.dedup();
             if let Some(pos) = morph_names.iter().position(|x| x.is_empty()) {
                 morph_names.remove(pos);

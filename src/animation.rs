@@ -1,19 +1,12 @@
+use crate::NAME_INTERNER;
 use ahash::{AHashMap, AHashSet};
 use bevy::{
-    animation::{animated_field, AnimationTargetId},
+    animation::{AnimationTargetId, animated_field},
     ecs::intern::Internable,
     prelude::*,
 };
 use gltf::Skin;
 use serde::{Deserialize, Serialize};
-use std::f32::consts::PI;
-
-use crate::{
-    prelude::*,
-    rigs::{BoneTranslationData, RigData, RootBone, RootBonePrevious},
-    spawn_skeleton::FitSkeleton,
-    spawn_skeleton::SkeletonEntities,
-};
 
 /// Which translation tracks should be kept on animation clips
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
@@ -24,6 +17,7 @@ pub enum TranslationTracks {
     None,
 }
 
+/*
 /// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
 /// in realtime using data cached on the human config.
 #[allow(dead_code)]
@@ -192,6 +186,7 @@ pub(crate) fn root_motion(
         }
     }
 }
+*/
 
 pub(crate) fn get_animation_clips_from_bytes(
     bytes: &[u8],
@@ -360,7 +355,7 @@ fn compute_global_transform(
     Ok(())
 }
 
-/// Builds a map of joint name → full path (from root to that joint)
+/// Builds a map of joint name -> full path (from root to that joint)
 pub fn build_joint_paths(root: &gltf::Node) -> AHashMap<Name, Vec<Name>> {
     let mut paths = AHashMap::default();
     let mut current_path = vec!["Human.rig".to_string()];

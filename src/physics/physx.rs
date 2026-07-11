@@ -12,18 +12,18 @@ use bevy_mod_physx::{
 
 use crate::{
     morphs::MakeHumanMorphs,
-    prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, SkeletonEntities},
+    prelude::{BaseMesh, CharacterShape, CharacterShapeAsset},
     rigs::{RigData, RigType, SkeletalBone},
     spawn_skeleton::FitSkeleton,
     template::CharacterTemplate,
 };
 
 use super::{
-    get_collider_parent, ColliderBone, COLLIDERS, DEFAULT_RIG_COLLIDER_BONE_NAMES, HEAD_VERTICES,
-    LEFT_FOOT_VERTICES, LEFT_HAND_VERTICES, LOWER_LEFT_ARM_VERTICES, LOWER_LEFT_LEG_VERTICES,
-    LOWER_RIGHT_ARM_VERTICES, LOWER_RIGHT_LEG_VERTICES, PELVIS_VERTICES, RIGHT_FOOT_VERTICES,
-    RIGHT_HAND_VERTICES, TORSO_VERTICES, UPPER_LEFT_ARM_VERTICES, UPPER_LEFT_LEG_VERTICES,
-    UPPER_RIGHT_ARM_VERTICES, UPPER_RIGHT_LEG_VERTICES,
+    COLLIDERS, ColliderBone, DEFAULT_RIG_COLLIDER_BONE_NAMES, HEAD_VERTICES, LEFT_FOOT_VERTICES,
+    LEFT_HAND_VERTICES, LOWER_LEFT_ARM_VERTICES, LOWER_LEFT_LEG_VERTICES, LOWER_RIGHT_ARM_VERTICES,
+    LOWER_RIGHT_LEG_VERTICES, PELVIS_VERTICES, RIGHT_FOOT_VERTICES, RIGHT_HAND_VERTICES,
+    TORSO_VERTICES, UPPER_LEFT_ARM_VERTICES, UPPER_LEFT_LEG_VERTICES, UPPER_RIGHT_ARM_VERTICES,
+    UPPER_RIGHT_LEG_VERTICES, get_collider_parent,
 };
 
 mod sealed {
@@ -235,7 +235,6 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
         (
             Entity,
             &CharacterShape,
-            &SkeletonEntities,
             &mut PhysxCharacterColliders<C>,
             &SkinnedMesh,
         ),
@@ -256,9 +255,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
     mut geometries: ResMut<Assets<Geometry>>,
     mut commands: Commands,
 ) {
-    for (character_entity, character_shape, related, mut colliders, skm) in
-        needs_colliders.iter_mut()
-    {
+    for (character_entity, character_shape, mut colliders, skm) in needs_colliders.iter_mut() {
         let Some(asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
@@ -266,12 +263,12 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
             continue;
         };
         let rig_type = template.rig;
-        let model_to_world = Transform::from(
-            _global_transforms
-                .get(related.rig)
-                .expect("Related rig should have a GlobalTransform")
-                .clone(),
-        );
+        // let model_to_world = Transform::from(
+        //     _global_transforms
+        //         .get(related.rig)
+        //         .expect("Related rig should have a GlobalTransform")
+        //         .clone(),
+        // );
         let collider_bone_map = match rig_type {
             RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
             _ => continue,
@@ -350,7 +347,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
             let joint_name = collider_bone_map[i_collider];
             let model_to_joint = inv_bindposes_map[joint_name];
             let collider_to_joint = model_to_joint * collider_to_model;
-            let collider_to_world = model_to_world * collider_to_model;
+            let collider_to_world = Transform::IDENTITY * collider_to_model;
 
             let collider_entity = commands
                 .spawn((
@@ -390,7 +387,6 @@ pub(crate) fn spawn_ragdoll_colliders(
         (
             Entity,
             &CharacterShape,
-            &SkeletonEntities,
             &mut PhysxCharacterColliders<RagdollCollider>,
             &SkinnedMesh,
         ),
@@ -411,9 +407,7 @@ pub(crate) fn spawn_ragdoll_colliders(
     mut geometries: ResMut<Assets<Geometry>>,
     mut commands: Commands,
 ) {
-    for (character_entity, character_shape, _related, mut colliders, skm) in
-        needs_colliders.iter_mut()
-    {
+    for (character_entity, character_shape, mut colliders, skm) in needs_colliders.iter_mut() {
         let Some(asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };

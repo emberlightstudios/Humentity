@@ -1,6 +1,6 @@
 use crate::{morphs::adjust_helpers_to_morphs, prelude::*};
 use bevy::{ecs::intern::Internable, prelude::*};
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 use serde::{Deserializer, Serializer};
 
 /// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh

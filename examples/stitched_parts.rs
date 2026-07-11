@@ -15,7 +15,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{setup_app, CharacterPart};
+use shared::{CharacterPart, setup_app};
 
 fn main() {
     let mut app = setup_app();

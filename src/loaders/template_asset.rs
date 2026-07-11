@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use bevy::asset::{io::Reader, AssetLoader, LoadContext};
+use bevy::asset::{AssetLoader, LoadContext, io::Reader};
 use bevy::ecs::intern::Internable;
 use bevy::prelude::*;
 
-use crate::prelude::*;
 use crate::NAME_INTERNER;
+use crate::prelude::*;
 
 #[derive(Default, TypePath)]
 pub struct CharacterTemplateAssetLoader;

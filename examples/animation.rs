@@ -16,7 +16,7 @@ use std::f32::consts::PI;
 
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 use humentity::prelude::*;
-use shared::{setup_app, CharacterPart};
+use shared::{CharacterPart, setup_app};
 
 const BABY: &str = "baby";
 
@@ -91,6 +91,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         Name::new("Retargeted"),
         InheritedVisibility::default(),
+        AnimationPlayer::default(),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
         children![(Name::new("Mesh"), CharacterPart(basemesh_part),)],
     ));
@@ -147,7 +148,6 @@ fn play_graph(
     mut players: Query<(&mut AnimationPlayer, &AnimationIndex), Added<AnimationGraphHandle>>,
 ) {
     for (mut player, node_index) in players.iter_mut() {
-        info!("Starting clip");
         player.play(node_index.0).repeat();
     }
 }

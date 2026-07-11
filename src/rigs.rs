@@ -1,12 +1,12 @@
 use ahash::AHashMap;
 use bevy::asset::AssetPath;
 use bevy::{
-    animation::{AnimatedBy, AnimationTargetId},
+    animation::AnimationTargetId,
     color::palettes::css::RED,
     ecs::intern::Internable,
     mesh::{
-        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
         VertexAttributeValues,
+        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     },
     prelude::*,
 };
@@ -264,9 +264,10 @@ pub(crate) fn set_asset_rig_arrays(
             match helper {
                 MhcloVertexMap::SingleVertex(v) => {
                     if let Some(&helper_wt) = bone_weights.get(v)
-                        && helper_wt > 0.0 {
-                            *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt;
-                        }
+                        && helper_wt > 0.0
+                    {
+                        *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt;
+                    }
                 }
                 MhcloVertexMap::Triangle {
                     helper_verts,
@@ -275,10 +276,11 @@ pub(crate) fn set_asset_rig_arrays(
                 } => {
                     for (i, mh_id) in helper_verts.iter().enumerate() {
                         if let Some(&helper_wt) = bone_weights.get(mh_id)
-                            && helper_wt > 0.0 {
-                                *aggregate.entry(bone_index as u16).or_insert(0.0) +=
-                                    helper_wt * helper_weights[i];
-                            }
+                            && helper_wt > 0.0
+                        {
+                            *aggregate.entry(bone_index as u16).or_insert(0.0) +=
+                                helper_wt * helper_weights[i];
+                        }
                     }
                 }
             }
@@ -357,7 +359,6 @@ pub(crate) fn build_skeleton_scene(
 
     let rig_entity = scene_world
         .spawn((
-            AnimationPlayer::default(),
             Name::new("Human.rig"),
             Transform::IDENTITY,
             // Not really a "bone" per se but useful when finding local bone transforms
@@ -384,7 +385,6 @@ pub(crate) fn build_skeleton_scene(
             .spawn((
                 Name::new(name),
                 AnimationTargetId::from_names(path.iter().rev()),
-                AnimatedBy(rig_entity),
                 SkeletalBone,
             ))
             .id();
@@ -400,9 +400,10 @@ pub(crate) fn build_skeleton_scene(
         let &child = bone_entities.get(&name).unwrap();
         let parent_name = ref_bone_parents.get(name).cloned().unwrap_or_default();
         if !parent_name.is_empty()
-            && let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak()) {
-                scene_world.entity_mut(parent).add_child(child);
-            }
+            && let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak())
+        {
+            scene_world.entity_mut(parent).add_child(child);
+        }
     }
 
     // Attach root(s) to rig entity
@@ -412,7 +413,9 @@ pub(crate) fn build_skeleton_scene(
             .map(|p| p == &"Human.rig".to_string())
             .unwrap_or(false);
         if is_root {
-            scene_world.entity_mut(rig_entity).add_child(bone_entities[&name]);
+            scene_world
+                .entity_mut(rig_entity)
+                .add_child(bone_entities[&name]);
         }
     }
 
@@ -436,7 +439,7 @@ pub(crate) fn build_skeleton_scene(
         inverse_bindposes.push(global.to_matrix().inverse());
     }
 
-    // Setup SkinnedMesh component and AnimationPlayer
+    // Setup SkinnedMesh component
     let mut inverse_bindpose_assets = world.resource_mut::<Assets<SkinnedMeshInverseBindposes>>();
     let inverse_bindposes = inverse_bindpose_assets.add(inverse_bindposes);
     // only need to return bindposes.  entities will have to be mapped manually after spawning scene
@@ -452,7 +455,6 @@ pub(crate) fn build_skeleton_scene(
     scene_world.entity_mut(rig_entity).insert(skinned_mesh);
 
     let mut ds = world.resource_mut::<Assets<DynamicWorld>>();
-    
 
     ds.add(DynamicWorld::from_world(&scene_world))
 }

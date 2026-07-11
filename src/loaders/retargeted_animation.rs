@@ -1,11 +1,11 @@
 use ahash::AHashMap;
 use bevy::{
-    asset::{io::Reader, AssetLoader, LoadContext, LoadedAsset},
+    asset::{AssetLoader, LoadContext, LoadedAsset, io::Reader},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::animation::{get_animation_clips_from_bytes, TranslationTracks};
+use crate::animation::{TranslationTracks, get_animation_clips_from_bytes};
 
 #[derive(Asset, TypePath, Clone)]
 pub struct RetargetedAnimationAsset {
@@ -38,11 +38,13 @@ impl AssetLoader for RetargetedAnimationAssetLoader {
 
         let mut clip_handles = AHashMap::default();
         for (name, clip) in clips {
-            let handle = load_context.add_loaded_labeled_asset(name, LoadedAsset::new_with_dependencies(clip));
+            let handle = load_context
+                .add_loaded_labeled_asset(name, LoadedAsset::new_with_dependencies(clip));
             clip_handles.insert(name, handle);
         }
 
-        Ok(RetargetedAnimationAsset { clips: clip_handles })
+        Ok(RetargetedAnimationAsset {
+            clips: clip_handles,
+        })
     }
-
 }

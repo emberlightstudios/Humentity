@@ -1,10 +1,15 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    loaders::{CompositeTargetsAsset, MacroDataAsset, TargetAsset}, prelude::*
+    loaders::{CompositeTargetsAsset, MacroDataAsset, TargetAsset},
+    prelude::*,
 };
 use ahash::AHashMap;
-use bevy::{asset::{AssetPath, LoadState, LoadedFolder}, ecs::intern::Internable, prelude::*};
+use bevy::{
+    asset::{AssetPath, LoadState, LoadedFolder},
+    ecs::intern::Internable,
+    prelude::*,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
@@ -86,7 +91,10 @@ impl MakeHumanMorphs {
         if !self.macros.read().unwrap().is_some() || !self.composites.read().unwrap().is_some() {
             return false;
         }
-        matches!(asset_server.get_load_state(&self.targets_handle), Some(LoadState::Loaded))
+        matches!(
+            asset_server.get_load_state(&self.targets_handle),
+            Some(LoadState::Loaded)
+        )
     }
 
     pub fn get_min_values(&self) -> AHashMap<&'static str, f32> {
@@ -111,12 +119,12 @@ impl MakeHumanMorphs {
         self.categories.read().unwrap().clone()
     }
 
-    pub fn compute_target_weights(&self, morph_targets: &MorphTargets) -> Result<MorphTargets, MorphError> {
+    pub fn compute_target_weights(
+        &self,
+        morph_targets: &MorphTargets,
+    ) -> Result<MorphTargets, MorphError> {
         let targets = self.targets.read().map_err(|_| MorphError::LockPoisoned)?;
-        if targets
-            .keys()
-            .all(|&t| morph_targets.contains_key(t))
-        {
+        if targets.keys().all(|&t| morph_targets.contains_key(t)) {
             return Ok(morph_targets.clone());
         }
 
@@ -125,7 +133,10 @@ impl MakeHumanMorphs {
             return Err(MorphError::MacrosNotLoaded);
         };
 
-        let composites = self.composites.read().map_err(|_| MorphError::LockPoisoned)?;
+        let composites = self
+            .composites
+            .read()
+            .map_err(|_| MorphError::LockPoisoned)?;
         let Some(composites) = composites.as_ref() else {
             return Err(MorphError::CompositeNotLoaded);
         };
@@ -266,7 +277,8 @@ impl MakeHumanMorphs {
                     for &weight in macros.morph_map["weight"].iter() {
                         let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
                         for &proportions in macros.morph_map["proportions"].iter() {
-                            let proportions_value = macro_values.get(&proportions).copied().unwrap_or(0.0);
+                            let proportions_value =
+                                macro_values.get(&proportions).copied().unwrap_or(0.0);
                             let name = NAME_INTERNER
                                 .intern(&format!("{gender}-{age}-{muscle}-{weight}-{proportions}"))
                                 .leak();
@@ -304,7 +316,8 @@ impl MakeHumanMorphs {
                                 if firmness == "averagefirmness" && cupsize == "averagecup" {
                                     continue;
                                 }
-                                let firmness_value = macro_values.get(&firmness).copied().unwrap_or(0.0);
+                                let firmness_value =
+                                    macro_values.get(&firmness).copied().unwrap_or(0.0);
                                 let name = NAME_INTERNER
                                     .intern(&format!(
                                         "{gender}-{age}-{muscle}-{weight}-{cupsize}-{firmness}"
@@ -326,7 +339,8 @@ impl MakeHumanMorphs {
             }
         }
 
-        let macro_flat_morphs = macros.morph_map
+        let macro_flat_morphs = macros
+            .morph_map
             .values()
             .flat_map(|v| v.iter())
             .collect::<Vec<_>>();
@@ -341,9 +355,9 @@ impl MakeHumanMorphs {
         // -----------------------------------
         // 2. Resolve composite morph sliders
         // -----------------------------------
-        let flattened_composite_morphs = composites.values().flat_map(|category| {
-                category.morphs.iter().cloned().map(|m| (m.name, m))
-            })
+        let flattened_composite_morphs = composites
+            .values()
+            .flat_map(|category| category.morphs.iter().cloned().map(|m| (m.name, m)))
             .collect::<AHashMap<_, _>>();
 
         let mut to_remove = Vec::new();
@@ -387,11 +401,13 @@ impl MakeHumanMorphs {
             }
         }
 
-        let morph_targets = morph_targets.iter()
+        let morph_targets = morph_targets
+            .iter()
             .filter(|(k, _)| !to_remove.contains(*k));
 
-        let mut missing = morph_targets.clone()
-            .filter(|(k, _)| !targets.contains_key(*k) )
+        let mut missing = morph_targets
+            .clone()
+            .filter(|(k, _)| !targets.contains_key(*k))
             .map(|(&k, _)| k);
 
         if let Some(t) = missing.next() {
@@ -446,28 +462,31 @@ pub(crate) fn populate_morph_resource(
     composite_assets: Res<Assets<CompositeTargetsAsset>>,
 ) {
     if morphs.macros.read().unwrap().is_none()
-        && let Some((_, asset)) = macro_assets.iter().next() {
-            let data = asset.clone();
-            let mut cats = morphs.categories.write().unwrap();
-            let mut macro_sliders = vec!["caucasian", "asian", "african"];
-            macro_sliders.extend(data.macrotargets.keys());
-            cats.insert("macro", macro_sliders);
-            *morphs.macros.write().unwrap() = Some(data);
-        }
+        && let Some((_, asset)) = macro_assets.iter().next()
+    {
+        let data = asset.clone();
+        let mut cats = morphs.categories.write().unwrap();
+        let mut macro_sliders = vec!["caucasian", "asian", "african"];
+        macro_sliders.extend(data.macrotargets.keys());
+        cats.insert("macro", macro_sliders);
+        *morphs.macros.write().unwrap() = Some(data);
+    }
 
     if morphs.composites.read().unwrap().is_none()
-        && let Some((_, asset)) = composite_assets.iter().next() {
-            let data = asset.clone();
-            let mut cats = morphs.categories.write().unwrap();
-            for (&category, category_morphs) in data.iter() {
-                if category_morphs.morphs.is_empty() {
-                    continue;
-                }
-                let morph_names: Vec<&'static str> = category_morphs.morphs.iter().map(|m| m.name).collect();
-                cats.insert(category, morph_names);
+        && let Some((_, asset)) = composite_assets.iter().next()
+    {
+        let data = asset.clone();
+        let mut cats = morphs.categories.write().unwrap();
+        for (&category, category_morphs) in data.iter() {
+            if category_morphs.morphs.is_empty() {
+                continue;
             }
-            *morphs.composites.write().unwrap() = Some(data);
+            let morph_names: Vec<&'static str> =
+                category_morphs.morphs.iter().map(|m| m.name).collect();
+            cats.insert(category, morph_names);
         }
+        *morphs.composites.write().unwrap() = Some(data);
+    }
 }
 
 pub(crate) fn sync_loaded_morph_targets(
@@ -484,14 +503,21 @@ pub(crate) fn sync_loaded_morph_targets(
             targets.insert(name, asset.clone());
 
             if let Some(path) = asset_server.get_path(*id) {
-                let folder = path.path().parent().and_then(|p| p.file_stem()).and_then(|s| s.to_str());
+                let folder = path
+                    .path()
+                    .parent()
+                    .and_then(|p| p.file_stem())
+                    .and_then(|s| s.to_str());
                 let category = match folder {
                     Some("expressions") => Some("expressions"),
                     Some("asym") => Some("asymmetry"),
                     _ => None,
                 };
                 if let Some(cat) = category {
-                    morphs.categories.write().unwrap()
+                    morphs
+                        .categories
+                        .write()
+                        .unwrap()
                         .entry(cat)
                         .or_insert(vec![])
                         .push(name);
@@ -509,7 +535,8 @@ pub fn adjust_helpers_to_morphs(
     let mut helpers = basemesh_vertices.to_vec();
     for (&target_name, &value) in morph_values.iter() {
         let targets = mh_morphs.read().map_err(|_| MorphError::LockPoisoned)?;
-        let target = targets.get(target_name)
+        let target = targets
+            .get(target_name)
             .ok_or(MorphError::TargetNotFound(target_name))?;
         for TargetDelta { vertex, offset } in target.deltas.iter() {
             helpers[*vertex as usize] += offset * value;

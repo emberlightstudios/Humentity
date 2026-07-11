@@ -1,33 +1,33 @@
 //! Realtime mesh modification example
-//! 
+//!
 //! The process is slow.  Unfortunately bevy has a hard limit on the number of morphs a mesh may have,
 //! so we have to rebuild the mesh in real time and it is slow.  Not sure if it can be made faster.
-//! 
+//!
 
 mod shared;
 
-use bevy::feathers::controls::button_bundle;
-use bevy::feathers::controls::slider_bundle;
+use ahash::AHashMap;
+use bevy::feathers::FeathersPlugins;
 use bevy::feathers::controls::ButtonBundleProps;
 use bevy::feathers::controls::FeathersSliderProps;
+use bevy::feathers::controls::button_bundle;
+use bevy::feathers::controls::slider_bundle;
 use bevy::feathers::dark_theme::create_dark_theme;
 use bevy::feathers::theme::ThemedText;
 use bevy::feathers::theme::UiTheme;
-use bevy::feathers::FeathersPlugins;
 use bevy::prelude::*;
-use bevy::ui_widgets::observe;
-use bevy::ui_widgets::slider_self_update;
+use bevy::tasks::AsyncComputeTaskPool;
 use bevy::ui_widgets::Activate;
 use bevy::ui_widgets::Slider;
 use bevy::ui_widgets::SliderPrecision;
 use bevy::ui_widgets::SliderStep;
 use bevy::ui_widgets::ValueChange;
-use std::sync::Arc;
-use ahash::AHashMap;
-use bevy::tasks::AsyncComputeTaskPool;
+use bevy::ui_widgets::observe;
+use bevy::ui_widgets::slider_self_update;
 use crossbeam_channel;
 use humentity::prelude::*;
 use shared::setup_app;
+use std::sync::Arc;
 
 #[derive(Component, Deref)]
 struct ButtonCategory(&'static str);
@@ -69,9 +69,27 @@ impl SliderValues {
 
 /// Ordered category priority — categories not in this list appear at the end.
 const CATEGORY_ORDER: &[&str] = &[
-    "macro", "head", "forehead", "eyes", "eyebrows", "nose", "mouth",
-    "cheek", "chin", "ears", "neck", "torso", "breast", "stomach",
-    "pelvis", "buttocks", "arms", "hands", "legs", "feet", "asymmetry",
+    "macro",
+    "head",
+    "forehead",
+    "eyes",
+    "eyebrows",
+    "nose",
+    "mouth",
+    "cheek",
+    "chin",
+    "ears",
+    "neck",
+    "torso",
+    "breast",
+    "stomach",
+    "pelvis",
+    "buttocks",
+    "arms",
+    "hands",
+    "legs",
+    "feet",
+    "asymmetry",
     "expressions",
 ];
 
@@ -125,12 +143,14 @@ fn setup_and_add_human(
     asset_server: Res<AssetServer>,
 ) {
     let mhclo_handle = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
-    let entity = commands.spawn((
-        Name::new("Character"),
-        Transform::from_translation(Vec3::new(-1., 0., 0.))
-            .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
-        InheritedVisibility::default(),
-    )).id();
+    let entity = commands
+        .spawn((
+            Name::new("Character"),
+            Transform::from_translation(Vec3::new(-1., 0., 0.))
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+            InheritedVisibility::default(),
+        ))
+        .id();
 
     commands.insert_resource(CreatorAssets {
         mhclo: mhclo_handle,
@@ -159,16 +179,24 @@ fn update_character_mesh(
 ) {
     // Phase 1 -- load OBJ assets once when MhcloAsset becomes available
     if creator.input_mesh == Handle::default() {
-        let Some(mhclo) = mhclo_assets.get(&creator.mhclo) else { return };
+        let Some(mhclo) = mhclo_assets.get(&creator.mhclo) else {
+            return;
+        };
         creator.input_mesh = asset_server.load::<Mesh>(mhclo.obj_file.clone());
         creator.mesh_verts = asset_server.load::<ObjVertsAsset>(mhclo.obj_file.clone());
         return;
     }
 
     // Wait for OBJ assets to finish loading
-    let Some(input_mesh) = meshes.get(&creator.input_mesh) else { return };
-    let Some(mesh_verts) = mesh_verts_assets.get(&creator.mesh_verts) else { return };
-    let Some(mhclo) = mhclo_assets.get(&creator.mhclo) else { return };
+    let Some(input_mesh) = meshes.get(&creator.input_mesh) else {
+        return;
+    };
+    let Some(mesh_verts) = mesh_verts_assets.get(&creator.mesh_verts) else {
+        return;
+    };
+    let Some(mhclo) = mhclo_assets.get(&creator.mhclo) else {
+        return;
+    };
 
     // Phase 1.5 — one-time precomputation of unchanging data (vertex_map, mhid_lookup, cached mesh/mhclo)
     if creator.vertex_map.is_empty() {
@@ -184,7 +212,9 @@ fn update_character_mesh(
     // Phase 2 -- collect result from a completed async build
     if let Some(rx) = &creator.rx {
         if let Ok(result) = rx.try_recv() {
-            commands.entity(creator.entity).insert(Mesh3d(meshes.add(result.mesh)));
+            commands
+                .entity(creator.entity)
+                .insert(Mesh3d(meshes.add(result.mesh)));
             creator.rx = None;
         }
         return;
@@ -224,15 +254,20 @@ fn update_character_mesh(
     let input_mesh_arc = creator.cached_input_mesh.as_ref().unwrap().clone();
     let mhclo_arc = creator.cached_mhclo.as_ref().unwrap().clone();
 
-    AsyncComputeTaskPool::get().spawn(async move {
-        let helpers =
-            adjust_helpers_to_morphs(&resolved, &mh_morphs_targets, &basemesh_vec).unwrap();
-        let mesh = shape_mesh_from_helpers_mhclo(
-            &*input_mesh_arc, &*mhclo_arc, &helpers, &*mhid_lookup, &*vertex_map,
-        );
-        let _ = tx.send(BuildResult { mesh });
-    })
-    .detach();
+    AsyncComputeTaskPool::get()
+        .spawn(async move {
+            let helpers =
+                adjust_helpers_to_morphs(&resolved, &mh_morphs_targets, &basemesh_vec).unwrap();
+            let mesh = shape_mesh_from_helpers_mhclo(
+                &*input_mesh_arc,
+                &*mhclo_arc,
+                &helpers,
+                &*mhid_lookup,
+                &*vertex_map,
+            );
+            let _ = tx.send(BuildResult { mesh });
+        })
+        .detach();
 }
 
 fn init_ui(
@@ -272,7 +307,9 @@ fn init_ui(
     // Order categories: known ones first, then any extras from the morph map
     let mut known: std::collections::HashSet<&str> = CATEGORY_ORDER.iter().copied().collect();
     for &category in CATEGORY_ORDER {
-        let Some(morph_names) = morphs.get(category) else { continue };
+        let Some(morph_names) = morphs.get(category) else {
+            continue;
+        };
         let sliders = sliders.entry(category).or_insert(MorphTargets::default());
         for &morph in morph_names.iter() {
             if !sliders.contains_key(morph) {
@@ -294,8 +331,12 @@ fn init_ui(
         commands.entity(top_bar).add_child(btn);
     }
     for &category in morphs.keys() {
-        if CATEGORY_BLOCKLIST.contains(&category) { continue }
-        if known.contains(category) { continue }
+        if CATEGORY_BLOCKLIST.contains(&category) {
+            continue;
+        }
+        if known.contains(category) {
+            continue;
+        }
         let morph_names = &morphs[category];
         let sliders = sliders.entry(category).or_insert(MorphTargets::default());
         for &morph in morph_names.iter() {

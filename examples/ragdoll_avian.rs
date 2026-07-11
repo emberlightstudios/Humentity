@@ -6,7 +6,7 @@ use bevy::{
     prelude::*,
 };
 use humentity::prelude::*;
-use shared::{setup_app, CharacterPart};
+use shared::{CharacterPart, setup_app};
 
 const RAGDOLL_LAYER: u32 = 1 << 3;
 const WORLD_LAYER: u32 = 1 << 0;
@@ -15,23 +15,11 @@ const CHARACTER_LAYER: u32 = 1 << 1;
 fn main() {
     let mut app = setup_app();
 
-    app
-        .add_plugins((
-            PhysicsPlugins::default(),
-            PhysicsDebugPlugin,
-        ))
+    app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin))
         .insert_resource(SubstepCount(10))
         .add_systems(Startup, (floor, spawn_ui))
         .add_observer(add_human)
-        .add_systems(
-            Update,
-            (
-                toggle,
-                sleep_ragdoll,
-                setup_graph,
-                start_clip,
-            ),
-        )
+        .add_systems(Update, (toggle, sleep_ragdoll, setup_graph, start_clip))
         .run();
 }
 
@@ -45,20 +33,18 @@ fn toggle(
         Entity,
         &mut CharacterRagdoll,
         &mut CharacterColliders,
-        &SkeletonEntities,
+        &mut AnimationPlayer,
         &SkinnedMesh,
     )>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,
-    mut players: Query<&mut AnimationPlayer>,
     mut collider_data: Query<&mut LinearVelocity>,
 ) {
     if !input.just_pressed(KeyCode::Space) {
         return;
     }
 
-    let Ok((_entity, mut ragdoll, colliders, related, skm)) = character.single_mut()
-    else {
+    let Ok((_entity, mut ragdoll, colliders, mut player, skm)) = character.single_mut() else {
         return;
     };
 
@@ -88,19 +74,15 @@ fn toggle(
                 }
             }
 
-            if let Ok(mut player) = players.get_mut(related.rig) {
-                player.stop(AnimationNodeIndex::new(0));
-                player.play(AnimationNodeIndex::new(0)).repeat();
-            }
+            player.stop(AnimationNodeIndex::new(0));
+            player.play(AnimationNodeIndex::new(0)).repeat();
         }
         _ => {
             // Toggle ragdoll on
             *ragdoll = CharacterRagdoll::Full;
 
             // Stop animation so it doesn't compete with physics
-            if let Ok(mut player) = players.get_mut(related.rig) {
-                player.stop(AnimationNodeIndex::new(0));
-            }
+            player.stop(AnimationNodeIndex::new(0));
 
             // Give each collider a small nudge so the collapse is interesting.
             // Varies with time so each activation is unique.
@@ -148,9 +130,9 @@ fn sleep_ragdoll(
     for (entity, ragdoll) in changed_ragdolls.iter() {
         match ragdoll {
             CharacterRagdoll::Full | CharacterRagdoll::Partial(_) => {
-                commands.entity(entity).insert(RagdollSleepTimer(
-                    Timer::from_seconds(2.0, TimerMode::Once),
-                ));
+                commands
+                    .entity(entity)
+                    .insert(RagdollSleepTimer(Timer::from_seconds(2.0, TimerMode::Once)));
             }
             CharacterRagdoll::None => {
                 commands.entity(entity).remove::<RagdollSleepTimer>();
@@ -201,6 +183,7 @@ fn add_human(
 
     commands.spawn((
         Transform::from_xyz(0.0, 0.0, 0.0),
+        AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
         CharacterRagdoll::None,
         CharacterColliders::new(None),
@@ -225,10 +208,7 @@ fn setup_graph(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
-    mut character_player: Query<
-        (Entity, &mut AnimationPlayer),
-        Without<AnimationGraphHandle>,
-    >,
+    mut character_player: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
 ) {
     let Ok((entity, _player)) = character_player.single_mut() else {
         return;
@@ -246,12 +226,8 @@ fn setup_graph(
 }
 
 fn start_clip(
-    anim: Single<(&mut AnimationPlayer, &AnimationController)>,
-    mut started: Local<bool>,
+    anim: Single<(&mut AnimationPlayer, &AnimationController), Added<AnimationController>>,
 ) {
-    if !*started {
-        let (mut player, controller) = anim.into_inner();
-        player.play(controller.0).repeat();
-        *started = true;
-    }
+    let (mut player, controller) = anim.into_inner();
+    player.play(controller.0).repeat();
 }

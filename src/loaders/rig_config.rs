@@ -1,6 +1,8 @@
 use ahash::AHashMap;
 use bevy::{
-    asset::{AssetLoader, LoadContext, io::Reader}, ecs::intern::Internable, prelude::*
+    asset::{AssetLoader, LoadContext, io::Reader},
+    ecs::intern::Internable,
+    prelude::*,
 };
 use serde::Deserialize;
 
@@ -81,10 +83,7 @@ impl AssetLoader for RigConfigAssetLoader {
             .map(|(name, config)| (NAME_INTERNER.intern(&name).leak(), config))
             .collect();
 
-        Ok(RigConfigAsset{
-            bones,
-            rig
-        })
+        Ok(RigConfigAsset { bones, rig })
     }
 
     fn extensions(&self) -> &[&str] {
