@@ -6,7 +6,7 @@ use crate::{
     },
     morphs::adjust_helpers_to_morphs,
     prelude::*,
-    rigs::{RigSpec, set_asset_rig_arrays},
+    rigs::{set_asset_rig_arrays, RigSpec},
     template::TemplateOverride,
 };
 use ahash::{AHashMap, AHashSet};
@@ -23,6 +23,7 @@ pub struct StitchedParts(pub Vec<StitchedPart>);
 pub struct StitchedPart {
     pub(crate) part: Handle<MhcloAsset>,
     pub(crate) template_override: Option<TemplateOverride>,
+    pub(crate) lod: usize,
 }
 
 impl From<Handle<MhcloAsset>> for StitchedPart {
@@ -30,6 +31,7 @@ impl From<Handle<MhcloAsset>> for StitchedPart {
         Self {
             part,
             template_override: None,
+            lod: 0,
         }
     }
 }
@@ -37,6 +39,11 @@ impl From<Handle<MhcloAsset>> for StitchedPart {
 impl StitchedPart {
     pub fn with_template_override(mut self, template: Handle<CharacterTemplate>) -> Self {
         self.template_override = Some(TemplateOverride(template));
+        self
+    }
+
+    pub fn with_lod(mut self, lod: usize) -> Self {
+        self.lod = lod;
         self
     }
 }
@@ -95,7 +102,9 @@ pub(crate) fn build_final_mesh_mhclo(
     template: &CharacterTemplate,
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
-    rig_spec: &RigSpec,
+    _rig_spec: &RigSpec,
+    lod_bone_names: &[&'static str],
+    lod_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
 ) -> (Mesh, Vec<String>) {
     let vertices = get_vertex_positions(input_mesh);
     let vertex_map = generate_vertex_map(&mesh_verts.vertices, &vertices);
@@ -144,7 +153,13 @@ pub(crate) fn build_final_mesh_mhclo(
         input_mesh = meshes.into_iter().next().unwrap();
     }
 
-    set_asset_rig_arrays(&mut input_mesh, &mhid_lookup, &mhclo.helper_map, rig_spec);
+    set_asset_rig_arrays(
+        &mut input_mesh,
+        &mhid_lookup,
+        &mhclo.helper_map,
+        lod_bone_names,
+        lod_weights,
+    );
 
     (input_mesh, morph_names)
 }
@@ -156,7 +171,9 @@ pub(crate) fn build_final_meshes_mhclo(
     templates: &[CharacterTemplate],
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
-    rig_spec: &RigSpec,
+    _rig_spec: &RigSpec,
+    lod_bone_names: &[&'static str],
+    lod_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
 ) -> (Vec<Mesh>, Vec<Vec<String>>) {
     let mut mhid_lookup = vec![];
     let mut vertex_map = vec![];
@@ -266,7 +283,8 @@ pub(crate) fn build_final_meshes_mhclo(
             &mut input_meshes[i_mesh],
             &mhid_lookup[i_mesh],
             &mhclos[i_mesh].helper_map,
-            rig_spec,
+            lod_bone_names,
+            lod_weights,
         );
     }
 

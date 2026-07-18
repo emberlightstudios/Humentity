@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
 };
 
-use crate::{NAME_INTERNER, rigs::RigType};
+use crate::NAME_INTERNER;
 
 #[derive(Asset, TypePath, Clone)]
 pub struct ReferenceRigAsset {
@@ -14,7 +14,7 @@ pub struct ReferenceRigAsset {
     pub local_bindpose: AHashMap<&'static str, Transform>,
     pub model_space_bindpose: AHashMap<&'static str, Transform>,
     pub bone_name_to_index: AHashMap<&'static str, usize>,
-    pub rig: RigType,
+    pub rig_name: String,
 }
 
 #[derive(Default, TypePath)]
@@ -52,14 +52,14 @@ impl AssetLoader for ReferenceRigAssetLoader {
         };
 
         let path = load_context.path().to_string();
-        let rig = if path.contains("mixamo") {
-            RigType::Mixamo
+        let rig_name = if path.contains("mixamo") {
+            "mixamo".to_string()
         } else if path.contains("game_engine") {
-            RigType::GameEngine
+            "game_engine".to_string()
         } else if path.contains("default") {
-            RigType::Default
+            "default".to_string()
         } else {
-            unimplemented!("Unrecognized rig type in path: {}", path);
+            "unknown".to_string()
         };
 
         let joints: Vec<gltf::Node> = skin.joints().collect();
@@ -117,7 +117,7 @@ impl AssetLoader for ReferenceRigAssetLoader {
             local_bindpose,
             model_space_bindpose,
             bone_name_to_index,
-            rig,
+            rig_name,
         })
     }
 }

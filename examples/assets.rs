@@ -2,7 +2,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{CharacterPart, setup_app};
+use shared::setup_app;
 
 const EYES: &str = "body_parts/Eyes/Eyeballs/high-poly-eyes.mhclo";
 const EYEBROW: &str = "body_parts/eyebrows/eyebrows001/eyebrow001.mhclo";
@@ -31,7 +31,7 @@ fn add_human(
 
     let shape = CharacterMorphShape::new("female", morph_targets);
 
-    let template_handle = template_assets.add(CharacterTemplate::new([shape], RigType::Default));
+    let template_handle = template_assets.add(CharacterTemplate::new([shape]));
 
     let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     let eyes = asset_server.load::<MhcloAsset>(EYES);
@@ -45,6 +45,7 @@ fn add_human(
         mesh_builder.trigger(LoadAssetMeshJob::Single {
             part: part.clone(),
             template_handle: template_handle.clone(),
+            lod: 0,
         });
     }
 
@@ -106,37 +107,49 @@ fn add_human(
         InheritedVisibility::default(),
         children![
             (
-                CharacterPart(basemesh),
+                CharacterPart {
+                    mesh: basemesh,
+                    lod: 0
+                },
                 Name::new("basemesh"),
                 MeshMaterial3d(skin_mat)
             ),
             (
-                CharacterPart(eyes),
+                CharacterPart { mesh: eyes, lod: 0 },
                 Name::new("eyes"),
                 MeshMaterial3d(eyes_mat)
             ),
             (
-                CharacterPart(eyebrow),
+                CharacterPart {
+                    mesh: eyebrow,
+                    lod: 0
+                },
                 Name::new("eyebrow"),
                 MeshMaterial3d(eyebrow_mat)
             ),
             (
-                CharacterPart(eyelash),
+                CharacterPart {
+                    mesh: eyelash,
+                    lod: 0
+                },
                 Name::new("eyelash"),
                 MeshMaterial3d(eyelash_mat)
             ),
             (
-                CharacterPart(hair),
+                CharacterPart { mesh: hair, lod: 0 },
                 Name::new("hair"),
                 MeshMaterial3d(hair_mat)
             ),
             (
-                CharacterPart(bra),
+                CharacterPart { mesh: bra, lod: 0 },
                 Name::new("bra"),
                 MeshMaterial3d(clothes_mat.clone())
             ),
             (
-                CharacterPart(panties),
+                CharacterPart {
+                    mesh: panties,
+                    lod: 0
+                },
                 Name::new("panties"),
                 MeshMaterial3d(clothes_mat)
             ),

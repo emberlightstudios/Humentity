@@ -13,17 +13,17 @@ use bevy_mod_physx::{
 use crate::{
     morphs::MakeHumanMorphs,
     prelude::{BaseMesh, CharacterShape, CharacterShapeAsset},
-    rigs::{RigData, RigType, SkeletalBone},
-    spawn_skeleton::FitSkeleton,
+    rigs::{RigData, SkeletalBone},
+    spawn_skeleton::{SkeletonLodMap, SkeletonsReady},
     template::CharacterTemplate,
 };
 
 use super::{
-    COLLIDERS, ColliderBone, DEFAULT_RIG_COLLIDER_BONE_NAMES, HEAD_VERTICES, LEFT_FOOT_VERTICES,
-    LEFT_HAND_VERTICES, LOWER_LEFT_ARM_VERTICES, LOWER_LEFT_LEG_VERTICES, LOWER_RIGHT_ARM_VERTICES,
-    LOWER_RIGHT_LEG_VERTICES, PELVIS_VERTICES, RIGHT_FOOT_VERTICES, RIGHT_HAND_VERTICES,
-    TORSO_VERTICES, UPPER_LEFT_ARM_VERTICES, UPPER_LEFT_LEG_VERTICES, UPPER_RIGHT_ARM_VERTICES,
-    UPPER_RIGHT_LEG_VERTICES, get_collider_parent,
+    get_collider_parent, ColliderBone, COLLIDERS, DEFAULT_RIG_COLLIDER_BONE_NAMES, HEAD_VERTICES,
+    LEFT_FOOT_VERTICES, LEFT_HAND_VERTICES, LOWER_LEFT_ARM_VERTICES, LOWER_LEFT_LEG_VERTICES,
+    LOWER_RIGHT_ARM_VERTICES, LOWER_RIGHT_LEG_VERTICES, PELVIS_VERTICES, RIGHT_FOOT_VERTICES,
+    RIGHT_HAND_VERTICES, TORSO_VERTICES, UPPER_LEFT_ARM_VERTICES, UPPER_LEFT_LEG_VERTICES,
+    UPPER_RIGHT_ARM_VERTICES, UPPER_RIGHT_LEG_VERTICES,
 };
 
 mod sealed {
@@ -120,14 +120,13 @@ impl Default for RagdollColliderFilter {
 }
 
 /// Automatically adds `CharacterColliders<RagdollCollider>` to characters
-/// once their skeleton has been fitted (FitSkeleton removed).
+/// once their skeletons have been fitted (SkeletonsReady present).
 pub(crate) fn auto_add_ragdoll_colliders(
     characters: Query<
         Entity,
         (
             With<CharacterShape>,
-            With<SkinnedMesh>,
-            Without<FitSkeleton>,
+            With<SkeletonsReady>,
             Without<PhysxCharacterColliders<RagdollCollider>>,
         ),
     >,
@@ -236,10 +235,10 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
             Entity,
             &CharacterShape,
             &mut PhysxCharacterColliders<C>,
-            &SkinnedMesh,
+            &SkeletonLodMap,
         ),
         (
-            Without<FitSkeleton>,
+            With<SkeletonsReady>,
             Without<SkeletalBone>,
             With<NeedsColliders<C>>,
         ),
@@ -253,26 +252,32 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     rig_data: Res<RigData>,
     mut geometries: ResMut<Assets<Geometry>>,
+    skeleton_skins: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>)>,
+    children_query: Query<&Children>,
     mut commands: Commands,
 ) {
-    for (character_entity, character_shape, mut colliders, skm) in needs_colliders.iter_mut() {
+    for (character_entity, character_shape, mut colliders, lod_map) in needs_colliders.iter_mut() {
+        // Resolve SkinnedMesh from the highest-detail (LOD 0) skeleton
+        let Some(&lod0_entity) = lod_map.0.get(&0) else {
+            continue;
+        };
+        let mut skm: Option<SkinnedMesh> = None;
+        for child in children_query.iter_descendants(lod0_entity) {
+            if let Ok(s) = skeleton_skins.get(child) {
+                skm = Some(s.clone());
+                break;
+            }
+        }
+        let Some(skm) = skm else {
+            continue;
+        };
         let Some(asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
         let Some(template) = templates.get(&asset.template) else {
             continue;
         };
-        let rig_type = template.rig;
-        // let model_to_world = Transform::from(
-        //     _global_transforms
-        //         .get(related.rig)
-        //         .expect("Related rig should have a GlobalTransform")
-        //         .clone(),
-        // );
-        let collider_bone_map = match rig_type {
-            RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
-            _ => continue,
-        };
+        let collider_bone_map = DEFAULT_RIG_COLLIDER_BONE_NAMES;
         let helpers = match template.get_helpers(
             &asset.template_morph_targets,
             &basemesh.vertices,
@@ -287,7 +292,10 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
-        let reference_rig = &rig_data[&template.rig].reference_rig;
+        let Some(rig_spec) = rig_data.0.as_ref() else {
+            continue;
+        };
+        let reference_rig = &rig_spec.reference_rig;
 
         let bone_entities = reference_rig
             .bone_names
@@ -388,10 +396,10 @@ pub(crate) fn spawn_ragdoll_colliders(
             Entity,
             &CharacterShape,
             &mut PhysxCharacterColliders<RagdollCollider>,
-            &SkinnedMesh,
+            &SkeletonLodMap,
         ),
         (
-            Without<FitSkeleton>,
+            With<SkeletonsReady>,
             Without<SkeletalBone>,
             With<NeedsColliders<RagdollCollider>>,
         ),
@@ -405,21 +413,32 @@ pub(crate) fn spawn_ragdoll_colliders(
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     rig_data: Res<RigData>,
     mut geometries: ResMut<Assets<Geometry>>,
+    skeleton_skins: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>)>,
+    children_query: Query<&Children>,
     mut commands: Commands,
 ) {
-    for (character_entity, character_shape, mut colliders, skm) in needs_colliders.iter_mut() {
+    for (character_entity, character_shape, mut colliders, lod_map) in needs_colliders.iter_mut() {
+        // Resolve SkinnedMesh from the highest-detail (LOD 0) skeleton
+        let Some(&lod0_entity) = lod_map.0.get(&0) else {
+            continue;
+        };
+        let mut skm: Option<SkinnedMesh> = None;
+        for child in children_query.iter_descendants(lod0_entity) {
+            if let Ok(s) = skeleton_skins.get(child) {
+                skm = Some(s.clone());
+                break;
+            }
+        }
+        let Some(skm) = skm else {
+            continue;
+        };
         let Some(asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
         let Some(template) = templates.get(&asset.template) else {
             continue;
         };
-        let rig_type = template.rig;
-
-        let collider_bone_map = match rig_type {
-            RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
-            _ => todo!("impl more rigs"),
-        };
+        let collider_bone_map = DEFAULT_RIG_COLLIDER_BONE_NAMES;
         let helpers = match template.get_helpers(
             &asset.template_morph_targets,
             &basemesh.vertices,
@@ -434,7 +453,10 @@ pub(crate) fn spawn_ragdoll_colliders(
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             return;
         };
-        let reference_rig = &rig_data[&template.rig].reference_rig;
+        let Some(rig_spec) = rig_data.0.as_ref() else {
+            return;
+        };
+        let reference_rig = &rig_spec.reference_rig;
 
         let bone_entities = reference_rig
             .bone_names

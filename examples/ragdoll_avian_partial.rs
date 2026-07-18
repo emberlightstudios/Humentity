@@ -11,7 +11,7 @@ use bevy::{
     prelude::*,
 };
 use humentity::prelude::*;
-use shared::{CharacterPart, setup_app};
+use shared::setup_app;
 
 const RAGDOLL_LAYER: u32 = 1 << 3;
 const WORLD_LAYER: u32 = 1 << 0;
@@ -134,7 +134,7 @@ fn add_human(
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
-    let template_handle = template_assets.add(CharacterTemplate::new([], RigType::Default));
+    let template_handle = template_assets.add(CharacterTemplate::new([]));
 
     let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
 
@@ -147,6 +147,7 @@ fn add_human(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh.clone(),
         template_handle: template_handle.clone(),
+        lod: 0,
     });
 
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
@@ -177,7 +178,7 @@ fn add_human(
         RagdollMobility(1.0),
         RagdollDensity(10.0),
         RagdollDamping(25.0),
-        children![(CharacterPart(basemesh), MeshMaterial3d(mat),)],
+        children![(CharacterPart { mesh: basemesh, lod: 0 }, MeshMaterial3d(mat),)],
     ));
 }
 

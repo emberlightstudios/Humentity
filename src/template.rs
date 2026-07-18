@@ -1,6 +1,6 @@
 use crate::{morphs::adjust_helpers_to_morphs, prelude::*};
 use bevy::{ecs::intern::Internable, prelude::*};
-use serde::{Deserialize, Serialize, ser::SerializeStruct};
+use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use serde::{Deserializer, Serializer};
 
 /// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh
@@ -66,15 +66,13 @@ pub struct CharacterTemplate {
     #[serde(skip)]
     pub name: &'static str,
     pub shapes: Vec<CharacterMorphShape>,
-    pub rig: RigType,
 }
 
 impl CharacterTemplate {
-    pub fn new(shapes: impl IntoIterator<Item = CharacterMorphShape>, rig: RigType) -> Self {
+    pub fn new(shapes: impl IntoIterator<Item = CharacterMorphShape>) -> Self {
         Self {
             name: "",
             shapes: shapes.into_iter().collect(),
-            rig,
         }
     }
 
@@ -98,28 +96,26 @@ impl CharacterTemplate {
     }
 }
 
-/// Resolves macro morph sliders (e.g. "gender") into direct morph targets
-/// once the morph system is fully loaded. Runs once.
+/// Resolves macro morph sliders (e.g. "muscle") into direct morph targets
+/// whenever a new CharacterTemplate asset is added.
 pub(crate) fn resolve_template_morphs(
+    mut events: MessageReader<AssetEvent<CharacterTemplate>>,
     morphs: Res<MakeHumanMorphs>,
-    asset_server: Res<AssetServer>,
     mut templates: ResMut<Assets<CharacterTemplate>>,
-    mut done: Local<bool>,
 ) {
-    if *done {
-        return;
-    }
-    if !morphs.is_ready(&asset_server) {
-        return;
-    }
-    for (_, template) in templates.iter_mut() {
+    for event in events.read() {
+        let (AssetEvent::Added { id } | AssetEvent::LoadedWithDependencies { id }) = event else {
+            continue;
+        };
+        let Some(mut template) = templates.get_mut(*id) else {
+            continue;
+        };
         for shape in template.shapes.iter_mut() {
             if let Ok(resolved) = morphs.compute_target_weights(&shape.morphs) {
                 shape.morphs = resolved;
             }
         }
     }
-    *done = true;
 }
 
 /// Overrides the template shapes for a part

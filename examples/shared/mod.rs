@@ -7,9 +7,49 @@ use bevy_egui::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use humentity::prelude::*;
 
-/// Marks an entity as representing a character mesh piece.
-#[derive(Component, Clone, Debug, Eq, PartialEq, Hash, Deref)]
-pub struct CharacterPart(pub Handle<MhcloAsset>);
+/// Default skeleton LOD configurations.
+///
+/// LOD 0: Remove toes.
+/// LOD 1: + face, spine03/04, neck02/03, twist bones, shoulder01.
+/// LOD 2: + fingers.
+/// LOD 3: + hands (wrist) and feet.
+pub fn default_skeleton_lods() -> Vec<BoneMergeConfig> {
+    let lod1_bones = vec![
+        // Twist bones
+        "upperarm02.L",
+        "upperarm02.R",
+        "lowerarm02.L",
+        "lowerarm02.R",
+        "upperleg02.L",
+        "upperleg02.R",
+        "lowerleg02.L",
+        "lowerleg02.R",
+        // Shoulder
+        "shoulder01.L",
+        "shoulder01.R",
+        // Spine
+        "spine03",
+        "spine04",
+        // Neck
+        "neck02",
+        "neck03",
+    ];
+
+    let lod0 = BoneMergeConfig::full().without_children_of(&["foot.L", "foot.R"]);
+
+    let lod1 = lod0
+        .clone()
+        .without_children_of(&["head"])
+        .without_bones(&lod1_bones);
+
+    let lod2 = lod1.clone().without_children_of(&["wrist.L", "wrist.R"]);
+
+    let lod3 = lod2
+        .clone()
+        .without_bones(&["wrist.L", "wrist.R", "foot.L", "foot.R", "head"]);
+
+    vec![lod0, lod1, lod2, lod3]
+}
 
 /// Add just the [HumentityPlugin] without egui/inspector plugins.
 /// Use this in examples that add their own UI or physics plugins.
@@ -25,9 +65,18 @@ pub fn setup_app() -> App {
 
     app.add_plugins((DefaultPlugins, HumentityPlugin))
         .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
+        .insert_resource(SkeletonLodConfig(default_skeleton_lods()))
         .add_systems(Startup, load_assets)
         .add_systems(Startup, setup_env)
-        .add_systems(Update, (update_mesh_when_ready, cam_controls, add_material));
+        .add_systems(
+            Update,
+            (
+                update_mesh_when_ready,
+                cam_controls,
+                add_material,
+                debug_forward_gizmo,
+            ),
+        );
 
     app
 }
@@ -48,9 +97,13 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
     );
 }
 
+/// Scans for CharacterParts still waiting for a mesh handle from the background threads
 fn update_mesh_when_ready(
-    character_parts: Query<(Entity, &ChildOf, &CharacterPart), Without<Mesh3d>>,
-    characters: Query<(&CharacterShape, &SkinnedMesh)>,
+    character_parts: Query<
+        (Entity, &ChildOf, &CharacterPart, Option<&SkinnedMesh>),
+        Without<Mesh3d>,
+    >,
+    characters: Query<&CharacterShape>,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     template_overrides: Query<&TemplateOverride>,
     cached_meshes: Res<CachedMhcloMeshHandles>,
@@ -58,10 +111,9 @@ fn update_mesh_when_ready(
     template_assets: Res<Assets<CharacterTemplate>>,
     mut commands: Commands,
 ) {
-    for (entity, parent, part) in character_parts.iter() {
-        let mhclo_handle = part.0.clone();
+    for (entity, parent, part, part_skm) in character_parts.iter() {
         let parent_entity = parent.parent();
-        let Ok((character_shape, skm)) = characters.get(parent_entity) else {
+        let Ok(character_shape) = characters.get(parent_entity) else {
             continue;
         };
         let Some(asset) = shape_assets.get(&character_shape.0) else {
@@ -69,12 +121,19 @@ fn update_mesh_when_ready(
         };
         let template = &asset.template;
 
+        // SkinnedMesh must be placed on the CharacterPart by setup_part_skinning first
+        let Some(skm) = part_skm else {
+            continue;
+        };
+
         // After you trigger a mesh build it will be put in this cache
-        if let Some(mesh_handle) = cached_meshes.get(&(mhclo_handle.clone(), template.clone())) {
+        if let Some(mesh_handle) =
+            cached_meshes.get(&(part.mesh.clone(), template.clone(), part.lod))
+        {
             commands.entity(entity).insert((
                 Mesh3d(mesh_handle.clone()),
-                Transform::IDENTITY, // I think this is necessary
-                skm.clone(),         // This is necessary to bind the mesh to the skeleton
+                Transform::IDENTITY,
+                skm.clone(),
             ));
             let mesh = meshes.get(mesh_handle).unwrap();
             if mesh.has_morph_targets() {
@@ -152,6 +211,17 @@ pub fn add_material(
     for human in humans.iter() {
         let mat = materials.add(StandardMaterial::from_color(Color::BLACK));
         commands.entity(human).insert(MeshMaterial3d(mat));
+    }
+}
+
+fn debug_forward_gizmo(
+    characters: Query<&GlobalTransform, With<CharacterShape>>,
+    mut gizmos: Gizmos,
+) {
+    for gt in &characters {
+        let origin = gt.translation();
+        let forward = gt.forward().as_vec3();
+        gizmos.line(origin, origin + forward * 2.0, Color::srgb(0.0, 1.0, 0.0));
     }
 }
 

@@ -15,7 +15,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{CharacterPart, setup_app};
+use shared::setup_app;
 
 fn main() {
     let mut app = setup_app();
@@ -41,12 +41,9 @@ fn add_humans(
     expression_targets.insert("jawOpen", 1.0);
     let expression_shape = CharacterMorphShape::new("jawOpen", expression_targets);
 
-    let body_template_handle =
-        template_assets.add(CharacterTemplate::new([shape.clone()], RigType::Default));
-    let head_template_handle = template_assets.add(CharacterTemplate::new(
-        [shape, expression_shape],
-        RigType::Default,
-    ));
+    let body_template_handle = template_assets.add(CharacterTemplate::new([shape.clone()]));
+    let head_template_handle =
+        template_assets.add(CharacterTemplate::new([shape, expression_shape]));
 
     // Split pieces for stitched demonstration
     let headless =
@@ -76,12 +73,15 @@ fn add_humans(
         InheritedVisibility::default(),
         children![
             (
-                CharacterPart(headless),
+                CharacterPart {
+                    mesh: headless,
+                    lod: 0
+                },
                 Name::new("headless"),
                 MeshMaterial3d(white.clone())
             ),
             (
-                CharacterPart(head),
+                CharacterPart { mesh: head, lod: 0 },
                 Name::new("head"),
                 TemplateOverride(head_template_handle),
                 MeshMaterial3d(white)

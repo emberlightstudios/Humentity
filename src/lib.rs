@@ -1,11 +1,13 @@
 mod animation;
 mod assets;
 mod basemesh;
+mod bone_debug;
 mod loaders;
 mod mesh_ops;
 mod morphs;
 mod physics;
 mod rigs;
+mod skeleton_lod;
 mod spawn_mesh;
 mod spawn_skeleton;
 mod template;
@@ -15,6 +17,8 @@ use bevy::ecs::intern::Interner;
 use bevy::prelude::*;
 use bevy_obj::ObjPlugin;
 use prelude::*;
+
+use crate::rigs::BuiltRigs;
 
 pub static NAME_INTERNER: Interner<str> = Interner::new();
 
@@ -35,8 +39,7 @@ pub mod prelude {
         COLLIDERS, ColliderBone, RagdollDamping, RagdollDensity, RagdollMobility,
     };
     pub use crate::{
-        BoneDebugPlugin,
-        // HumentityGlobalConfig, // commented out - depends on TranslationTracks from animation.rs
+        bone_debug::BoneDebugPlugin,
         HumentityPlugin,
         NAME_INTERNER,
         animation::TranslationTracks,
@@ -58,17 +61,36 @@ pub mod prelude {
         morphs::{
             MakeHumanMorphs, MorphError, MorphTargets, MorphsReady, adjust_helpers_to_morphs,
         },
-        rigs::{RigData, RigSpec, RigType, RootMotion, SkeletalBone},
-        spawn_mesh::{
-            CachedMhcloMeshHandles, CharacterShape, LoadAssetMeshJob, MhcloMeshBuilder,
-            build_single_mesh_direct,
+        rigs::{RigData, RigSpec, RootMotion, SkeletalBone},
+        skeleton_lod::{
+            BoneMergeConfig, RigBundle, SkeletonLodConfig,
+            SkeletonLodVariant,
         },
-        spawn_skeleton::FitSkeleton,
+        spawn_mesh::{
+            CachedMhcloMeshHandles, CharacterPart, CharacterShape, LoadAssetMeshJob,
+            MhcloMeshBuilder, build_single_mesh_direct,
+        },
+        spawn_skeleton::{
+            CharacterSkeleton, DisableSkeletonLod, EnableSkeletonLod, ResetSkeletonToBindPose,
+            SkeletonLodDisabled, SkeletonLodFilter, SkeletonLodMap, SkeletonLocalBindPose,
+            SkeletonsReady,
+        },
         template::{CharacterMorphShape, CharacterTemplate, TemplateOverride},
     };
 }
 
-/// Loads and inserts all 4 core resources (BaseMesh, VertexGroups, MakeHumanMorphs, RigData)
+/// Holds strong handles to rig assets to prevent eviction.
+#[derive(Resource)]
+pub(crate) struct RigAssetHandles {
+    #[allow(dead_code)]
+    pub config: Handle<loaders::RigConfigAsset>,
+    #[allow(dead_code)]
+    pub weights: Handle<loaders::RigWeightsAsset>,
+    #[allow(dead_code)]
+    pub reference_rig: Handle<loaders::ReferenceRigAsset>,
+}
+
+/// Loads and inserts all core resources (BaseMesh, VertexGroups, MakeHumanMorphs, RigData)
 /// as separate ECS resources. Each asset path must be explicitly specified — nothing is inferred.
 pub fn load_and_insert_humentity_assets(
     commands: &mut Commands,
@@ -93,31 +115,23 @@ pub fn load_and_insert_humentity_assets(
         target_macros_path,
         targets_folder_path,
     ));
-    commands.insert_resource(rigs::RigData::new(
-        asset_server,
-        rig_config_path,
-        rig_weights_path,
-        ref_rig_path,
-    ));
+
+    // Rig assets are loaded by path and detected by the loaders.
+    // The sync_and_build_rig_data system will detect them and store in RigData.
+    // Store handles in a resource to prevent eviction.
+    let config_handle: Handle<loaders::RigConfigAsset> = asset_server.load(rig_config_path);
+    let weights_handle: Handle<loaders::RigWeightsAsset> = asset_server.load(rig_weights_path);
+    let ref_rig_handle: Handle<loaders::ReferenceRigAsset> = asset_server.load(ref_rig_path);
+
+    commands.insert_resource(RigAssetHandles {
+        config: config_handle,
+        weights: weights_handle,
+        reference_rig: ref_rig_handle,
+    });
 }
 
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
 pub(crate) const MODEL_ROTATION_FIX: Quat = Quat::from_xyzw(0., 1., 0., 0.);
-
-/*
-#[derive(Resource, Default, Clone)]
-pub struct HumentityGlobalConfig {
-    /// Use animation postprocessing to rescale position tracks to mesh size
-    /// This has some performance overhead. If disabled then translation tracks will
-    /// be removed from all retargeted animations.
-    pub translation_tracks: TranslationTracks,
-}
-
-/// The SystemSet for animation post-processing. If you need to add your own
-/// animatin post-processing you can set it after this.
-#[derive(SystemSet, Debug, Hash, Copy, Clone, Eq, PartialEq)]
-pub struct HumentityAnimationSystems;
-*/
 
 /// The plugin struct
 pub struct HumentityPlugin;
@@ -131,6 +145,14 @@ impl Plugin for HumentityPlugin {
         app.insert_resource(spawn_mesh::MhcloMeshBuilder::default())
             .insert_resource(spawn_mesh::CachedMhcloMeshHandles::default())
             .insert_resource(spawn_mesh::CachedMhcloRawMeshHandles::default())
+            .insert_resource(rigs::RigData::new())
+            .insert_resource(rigs::RigBundleRes::default());
+
+        app.world_mut()
+            .register_disabling_component::<spawn_skeleton::SkeletonLodDisabled>();
+
+        app.register_type::<rigs::SkeletalBone>()
+            .register_type::<rigs::RootBone>()
             .init_asset::<ObjVertsAsset>()
             .register_asset_loader(ObjVertsAssetLoader)
             .init_asset::<VertexGroupsAsset>()
@@ -161,35 +183,50 @@ impl Plugin for HumentityPlugin {
                     basemesh::extract_basemesh_asset.run_if(resource_exists::<basemesh::BaseMesh>),
                     basemesh::extract_vertex_groups_asset
                         .run_if(resource_exists::<basemesh::VertexGroups>),
-                    morphs::populate_morph_resource
+                    morphs::sync_macro_data
+                        .run_if(resource_exists::<morphs::MakeHumanMorphs>),
+                    morphs::sync_composite_data
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     morphs::sync_loaded_morph_targets
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     morphs::check_morphs_ready
-                        .after(morphs::populate_morph_resource)
+                        .after(morphs::sync_macro_data)
+                        .after(morphs::sync_composite_data)
                         .after(morphs::sync_loaded_morph_targets)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
-                    template::resolve_template_morphs
-                        .after(morphs::check_morphs_ready)
-                        .before(spawn_mesh::mesh_build)
-                        .run_if(resource_exists::<morphs::MakeHumanMorphs>),
-                    rigs::sync_and_build_rig_data.run_if(resource_exists::<rigs::RigData>),
+                    rigs::sync_and_build_rig_data
+                        .run_if(resource_exists::<rigs::RigData>)
+                        .run_if(not(resource_exists::<BuiltRigs>)),
+                    rigs::build_rig_scenes
+                        .after(rigs::sync_and_build_rig_data)
+                        .run_if(not(resource_exists::<BuiltRigs>)),
                     (
                         (
-                            spawn_skeleton::spawn_rig_scene,
+                            spawn_skeleton::spawn_rig_skeletons,
                             spawn_skeleton::fit_skeleton_to_shape,
+                            spawn_skeleton::check_skeletons_ready,
+                            spawn_skeleton::setup_part_skinning,
                         )
                             .chain(),
                         (spawn_mesh::mesh_build, spawn_mesh::mediators_clean_up).chain(),
                     )
                         .chain()
+                        .after(rigs::build_rig_scenes)
                         .run_if(resource_exists::<basemesh::BaseMesh>)
                         .run_if(resource_exists::<basemesh::VertexGroups>)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>)
                         .run_if(resource_exists::<rigs::RigData>),
                 ),
             )
-            .add_systems(Update, rigs::build_rig_scenes);
+            .add_observer(spawn_skeleton::on_enable_skeleton_lod)
+            .add_observer(spawn_skeleton::on_disable_skeleton_lod)
+            .add_observer(spawn_skeleton::on_reset_skeleton_to_bind_pose)
+            .add_systems(
+                Update,
+                template::resolve_template_morphs
+                    .before(spawn_mesh::mesh_build)
+                    .run_if(resource_exists::<morphs::MakeHumanMorphs>),
+            );
 
         #[cfg(feature = "avian")]
         {
@@ -203,7 +240,7 @@ impl Plugin for HumentityPlugin {
                         physics::avian::mark_needs_colliders,
                         physics::avian::spawn_colliders
                             .after(physics::avian::mark_needs_colliders)
-                            .after(spawn_skeleton::fit_skeleton_to_shape),
+                            .after(spawn_skeleton::check_skeletons_ready),
                         physics::avian::set_ragdoll_state,
                         physics::avian::update_collision_layers,
                     ),
@@ -230,7 +267,7 @@ impl Plugin for HumentityPlugin {
                 Update,
                 (
                     physics::physx::auto_add_ragdoll_colliders
-                        .after(spawn_skeleton::fit_skeleton_to_shape),
+                        .after(spawn_skeleton::check_skeletons_ready),
                     physics::physx::spawn_kinematic_colliders::<HitboxCollider>
                         .run_if(resource_exists::<physics::physx::ColliderMaterial>)
                         .run_if(resource_exists::<Physics>)
@@ -258,40 +295,5 @@ impl Plugin for HumentityPlugin {
             .add_observer(physics::physx::mark_entity_needs_colliders::<HurtboxCollider>)
             .add_observer(physics::physx::mark_entity_needs_colliders::<RagdollCollider>);
         }
-
-        /*
-        // Root Motion
-        if matches!(self.config.translation_tracks, TranslationTracks::Root) {
-            app.add_systems(
-                PostUpdate,
-                animation::rescale_root_bone_translation
-                    .after(AnimationSystems)
-                    .in_set(HumentityAnimationSystems),
-            );
-        } else if matches!(self.config.translation_tracks, TranslationTracks::Full) {
-            app.add_systems(
-                PostUpdate,
-                animation::rescale_bone_translations
-                    .after(AnimationSystems)
-                    .in_set(HumentityAnimationSystems),
-            );
-        }
-
-        if !matches!(self.config.translation_tracks, TranslationTracks::None) {
-            app.add_systems(
-                PostUpdate,
-                animation::root_motion
-                    .after(HumentityAnimationSystems)
-            );
-        }
-         */
-    }
-}
-
-pub struct BoneDebugPlugin;
-
-impl Plugin for BoneDebugPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(Update, rigs::bone_debug_draw);
     }
 }

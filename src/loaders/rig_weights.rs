@@ -6,12 +6,12 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{NAME_INTERNER, rigs::RigType};
+use crate::NAME_INTERNER;
 
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct RigWeightsAsset {
     pub weights: AHashMap<&'static str, AHashMap<u16, f32>>,
-    pub rig: RigType,
+    pub rig_name: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -39,14 +39,14 @@ impl AssetLoader for RigWeightsAssetLoader {
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
         let path = load_context.path().to_string();
-        let rig = if path.contains("mixamo") {
-            RigType::Mixamo
+        let rig_name = if path.contains("mixamo") {
+            "mixamo".to_string()
         } else if path.contains("game_engine") {
-            RigType::GameEngine
+            "game_engine".to_string()
         } else if path.contains("default") {
-            RigType::Default
+            "default".to_string()
         } else {
-            unimplemented!("Unrecognized rig type in path: {}", path);
+            "unknown".to_string()
         };
 
         let weights = weights
@@ -60,7 +60,7 @@ impl AssetLoader for RigWeightsAssetLoader {
             })
             .collect::<AHashMap<_, _>>();
 
-        Ok(RigWeightsAsset { weights, rig })
+        Ok(RigWeightsAsset { weights, rig_name })
     }
 
     fn extensions(&self) -> &[&str] {

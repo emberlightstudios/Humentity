@@ -6,7 +6,7 @@ use bevy::{
 };
 use serde::Deserialize;
 
-use crate::{NAME_INTERNER, rigs::RigType};
+use crate::NAME_INTERNER;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct BoneTransformSpec {
@@ -28,7 +28,7 @@ pub struct BoneJsonConfig {
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct RigConfigAsset {
     pub bones: AHashMap<&'static str, BoneJsonConfig>,
-    pub rig: RigType,
+    pub rig_name: String,
 }
 
 #[derive(Deserialize)]
@@ -68,14 +68,14 @@ impl AssetLoader for RigConfigAssetLoader {
         };
 
         let path = load_context.path().to_string();
-        let rig = if path.contains("mixamo") {
-            RigType::Mixamo
+        let rig_name = if path.contains("mixamo") {
+            "mixamo".to_string()
         } else if path.contains("game_engine") {
-            RigType::GameEngine
+            "game_engine".to_string()
         } else if path.contains("default") {
-            RigType::Default
+            "default".to_string()
         } else {
-            unimplemented!("Unrecognized rig type in path: {}", path);
+            "unknown".to_string()
         };
 
         let bones = bones
@@ -83,7 +83,7 @@ impl AssetLoader for RigConfigAssetLoader {
             .map(|(name, config)| (NAME_INTERNER.intern(&name).leak(), config))
             .collect();
 
-        Ok(RigConfigAsset { bones, rig })
+        Ok(RigConfigAsset { bones, rig_name })
     }
 
     fn extensions(&self) -> &[&str] {

@@ -11,7 +11,7 @@ use bevy::{
 };
 use bevy_mod_physx::prelude::{self as bpx, *};
 use humentity::prelude::*;
-use shared::{CharacterPart, setup_app};
+use shared::setup_app;
 
 fn main() {
     let mut app = setup_app();
@@ -105,7 +105,7 @@ fn add_human(
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
-    let template_handle = template_assets.add(CharacterTemplate::new([], RigType::Default));
+    let template_handle = template_assets.add(CharacterTemplate::new([]));
 
     let hitbox_filter = ShapeFilterData {
         simulation_filter_data: [1, 1, 0, 0],
@@ -123,6 +123,7 @@ fn add_human(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh.clone(),
         template_handle: template_handle.clone(),
+        lod: 0,
     });
 
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
@@ -133,7 +134,7 @@ fn add_human(
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
         PhysxCharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
-        children![(CharacterPart(basemesh), MeshMaterial3d(mat),)],
+        children![(CharacterPart { mesh: basemesh, lod: 0 }, MeshMaterial3d(mat),)],
     ));
 }
 

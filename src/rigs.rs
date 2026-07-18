@@ -1,32 +1,23 @@
 use ahash::AHashMap;
-use bevy::asset::AssetPath;
 use bevy::{
     animation::AnimationTargetId,
-    color::palettes::css::RED,
     ecs::intern::Internable,
+    ecs::system::SystemState,
     mesh::{
         VertexAttributeValues,
         skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     },
     prelude::*,
+
 };
-use serde::{Deserialize, Serialize};
-use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use crate::{
     basemesh::VertexGroups,
     loaders::{MhcloVertexMap, ReferenceRigAsset, RigConfigAsset, RigWeightsAsset},
     prelude::*,
+    skeleton_lod::{RigBundle, SkeletonLodConfig, build_lod_variants},
 };
-
-#[derive(Eq, PartialEq, Hash, Copy, Clone, Default, Serialize, Deserialize, Debug)]
-pub enum RigType {
-    #[default]
-    Default,
-    Mixamo,
-    GameEngine,
-}
 
 #[derive(Clone, Default, Debug)]
 #[allow(dead_code)]
@@ -64,51 +55,28 @@ pub(crate) struct RootBonePrevious {
     pub(crate) prev_weights: Vec<f32>,
 }
 
+/// The single rig bundle, populated by `build_rig_scenes`.
+#[derive(Resource, Default)]
+pub(crate) struct RigBundleRes(pub Option<RigBundle>);
+
+/// Stores the single loaded rig specification.
+#[derive(Resource)]
+pub struct RigData(pub Option<RigSpec>);
+
 #[derive(Clone)]
 pub struct RigSpec {
     pub(crate) weights: Arc<RigWeightsAsset>,
     pub(crate) config: Arc<RigConfigAsset>,
     pub(crate) reference_rig: Arc<ReferenceRigAsset>,
-    pub(crate) scene: Option<Handle<DynamicWorld>>,
-}
-
-#[derive(Resource)]
-pub struct RigData {
-    rigs: AHashMap<RigType, RigSpec>,
-    #[allow(dead_code)]
-    config_handle: Handle<RigConfigAsset>,
-    #[allow(dead_code)]
-    weights_handle: Handle<RigWeightsAsset>,
-    #[allow(dead_code)]
-    ref_rig_handle: Handle<ReferenceRigAsset>,
 }
 
 impl RigData {
-    pub fn new(
-        asset_server: &AssetServer,
-        config_path: impl Into<AssetPath<'static>>,
-        weights_path: impl Into<AssetPath<'static>>,
-        ref_rig_path: impl Into<AssetPath<'static>>,
-    ) -> Self {
-        Self {
-            rigs: default(),
-            config_handle: asset_server.load::<RigConfigAsset>(config_path),
-            weights_handle: asset_server.load::<RigWeightsAsset>(weights_path),
-            ref_rig_handle: asset_server.load::<ReferenceRigAsset>(ref_rig_path),
-        }
+    pub fn new() -> Self {
+        Self(None)
     }
-}
 
-impl Deref for RigData {
-    type Target = AHashMap<RigType, RigSpec>;
-    fn deref(&self) -> &Self::Target {
-        &self.rigs
-    }
-}
-
-impl DerefMut for RigData {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.rigs
+    pub fn is_loaded(&self) -> bool {
+        self.0.is_some()
     }
 }
 
@@ -121,119 +89,128 @@ impl RigSpec {
     }
 }
 
-impl std::ops::Index<&RigType> for RigData {
-    type Output = RigSpec;
-    fn index(&self, index: &RigType) -> &Self::Output {
-        self.rigs.index(index)
-    }
+/// Tracks which rig assets have loaded, for event-driven sync.
+#[derive(Default)]
+pub(crate) struct RigLoadTracker {
+    config: Option<RigConfigAsset>,
+    weights: Option<RigWeightsAsset>,
+    reference_rig: Option<ReferenceRigAsset>,
 }
 
-/// Syncs rig assets when all 3 assets are available. Scene building deferred.
+/// Syncs rig assets reactively as they load. Once all 3 asset types have reported
+/// a `LoadedWithDependencies` event, matches them by `rig_name` and inserts into `RigData`.
 pub(crate) fn sync_and_build_rig_data(
-    mut config_events: MessageReader<AssetEvent<RigConfigAsset>>,
-    mut weights_events: MessageReader<AssetEvent<RigWeightsAsset>>,
-    mut reference_rig_events: MessageReader<AssetEvent<ReferenceRigAsset>>,
     mut rig_data: ResMut<RigData>,
     config_assets: Res<Assets<RigConfigAsset>>,
     weights_assets: Res<Assets<RigWeightsAsset>>,
     reference_rig_assets: Res<Assets<ReferenceRigAsset>>,
+    mut config_events: MessageReader<AssetEvent<RigConfigAsset>>,
+    mut weights_events: MessageReader<AssetEvent<RigWeightsAsset>>,
+    mut ref_rig_events: MessageReader<AssetEvent<ReferenceRigAsset>>,
+    mut tracker: Local<RigLoadTracker>,
 ) {
-    if config_events.is_empty() && weights_events.is_empty() && reference_rig_events.is_empty() {
+    if rig_data.is_loaded() {
         return;
     }
 
-    config_events.read();
-    weights_events.read();
-    reference_rig_events.read();
-
-    // Collect available rigs from each asset type
-    let wts: Vec<_> = weights_assets.iter().map(|(_, wt)| wt.rig).collect();
-    let ref_rigs: Vec<_> = reference_rig_assets.iter().map(|(_, r)| r.rig).collect();
-
-    // Find rigs where all 3 assets are available
-    let to_load: Vec<_> = config_assets
-        .iter()
-        .map(|(_, cfg)| cfg.rig)
-        .filter(|rig| wts.contains(rig))
-        .filter(|rig| ref_rigs.contains(rig))
-        .filter(|rig| !rig_data.contains_key(rig))
-        .collect();
-
-    // Insert rigs - scene will be built lazily
-    for rig in to_load {
-        let (_, config) = config_assets
-            .iter()
-            .find(|(_, a)| a.rig == rig)
-            .unwrap_or_else(|| panic!("Config asset for rig {rig:?} not found"));
-        let (_, weights) = weights_assets
-            .iter()
-            .find(|(_, a)| a.rig == rig)
-            .unwrap_or_else(|| panic!("Weights asset for rig {rig:?} not found"));
-        let (_, reference_rig) = reference_rig_assets
-            .iter()
-            .find(|(_, a)| a.rig == rig)
-            .unwrap_or_else(|| panic!("Reference rig asset for rig {rig:?} not found"));
-
-        rig_data.insert(
-            rig,
-            RigSpec {
-                weights: Arc::new(weights.clone()),
-                config: Arc::new(config.clone()),
-                reference_rig: Arc::new(reference_rig.clone()),
-                scene: None,
-            },
-        );
+    for ev in config_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev
+            && let Some(asset) = config_assets.get(*id)
+        {
+            tracker.config = Some(asset.clone());
+        }
     }
-}
+    for ev in weights_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev
+            && let Some(asset) = weights_assets.get(*id)
+        {
+            tracker.weights = Some(asset.clone());
+        }
+    }
+    for ev in ref_rig_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev
+            && let Some(asset) = reference_rig_assets.get(*id)
+        {
+            tracker.reference_rig = Some(asset.clone());
+        }
+    }
 
-use bevy::ecs::system::SystemState;
-
-/// Builds skeleton scenes for rigs that have all assets but no scene yet.
-pub(crate) fn build_rig_scenes(world: &mut World) {
-    let rigs_to_build: Vec<_> = {
-        let mut state: SystemState<ResMut<RigData>> = SystemState::new(world);
-        let Ok(rig_data) = state.get_mut(world) else {
-            return;
-        };
-        rig_data
-            .iter()
-            .filter(|(_, spec)| spec.scene.is_none())
-            .map(|(rig_type, spec)| (*rig_type, Arc::clone(&spec.reference_rig)))
-            .collect()
+    let (Some(config), Some(weights), Some(reference_rig)) = (
+        tracker.config.as_ref(),
+        tracker.weights.as_ref(),
+        tracker.reference_rig.as_ref(),
+    ) else {
+        return;
     };
 
-    for (rig_type, reference_rig) in rigs_to_build {
-        let scene = build_skeleton_scene(&reference_rig, world);
-
-        let mut state: SystemState<ResMut<RigData>> = SystemState::new(world);
-        let Ok(mut rig_data) = state.get_mut(world) else {
-            return;
-        };
-        rig_data.get_mut(&rig_type).unwrap().scene = Some(scene);
+    if config.rig_name == weights.rig_name && config.rig_name == reference_rig.rig_name {
+        rig_data.0 = Some(RigSpec {
+            weights: Arc::new(weights.clone()),
+            config: Arc::new(config.clone()),
+            reference_rig: Arc::new(reference_rig.clone()),
+        });
     }
 }
 
-pub(crate) fn bone_debug_draw(
-    query: Query<(&GlobalTransform, &ChildOf), With<AnimationTargetId>>,
-    transforms: Query<&GlobalTransform, With<AnimationTargetId>>,
-    mut gizmos: Gizmos,
-) {
-    query.iter().for_each(|(transform, child_of)| {
-        let start = transform.translation();
-        if let Ok(end) = transforms.get(child_of.parent()) {
-            gizmos.line(start, end.translation(), RED);
+/// Tracks which rigs have already been built so we don't rebuild every frame.
+#[derive(Resource, Default)]
+pub(crate) struct BuiltRigs;
+
+/// Builds skeleton scenes and LOD variants for the loaded rig.
+/// Runs once (deduplicated via [`BuiltRigs`]).
+pub(crate) fn build_rig_scenes(world: &mut World) {
+    // Collect rig data and config
+    let (reference_rig, weights, lod_config) = {
+        let mut state: SystemState<(
+            Res<RigData>,
+            Option<Res<SkeletonLodConfig>>,
+        )> = SystemState::new(world);
+        match state.get(world) {
+            Ok((rig_data, lod_config)) => {
+                let Some(spec) = &rig_data.0 else {
+                    return;
+                };
+                (
+                    Arc::clone(&spec.reference_rig),
+                    Arc::clone(&spec.weights),
+                    lod_config.map(|c| c.clone()),
+                )
+            }
+            Err(_) => return,
         }
-    })
+    };
+
+    // Build full skeleton scene (index 0)
+    let _scene = build_skeleton_scene(&reference_rig, world);
+
+    let lod_config = lod_config.unwrap_or_default();
+
+    // Use merge configs from SkeletonLodConfig (or full skeleton)
+    let merge_configs: Vec<_> = if lod_config.0.is_empty() {
+        vec![crate::skeleton_lod::BoneMergeConfig::full()]
+    } else {
+        lod_config.0.clone()
+    };
+
+    // Build LOD variants
+    let lod_variants = build_lod_variants(&reference_rig, &weights, &merge_configs, world);
+
+    // Store in registry
+    world
+        .resource_mut::<RigBundleRes>()
+        .0 = Some(RigBundle { lod_variants });
+
+    // Mark as built
+    world.insert_resource(BuiltRigs);
 }
 
 pub(crate) fn set_asset_rig_arrays(
     mesh: &mut Mesh,
     mhid_lookup: &[u16],
     helper_map: &[MhcloVertexMap],
-    rig_spec: &RigSpec,
+    bone_names: &[&'static str],
+    rig_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
 ) {
-    let bone_names = &rig_spec.reference_rig.bone_names;
-    let rig_weights = &rig_spec.weights.weights;
     let vertex_count = mhid_lookup.len();
 
     // Final fixed-size output arrays
@@ -462,14 +439,10 @@ pub(crate) fn build_skeleton_scene(
 pub(crate) fn get_model_space_skeleton_transforms(
     bone_order: &Vec<&'static str>,
     helpers: &[Vec3],
-    rig_type: RigType,
+    rig_spec: &RigSpec,
     vg: &VertexGroups,
-    rig_data: &RigData,
 ) -> AHashMap<&'static str, Transform> {
-    let mh_config = &rig_data
-        .get(&rig_type)
-        .unwrap_or_else(|| panic!("No rig data loaded for {rig_type:?}"))
-        .config;
+    let mh_config = &rig_spec.config;
     // Compute global transforms from basemesh + roll in config (no GLB reference)
     let mut global_transforms = AHashMap::<&'static str, Transform>::default();
     for &name in bone_order.iter() {
@@ -482,15 +455,11 @@ pub(crate) fn get_model_space_skeleton_transforms(
 #[allow(dead_code)]
 pub(crate) fn get_local_skeleton_transforms(
     bone_order: &Vec<&'static str>,
-    rig_type: RigType,
-    rig_data: &RigData,
+    rig_spec: &RigSpec,
     global_transforms: &AHashMap<&'static str, Transform>,
 ) -> AHashMap<&'static str, Transform> {
     // Compute local transforms relative to parent
-    let mh_config = &rig_data
-        .get(&rig_type)
-        .unwrap_or_else(|| panic!("No rig data loaded for {rig_type:?}"))
-        .config;
+    let mh_config = &rig_spec.config;
     let mut local_transforms = AHashMap::<&'static str, Transform>::default();
     for &name in bone_order.iter() {
         let mut mat = global_transforms[name].to_matrix();
@@ -514,12 +483,12 @@ pub(crate) fn get_local_skeleton_transforms(
 }
 
 #[allow(dead_code)]
-pub(crate) fn get_bone_order(rig: RigType, world: &World) -> Vec<&'static str> {
-    let rig_data = world.resource::<RigData>();
-    let mh_config = &rig_data
-        .get(&rig)
-        .unwrap_or_else(|| panic!("No rig data loaded for {rig:?}"))
-        .config;
+pub(crate) fn get_bone_order(rig_data: &RigData) -> Vec<&'static str> {
+    let spec = rig_data
+        .0
+        .as_ref()
+        .expect("No rig data loaded");
+    let mh_config = &spec.config;
     let mut depths = AHashMap::<&'static str, usize>::default();
     for (name, bone) in mh_config.bones.iter() {
         let mut depth = 0;

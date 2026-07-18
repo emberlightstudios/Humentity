@@ -5,7 +5,7 @@ use crate::{
     basemesh::BaseMesh,
     loaders::{CharacterShapeAsset, MhcloAsset, ObjVertsAsset, TargetAsset},
     morphs::MakeHumanMorphs,
-    rigs::{RigData, RigSpec},
+    rigs::{RigBundleRes, RigData, RigSpec},
     template::CharacterTemplate,
 };
 use ahash::AHashMap;
@@ -16,6 +16,14 @@ use crossbeam_channel::{Receiver, Sender};
 #[derive(Component, Clone, Debug)]
 #[require(Visibility)]
 pub struct CharacterShape(pub Handle<CharacterShapeAsset>);
+
+/// Marks an entity as representing a character mesh piece.
+/// Place as children of a [`CharacterShape`] entity.
+#[derive(Component, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct CharacterPart {
+    pub mesh: Handle<MhcloAsset>,
+    pub lod: usize,
+}
 
 /// The state of a mesh load process for character parts
 #[derive(PartialEq, Eq, Debug, Default, Clone)]
@@ -29,7 +37,7 @@ pub enum AssetLoadState {
 
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct CachedMhcloMeshHandles(
-    AHashMap<(Handle<MhcloAsset>, Handle<CharacterTemplate>), Handle<Mesh>>,
+    AHashMap<(Handle<MhcloAsset>, Handle<CharacterTemplate>, usize), Handle<Mesh>>,
 );
 
 pub(crate) struct RawMeshCache {
@@ -50,6 +58,7 @@ pub enum LoadAssetMeshJob {
     Single {
         part: Handle<MhcloAsset>,
         template_handle: Handle<CharacterTemplate>,
+        lod: usize,
     },
     Stitched {
         parts: StitchedParts,
@@ -104,6 +113,7 @@ pub(crate) fn mesh_build(
     mut morphs: ResMut<MakeHumanMorphs>,
     basemesh: Res<BaseMesh>,
     rig_data: Res<RigData>,
+    rig_bundle: Res<RigBundleRes>,
     asset_server: Res<AssetServer>,
     mut cached_meshes: ResMut<CachedMhcloMeshHandles>,
     mut cached_raw_meshes: ResMut<CachedMhcloRawMeshHandles>,
@@ -114,6 +124,7 @@ pub(crate) fn mesh_build(
             LoadAssetMeshJob::Single {
                 part,
                 template_handle,
+                lod,
             } => {
                 let Some(template) = templates.get(template_handle) else {
                     continue;
@@ -131,15 +142,19 @@ pub(crate) fn mesh_build(
                     &mut morphs,
                     &basemesh.vertices,
                     &rig_data,
+                    &rig_bundle,
                     &asset_server,
                     &mut cached_raw_meshes,
+                    *lod,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
                     let mesh = handle_single_mesh_complete(msg);
                     let mesh_handle = meshes.add(mesh);
-                    cached_meshes
-                        .insert((part.clone(), template_handle.clone()), mesh_handle.clone());
+                    cached_meshes.insert(
+                        (part.clone(), template_handle.clone(), *lod),
+                        mesh_handle.clone(),
+                    );
                     *load_state = AssetLoadState::Finished;
                 }
             }
@@ -164,6 +179,7 @@ pub(crate) fn mesh_build(
                     &mut morphs,
                     &basemesh.vertices,
                     &rig_data,
+                    &rig_bundle,
                     &asset_server,
                     &mut cached_raw_meshes,
                 );
@@ -173,9 +189,12 @@ pub(crate) fn mesh_build(
 
                     for (i_mesh, mesh) in new_meshes.into_iter().enumerate() {
                         let handle = parts[i_mesh].part.clone();
+                        let lod = parts[i_mesh].lod;
                         let mesh_handle = meshes.add(mesh);
-                        cached_meshes
-                            .insert((handle, template_handle.clone()), mesh_handle.clone());
+                        cached_meshes.insert(
+                            (handle, template_handle.clone(), lod),
+                            mesh_handle.clone(),
+                        );
                     }
                     *load_state = AssetLoadState::Finished;
                 }
@@ -210,9 +229,12 @@ pub fn build_single_mesh_direct(
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_spec: &RigSpec,
+    lod_bone_names: &[&'static str],
+    lod_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
 ) -> Mesh {
     let (mesh, morph_names) = build_final_mesh_mhclo(
         mhclo, input_mesh, mesh_verts, template, mh_morphs, basemesh, rig_spec,
+        lod_bone_names, lod_weights,
     );
     let msg = MeshConstructedMsg {
         final_meshes: vec![mesh],
@@ -256,8 +278,10 @@ pub(crate) fn build_single_mesh_process(
     morphs: &mut MakeHumanMorphs,
     basemesh: &Arc<Vec<Vec3>>,
     rig_data: &RigData,
+    rig_bundle: &RigBundleRes,
     asset_server: &AssetServer,
     cached_raw_meshes: &mut CachedMhcloRawMeshHandles,
+    lod: usize,
 ) {
     let pool = AsyncComputeTaskPool::get();
 
@@ -292,10 +316,25 @@ pub(crate) fn build_single_mesh_process(
         let mesh_verts = mesh_verts.clone();
         let template = template.clone();
         let mh_morphs = morphs.targets.clone();
-        let Some(rig_entry) = rig_data.get(&template.rig) else {
+        let Some(rig_entry) = rig_data.0.as_ref() else {
             return;
         };
         let rig_spec = rig_entry.clone();
+
+        let (lod_bone_names, lod_weights) = rig_bundle
+            .0
+            .as_ref()
+            .and_then(|bundle| {
+                let idx = lod.min(bundle.lod_variants.len() - 1);
+                let variant = &bundle.lod_variants[idx];
+                Some((variant.bone_names.clone(), variant.merged_weights.clone()))
+            })
+            .unwrap_or_else(|| {
+                (
+                    rig_spec.reference_rig.bone_names.clone(),
+                    rig_spec.weights.weights.clone(),
+                )
+            });
 
         let sender = mediator.mesh_building_msg_sender.clone();
         let mhclo = mhclo.clone();
@@ -310,6 +349,8 @@ pub(crate) fn build_single_mesh_process(
                 mh_morphs,
                 basemesh,
                 &rig_spec,
+                &lod_bone_names,
+                &lod_weights,
             );
             sender.send(MeshConstructedMsg {
                 final_meshes: vec![mesh],
@@ -335,6 +376,7 @@ fn build_stitched_meshes_process(
     morphs: &mut MakeHumanMorphs,
     basemesh: &Arc<Vec<Vec3>>,
     rig_data: &RigData,
+    rig_bundle: &RigBundleRes,
     asset_server: &AssetServer,
     cached_raw_meshes: &mut CachedMhcloRawMeshHandles,
 ) {
@@ -411,15 +453,30 @@ fn build_stitched_meshes_process(
             })
             .collect();
 
-        let rig = resolved_templates[0].rig;
         let templates_for_build: Vec<_> = resolved_templates.into_iter().cloned().collect();
 
         let mh_morphs = morphs.targets.clone();
         let basemesh = basemesh.clone();
-        let Some(rig_entry) = rig_data.get(&rig) else {
+        let Some(rig_entry) = rig_data.0.as_ref() else {
             return;
         };
         let rig_spec = rig_entry.clone();
+
+        let lod = parts.first().map(|p| p.lod).unwrap_or(0);
+        let (lod_bone_names, lod_weights) = rig_bundle
+            .0
+            .as_ref()
+            .and_then(|bundle| {
+                let idx = lod.min(bundle.lod_variants.len() - 1);
+                let variant = &bundle.lod_variants[idx];
+                Some((variant.bone_names.clone(), variant.merged_weights.clone()))
+            })
+            .unwrap_or_else(|| {
+                (
+                    rig_spec.reference_rig.bone_names.clone(),
+                    rig_spec.weights.weights.clone(),
+                )
+            });
 
         parts.iter().for_each(|p| {
             cached_raw_meshes.remove(&p.part);
@@ -435,6 +492,8 @@ fn build_stitched_meshes_process(
                 mh_morphs,
                 basemesh,
                 &rig_spec,
+                &lod_bone_names,
+                &lod_weights,
             );
             sender.send(MeshConstructedMsg {
                 final_meshes,

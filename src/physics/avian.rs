@@ -9,7 +9,7 @@ use bevy::{
 use crate::{
     morphs::MakeHumanMorphs,
     prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, CharacterTemplate},
-    rigs::{RigData, RigType, SkeletalBone},
+    rigs::{RigData, SkeletalBone},
 };
 
 use super::*;
@@ -160,11 +160,7 @@ pub(crate) fn spawn_colliders(
         let Some(template) = templates.get(&asset.template) else {
             continue;
         };
-        let rig_type = template.rig;
-        let collider_bone_map = match rig_type {
-            RigType::Default => DEFAULT_RIG_COLLIDER_BONE_NAMES,
-            _ => continue,
-        };
+        let collider_bone_map = DEFAULT_RIG_COLLIDER_BONE_NAMES;
 
         let Ok(helpers) = template.get_helpers(
             &asset.template_morph_targets,
@@ -176,7 +172,10 @@ pub(crate) fn spawn_colliders(
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
-        let reference_rig = &rig_data[&template.rig].reference_rig;
+        let Some(rig_spec) = rig_data.0.as_ref() else {
+            continue;
+        };
+        let reference_rig = &rig_spec.reference_rig;
 
         let bone_entities: AHashMap<&str, Entity> = reference_rig
             .bone_names

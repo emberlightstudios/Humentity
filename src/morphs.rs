@@ -97,6 +97,14 @@ impl MakeHumanMorphs {
         )
     }
 
+    pub(crate) fn targets_id(&self) -> AssetId<LoadedFolder> {
+        self.targets_handle.id()
+    }
+
+    pub(crate) fn data_synced(&self) -> bool {
+        self.macros.read().unwrap().is_some() && self.composites.read().unwrap().is_some()
+    }
+
     pub fn get_min_values(&self) -> AHashMap<&'static str, f32> {
         let categories = self.categories.read().unwrap();
         let mut result = AHashMap::default();
@@ -443,49 +451,59 @@ pub struct MorphsReady;
 
 pub(crate) fn check_morphs_ready(
     morphs: Res<MakeHumanMorphs>,
-    asset_server: Res<AssetServer>,
-    mut ready: Local<bool>,
+    mut folder_events: MessageReader<AssetEvent<LoadedFolder>>,
     mut commands: Commands,
 ) {
-    if *ready {
-        return;
-    }
-    if morphs.is_ready(&asset_server) {
-        *ready = true;
-        commands.trigger(MorphsReady);
+    for ev in folder_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev
+            && *id == morphs.targets_id()
+            && morphs.data_synced()
+        {
+            commands.trigger(MorphsReady);
+        }
     }
 }
 
-pub(crate) fn populate_morph_resource(
+pub(crate) fn sync_macro_data(
     morphs: Res<MakeHumanMorphs>,
     macro_assets: Res<Assets<MacroDataAsset>>,
-    composite_assets: Res<Assets<CompositeTargetsAsset>>,
+    mut macro_events: MessageReader<AssetEvent<MacroDataAsset>>,
 ) {
-    if morphs.macros.read().unwrap().is_none()
-        && let Some((_, asset)) = macro_assets.iter().next()
-    {
-        let data = asset.clone();
-        let mut cats = morphs.categories.write().unwrap();
-        let mut macro_sliders = vec!["caucasian", "asian", "african"];
-        macro_sliders.extend(data.macrotargets.keys());
-        cats.insert("macro", macro_sliders);
-        *morphs.macros.write().unwrap() = Some(data);
-    }
-
-    if morphs.composites.read().unwrap().is_none()
-        && let Some((_, asset)) = composite_assets.iter().next()
-    {
-        let data = asset.clone();
-        let mut cats = morphs.categories.write().unwrap();
-        for (&category, category_morphs) in data.iter() {
-            if category_morphs.morphs.is_empty() {
-                continue;
-            }
-            let morph_names: Vec<&'static str> =
-                category_morphs.morphs.iter().map(|m| m.name).collect();
-            cats.insert(category, morph_names);
+    for ev in macro_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev
+            && let Some(asset) = macro_assets.get(*id)
+        {
+            let data = asset.clone();
+            let mut cats = morphs.categories.write().unwrap();
+            let mut macro_sliders = vec!["caucasian", "asian", "african"];
+            macro_sliders.extend(data.macrotargets.keys());
+            cats.insert("macro", macro_sliders);
+            *morphs.macros.write().unwrap() = Some(data);
         }
-        *morphs.composites.write().unwrap() = Some(data);
+    }
+}
+
+pub(crate) fn sync_composite_data(
+    morphs: Res<MakeHumanMorphs>,
+    composite_assets: Res<Assets<CompositeTargetsAsset>>,
+    mut composite_events: MessageReader<AssetEvent<CompositeTargetsAsset>>,
+) {
+    for ev in composite_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = ev
+            && let Some(asset) = composite_assets.get(*id)
+        {
+            let data = asset.clone();
+            let mut cats = morphs.categories.write().unwrap();
+            for (&category, category_morphs) in data.iter() {
+                if category_morphs.morphs.is_empty() {
+                    continue;
+                }
+                let morph_names: Vec<&'static str> =
+                    category_morphs.morphs.iter().map(|m| m.name).collect();
+                cats.insert(category, morph_names);
+            }
+            *morphs.composites.write().unwrap() = Some(data);
+        }
     }
 }
 
@@ -535,9 +553,12 @@ pub fn adjust_helpers_to_morphs(
     let mut helpers = basemesh_vertices.to_vec();
     for (&target_name, &value) in morph_values.iter() {
         let targets = mh_morphs.read().map_err(|_| MorphError::LockPoisoned)?;
-        let target = targets
-            .get(target_name)
-            .ok_or(MorphError::TargetNotFound(target_name))?;
+        let target = match targets.get(target_name) {
+            Some(t) => t,
+            None => {
+                return Err(MorphError::TargetNotFound(target_name));
+            }
+        };
         for TargetDelta { vertex, offset } in target.deltas.iter() {
             helpers[*vertex as usize] += offset * value;
         }

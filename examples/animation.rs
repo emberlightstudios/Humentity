@@ -16,7 +16,7 @@ use std::f32::consts::PI;
 
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 use humentity::prelude::*;
-use shared::{CharacterPart, setup_app};
+use shared::setup_app;
 
 const BABY: &str = "baby";
 
@@ -50,10 +50,10 @@ fn add_humans(
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
-    let template_handle = template_assets.add(CharacterTemplate::new(
-        [CharacterMorphShape::new(BABY, morph_targets)],
-        RigType::Default,
-    ));
+    let template_handle = template_assets.add(CharacterTemplate::new([CharacterMorphShape::new(
+        BABY,
+        morph_targets,
+    )]));
     info!("GLB scene loaded");
 
     // Spawn the raw GLB animation scene for comparison, includes basemesh+helpers
@@ -82,18 +82,26 @@ fn add_humans(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh_part.clone(),
         template_handle: template_handle.clone(),
+        lod: 0,
     });
 
     // Spawn the character with baby morphs
     let mut morphs = MorphTargets::default();
     morphs.insert(BABY, 1.);
+    let shape_handle = shape_assets.add(CharacterShapeAsset::new(template_handle.clone(), morphs));
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         Name::new("Retargeted"),
         InheritedVisibility::default(),
         AnimationPlayer::default(),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
-        children![(Name::new("Mesh"), CharacterPart(basemesh_part),)],
+        CharacterShape(shape_handle),
+        children![(
+            Name::new("Mesh"),
+            CharacterPart {
+                mesh: basemesh_part,
+                lod: 0
+            },
+        )],
     ));
 
     // Load the animation clip with translation tracks removed for different human shapes.

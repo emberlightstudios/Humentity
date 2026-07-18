@@ -21,7 +21,7 @@ mod shared;
 
 use bevy::prelude::*;
 use humentity::prelude::*;
-use shared::{CharacterPart, setup_app};
+use shared::setup_app;
 
 const BABY: &str = "baby";
 const BODYBUILDER: &str = "bodybuilder";
@@ -29,7 +29,17 @@ const BODYBUILDER: &str = "bodybuilder";
 fn main() {
     let mut app = setup_app();
 
-    app.add_observer(add_humans).run();
+    app.add_observer(add_humans)
+        .add_observer(on_skeletons_ready)
+        .run();
+}
+
+/// Skeletons are disabled by default, We manually enable the lod 0 skeleton
+fn on_skeletons_ready(trigger: On<Add, SkeletonsReady>, mut commands: Commands) {
+    commands.trigger(EnableSkeletonLod {
+        character: trigger.entity,
+        lod: 0,
+    });
 }
 
 fn add_humans(
@@ -48,13 +58,10 @@ fn add_humans(
     bodybuilder_targets.insert("weight", 1.);
 
     // Templates can be created at runtime or loaded from toml
-    let template_handle = template_assets.add(CharacterTemplate::new(
-        [
-            CharacterMorphShape::new(BODYBUILDER, bodybuilder_targets),
-            CharacterMorphShape::new(BABY, baby_targets),
-        ],
-        RigType::Default,
-    ));
+    let template_handle = template_assets.add(CharacterTemplate::new([
+        CharacterMorphShape::new(BODYBUILDER, bodybuilder_targets),
+        CharacterMorphShape::new(BABY, baby_targets),
+    ]));
 
     // Previously defined shapes will now appear as morph targets on the template's mesh
     // The HumanShapeConfig type controls template access and applies our morph targets.
@@ -64,6 +71,7 @@ fn add_humans(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh_part.clone(),
         template_handle: template_handle.clone(),
+        lod: 0,
     });
 
     // Spawn some characters with different morph values.  They will all share the same mesh handle, but look different!
@@ -75,7 +83,12 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(template_handle.clone())),
-        children![(CharacterPart(basemesh_part.clone()))],
+        children![
+            (CharacterPart {
+                mesh: basemesh_part.clone(),
+                lod: 0
+            })
+        ],
     ));
 
     // A baby
@@ -90,7 +103,13 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        children![(CharacterPart(basemesh_part.clone()), Name::new("mesh"),)],
+        children![(
+            CharacterPart {
+                mesh: basemesh_part.clone(),
+                lod: 0
+            },
+            Name::new("mesh"),
+        )],
     ));
 
     // A bodybuilder
@@ -104,7 +123,13 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        children![(Name::new("mesh"), CharacterPart(basemesh_part.clone()),)],
+        children![(
+            Name::new("mesh"),
+            CharacterPart {
+                mesh: basemesh_part.clone(),
+                lod: 0
+            }
+        )],
     ));
 
     // Half baby/half bodybuilder, ha!
@@ -119,7 +144,13 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        children![(CharacterPart(basemesh_part.clone()), Name::new("mesh"),)],
+        children![(
+            CharacterPart {
+                mesh: basemesh_part.clone(),
+                lod: 0
+            },
+            Name::new("mesh"),
+        )],
     ));
 
     // You have to be careful with normalization of mixed shapekeys sometimes
@@ -132,6 +163,12 @@ fn add_humans(
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
-        children![(CharacterPart(basemesh_part), Name::new("mesh"),)],
+        children![(
+            CharacterPart {
+                mesh: basemesh_part,
+                lod: 0
+            },
+            Name::new("mesh"),
+        )],
     ));
 }

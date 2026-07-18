@@ -1,7 +1,7 @@
 use crate::NAME_INTERNER;
 use ahash::{AHashMap, AHashSet};
 use bevy::{
-    animation::{AnimationTargetId, animated_field},
+    animation::{animated_field, AnimationTargetId},
     ecs::intern::Internable,
     prelude::*,
 };
@@ -24,7 +24,7 @@ pub enum TranslationTracks {
 pub(crate) fn rescale_bone_translations(
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
-    humans: Query<(Entity, &CharacterShape), Without<FitSkeleton>>,
+    humans: Query<(Entity, &CharacterShape), With<SkeletonsReady>>,
     children: Query<&Children>,
     names: Query<&Name>,
     mut transforms: Query<&mut Transform>,
@@ -77,7 +77,7 @@ pub(crate) fn rescale_bone_translations(
 pub(crate) fn rescale_root_bone_translation(
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
-    humans: Query<(&SkeletonEntities, &CharacterShape), Without<FitSkeleton>>,
+    humans: Query<(&SkeletonEntities, &CharacterShape), With<SkeletonsReady>>,
     mut transforms: Query<&mut Transform>,
     rig_data: Res<RigData>,
 ) {
