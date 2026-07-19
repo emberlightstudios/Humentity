@@ -78,7 +78,14 @@ pub struct ResetSkeletonToBindPose {
 /// Spawns one skeleton scene per unique LOD level as a child of each `CharacterShape`.
 /// LOD levels are determined from `SkeletonLodConfig`, not from `CharacterPart` children.
 pub(crate) fn spawn_rig_skeletons(
-    characters: Query<Entity, (Without<SkeletonsReady>, Without<FitSkeleton>)>,
+    characters: Query<
+        Entity,
+        (
+            Without<SkeletonsReady>,
+            Without<FitSkeleton>,
+            With<CharacterShape>,
+        ),
+    >,
     has_skeleton_children: Query<&SkeletonLodMap>,
     rig_bundle: Res<RigBundleRes>,
     lod_config: Option<Res<SkeletonLodConfig>>,

@@ -3,11 +3,11 @@
 //! We also demonstrate the use of skeleton lod here.
 
 mod shared;
-use std::collections::HashMap;
 use ahash::AHashSet;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
 use shared::setup_app;
+use std::collections::HashMap;
 
 const SHAPE_NAME: &str = "bigboobs";
 
@@ -72,7 +72,6 @@ fn play_idle_animation(
     >,
     mut commands: Commands,
 ) {
-    return;
     let Some((_id, clips_map)) = clips.iter().next() else {
         return;
     };
