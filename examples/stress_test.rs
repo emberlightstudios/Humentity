@@ -1,24 +1,25 @@
-//! Makehuman comes with several lower poly proxy meshes.  These
-//! can be used for lods with the VisibilityRanges component.
-//! We also demonstrate the use of skeleton lod here.
+//! Stress test: spawns an NxN grid of LOD characters to measure performance.
 
 mod shared;
-use ahash::AHashSet;
+use ahash::AHashMap;
 use bevy::{
-    animation::AnimationTargetId,
-    camera::visibility::VisibilityRange,
-    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
-    prelude::*,
+    camera::{ComputedCameraValues, visibility::VisibilityRange}, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, light::cluster::ClusterVisibilityClass, prelude::*,
 };
 use humentity::prelude::*;
 use shared::setup_app;
-use std::collections::HashMap;
 
-
-const SHAPE_NAME: &str = "bigboobs";
+// On my machine I can accomodate this many animated characters while staying near 60fps.
+// This is an improvement after implementing skeleton lod as I think transform propagation 
+// was one of the biggest bottlenecks.
+// 24*24 = 576 characters
+// Of course further optimization (e.g. frs)
+const N: usize = 24;
 
 #[derive(Component, Debug, Default)]
 struct CameraDistance(f32);
+
+#[derive(Component)]
+struct FpsText;
 
 #[derive(Resource)]
 struct RetargetedAnims {
@@ -28,17 +29,54 @@ struct RetargetedAnims {
 fn main() {
     let mut app = setup_app();
 
-    app.add_plugins(BoneDebugPlugin)
+    app.add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_observer(add_humans)
+        .add_systems(Startup, setup_fps_text)
         .add_systems(
             Update,
             (
                 update_camera_distance,
                 sync_skeleton_lod_to_visibility,
                 play_idle_animation.run_if(resource_added::<RetargetedAnims>),
+                update_fps_text,
             ),
         )
         .run();
+}
+
+fn setup_fps_text(mut commands: Commands) {
+    commands.spawn((
+        FpsText,
+        Text::new("FPS: --"),
+        TextFont {
+            font_size: FontSize::Px(30.0),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(5.0),
+            left: Val::Px(5.0),
+            ..default()
+        },
+    ));
+}
+
+fn update_fps_text(
+    diagnostics: Res<DiagnosticsStore>,
+    characters: Query<Entity, With<CharacterShape>>,
+    mut query: Query<&mut Text, With<FpsText>>,
+) {
+    let fps = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|d| d.smoothed())
+        .unwrap_or(0.0);
+
+    let count = characters.iter().count();
+
+    for mut text in &mut query {
+        **text = format!("FPS: {fps:.1}  Characters: {count}");
+    }
 }
 
 fn add_humans(
@@ -51,11 +89,9 @@ fn add_humans(
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
 ) {
     let mut morph_targets = MorphTargets::default();
-    morph_targets.insert("gender", 0.0);
-    morph_targets.insert("cupsize", 1.0);
+    morph_targets.insert("gender", 1.0);
 
-    let shape = CharacterMorphShape::new(SHAPE_NAME, morph_targets);
-
+    let shape = CharacterMorphShape::new("bigboobs", morph_targets);
     let template_handle = template_assets.add(CharacterTemplate::new([shape]));
 
     let lod0 = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
@@ -85,110 +121,87 @@ fn add_humans(
     });
 
     let mut morphs = MorphTargets::default();
-    morphs.insert(SHAPE_NAME, 1.);
+    morphs.insert("bigboobs", 1.);
 
     let white = materials.add(StandardMaterial::from_color(Color::WHITE));
-    let black = materials.add(StandardMaterial::from_color(Color::BLACK));
 
     let _clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
     commands.insert_resource(RetargetedAnims { _clips: _clips });
 
-    // LOD character with all proxy meshes as children, each with a VisibilityRange
-    commands.spawn((
-        Name::new("LOD Character"),
-        Transform::from_translation(Vec3::new(0., 0., -1.)),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
-            template_handle.clone(),
-            morphs.clone(),
-        ))),
-        InheritedVisibility::default(),
-        CameraDistance::default(),
-        AnimationPlayer::default(),
-        children![
-            (
-                CharacterPart {
-                    mesh: lod0.clone(),
-                    skeleton_lod: 0
-                },
-                Name::new("basemesh"),
-                MeshMaterial3d(white.clone()),
-                VisibilityRange {
-                    start_margin: 0.0..0.0,
-                    end_margin: 2.0..3.0,
-                    use_aabb: false,
-                }
-            ),
-            (
-                CharacterPart {
-                    mesh: lod1.clone(),
-                    skeleton_lod: 0
-                },
-                Name::new("proxy4817"),
-                MeshMaterial3d(white.clone()),
-                VisibilityRange {
-                    start_margin: 2.0..3.0,
-                    end_margin: 7.0..8.0,
-                    use_aabb: false,
-                }
-            ),
-            (
-                CharacterPart {
-                    mesh: lod2.clone(),
-                    skeleton_lod: 1
-                },
-                Name::new("proxy1605"),
-                MeshMaterial3d(white.clone()),
-                VisibilityRange {
-                    start_margin: 7.0..8.0,
-                    end_margin: 14.0..15.0,
-                    use_aabb: false,
-                }
-            ),
-            (
-                CharacterPart {
-                    mesh: lod3.clone(),
-                    skeleton_lod: 2
-                },
-                Name::new("proxy741"),
-                MeshMaterial3d(white),
-                VisibilityRange {
-                    start_margin: 14.0..15.0,
-                    end_margin: 20.0..30.0,
-                    use_aabb: false,
-                }
-            )
-        ],
-    ));
-
-    // Reference characters showing individual proxy meshes at each LOD level
-    for ((proxy, name, x), skeleton_lod) in [
-        ((lod0, "basemesh ref", -1.5), 0),
-        ((lod1, "proxy4817 ref", -0.5), 0),
-        ((lod2, "proxy1605 ref", 0.5), 1),
-        ((lod3, "proxy741 ref", 1.5), 2),
-    ] {
-        commands.spawn((
-            Name::new(name),
-            Transform::from_translation(Vec3::new(x, 0., 0.)),
-            CharacterShape(shape_assets.add(CharacterShapeAsset::new(
-                template_handle.clone(),
-                morphs.clone(),
-            ))),
-            InheritedVisibility::default(),
-            SkeletonLodFilter(AHashSet::from([skeleton_lod])),
-            children![(
-                CharacterPart {
-                    mesh: proxy,
-                    skeleton_lod
-                },
-                Name::new("mesh"),
-                MeshMaterial3d(black.clone())
-            )],
-        ));
+    let half = N as f32 / 2.0;
+    for row in 0..N {
+        for col in 0..N {
+            let x = col as f32 - half;
+            let z = row as f32 - half;
+            commands.spawn((
+                Name::new(format!("Char {row},{col}")),
+                Transform::from_translation(Vec3::new(x, 0., z)),
+                CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+                    template_handle.clone(),
+                    morphs.clone(),
+                ))),
+                InheritedVisibility::default(),
+                CameraDistance::default(),
+                AnimationPlayer::default(),
+                children![
+                    (
+                        CharacterPart {
+                            mesh: lod0.clone(),
+                            skeleton_lod: 0
+                        },
+                        Name::new("basemesh"),
+                        MeshMaterial3d(white.clone()),
+                        VisibilityRange {
+                            start_margin: 0.0..0.0,
+                            end_margin: 2.0..3.0,
+                            use_aabb: false,
+                        }
+                    ),
+                    (
+                        CharacterPart {
+                            mesh: lod1.clone(),
+                            skeleton_lod: 0
+                        },
+                        Name::new("proxy4817"),
+                        MeshMaterial3d(white.clone()),
+                        VisibilityRange {
+                            start_margin: 2.0..3.0,
+                            end_margin: 7.0..8.0,
+                            use_aabb: false,
+                        }
+                    ),
+                    (
+                        CharacterPart {
+                            mesh: lod2.clone(),
+                            skeleton_lod: 1
+                        },
+                        Name::new("proxy1605"),
+                        MeshMaterial3d(white.clone()),
+                        VisibilityRange {
+                            start_margin: 7.0..8.0,
+                            end_margin: 14.0..15.0,
+                            use_aabb: false,
+                        }
+                    ),
+                    (
+                        CharacterPart {
+                            mesh: lod3.clone(),
+                            skeleton_lod: 2
+                        },
+                        Name::new("proxy741"),
+                        MeshMaterial3d(white.clone()),
+                        VisibilityRange {
+                            start_margin: 14.0..15.0,
+                            end_margin: 20.0..30.0,
+                            use_aabb: false,
+                        }
+                    )
+                ],
+            ));
+        }
     }
 }
 
-/// This will update main main character distance to camera for managing lod state
 fn update_camera_distance(
     cameras: Query<&GlobalTransform, With<Camera3d>>,
     mut entities: Query<(&GlobalTransform, &mut CameraDistance)>,
@@ -202,11 +215,10 @@ fn update_camera_distance(
     }
 }
 
-/// Primitive skeleton lod state management based on distance to camera
 fn sync_skeleton_lod_to_visibility(
     characters: Query<(Entity, &CameraDistance, &SkeletonLodMap), With<SkeletonsReady>>,
     parts: Query<(&VisibilityRange, &CharacterPart, &ChildOf)>,
-    mut prev: Local<HashMap<(Entity, usize), bool>>,
+    mut prev: Local<AHashMap<(Entity, usize), bool>>,
     mut commands: Commands,
 ) {
     for (entity, cam_dist, lod_map) in &characters {
