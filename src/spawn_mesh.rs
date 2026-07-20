@@ -22,7 +22,7 @@ pub struct CharacterShape(pub Handle<CharacterShapeAsset>);
 #[derive(Component, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct CharacterPart {
     pub mesh: Handle<MhcloAsset>,
-    pub lod: usize,
+    pub skeleton_lod: usize,
 }
 
 /// The state of a mesh load process for character parts
@@ -58,7 +58,7 @@ pub enum LoadAssetMeshJob {
     Single {
         part: Handle<MhcloAsset>,
         template_handle: Handle<CharacterTemplate>,
-        lod: usize,
+        skeleton_lod: usize,
     },
     Stitched {
         parts: StitchedParts,
@@ -124,7 +124,7 @@ pub(crate) fn mesh_build(
             LoadAssetMeshJob::Single {
                 part,
                 template_handle,
-                lod,
+                skeleton_lod: lod,
             } => {
                 let Some(template) = templates.get(template_handle) else {
                     continue;

@@ -5,11 +5,16 @@ use bevy::{
     mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
 };
+use bevy::ecs::intern::Internable;
 
 use crate::{
     morphs::MakeHumanMorphs,
-    prelude::{BaseMesh, CharacterShape, CharacterShapeAsset, CharacterTemplate},
-    rigs::{RigData, SkeletalBone},
+    prelude::{
+        BaseMesh, CharacterShape, CharacterShapeAsset, CharacterTemplate, SkeletonLodDisabled,
+        SkeletonLodMap, SkeletonsReady,
+    },
+    rigs::SkeletalBone,
+    NAME_INTERNER,
 };
 
 use super::*;
@@ -116,9 +121,9 @@ pub(crate) fn mark_needs_colliders(
     characters: Query<
         Entity,
         (
-            Or<(Added<CharacterColliders>, Added<SkinnedMesh>)>,
+            Or<(Added<CharacterColliders>, Added<SkeletonsReady>)>,
             With<CharacterColliders>,
-            With<SkinnedMesh>,
+            With<SkeletonsReady>,
         ),
     >,
 ) {
@@ -133,21 +138,23 @@ pub(crate) fn spawn_colliders(
         (
             Entity,
             &CharacterShape,
-            &SkinnedMesh,
+            &SkeletonLodMap,
             &mut CharacterColliders,
             &RagdollDensity,
             Option<&RagdollCollisionLayers>,
         ),
-        With<NeedsColliders>,
+        (With<NeedsColliders>, With<SkeletonsReady>),
     >,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
     basemesh: Res<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
-    rig_data: Res<RigData>,
+    skeleton_skins: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>)>,
+    children_query: Query<&Children, Allow<SkeletonLodDisabled>>,
+    joint_names: Query<&Name, (With<SkeletalBone>, Allow<SkeletonLodDisabled>)>,
 ) {
-    for (character_entity, character_shape, skm, mut colliders, density, collision_layers) in
+    for (character_entity, character_shape, lod_map, mut colliders, density, collision_layers) in
         characters.iter_mut()
     {
         let Some(collision_layers) = collision_layers else {
@@ -160,6 +167,22 @@ pub(crate) fn spawn_colliders(
         let Some(template) = templates.get(&asset.template) else {
             continue;
         };
+
+        // Resolve SkinnedMesh from the highest-detail (LOD 0) skeleton
+        let Some(&lod0_entity) = lod_map.0.get(&0) else {
+            continue;
+        };
+        let mut skm: Option<SkinnedMesh> = None;
+        for child in children_query.iter_descendants(lod0_entity) {
+            if let Ok(s) = skeleton_skins.get(child) {
+                skm = Some(s.clone());
+                break;
+            }
+        }
+        let Some(skm) = skm else {
+            continue;
+        };
+
         let collider_bone_map = DEFAULT_RIG_COLLIDER_BONE_NAMES;
 
         let Ok(helpers) = template.get_helpers(
@@ -172,23 +195,30 @@ pub(crate) fn spawn_colliders(
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
-        let Some(rig_spec) = rig_data.0.as_ref() else {
-            continue;
-        };
-        let reference_rig = &rig_spec.reference_rig;
 
-        let bone_entities: AHashMap<&str, Entity> = reference_rig
-            .bone_names
+        let bone_entities: AHashMap<&str, Entity> = skm
+            .joints
             .iter()
-            .cloned()
-            .zip(skm.joints.iter().cloned())
+            .filter_map(|&joint| {
+                joint_names
+                    .get(joint)
+                    .ok()
+                    .map(|name| (NAME_INTERNER.intern(name.as_str()).leak(), joint))
+            })
             .collect();
 
-        let inv_bindposes_map: AHashMap<&str, Transform> = reference_rig
-            .bone_names
+        let inv_bindposes_map: AHashMap<&str, Transform> = skm
+            .joints
             .iter()
-            .cloned()
-            .zip(inv_bindposes.iter().map(|m| Transform::from_matrix(*m)))
+            .zip(inv_bindposes.iter())
+            .filter_map(|(&joint, ibp)| {
+                joint_names.get(joint).ok().map(|name| {
+                    (
+                        NAME_INTERNER.intern(name.as_str()).leak(),
+                        Transform::from_matrix(*ibp),
+                    )
+                })
+            })
             .collect();
 
         let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {

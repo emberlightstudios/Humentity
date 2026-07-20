@@ -75,13 +75,13 @@ fn add_humans(
             (
                 CharacterPart {
                     mesh: headless,
-                    lod: 0
+                    skeleton_lod: 0
                 },
                 Name::new("headless"),
                 MeshMaterial3d(white.clone())
             ),
             (
-                CharacterPart { mesh: head, lod: 0 },
+                CharacterPart { mesh: head, skeleton_lod: 0 },
                 Name::new("head"),
                 TemplateOverride(head_template_handle),
                 MeshMaterial3d(white)

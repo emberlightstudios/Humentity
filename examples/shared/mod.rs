@@ -10,45 +10,22 @@ use humentity::prelude::*;
 /// Default skeleton LOD configurations.
 ///
 /// LOD 0: Remove toes.
-/// LOD 1: + face, spine03/04, neck02/03, twist bones, shoulder01.
-/// LOD 2: + fingers.
-/// LOD 3: + hands (wrist) and feet.
+/// LOD 1: Remove face,
+/// LOD 2: Remove hands, fingers, feet
 pub fn default_skeleton_lods() -> Vec<BoneMergeConfig> {
-    let lod1_bones = vec![
-        // Twist bones
-        "upperarm02.L",
-        "upperarm02.R",
-        "lowerarm02.L",
-        "lowerarm02.R",
-        "upperleg02.L",
-        "upperleg02.R",
-        "lowerleg02.L",
-        "lowerleg02.R",
-        // Shoulder
-        "shoulder01.L",
-        "shoulder01.R",
-        // Spine
-        "spine03",
-        "spine04",
-        // Neck
-        "neck02",
-        "neck03",
-    ];
-
+    // Remove toe bones
     let lod0 = BoneMergeConfig::full().without_children_of(&["foot.L", "foot.R"]);
 
-    let lod1 = lod0
-        .clone()
-        .without_children_of(&["head"])
-        .without_bones(&lod1_bones);
+    let lod1 = lod0.clone().without_children_of(&["head"]);
 
-    let lod2 = lod1.clone().without_children_of(&["wrist.L", "wrist.R"]);
+    let lod2 = lod1.clone().without_children_of(&[
+        "lowerarm02.L",
+        "lowerarm02.R",
+        "lowerleg02.L",
+        "lowerleg02.R",
+    ]);
 
-    let lod3 = lod2
-        .clone()
-        .without_bones(&["wrist.L", "wrist.R", "foot.L", "foot.R", "head"]);
-
-    vec![lod0, lod1, lod2, lod3]
+    vec![lod0, lod1, lod2]
 }
 
 /// Add just the [HumentityPlugin] without egui/inspector plugins.
@@ -71,10 +48,11 @@ pub fn setup_app() -> App {
         .add_systems(
             Update,
             (
+                enable_first_skeleton_on_ready,
                 update_mesh_when_ready,
                 cam_controls,
                 add_material,
-                debug_forward_gizmo,
+                //debug_forward_gizmo,
             ),
         );
 
@@ -95,6 +73,22 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
         "rigs/weights.default.json",
         "skeletons/default.glb",
     );
+}
+
+/// Enables the first available skeleton (lowest LOD) when all skeletons for a
+/// character have been fitted.
+pub fn enable_first_skeleton_on_ready(
+    characters: Query<(Entity, &SkeletonLodMap), Added<SkeletonsReady>>,
+    mut commands: Commands,
+) {
+    for (entity, lod_map) in &characters {
+        if let Some(&lowest_lod) = lod_map.0.keys().min() {
+            commands.trigger(EnableSkeletonLod {
+                character: entity,
+                lod: lowest_lod,
+            });
+        }
+    }
 }
 
 /// Scans for CharacterParts still waiting for a mesh handle from the background threads
@@ -128,7 +122,7 @@ fn update_mesh_when_ready(
 
         // After you trigger a mesh build it will be put in this cache
         if let Some(mesh_handle) =
-            cached_meshes.get(&(part.mesh.clone(), template.clone(), part.lod))
+            cached_meshes.get(&(part.mesh.clone(), template.clone(), part.skeleton_lod))
         {
             commands.entity(entity).insert((
                 Mesh3d(mesh_handle.clone()),

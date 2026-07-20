@@ -33,7 +33,7 @@ struct AnimationController(AnimationNodeIndex);
 
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
-    human: Single<(&CharacterShape, &SkinnedMesh)>,
+    human: Single<(&CharacterShape, &SkeletonLodMap)>,
     character: Single<(
         &mut CharacterRagdoll,
         &mut CharacterColliders,
@@ -43,7 +43,15 @@ fn toggle(
     )>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
-    mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,
+    mut bones: Query<
+        (&mut Transform, Option<&ChildOf>),
+        (With<SkeletalBone>, Allow<SkeletonLodDisabled>),
+    >,
+    skeleton_skins: Query<
+        &SkinnedMesh,
+        (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>),
+    >,
+    children_query: Query<&Children, Allow<SkeletonLodDisabled>>,
 ) {
     let (mut ragdoll, mut colliders, mut player, graph, controller) = character.into_inner();
 
@@ -59,8 +67,16 @@ fn toggle(
                 }
             }
 
-            let (_, skm) = *human;
-            if let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) {
+            let (_shape, lod_map) = *human;
+            let skm = lod_map.0.get(&0).and_then(|&lod0| {
+                children_query.iter_descendants(lod0).find_map(|child| {
+                    skeleton_skins.get(child).ok().cloned()
+                })
+            });
+
+            if let Some(skm) = skm
+                && let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes)
+            {
                 let model_bind_poses: Vec<Mat4> =
                     inv_bindposes.iter().map(|m| m.inverse()).collect();
 
@@ -147,7 +163,7 @@ fn add_human(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh.clone(),
         template_handle: template_handle.clone(),
-        lod: 0,
+        skeleton_lod: 0,
     });
 
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
@@ -178,7 +194,7 @@ fn add_human(
         RagdollMobility(1.0),
         RagdollDensity(10.0),
         RagdollDamping(25.0),
-        children![(CharacterPart { mesh: basemesh, lod: 0 }, MeshMaterial3d(mat),)],
+        children![(CharacterPart { mesh: basemesh, skeleton_lod: 0 }, MeshMaterial3d(mat),)],
     ));
 }
 
@@ -192,7 +208,7 @@ fn setup_graph(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
     mut character_player: Query<Entity, (With<AnimationPlayer>, Without<AnimationGraphHandle>)>,
-    skeleton_bones: Query<(&Name, &AnimationTargetId), With<SkeletalBone>>,
+    skeleton_bones: Query<(&Name, &AnimationTargetId), (With<SkeletalBone>, Allow<SkeletonLodDisabled>)>,
 ) {
     let Ok(entity) = character_player.single_mut() else {
         return;

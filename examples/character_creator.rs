@@ -8,32 +8,42 @@ mod shared;
 
 use ahash::AHashMap;
 use bevy::feathers::FeathersPlugins;
-use bevy::feathers::controls::ButtonBundleProps;
-use bevy::feathers::controls::FeathersSliderProps;
-use bevy::feathers::controls::button_bundle;
-use bevy::feathers::controls::slider_bundle;
+use bevy::feathers::controls::FeathersButton;
+use bevy::feathers::controls::FeathersSlider;
 use bevy::feathers::dark_theme::create_dark_theme;
 use bevy::feathers::theme::ThemedText;
 use bevy::feathers::theme::UiTheme;
 use bevy::prelude::*;
+use bevy::scene::CommandsSceneExt;
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy::ui_widgets::Activate;
 use bevy::ui_widgets::Slider;
 use bevy::ui_widgets::SliderPrecision;
 use bevy::ui_widgets::SliderStep;
 use bevy::ui_widgets::ValueChange;
-use bevy::ui_widgets::observe;
 use bevy::ui_widgets::slider_self_update;
 use crossbeam_channel;
 use humentity::prelude::*;
 use shared::setup_app;
 use std::sync::Arc;
 
-#[derive(Component, Deref)]
+#[derive(Component, Clone, Default, Deref)]
 struct ButtonCategory(&'static str);
 
-#[derive(Component)]
+impl ButtonCategory {
+    fn new(s: &'static str) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Component, Clone, Default)]
 struct SliderMetadata(&'static str, &'static str);
+
+impl SliderMetadata {
+    fn new(a: &'static str, b: &'static str) -> Self {
+        Self(a, b)
+    }
+}
 
 #[derive(Component)]
 struct RootNode;
@@ -305,7 +315,7 @@ fn init_ui(
     let morphs = mh_morphs.get_morph_names();
 
     // Order categories: known ones first, then any extras from the morph map
-    let mut known: std::collections::HashSet<&str> = CATEGORY_ORDER.iter().copied().collect();
+    let known: std::collections::HashSet<&str> = CATEGORY_ORDER.iter().copied().collect();
     for &category in CATEGORY_ORDER {
         let Some(morph_names) = morphs.get(category) else {
             continue;
@@ -318,15 +328,13 @@ fn init_ui(
         }
 
         let btn = commands
-            .spawn((
-                ButtonCategory(category),
-                button_bundle(
-                    ButtonBundleProps::default(),
-                    (),
-                    Spawn((Text::new(category), ThemedText)),
-                ),
-            ))
-            .observe(category_selected)
+            .spawn_scene(bsn! {
+                ButtonCategory::new(category)
+                @FeathersButton {
+                    @caption: bsn! { Text(category) ThemedText }
+                }
+                on(category_selected)
+            })
             .id();
         commands.entity(top_bar).add_child(btn);
     }
@@ -346,15 +354,13 @@ fn init_ui(
         }
 
         let btn = commands
-            .spawn((
-                ButtonCategory(category),
-                button_bundle(
-                    ButtonBundleProps::default(),
-                    (),
-                    Spawn((Text::new(category), ThemedText)),
-                ),
-            ))
-            .observe(category_selected)
+            .spawn_scene(bsn! {
+                ButtonCategory::new(category)
+                @FeathersButton {
+                    @caption: bsn! { Text(category) ThemedText }
+                }
+                on(category_selected)
+            })
             .id();
         commands.entity(top_bar).add_child(btn);
     }
@@ -381,34 +387,31 @@ fn category_selected(
 
     let root = root.single().unwrap();
     let morphs = slider_values.get(category).unwrap();
-    for (&name, morph) in morphs.iter() {
+    for (&name, &morph) in morphs.iter() {
         let slider = commands
-            .spawn((
+            .spawn_scene(bsn! {
                 Node {
                     display: Display::Grid,
                     grid_auto_flow: GridAutoFlow::Column,
-                    grid_template_columns: RepeatedGridTrack::flex(2, 1.),
+                    grid_template_columns: vec![RepeatedGridTrack::flex(2, 1.)],
                     width: percent(45),
-                    ..default()
-                },
-                children![
+                }
+                Children [
                     (
-                        SliderMetadata(category, name),
-                        slider_bundle(
-                            FeathersSliderProps {
-                                min: min_values[name],
-                                max: 1.0,
-                                value: *morph,
-                                ..default()
-                            },
-                            (SliderStep(0.1), SliderPrecision(2)),
-                        ),
-                        observe(on_slider_value_changed),
-                        observe(slider_self_update)
+                        SliderMetadata::new(category, name)
+                        @FeathersSlider {
+                            @min: min_values[name],
+                            @max: 1.0,
+                            @value: morph,
+                        }
+                        SliderStep(0.1)
+                        SliderPrecision(2)
+                        on(on_slider_value_changed)
+                        on(slider_self_update)
                     ),
-                    (Text::new(name), ThemedText)
-                ],
-            ))
+                    (Text::new(name) ThemedText),
+                ]
+            })
             .id();
         commands.entity(root).add_child(slider);
     }

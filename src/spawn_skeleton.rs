@@ -3,10 +3,7 @@ use ahash::AHashSet;
 use crate::{
     basemesh::{BaseMesh, VertexGroups},
     prelude::*,
-    rigs::{
-        get_model_space_skeleton_transforms, BoneTranslationData, RigBundleRes, RigData,
-        RootBonePrevious,
-    },
+    rigs::{get_model_space_skeleton_transforms, BoneTranslationData, RigBundleRes, RigData},
     skeleton_lod::SkeletonLodConfig,
 };
 use ahash::AHashMap;
@@ -27,10 +24,10 @@ pub struct CharacterSkeleton {
 #[derive(Component, Debug)]
 pub struct SkeletonsReady;
 
-/// Optional filter on `CharacterShape` to restrict which LOD levels get spawned.
-/// `None` means spawn all LOD levels defined in `SkeletonLodConfig`.
-#[derive(Component, Debug, Default)]
-pub struct SkeletonLodFilter(pub Option<AHashSet<usize>>);
+/// Filter on `CharacterShape` to restrict which LOD levels get spawned.
+/// Absent from the entity means all LOD levels are spawned.
+#[derive(Component, Debug)]
+pub struct SkeletonLodFilter(pub AHashSet<usize>);
 
 /// Maps LOD index → skeleton entity. Placed on `CharacterShape` by `spawn_rig_skeletons`.
 #[derive(Component, Debug, Default)]
@@ -110,7 +107,7 @@ pub(crate) fn spawn_rig_skeletons(
         let mut lod_map = AHashMap::default();
 
         for lod_idx in 0..num_variants {
-            if let Some(SkeletonLodFilter(Some(allowed))) = lod_filter {
+            if let Some(SkeletonLodFilter(allowed)) = lod_filter {
                 if !allowed.contains(&lod_idx) {
                     continue;
                 }
@@ -150,7 +147,7 @@ pub(crate) fn fit_skeleton_to_shape(
     >,
     children: Query<&Children, Allow<SkeletonLodDisabled>>,
     skeletons: Query<
-        (Entity, &ChildOf, &CharacterSkeleton, Option<&RootMotion>),
+        (Entity, &ChildOf, &CharacterSkeleton),
         (With<FitSkeleton>, Allow<SkeletonLodDisabled>),
     >,
     characters: Query<(&CharacterShape, Option<&AnimationPlayer>)>,
@@ -165,19 +162,19 @@ pub(crate) fn fit_skeleton_to_shape(
     vg: Res<VertexGroups>,
     rig_bundle: Res<RigBundleRes>,
 ) {
-    for (skeleton_entity, parent, skeleton, root_motion) in skeletons.iter() {
+    for (skeleton_entity, parent, skeleton) in skeletons.iter() {
         let parent_entity = parent.parent();
         let Ok((character_shape, animation_player)) = characters.get(parent_entity) else {
             continue;
         };
-        let Some(mut asset) = shape_assets.get_mut(&character_shape.0) else {
+        let Some(mut shape) = shape_assets.get_mut(&character_shape.0) else {
             continue;
         };
-        let Some(template) = templates.get(&asset.template) else {
+        let Some(template) = templates.get(&shape.template) else {
             continue;
         };
         let Ok(helpers) = template.get_helpers(
-            &asset.template_morph_targets,
+            &shape.template_morph_targets,
             &basemesh.vertices,
             &morph_targets,
         ) else {
@@ -264,9 +261,29 @@ pub(crate) fn fit_skeleton_to_shape(
             rig_spec,
             &vg,
         );
-        let mut local_bone_transforms = AHashMap::default();
 
         let bone_config = &rig_spec.config;
+
+        // Pass 1: Replace all model-space rotations with reference rig rotations.
+        // This must happen before any local computation so parent lookups are correct.
+        for &bone in &rig_spec.reference_rig.bone_names {
+            if bone_config.bones.contains_key(bone) {
+                let old_global = model_space_bindposes[bone];
+                let reference_rot = rig_spec.reference_rig.model_space_bindpose[bone].rotation;
+                model_space_bindposes.insert(
+                    bone,
+                    Transform {
+                        translation: old_global.translation,
+                        rotation: reference_rot,
+                        scale: old_global.scale,
+                    },
+                );
+            }
+        }
+
+        // Pass 2: Compute local transforms from model-space using the merged parent chain.
+        let mut local_bone_transforms = AHashMap::default();
+
         for &bone in &rig_spec.reference_rig.bone_names {
             if let Some(bone_data) = bone_config.bones.get(bone) {
                 let parent_name = variant_bone_to_parent
@@ -281,21 +298,12 @@ pub(crate) fn fit_skeleton_to_shape(
                         None => Transform::IDENTITY,
                     }
                 };
-                let old_global = model_space_bindposes[bone];
 
-                let reference_rot = rig_spec.reference_rig.model_space_bindpose[bone].rotation;
-                let new_global = Transform {
-                    translation: old_global.translation,
-                    rotation: reference_rot,
-                    scale: old_global.scale,
-                };
-
+                let child_matrix = model_space_bindposes[bone].to_matrix();
                 let parent_matrix = parent_transform.to_matrix();
-                let child_matrix = new_global.to_matrix();
                 let new_local = Transform::from_matrix(parent_matrix.inverse() * child_matrix);
 
                 local_bone_transforms.insert(bone, new_local);
-                model_space_bindposes.insert(bone, new_global);
 
                 if let Some(&joint) = bone_entities.get(bone) {
                     let mut local_transform = local_transforms.get_mut(joint).unwrap();
@@ -310,13 +318,13 @@ pub(crate) fn fit_skeleton_to_shape(
             .collect();
 
         // Cache per-bone translation data for animation rescaling (computed once per asset)
-        if matches!(asset.bone_translations, BoneTranslationData::None) {
+        if matches!(shape.bone_translations, BoneTranslationData::None) {
             let translations = model_space_bindposes
                 .iter()
                 .map(|(&bone, xform)| (bone, xform.translation))
                 .collect();
-            asset.bone_translations = BoneTranslationData::Full(translations);
-            asset.bone_delta_rotations = AHashMap::<&'static str, Quat>::default();
+            shape.bone_translations = BoneTranslationData::Full(translations);
+            shape.bone_delta_rotations = AHashMap::<&'static str, Quat>::default();
         }
 
         // Compute inverse bindposes from fitted transforms for this LOD variant
@@ -346,14 +354,6 @@ pub(crate) fn fit_skeleton_to_shape(
         commands
             .entity(skeleton_entity)
             .insert(Transform::from_rotation(crate::MODEL_ROTATION_FIX));
-
-        // Handle root motion
-        if let Some(_root_motion) = root_motion {
-            let root_bone = bone_entities[variant_bone_names[0]];
-            commands
-                .entity(root_bone)
-                .insert(RootBonePrevious::default());
-        }
 
         // Remove FitSkeleton — this skeleton is now fitted, start disabled by default
         commands
@@ -396,10 +396,6 @@ pub(crate) fn on_enable_skeleton_lod(
     commands
         .entity(skeleton_entity)
         .remove_recursive::<Children, SkeletonLodDisabled>();
-    commands.trigger(ResetSkeletonToBindPose {
-        character: event.character,
-        lod: event.lod,
-    });
 }
 
 /// Observer that disables a skeleton LOD variant by inserting `SkeletonLodDisabled`.
@@ -448,13 +444,35 @@ pub(crate) fn on_reset_skeleton_to_bind_pose(
         return;
     };
 
-    // Find the SkinnedMesh joints inside the skeleton's descendants
+    // Log the Human.rig entity before and after reset
+    for child in children_query.iter_descendants(skeleton_entity) {
+        if let Ok(skm) = skinned_meshes.get(child) {
+            let t = bone_transforms.get(child);
+            info!(
+                "[ResetBindPose] lod={} rig_entity={:?} rig_transform={:?} joints={}",
+                event.lod,
+                child,
+                t.ok(),
+                skm.joints.len()
+            );
+            break;
+        }
+    }
+
+    // Find the SkinnedMesh joints inside the skeleton's descendants and reset
     for child in children_query.iter_descendants(skeleton_entity) {
         if let Ok(skm) = skinned_meshes.get(child) {
             for (joint_entity, bind_transform) in skm.joints.iter().zip(bind_pose.0.iter()) {
                 if let Ok(mut transform) = bone_transforms.get_mut(*joint_entity) {
                     *transform = *bind_transform;
                 }
+            }
+            // Log rig after reset
+            if let Ok(t) = bone_transforms.get(child) {
+                info!(
+                    "[ResetBindPose] lod={} rig_entity={:?} rig_transform={:?} AFTER",
+                    event.lod, child, t
+                );
             }
             return;
         }
@@ -480,7 +498,7 @@ pub(crate) fn setup_part_skinning(
         };
 
         // Find the skeleton entity for this part's LOD level
-        let Some(&skeleton_entity) = lod_map.0.get(&part.lod) else {
+        let Some(&skeleton_entity) = lod_map.0.get(&part.skeleton_lod) else {
             continue;
         };
 

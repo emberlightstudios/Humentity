@@ -23,7 +23,7 @@ const BABY: &str = "baby";
 fn main() {
     let mut app = setup_app();
 
-    app.add_plugins(BoneDebugPlugin)
+    app
         .add_observer(add_humans)
         .add_systems(Update, (play_graph, add_graph))
         .run();
@@ -82,7 +82,7 @@ fn add_humans(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh_part.clone(),
         template_handle: template_handle.clone(),
-        lod: 0,
+        skeleton_lod: 0,
     });
 
     // Spawn the character with baby morphs
@@ -99,7 +99,7 @@ fn add_humans(
             Name::new("Mesh"),
             CharacterPart {
                 mesh: basemesh_part,
-                lod: 0
+                skeleton_lod: 0
             },
         )],
     ));

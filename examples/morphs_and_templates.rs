@@ -71,7 +71,7 @@ fn add_humans(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh_part.clone(),
         template_handle: template_handle.clone(),
-        lod: 0,
+        skeleton_lod: 0,
     });
 
     // Spawn some characters with different morph values.  They will all share the same mesh handle, but look different!
@@ -86,7 +86,7 @@ fn add_humans(
         children![
             (CharacterPart {
                 mesh: basemesh_part.clone(),
-                lod: 0
+                skeleton_lod: 0
             })
         ],
     ));
@@ -106,7 +106,7 @@ fn add_humans(
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
-                lod: 0
+                skeleton_lod: 0
             },
             Name::new("mesh"),
         )],
@@ -127,7 +127,7 @@ fn add_humans(
             Name::new("mesh"),
             CharacterPart {
                 mesh: basemesh_part.clone(),
-                lod: 0
+                skeleton_lod: 0
             }
         )],
     ));
@@ -147,7 +147,7 @@ fn add_humans(
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
-                lod: 0
+                skeleton_lod: 0
             },
             Name::new("mesh"),
         )],
@@ -166,7 +166,7 @@ fn add_humans(
         children![(
             CharacterPart {
                 mesh: basemesh_part,
-                lod: 0
+                skeleton_lod: 0
             },
             Name::new("mesh"),
         )],

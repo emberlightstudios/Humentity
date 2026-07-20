@@ -237,7 +237,8 @@ impl Plugin for HumentityPlugin {
                 .add_systems(
                     Update,
                     (
-                        physics::avian::mark_needs_colliders,
+                        physics::avian::mark_needs_colliders
+                            .after(spawn_skeleton::check_skeletons_ready),
                         physics::avian::spawn_colliders
                             .after(physics::avian::mark_needs_colliders)
                             .after(spawn_skeleton::check_skeletons_ready),

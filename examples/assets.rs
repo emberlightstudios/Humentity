@@ -45,7 +45,7 @@ fn add_human(
         mesh_builder.trigger(LoadAssetMeshJob::Single {
             part: part.clone(),
             template_handle: template_handle.clone(),
-            lod: 0,
+            skeleton_lod: 0,
         });
     }
 
@@ -109,20 +109,20 @@ fn add_human(
             (
                 CharacterPart {
                     mesh: basemesh,
-                    lod: 0
+                    skeleton_lod: 0
                 },
                 Name::new("basemesh"),
                 MeshMaterial3d(skin_mat)
             ),
             (
-                CharacterPart { mesh: eyes, lod: 0 },
+                CharacterPart { mesh: eyes, skeleton_lod: 0 },
                 Name::new("eyes"),
                 MeshMaterial3d(eyes_mat)
             ),
             (
                 CharacterPart {
                     mesh: eyebrow,
-                    lod: 0
+                    skeleton_lod: 0
                 },
                 Name::new("eyebrow"),
                 MeshMaterial3d(eyebrow_mat)
@@ -130,25 +130,25 @@ fn add_human(
             (
                 CharacterPart {
                     mesh: eyelash,
-                    lod: 0
+                    skeleton_lod: 0
                 },
                 Name::new("eyelash"),
                 MeshMaterial3d(eyelash_mat)
             ),
             (
-                CharacterPart { mesh: hair, lod: 0 },
+                CharacterPart { mesh: hair, skeleton_lod: 0 },
                 Name::new("hair"),
                 MeshMaterial3d(hair_mat)
             ),
             (
-                CharacterPart { mesh: bra, lod: 0 },
+                CharacterPart { mesh: bra, skeleton_lod: 0 },
                 Name::new("bra"),
                 MeshMaterial3d(clothes_mat.clone())
             ),
             (
                 CharacterPart {
                     mesh: panties,
-                    lod: 0
+                    skeleton_lod: 0
                 },
                 Name::new("panties"),
                 MeshMaterial3d(clothes_mat)

@@ -123,7 +123,7 @@ fn add_human(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh.clone(),
         template_handle: template_handle.clone(),
-        lod: 0,
+        skeleton_lod: 0,
     });
 
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
@@ -134,7 +134,7 @@ fn add_human(
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
         PhysxCharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
-        children![(CharacterPart { mesh: basemesh, lod: 0 }, MeshMaterial3d(mat),)],
+        children![(CharacterPart { mesh: basemesh, skeleton_lod: 0 }, MeshMaterial3d(mat),)],
     ));
 }
 

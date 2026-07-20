@@ -20,14 +20,8 @@ pub struct BoneMergeConfig {
     /// Remove all descendants of these anchor bones and merge their
     /// weights into the anchor.  The anchor bone itself survives.
     /// e.g., `["head"]` removes face, `["wrist.L", "wrist.R"]` removes fingers.
-    /// Resolved at runtime via `all_children_of`.
+    /// Resolved at runtime via `allChildrenOf`.
     pub without_children_of: Vec<String>,
-
-    /// Remove these bones entirely.  Children are reparented to the
-    /// bone's parent (walking up the chain if the parent is also removed).
-    /// Weights are merged into the surviving ancestor.
-    /// e.g., `["spine03", "spine04"]`, `["upperarm02.L"]`.
-    pub without_bones: Vec<String>,
 }
 
 impl BoneMergeConfig {
@@ -35,20 +29,12 @@ impl BoneMergeConfig {
     pub const fn full() -> Self {
         Self {
             without_children_of: vec![],
-            without_bones: vec![],
         }
     }
 
     /// Add more subtrees to remove.
     pub fn without_children_of(mut self, bones: &[&str]) -> Self {
         self.without_children_of
-            .extend(bones.iter().map(|s| s.to_string()));
-        self
-    }
-
-    /// Add more bones to remove.
-    pub fn without_bones(mut self, bones: &[&str]) -> Self {
-        self.without_bones
             .extend(bones.iter().map(|s| s.to_string()));
         self
     }
@@ -130,22 +116,12 @@ fn resolve_remove_set(
         }
     }
 
-    for bone_name in &config.without_bones {
-        let bone_leaked = NAME_INTERNER.intern(bone_name).leak();
-        if let Some(parent) = bone_parents.get(bone_name.as_str()) {
-            if !parent.is_empty() {
-                let parent_leaked = NAME_INTERNER.intern(parent).leak();
-                remove_set.insert(bone_leaked, parent_leaked);
-            }
-        }
-    }
-
     remove_set
 }
 
-/// Step 2: Re-parent and compose local transforms.
-/// Handles chained removals — if multiple ancestors are removed,
-/// walks the full chain and composes all their transforms.
+/// Step 2: Re-parent surviving bones and preserve model-space bindposes.
+/// With subtree-only removal, every surviving bone's original parent is also
+/// surviving, so no reparenting or transform composition is needed.
 fn merge_hierarchy(
     original_bone_names: &[&'static str],
     original_bone_parents: &AHashMap<&'static str, String>,
@@ -164,39 +140,18 @@ fn merge_hierarchy(
             continue;
         }
 
-        // Walk up original parent chain, collecting removed ancestors.
-        let mut removed_chain: Vec<&str> = Vec::new();
-        let mut current_parent = original_bone_parents
-            .get(bone)
-            .map(|s| s.as_str())
-            .unwrap_or("");
-
-        while !current_parent.is_empty() && remove_set.contains_key(current_parent) {
-            removed_chain.push(current_parent);
-            current_parent = original_bone_parents
-                .get(current_parent)
-                .map(|s| s.as_str())
-                .unwrap_or("");
-        }
-
-        // Set parent to nearest surviving ancestor.
-        if !current_parent.is_empty() {
-            let parent_leaked = NAME_INTERNER.intern(current_parent).leak();
-            new_bone_to_parent.insert(bone, parent_leaked);
-        }
-
-        // Compose transforms: innermost removed ancestor first.
-        // new_local(bone) = local(chain[0]) * local(chain[1]) * ... * local(bone)
-        let mut composed = original_local_bindpose
-            .get(bone)
-            .copied()
-            .unwrap_or(Transform::IDENTITY);
-        for &removed in &removed_chain {
-            if let Some(removed_local) = original_local_bindpose.get(removed) {
-                composed = Transform::from_matrix(removed_local.to_matrix() * composed.to_matrix());
+        // Parent is always a surviving bone (subtree removal guarantees this).
+        if let Some(parent) = original_bone_parents.get(bone) {
+            if !parent.is_empty() {
+                let parent_leaked = NAME_INTERNER.intern(parent).leak();
+                new_bone_to_parent.insert(bone, parent_leaked);
             }
         }
-        new_local_bindpose.insert(bone, composed);
+
+        // Local bindpose unchanged — no removed ancestors to compose.
+        if let Some(&local) = original_local_bindpose.get(bone) {
+            new_local_bindpose.insert(bone, local);
+        }
     }
 
     let new_bone_names: Vec<&'static str> = original_bone_names
@@ -250,27 +205,15 @@ fn merge_weights(
         }
     }
 
-    // Topological sort: process children before parents.
-    // If bone A targets bone B and B is also removed, A must be merged first
-    // so its weights accumulate into merged[B] before B is forwarded.
-    let sorted_removed = topological_sort_removed(remove_set);
-
-    for removed_bone in sorted_removed {
-        if let Some(&target) = remove_set.get(removed_bone) {
-            // Read accumulated weights (may include merges from child bones),
-            // fall back to original weights.
-            // Accumulated weights from children that merged into this bone,
-            // PLUS this bone's own original weights (both must be forwarded).
-            let mut source = merged.remove(removed_bone).unwrap_or_default();
-            if let Some(orig) = original_weights.get(removed_bone) {
-                for (&mhid, &weight) in orig {
-                    *source.entry(mhid).or_insert(0.0) += weight;
-                }
-            }
-            let target_weights = merged.entry(target).or_default();
-            for (&mhid, &weight) in &source {
-                *target_weights.entry(mhid).or_insert(0.0) += weight;
-            }
+    // Forward removed bones' weights to their (always surviving) merge target.
+    for (&removed_bone, &target) in remove_set {
+        let source = original_weights
+            .get(removed_bone)
+            .cloned()
+            .unwrap_or_default();
+        let target_weights = merged.entry(target).or_default();
+        for (&mhid, &weight) in &source {
+            *target_weights.entry(mhid).or_insert(0.0) += weight;
         }
     }
 
@@ -297,47 +240,6 @@ fn merge_weights(
     }
 
     merged
-}
-
-/// Topological sort of removed bones: children before parents.
-/// Ensures that when a bone is both a merge target and removed,
-/// its accumulated weights flow to the correct ancestor.
-fn topological_sort_removed<'a>(remove_set: &AHashMap<&'a str, &'a str>) -> Vec<&'a str> {
-    // in_degree[bone] = number of removed bones that must be merged before this one.
-    // A removed bone A targeting removed bone B means B depends on A → B's in_degree++.
-    let mut in_degree: AHashMap<&str, usize> = AHashMap::default();
-    for &bone in remove_set.keys() {
-        in_degree.entry(bone).or_insert(0);
-    }
-    for (_removed_bone, &target) in remove_set {
-        if remove_set.contains_key(target) {
-            *in_degree.entry(target).or_insert(0) += 1;
-        }
-    }
-
-    let mut queue: Vec<&str> = in_degree
-        .iter()
-        .filter(|(_, deg)| **deg == 0)
-        .map(|(&bone, _)| bone)
-        .collect();
-    let mut sorted = Vec::new();
-
-    while let Some(bone) = queue.pop() {
-        sorted.push(bone);
-        // bone was just processed — find entries where bone is the SOURCE
-        // and the target is also removed; decrement target's in_degree.
-        for (&other, &target) in remove_set {
-            if other == bone && remove_set.contains_key(target) {
-                let deg = in_degree.get_mut(target).unwrap();
-                *deg -= 1;
-                if *deg == 0 {
-                    queue.push(target);
-                }
-            }
-        }
-    }
-
-    sorted
 }
 
 /// Build a merged skeleton DynamicWorld scene.

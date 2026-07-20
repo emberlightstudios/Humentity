@@ -34,18 +34,26 @@ fn toggle(
         &mut CharacterRagdoll,
         &mut CharacterColliders,
         &mut AnimationPlayer,
-        &SkinnedMesh,
+        &SkeletonLodMap,
         Option<&AnimationController>,
     )>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
-    mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,
+    mut bones: Query<
+        (&mut Transform, Option<&ChildOf>),
+        (With<SkeletalBone>, Allow<SkeletonLodDisabled>),
+    >,
+    skeleton_skins: Query<
+        &SkinnedMesh,
+        (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>),
+    >,
+    children_query: Query<&Children, Allow<SkeletonLodDisabled>>,
     mut collider_data: Query<&mut LinearVelocity>,
 ) {
     if !input.just_pressed(KeyCode::Space) {
         return;
     }
 
-    let Ok((_entity, mut ragdoll, colliders, mut player, skm, controller)) =
+    let Ok((_entity, mut ragdoll, colliders, mut player, lod_map, controller)) =
         character.single_mut()
     else {
         return;
@@ -58,8 +66,17 @@ fn toggle(
             // Toggle ragdoll off
             *ragdoll = CharacterRagdoll::None;
 
+            // Find SkinnedMesh from LOD-0 skeleton descendants
+            let skm = lod_map.0.get(&0).and_then(|&lod0| {
+                children_query.iter_descendants(lod0).find_map(|child| {
+                    skeleton_skins.get(child).ok().cloned()
+                })
+            });
+
             // Reset bones to bind poses
-            if let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) {
+            if let Some(skm) = skm
+                && let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes)
+            {
                 let model_bind_poses: Vec<Mat4> =
                     inv_bindposes.iter().map(|m| m.inverse()).collect();
 
@@ -196,7 +213,7 @@ fn add_human(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh.clone(),
         template_handle: template_handle.clone(),
-        lod: 0,
+        skeleton_lod: 0,
     });
 
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
@@ -216,7 +233,7 @@ fn add_human(
         // Ragdolls tend to twitch without higher density settings in my findings
         RagdollDensity(10.0),
         RagdollDamping::default(),
-        children![(CharacterPart { mesh: basemesh, lod: 0 }),],
+        children![(CharacterPart { mesh: basemesh, skeleton_lod: 0 }),],
     ));
 }
 
