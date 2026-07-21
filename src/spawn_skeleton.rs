@@ -3,7 +3,10 @@ use ahash::AHashSet;
 use crate::{
     basemesh::{BaseMesh, VertexGroups},
     prelude::*,
-    rigs::{get_model_space_skeleton_transforms, BoneTranslationData, RigBundleRes, RigData},
+    rigs::{
+        get_model_space_skeleton_transforms, BoneTranslationData, RigBundleRes, RigData,
+        SkeletonRootBone,
+    },
     skeleton_lod::SkeletonLodConfig,
 };
 use ahash::AHashMap;
@@ -355,10 +358,27 @@ pub(crate) fn fit_skeleton_to_shape(
             .entity(skeleton_entity)
             .insert(Transform::from_rotation(crate::MODEL_ROTATION_FIX));
 
+        // Compute root bone scale factor for retargeted animation Y correction
+        let root_bone_name = rig_spec.reference_rig.bone_names[0];
+        let reference_root_y = rig_spec.reference_rig.model_space_bindpose[root_bone_name]
+            .translation
+            .y;
+        let fitted_root_y = model_space_bindposes[root_bone_name].translation.y;
+        let root_scale = if reference_root_y.abs() > 1e-6 {
+            fitted_root_y / reference_root_y
+        } else {
+            1.0
+        };
+
         // Remove FitSkeleton — this skeleton is now fitted, start disabled by default
         commands
             .entity(skeleton_entity)
             .insert(SkeletonLocalBindPose(local_bind_pose))
+            .insert(SkeletonRootBone {
+                entity: bone_entities[root_bone_name],
+                root_scale,
+                bind_pose_y: fitted_root_y,
+            })
             .remove::<FitSkeleton>()
             .insert_recursive::<Children>(SkeletonLodDisabled);
     }

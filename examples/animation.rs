@@ -23,8 +23,7 @@ const BABY: &str = "baby";
 fn main() {
     let mut app = setup_app();
 
-    app
-        .add_observer(add_humans)
+    app.add_observer(add_humans)
         .add_systems(Update, (play_graph, add_graph))
         .run();
 }
@@ -104,10 +103,11 @@ fn add_humans(
         )],
     ));
 
-    // Load the animation clip with translation tracks removed for different human shapes.
-    // Since this also loads via gltf we have to pass the type explicitly
-    // The clips are loaded on the RetargetedAnimationAsset as a hashmap
-    // Use loader settings to retain translation tracks (experimental/broken)
+    // Load the retargeted animation clip. TranslationTracks::Root is the default,
+    // which keeps the root bone translation from the clip. The root bone Y is
+    // automatically scaled by SkeletonRootBone to compensate for different human proportions.
+    // Since this loads via gltf we have to pass the type explicitly.
+    // The clips are loaded on the RetargetedAnimationAsset as a hashmap.
     let _clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
     commands.insert_resource(RetargetedAnimations { _clips });
 

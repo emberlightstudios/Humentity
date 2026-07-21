@@ -32,27 +32,18 @@ pub(crate) enum BoneTranslationData {
 #[reflect(Component)]
 pub struct SkeletalBone;
 
-/// Adds root motion to XZ-components on translation.  I would add Y but the default rig has a
-/// root bone at the hips.  If animation translation tracks are not enabled this will have no effect.
-/// This is still experimental and will probably remain broken until official support arrives in Bevy.
-#[derive(Component, Default)]
-pub struct RootMotion {
-    /// I wouldn't use this unless your root bone is at the ground
-    pub y_translate: bool,
-    pub yaw: bool,
-}
-
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub(crate) struct RootBone;
 
-/// Caches previous transform data for root bone, used in root motion
-#[derive(Component, Default)]
-#[allow(dead_code)]
-pub(crate) struct RootBonePrevious {
-    pub(crate) translation: Vec3,
-    pub(crate) yaw: f32,
-    pub(crate) prev_weights: Vec<f32>,
+/// Cached data for the root bone of each skeleton.
+/// Stores the root bone entity and a scale factor used to adjust root bone Y translation
+/// for different human proportions during retargeted animation playback.
+#[derive(Component, Debug)]
+pub struct SkeletonRootBone {
+    pub entity: Entity,
+    pub root_scale: f32,
+    pub bind_pose_y: f32,
 }
 
 /// The single rig bundle, populated by `build_rig_scenes`.

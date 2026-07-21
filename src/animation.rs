@@ -1,4 +1,4 @@
-use crate::NAME_INTERNER;
+use crate::{rigs::SkeletonRootBone, NAME_INTERNER};
 use ahash::{AHashMap, AHashSet};
 use bevy::{
     animation::{animated_field, AnimationTargetId},
@@ -8,12 +8,18 @@ use bevy::{
 use gltf::Skin;
 use serde::{Deserialize, Serialize};
 
+/// System set for animation postprocessing that runs after Bevy's `AnimationSystems`
+/// and before `TransformSystems::Propagate`. Add your own systems to this set
+/// with `.after(HumentityAnimationPostProcess)` to run after built-in postprocessing.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HumentityAnimationPostProcess;
+
 /// Which translation tracks should be kept on animation clips
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
 pub enum TranslationTracks {
-    Root,
-    Full,
     #[default]
+    Root,
+    //Full,
     None,
 }
 
@@ -70,123 +76,24 @@ pub(crate) fn rescale_bone_translations(
         }
     }
 }
-
-/// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
-/// in realtime using data cached on the human config.  This one affects only the root bone.
-#[allow(dead_code)]
-pub(crate) fn rescale_root_bone_translation(
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
-    templates: Res<Assets<CharacterTemplate>>,
-    humans: Query<(&SkeletonEntities, &CharacterShape), With<SkeletonsReady>>,
-    mut transforms: Query<&mut Transform>,
-    rig_data: Res<RigData>,
-) {
-    for (related, human) in humans {
-        let Some(asset) = shape_assets.get(&human.0) else {
-            continue;
-        };
-        let Some(template) = templates.get(&asset.template) else {
-            continue;
-        };
-        let rig_type = &template.rig;
-        let rig_spec = &rig_data[rig_type];
-        let &root_bone = &rig_spec.reference_rig.bone_names[0];
-        let BoneTranslationData::Root(shape_trans) = &asset.bone_translations else {
-            continue;
-        };
-        let ref_trans = &rig_spec.reference_rig.local_bindpose;
-        let Ok(mut root) = transforms.get_mut(related.root_bone) else {
-            continue;
-        };
-        root.translation =
-            root.translation * shape_trans.length() / ref_trans[root_bone].translation.length();
-    }
-}
-
-#[allow(clippy::type_complexity, dead_code)]
-pub(crate) fn root_motion(
-    mut humans: Query<(&SkeletonEntities, &RootMotion, &mut Transform), With<CharacterShape>>,
-    mut root_transforms: Query<
-        (&mut Transform, &mut RootBonePrevious),
-        (With<RootBone>, Without<CharacterShape>),
-    >,
-    players: Query<&AnimationPlayer>,
-    time: Res<Time>,
-) {
-    for (related, root_motion, mut human_transform) in humans.iter_mut() {
-        let Ok((mut root_bone_transform, mut previous)) =
-            root_transforms.get_mut(related.root_bone)
-        else {
-            continue;
-        };
-
-        // Blending between clips causes issues due to different root motion behavior.
-        // I think I would have to track changes at the level of individual clips.
-        // For now, let's only apply root motion if our animation state isn't changing.
-        let mut weights = vec![];
-        let Ok(player) = players.get(related.rig) else {
-            continue;
-        };
-        for (_i, a) in player.playing_animations() {
-            weights.push(a.weight());
-        }
-        let mut skip = true;
-        if previous.prev_weights.len() == weights.len() {
-            skip = weights
-                .iter()
-                .enumerate()
-                .any(|(i, v)| (*v - previous.prev_weights[i]).abs() > 1e-3);
-        }
-
-        previous.prev_weights = weights;
-
-        // Check for exceptionally large offsets this frame, expected from reset of root position
-        // when the clip loops back to the beginning
-        let root = root_bone_transform.translation;
-        let mut offset = root - previous.translation;
-        if !root_motion.y_translate {
-            offset.y = 0.;
-        }
-        let offset_sq = offset.length_squared();
-        previous.translation = root;
-
-        // This will skip root motion this frame.  Could cause some stutter.
-        // Ideally we would add some small offset.  Might have to cache last frames offset.
-        let t2 = time.delta_secs() * time.delta_secs();
-        if !skip && offset_sq < 10. * t2 {
-            human_transform.translation += offset;
-        }
-
-        // Reset root bone position
-        if root_motion.y_translate {
-            root_bone_transform.translation = Vec3::ZERO;
-        } else {
-            root_bone_transform.translation.x = 0.;
-            root_bone_transform.translation.z = 0.;
-        }
-
-        // Do the same for yaw rotation
-        if root_motion.yaw {
-            // The Euler convention may be different for different rigs.
-            // I think it depends on the roll on the root bone. This looks good for default rig.
-            let (yaw, pitch, roll) = root_bone_transform.rotation.to_euler(EulerRot::YZX);
-            let mut delta_yaw = yaw - previous.yaw;
-            while delta_yaw > PI {
-                delta_yaw -= 2.0 * PI;
-            }
-            while delta_yaw < -PI {
-                delta_yaw += 2.0 * PI;
-            }
-            previous.yaw = yaw;
-
-            if !skip && delta_yaw * delta_yaw < 1000. * t2 {
-                human_transform.rotate_y(delta_yaw);
-            }
-            root_bone_transform.rotation = Quat::from_euler(EulerRot::YZX, 0.0, pitch, roll);
-        }
-    }
-}
 */
+
+pub(crate) fn rescale_root_bone_translation(
+    root_info: Query<&SkeletonRootBone>,
+    mut transforms: Query<&mut Transform>,
+) {
+    for info in &root_info {
+        let Ok(mut t) = transforms.get_mut(info.entity) else {
+            continue;
+        };
+        let delta = t.translation.y - info.bind_pose_y;
+        if delta.abs() > 1e-3 {
+            t.translation.y *= info.root_scale;
+            t.translation.x = 0.;
+            t.translation.z = 0.;
+        }
+    }
+}
 
 pub(crate) fn get_animation_clips_from_bytes(
     bytes: &[u8],

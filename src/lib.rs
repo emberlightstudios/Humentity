@@ -42,7 +42,7 @@ pub mod prelude {
         bone_debug::BoneDebugPlugin,
         HumentityPlugin,
         NAME_INTERNER,
-        animation::TranslationTracks,
+        animation::{HumentityAnimationPostProcess, TranslationTracks},
         assets::{StitchedPart, StitchedParts, shape_mesh_from_helpers_mhclo},
         basemesh::{BaseMesh, VertexGroups},
         load_and_insert_humentity_assets,
@@ -61,7 +61,7 @@ pub mod prelude {
         morphs::{
             MakeHumanMorphs, MorphError, MorphTargets, MorphsReady, adjust_helpers_to_morphs,
         },
-        rigs::{RigData, RigSpec, RootMotion, SkeletalBone},
+        rigs::{RigData, RigSpec, SkeletonRootBone, SkeletalBone},
         skeleton_lod::{
             BoneMergeConfig, RigBundle, SkeletonLodConfig,
             SkeletonLodVariant,
@@ -226,6 +226,13 @@ impl Plugin for HumentityPlugin {
                 template::resolve_template_morphs
                     .before(spawn_mesh::mesh_build)
                     .run_if(resource_exists::<morphs::MakeHumanMorphs>),
+            )
+            .add_systems(
+                PostUpdate,
+                animation::rescale_root_bone_translation
+                    .in_set(animation::HumentityAnimationPostProcess)
+                    .after(bevy::app::AnimationSystems)
+                    .before(TransformSystems::Propagate),
             );
 
         #[cfg(feature = "avian")]
