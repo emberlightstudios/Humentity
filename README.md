@@ -1,47 +1,136 @@
-# Humentity (MakeHuman inside Bevy)
+# Humentity
 
-![Alt text](https://i.imghippo.com/files/eVWiu1727317384.png)
+A Bevy plugin for loading, morphing, rigging, and animating MakeHuman-based 3D humanoid characters at runtime.
 
-## Current features
-- Asset loaders for makehuman data files.
-- Template-based morphable humanoid meshes
-- Auto-rigging
-- Animation retargeting
-- LODs
-- Stitched mesh fragments 
-- Normal map smoothing
-- Customizable equipment and body parts
-- Custom morph targets
+![Screenshot](https://i.imghippo.com/files/eVWiu1727317384.png)
 
-## Future Plans
-- Working ragdolls 
-- Baked posed meshes
-- Root motion support
+## Features
 
-## Auto-build humanoids
-All needed types should be exported via the crate prelude module.  The steps to create humanoid characters are as follows.
-1. Add the HumentityPlugin.
-2. Add the resources pointing to the necessary asset paths, as in the examples.
-3. Create or load a humanoid template with some shapes.
-4. Create or load a CharacterShapeAsset with weights for those shapes.
-4. Create an entity with a CharacterShape component. 
-5. Add children with CharacterPart components.
+- **Template-based morphing** — hundreds of MakeHuman shape keys are baked into a small set of runtime morph targets, preserving GPU instancing and batching across characters
+- **Auto-rigging** — skeletal rigs are built automatically from MakeHuman rig/weight data and fitted to each character's morphed shape
+- **Skeleton LOD** — reduce bone counts at runtime by merging child bone subtrees into their parents, with automatic weight rebinding and inverse bindpose recomputation
+- **Mesh LOD** — use MakeHuman's lower-poly proxy meshes with Bevy's `VisibilityRange` for distance-based mesh switching
+- **Animation retargeting** — import glTF animation clips and retarget them to arbitrary character shapes
+- **Stitched meshes** — split a character into multiple mesh pieces (head, body, clothing) with continuous normals across seam cuts
+- **Custom morph targets** — isolate morphs to specific mesh pieces (e.g. facial expressions on the head only)
+- **Ragdoll physics** — optional integration with [avian3d](https://github.com/Jondolf/avian) or [bevy_mod_physx](https://github.com/nicopap/bevy_mod_physx)
+- **Asset loaders** — native Bevy loaders for `.mhclo`, `.obj`, `.target`, `.macro`, rig configs, and other MakeHuman data formats
+- **Custom assets** — build your own meshes and morph targets in Blender via MPFB
 
-### Notes
-You can find working examples in the examples folder.
+## Quick start
 
-Character templates are defined with a vec of specified shapes. 
-To build a mesh use the MeshBuildJob struct.
-The crate will build and cache a Handle\<Mesh\> for you which will have the template shapes as morph targets on the mesh.
+```rust
+use bevy::prelude::*;
+use humentity::prelude::*;
 
-Characters are entities with a CharacterShape component.
-Mhclo files define the meshes that make up your character.
-You can apply template shapes to them as morph targets using the MeshBuildJob struct.
-This will build the mesh and store it in a cache for you, which is exposed as a resource.
+fn main() {
+    App::new()
+        .add_plugins((DefaultPlugins, HumentityPlugin))
+        .insert_resource(SkeletonLodConfig(default_skeleton_lods()))
+        .add_systems(Startup, load_assets)
+        .add_observer(spawn_character)
+        .run();
+}
 
-Currently rigs are added to characters automatically, as defined on the template.
-For animation retargeting author clips on the basemesh with no shapekeys.
-By default translation tracks are dropped on import.
-Support for translation tracks is very experimental still and requires an animation post-processing system so there is an extra cost.
+fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
+    load_and_insert_humentity_assets(
+        &mut commands,
+        &asset_server,
+        "base.obj",
+        "basemesh_vertex_groups.json",
+        "target.json",
+        "macro.macro",
+        "targets",
+        "rigs/rig.default.json",
+        "rigs/weights.default.json",
+        "skeletons/default.glb",
+    );
+}
 
-Custom assets can be built inside Blender with MPFB to export .mhclo/.obj files, custom .target files too.
+fn spawn_character(
+    _trigger: On<MorphsReady>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut mesh_builder: ResMut<MhcloMeshBuilder>,
+    mut template_assets: ResMut<Assets<CharacterTemplate>>,
+    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+) {
+    let mut morphs = MorphTargets::default();
+    morphs.insert("gender", 0.0);
+
+    let template = template_assets.add(CharacterTemplate::new([
+        CharacterMorphShape::new("woman", morphs),
+    ]));
+
+    let mesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+
+    mesh_builder.trigger(LoadAssetMeshJob::Single {
+        part: mesh.clone(),
+        template_handle: template.clone(),
+        skeleton_lod: 0,
+    });
+
+    let mut weights = MorphTargets::default();
+    weights.insert("gender", 1.0);
+
+    commands.spawn((
+        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template, weights))),
+        InheritedVisibility::default(),
+        children![(
+            CharacterPart { mesh, skeleton_lod: 0 },
+            Name::new("body"),
+        )],
+    ));
+}
+```
+
+## How it works
+
+1. **Configure** — Insert a `SkeletonLodConfig` resource with a list of `BoneMergeConfig` entries. Each entry defines one LOD level by specifying which bone subtrees to remove and merge into their parents.
+
+2. **Load** — Call `load_and_insert_humentity_assets` to load the MakeHuman basemesh, vertex groups, morph targets, rig config, and reference rig as ECS resources.
+
+3. **Morph** — Create a `CharacterTemplate` with one or more `CharacterMorphShape` entries. Each shape maps named MakeHuman morphs to float weights. The template system bakes hundreds of underlying MakeHuman shape keys into a compact set of morph targets.
+
+4. **Build** — Trigger a `LoadAssetMeshJob` (single or stitched) via the `MhcloMeshBuilder` resource. This builds the mesh on a background thread with the correct bone weights for the requested skeleton LOD level.
+
+5. **Spawn** — Create a `CharacterShape` entity with `CharacterPart` children. Each `CharacterPart` specifies which mesh handle to use and which skeleton LOD level it targets.
+
+6. **Rig** — The plugin automatically spawns skeleton entities for each LOD level, fits bone transforms to the morphed shape, computes inverse bindposes, and sets up `SkinnedMesh` on each part.
+
+7. **Activate** — Trigger `EnableSkeletonLod` to enable a specific LOD level. All other levels start disabled via `SkeletonLodDisabled`.
+
+## Examples
+
+| Example | Description |
+|---|---|
+| `lod.rs` | Distance-based mesh and skeleton LOD with `VisibilityRange` |
+| `stress_test.rs` | Benchmarks 576 animated characters (24x24 grid) |
+| `animation.rs` | Retargeted idle animation on a morphed character |
+| `morphs_and_templates.rs` | Template system and runtime morph targets |
+| `stitched_parts.rs` | Multi-part meshes with continuous normals and per-part morphs |
+| `assets.rs` | Loading body parts, clothing, hair, and accessories |
+| `character_creator.rs` | Real-time mesh modification UI with sliders |
+| `ragdoll_avian.rs` | Full-body ragdoll with avian3d physics |
+| `ragdoll_avian_partial.rs` | Partial ragdoll (arms only) with kinematic colliders |
+| `ragdoll_physx.rs` | Ragdoll with bevy_mod_physx (may require Bevy version update) |
+
+Run examples with:
+
+```sh
+cargo run --example lod
+cargo run --example stress_test
+cargo run --example animation --features avian
+```
+
+## Feature flags
+
+| Feature | Description |
+|---|---|
+| `avian` | Enables ragdoll physics via [avian3d](https://github.com/Jondolf/avian) |
+| `physx` | Enables ragdoll physics via [bevy_mod_physx](https://github.com/nicopap/bevy_mod_physx) |
+| `debug` | Enables Bevy's debug rendering |
+
+## Custom assets
+
+Custom meshes and morph targets can be authored in Blender using [MakeHuman](https://www.makehumancommunity.org/) and exported as `.mhclo`/`.obj` files with `.target` shape keys. The crate's native asset loaders handle these formats automatically.
