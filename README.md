@@ -71,7 +71,7 @@ fn spawn_character(
     });
 
     let mut weights = MorphTargets::default();
-    weights.insert("gender", 1.0);
+    weights.insert("woman", 1.0);
 
     commands.spawn((
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template, weights))),
