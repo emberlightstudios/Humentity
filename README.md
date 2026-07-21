@@ -26,7 +26,9 @@ use humentity::prelude::*;
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, HumentityPlugin))
-        .insert_resource(SkeletonLodConfig(default_skeleton_lods()))
+        .insert_resource(SkeletonLodConfig(vec![
+            BoneMergeConfig::full().without_children_of(&["foot.L", "foot.R"]),
+        ]))
         .add_systems(Startup, load_assets)
         .add_systems(Update, attach_mesh)
         .add_observer(spawn_character)
