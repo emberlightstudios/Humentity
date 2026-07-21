@@ -57,6 +57,7 @@ fn spawn_character(
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // 1. Define a template and trigger a mesh build
     let mut morphs = MorphTargets::default();
     morphs.insert("gender", 0.0);
 
@@ -72,6 +73,7 @@ fn spawn_character(
         skeleton_lod: 0,
     });
 
+    // 2. Spawn the character entity using the template
     let mut weights = MorphTargets::default();
     weights.insert("woman", 1.0);
 
