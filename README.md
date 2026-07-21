@@ -28,6 +28,7 @@ fn main() {
         .add_plugins((DefaultPlugins, HumentityPlugin))
         .insert_resource(SkeletonLodConfig(default_skeleton_lods()))
         .add_systems(Startup, load_assets)
+        .add_systems(Update, attach_mesh)
         .add_observer(spawn_character)
         .run();
 }
@@ -54,6 +55,7 @@ fn spawn_character(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let mut morphs = MorphTargets::default();
     morphs.insert("gender", 0.0);
@@ -73,14 +75,45 @@ fn spawn_character(
     let mut weights = MorphTargets::default();
     weights.insert("woman", 1.0);
 
+    let mat = materials.add(StandardMaterial::from_color(Color::WHITE));
+
     commands.spawn((
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template, weights))),
         InheritedVisibility::default(),
         children![(
             CharacterPart { mesh, skeleton_lod: 0 },
             Name::new("body"),
+            MeshMaterial3d(mat),
         )],
     ));
+}
+
+/// Once the skeleton is fitted and the mesh build is complete, insert Mesh3d on each part.
+fn attach_mesh(
+    parts: Query<(Entity, &ChildOf, &CharacterPart, Option<&SkinnedMesh>), Without<Mesh3d>>,
+    characters: Query<&CharacterShape>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    cached_meshes: Res<CachedMhcloMeshHandles>,
+    mut commands: Commands,
+) {
+    for (entity, parent, part, skm) in &parts {
+        let Ok(shape) = characters.get(parent.parent()) else {
+            continue;
+        };
+        let Some(asset) = shape_assets.get(&shape.0) else {
+            continue;
+        };
+        let Some(skm) = skm else {
+            continue;
+        };
+        if let Some(handle) =
+            cached_meshes.get(&(part.mesh.clone(), asset.template.clone(), part.skeleton_lod))
+        {
+            commands
+                .entity(entity)
+                .insert((Mesh3d(handle.clone()), skm.clone()));
+        }
+    }
 }
 ```
 
