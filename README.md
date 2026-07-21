@@ -131,4 +131,4 @@ cargo run --example animation --features avian
 
 ## Custom assets
 
-Custom meshes and morph targets can be authored in Blender using [MakeHuman](https://www.makehumancommunity.org/) and exported as `.mhclo`/`.obj` files with `.target` shape keys. The crate's native asset loaders handle these formats automatically.
+Custom meshes, morph targets, and rig data can be authored in Blender using [MPFB](https://github.com/MakeHumanCommunity/mpfb) and exported as `.mhclo`/`.obj` files with `.target` shape keys. The crate's native asset loaders handle these formats automatically.
