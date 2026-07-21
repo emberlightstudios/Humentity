@@ -127,7 +127,7 @@ fn attach_mesh(
 
 3. **Morph** — Create a `CharacterTemplate` with one or more `CharacterMorphShape` entries. Each shape maps named MakeHuman morphs to float weights. The template system bakes hundreds of underlying MakeHuman shape keys into a compact set of morph targets.
 
-4. **Build** — Trigger a `LoadAssetMeshJob` (single or stitched) via the `MhcloMeshBuilder` resource. This builds the mesh on a background thread with the correct bone weights for the requested skeleton LOD level.
+4. **Build** — Trigger a `LoadAssetMeshJob` (single or stitched) via the `MhcloMeshBuilder` resource. The job loads OBJ data and morph targets, then spawns a background thread to build the final mesh with the correct bone weights for the requested skeleton LOD level. The result is sent back over a channel and cached in `CachedMhcloMeshHandles`. This is non-blocking — the main thread continues while the mesh is built asynchronously.
 
 5. **Spawn** — Create a `CharacterShape` entity with `CharacterPart` children. Each `CharacterPart` specifies which mesh handle to use and which skeleton LOD level it targets.
 
