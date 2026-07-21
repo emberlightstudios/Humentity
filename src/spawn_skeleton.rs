@@ -150,7 +150,12 @@ pub(crate) fn fit_skeleton_to_shape(
     >,
     children: Query<&Children, Allow<SkeletonLodDisabled>>,
     skeletons: Query<
-        (Entity, &ChildOf, &CharacterSkeleton),
+        (
+            Entity,
+            &ChildOf,
+            &CharacterSkeleton,
+            Option<&SkeletonLocalBindPose>,
+        ),
         (With<FitSkeleton>, Allow<SkeletonLodDisabled>),
     >,
     characters: Query<(&CharacterShape, Option<&AnimationPlayer>)>,
@@ -165,7 +170,7 @@ pub(crate) fn fit_skeleton_to_shape(
     vg: Res<VertexGroups>,
     rig_bundle: Res<RigBundleRes>,
 ) {
-    for (skeleton_entity, parent, skeleton) in skeletons.iter() {
+    for (skeleton_entity, parent, skeleton, existing_bind_pose) in skeletons.iter() {
         let parent_entity = parent.parent();
         let Ok((character_shape, animation_player)) = characters.get(parent_entity) else {
             continue;
@@ -370,7 +375,9 @@ pub(crate) fn fit_skeleton_to_shape(
             1.0
         };
 
-        // Remove FitSkeleton — this skeleton is now fitted, start disabled by default
+        // Remove FitSkeleton. Only disable on initial fit (no existing bind pose).
+        // Re-fits preserve the current enabled/disabled state so the skeleton
+        // stays visible if the user triggers a refit at runtime.
         commands
             .entity(skeleton_entity)
             .insert(SkeletonLocalBindPose(local_bind_pose))
@@ -379,8 +386,12 @@ pub(crate) fn fit_skeleton_to_shape(
                 root_scale,
                 bind_pose_y: fitted_root_y,
             })
-            .remove::<FitSkeleton>()
-            .insert_recursive::<Children>(SkeletonLodDisabled);
+            .remove::<FitSkeleton>();
+        if existing_bind_pose.is_none() {
+            commands
+                .entity(skeleton_entity)
+                .insert_recursive::<Children>(SkeletonLodDisabled);
+        }
     }
 }
 
