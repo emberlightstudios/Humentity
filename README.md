@@ -12,8 +12,8 @@ A Bevy plugin for loading, morphing, rigging, and animating MakeHuman-based 3D h
 - **Mesh LOD** — use MakeHuman's lower-poly proxy meshes with Bevy's `VisibilityRange` for distance-based mesh switching
 - **Animation retargeting** — import glTF animation clips and retarget them to arbitrary character shapes
 - **Stitched meshes** — split a character into multiple mesh pieces (head, body, clothing) with continuous normals across seam cuts
-- **Custom morph targets** — isolate morphs to specific mesh pieces (e.g. facial expressions on the head only)
-- **Ragdoll physics** — optional integration with [avian3d](https://github.com/Jondolf/avian) or [bevy_mod_physx](https://github.com/nicopap/bevy_mod_physx)
+- **Skeleton LOD filtering** — use `SkeletonLodFilter` to restrict which LOD levels are spawned per character, saving memory when certain detail levels are unnecessary
+- **Ragdoll physics** — optional integration with [avian3d](https://github.com/Jondolf/avian)
 - **Asset loaders** — native Bevy loaders for `.mhclo`, `.obj`, `.target`, `.macro`, rig configs, and other MakeHuman data formats
 - **Custom assets** — build your own meshes and morph targets in Blender via MPFB
 
@@ -113,7 +113,6 @@ fn spawn_character(
 | `character_creator.rs` | Real-time mesh modification UI with sliders |
 | `ragdoll_avian.rs` | Full-body ragdoll with avian3d physics |
 | `ragdoll_avian_partial.rs` | Partial ragdoll (arms only) with kinematic colliders |
-| `ragdoll_physx.rs` | Ragdoll with bevy_mod_physx (may require Bevy version update) |
 
 Run examples with:
 
@@ -128,7 +127,6 @@ cargo run --example animation --features avian
 | Feature | Description |
 |---|---|
 | `avian` | Enables ragdoll physics via [avian3d](https://github.com/Jondolf/avian) |
-| `physx` | Enables ragdoll physics via [bevy_mod_physx](https://github.com/nicopap/bevy_mod_physx) |
 | `debug` | Enables Bevy's debug rendering |
 
 ## Custom assets
