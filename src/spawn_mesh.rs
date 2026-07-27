@@ -324,10 +324,10 @@ pub(crate) fn build_single_mesh_process(
         let (lod_bone_names, lod_weights) = rig_bundle
             .0
             .as_ref()
-            .and_then(|bundle| {
+            .map(|bundle| {
                 let idx = lod.min(bundle.lod_variants.len() - 1);
                 let variant = &bundle.lod_variants[idx];
-                Some((variant.bone_names.clone(), variant.merged_weights.clone()))
+                (variant.bone_names.clone(), variant.merged_weights.clone())
             })
             .unwrap_or_else(|| {
                 (
@@ -442,7 +442,7 @@ fn build_stitched_meshes_process(
             .map(|p| mhclo_assets.get(&p.part).unwrap().clone())
             .collect();
 
-        let resolved_templates: Vec<&CharacterTemplate> = parts
+        let templates_for_build: Vec<_> = parts
             .iter()
             .map(|p| {
                 let h = p
@@ -451,9 +451,8 @@ fn build_stitched_meshes_process(
                     .map_or(template_handle, |ov| &ov.0);
                 templates.get(h).unwrap_or(parent_template)
             })
+            .cloned()
             .collect();
-
-        let templates_for_build: Vec<_> = resolved_templates.into_iter().cloned().collect();
 
         let mh_morphs = morphs.targets.clone();
         let basemesh = basemesh.clone();
@@ -466,10 +465,10 @@ fn build_stitched_meshes_process(
         let (lod_bone_names, lod_weights) = rig_bundle
             .0
             .as_ref()
-            .and_then(|bundle| {
+            .map(|bundle| {
                 let idx = lod.min(bundle.lod_variants.len() - 1);
                 let variant = &bundle.lod_variants[idx];
-                Some((variant.bone_names.clone(), variant.merged_weights.clone()))
+                (variant.bone_names.clone(), variant.merged_weights.clone())
             })
             .unwrap_or_else(|| {
                 (

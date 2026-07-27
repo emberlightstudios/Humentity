@@ -1,10 +1,7 @@
 mod shared;
 
 use avian3d::prelude::*;
-use bevy::{
-    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
-    prelude::*,
-};
+use bevy::prelude::*;
 use humentity::prelude::*;
 use shared::setup_app;
 
@@ -34,27 +31,15 @@ fn toggle(
         &mut CharacterRagdoll,
         &mut CharacterColliders,
         &mut AnimationPlayer,
-        &SkeletonLodMap,
         Option<&AnimationController>,
     )>,
-    inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
-    mut bones: Query<
-        (&mut Transform, Option<&ChildOf>),
-        (With<SkeletalBone>, Allow<SkeletonLodDisabled>),
-    >,
-    skeleton_skins: Query<
-        &SkinnedMesh,
-        (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>),
-    >,
-    children_query: Query<&Children, Allow<SkeletonLodDisabled>>,
     mut collider_data: Query<&mut LinearVelocity>,
 ) {
     if !input.just_pressed(KeyCode::Space) {
         return;
     }
 
-    let Ok((_entity, mut ragdoll, colliders, mut player, lod_map, controller)) =
-        character.single_mut()
+    let Ok((_entity, mut ragdoll, colliders, mut player, controller)) = character.single_mut()
     else {
         return;
     };
@@ -65,36 +50,6 @@ fn toggle(
         CharacterRagdoll::Full => {
             // Toggle ragdoll off
             *ragdoll = CharacterRagdoll::None;
-
-            // Find SkinnedMesh from LOD-0 skeleton descendants
-            let skm = lod_map.0.get(&0).and_then(|&lod0| {
-                children_query.iter_descendants(lod0).find_map(|child| {
-                    skeleton_skins.get(child).ok().cloned()
-                })
-            });
-
-            // Reset bones to bind poses
-            if let Some(skm) = skm
-                && let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes)
-            {
-                let model_bind_poses: Vec<Mat4> =
-                    inv_bindposes.iter().map(|m| m.inverse()).collect();
-
-                for (i, &joint_entity) in skm.joints.iter().enumerate() {
-                    if let Ok((mut transform, child_of)) = bones.get_mut(joint_entity) {
-                        if let Some(parent) = child_of
-                            && let Some(parent_idx) =
-                                skm.joints.iter().position(|&e| e == parent.parent())
-                        {
-                            *transform = Transform::from_matrix(
-                                model_bind_poses[parent_idx].inverse() * model_bind_poses[i],
-                            );
-                        } else {
-                            *transform = Transform::from_matrix(model_bind_poses[i]);
-                        }
-                    }
-                }
-            }
 
             player.stop(clip_index);
             player.play(clip_index).repeat();
@@ -152,37 +107,33 @@ impl Default for RagdollSleepTimer {
 fn sleep_ragdoll(
     time: Res<Time>,
     mut commands: Commands,
-    mut timers: Query<(Entity, &mut RagdollSleepTimer, &CharacterColliders)>,
-    changed_ragdolls: Query<(Entity, &CharacterRagdoll), Changed<CharacterRagdoll>>,
-    mut woke: RemovedComponents<Sleeping>,
-    collider_owner: Query<&ColliderForCharacter>,
+    mut timers: Query<(Entity, &mut RagdollSleepTimer)>,
+    changed_ragdolls: Query<
+        (Entity, &CharacterRagdoll, &CharacterColliders),
+        Changed<CharacterRagdoll>,
+    >,
 ) {
-    for (entity, ragdoll) in changed_ragdolls.iter() {
+    for (entity, ragdoll, colliders) in changed_ragdolls.iter() {
         match ragdoll {
             CharacterRagdoll::Full | CharacterRagdoll::Partial(_) => {
-                commands
-                    .entity(entity)
-                    .insert(RagdollSleepTimer::default());
+                commands.entity(entity).insert(RagdollSleepTimer::default());
             }
             CharacterRagdoll::None => {
                 commands.entity(entity).remove::<RagdollSleepTimer>();
+                for &collider_entity in colliders.collider_entities.values() {
+                    commands
+                        .entity(collider_entity)
+                        .remove::<RigidBodyDisabled>()
+                        .remove::<ColliderDisabled>();
+                }
             }
         }
     }
 
-    // Sometimes ragdoll jitter wakes the ragdoll back up.  Give it another timer.
-    for entity in woke.read() {
-        if let Ok(owner) = collider_owner.get(entity) {
-            commands.entity(owner.0).insert(RagdollSleepTimer::default());
-        }
-    }
-
-    for (entity, mut timer, colliders) in timers.iter_mut() {
+    for (entity, mut timer) in timers.iter_mut() {
         timer.0.tick(time.delta());
         if timer.0.just_finished() {
-            for &collider_entity in colliders.collider_entities.values() {
-                commands.entity(collider_entity).insert(Sleeping);
-            }
+            commands.trigger(DisablePhysics { character: entity });
             commands.entity(entity).remove::<RagdollSleepTimer>();
         }
     }
@@ -233,7 +184,12 @@ fn add_human(
         // Ragdolls tend to twitch without higher density settings in my findings
         RagdollDensity(10.0),
         RagdollDamping::default(),
-        children![(CharacterPart { mesh: basemesh, skeleton_lod: 0 }),],
+        children![
+            (CharacterPart {
+                mesh: basemesh,
+                skeleton_lod: 0
+            }),
+        ],
     ));
 }
 

@@ -42,7 +42,7 @@ impl StitchedPart {
         self
     }
 
-    pub fn with_lod(mut self, lod: usize) -> Self {
+    pub const fn with_lod(mut self, lod: usize) -> Self {
         self.lod = lod;
         self
     }

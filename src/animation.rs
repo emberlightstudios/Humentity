@@ -79,10 +79,17 @@ pub(crate) fn rescale_bone_translations(
 */
 
 pub(crate) fn rescale_root_bone_translation(
-    root_info: Query<&SkeletonRootBone>,
+    root_info: Query<(&SkeletonRootBone, &ChildOf)>,
+    animation_players: Query<&AnimationPlayer>,
     mut transforms: Query<&mut Transform>,
 ) {
-    for info in &root_info {
+    for (info, child_of) in &root_info {
+        let Ok(player) = animation_players.get(child_of.parent()) else {
+            continue;
+        };
+        if player.playing_animations().next().is_none() {
+            continue;
+        }
         let Ok(mut t) = transforms.get_mut(info.entity) else {
             continue;
         };

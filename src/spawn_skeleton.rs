@@ -1,13 +1,9 @@
 use ahash::AHashSet;
 
 use crate::{
-    basemesh::{BaseMesh, VertexGroups},
-    prelude::*,
-    rigs::{
-        get_model_space_skeleton_transforms, BoneTranslationData, RigBundleRes, RigData,
-        SkeletonRootBone,
-    },
-    skeleton_lod::SkeletonLodConfig,
+    basemesh::{BaseMesh, VertexGroups}, prelude::*, rigs::{
+        BoneTranslationData, RigBundleRes, RigData, SkeletonRootBone, get_model_space_skeleton_transforms,
+    }, skeleton_lod::SkeletonLodConfig,
 };
 use ahash::AHashMap;
 use bevy::{
@@ -110,10 +106,10 @@ pub(crate) fn spawn_rig_skeletons(
         let mut lod_map = AHashMap::default();
 
         for lod_idx in 0..num_variants {
-            if let Some(SkeletonLodFilter(allowed)) = lod_filter {
-                if !allowed.contains(&lod_idx) {
-                    continue;
-                }
+            if let Some(SkeletonLodFilter(allowed)) = lod_filter
+                && !allowed.contains(&lod_idx)
+            {
+                continue;
             }
 
             let variant_idx = lod_idx.min(bundle.lod_variants.len() - 1);
@@ -123,6 +119,7 @@ pub(crate) fn spawn_rig_skeletons(
             let skeleton_entity = commands
                 .spawn((
                     DynamicWorldRoot::from(scene),
+                    Transform::from_rotation(crate::MODEL_ROTATION_FIX),
                     CharacterSkeleton { lod: lod_idx },
                     FitSkeleton,
                     Name::new(format!("Skeleton LOD {lod_idx}")),
@@ -200,10 +197,10 @@ pub(crate) fn fit_skeleton_to_shape(
         ) = rig_bundle
             .0
             .as_ref()
-            .and_then(|bundle| {
+            .map(|bundle| {
                 let idx = skeleton.lod.min(bundle.lod_variants.len() - 1);
                 let variant = &bundle.lod_variants[idx];
-                Some((variant.bone_names.clone(), variant.bone_to_parent.clone()))
+                (variant.bone_names.clone(), variant.bone_to_parent.clone())
             })
             .unwrap_or_else(|| {
                 let bone_to_parent: AHashMap<&'static str, &'static str> = rig_spec
@@ -411,7 +408,6 @@ pub(crate) fn check_skeletons_ready(
 }
 
 /// Observer that enables a skeleton LOD variant by removing `SkeletonLodDisabled`.
-/// Automatically triggers a bind pose reset so bones start clean.
 pub(crate) fn on_enable_skeleton_lod(
     trigger: On<EnableSkeletonLod>,
     lod_map_query: Query<&SkeletonLodMap>,
@@ -475,21 +471,6 @@ pub(crate) fn on_reset_skeleton_to_bind_pose(
         return;
     };
 
-    // Log the Human.rig entity before and after reset
-    for child in children_query.iter_descendants(skeleton_entity) {
-        if let Ok(skm) = skinned_meshes.get(child) {
-            let t = bone_transforms.get(child);
-            info!(
-                "[ResetBindPose] lod={} rig_entity={:?} rig_transform={:?} joints={}",
-                event.lod,
-                child,
-                t.ok(),
-                skm.joints.len()
-            );
-            break;
-        }
-    }
-
     // Find the SkinnedMesh joints inside the skeleton's descendants and reset
     for child in children_query.iter_descendants(skeleton_entity) {
         if let Ok(skm) = skinned_meshes.get(child) {
@@ -497,13 +478,6 @@ pub(crate) fn on_reset_skeleton_to_bind_pose(
                 if let Ok(mut transform) = bone_transforms.get_mut(*joint_entity) {
                     *transform = *bind_transform;
                 }
-            }
-            // Log rig after reset
-            if let Ok(t) = bone_transforms.get(child) {
-                info!(
-                    "[ResetBindPose] lod={} rig_entity={:?} rig_transform={:?} AFTER",
-                    event.lod, child, t
-                );
             }
             return;
         }

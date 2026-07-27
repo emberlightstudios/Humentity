@@ -1,6 +1,6 @@
 [package]
 name = "humentity"
-version = "0.18.1"
+version = "0.19.0"
 edition = "2024"
 
 [dependencies]
@@ -34,6 +34,10 @@ required-features = ["avian"]
 
 [[example]]
 name = "ragdoll_avian_partial"
+required-features = ["avian"]
+
+[[example]]
+name = "stress_test_ragdoll_avian"
 required-features = ["avian"]
 
 [features]

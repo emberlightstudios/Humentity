@@ -56,6 +56,26 @@ pub const COLLIDERS: [ColliderBone; 15] = [
     ColliderBone::Head,
 ];
 
+pub const fn collider_index(bone: ColliderBone) -> usize {
+    match bone {
+        ColliderBone::Pelvis => 0,
+        ColliderBone::Chest => 1,
+        ColliderBone::UpperLeftLeg => 2,
+        ColliderBone::UpperRightLeg => 3,
+        ColliderBone::LowerLeftLeg => 4,
+        ColliderBone::LowerRightLeg => 5,
+        ColliderBone::LeftFoot => 6,
+        ColliderBone::RightFoot => 7,
+        ColliderBone::UpperLeftArm => 8,
+        ColliderBone::UpperRightArm => 9,
+        ColliderBone::LowerLeftArm => 10,
+        ColliderBone::LowerRightArm => 11,
+        ColliderBone::LeftHand => 12,
+        ColliderBone::RightHand => 13,
+        ColliderBone::Head => 14,
+    }
+}
+
 pub(crate) const DEFAULT_RIG_COLLIDER_BONE_NAMES: [&str; 15] = [
     "root",
     "spine03",

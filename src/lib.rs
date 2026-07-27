@@ -25,12 +25,12 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 pub mod prelude {
     #[cfg(feature = "avian")]
     pub use crate::physics::avian::RagdollCollisionLayers;
-    #[cfg(feature = "avian")]
+    #[cfg(all(feature = "avian", not(feature = "physx")))]
     pub use crate::physics::avian::{
-        CharacterColliders, CharacterRagdoll, ColliderForCharacter, ColliderOffset,
-        KinematicCollider,
+        ActiveSkeletonLods, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
+        ColliderOffset, DisablePhysics, KinematicCollider,
     };
-    #[cfg(feature = "physx")]
+    #[cfg(all(feature = "physx", not(feature = "avian")))]
     pub use crate::physics::physx::{
         ColliderForCharacter, ColliderList, ColliderType, HitboxCollider, HurtboxCollider,
         PhysxCharacterColliders, RagdollCollider, RagdollColliderFilter,
@@ -259,10 +259,13 @@ impl Plugin for HumentityPlugin {
                     physics::avian::sync_bones_to_ragdoll
                         .after(AnimationSystems)
                         .before(TransformSystems::Propagate),
-                );
+                )
+                .add_observer(physics::avian::on_enable_skeleton_lod_ragdoll)
+                .add_observer(physics::avian::on_disable_skeleton_lod_ragdoll)
+                .add_observer(physics::avian::on_disable_physics);
         }
 
-        #[cfg(feature = "physx")]
+        #[cfg(all(feature = "physx", not(feature = "avian")))]
         {
             use bevy::app::AnimationSystems;
             use bevy_mod_physx::prelude::Physics;

@@ -1,19 +1,20 @@
 //! Makehuman comes with several lower poly proxy meshes.  These
 //! can be used for lods with the VisibilityRanges component.
 //! We also demonstrate the use of skeleton lod here.
+//!
+//! IMPORTANT NOTE:
+//! There appears to be a bug in bevy, related to this I think...
+//! https://github.com/bevyengine/bevy/issues/18981
+//! 
+//! If you watch closely, you may occasionally notice the main character flicker at the origin for a single frame when
+//! a new lod is enabled.  If you disable the animation clip below it is more obvious because global transforms
+//! will not propagate and the mesh will not snap back to the correct position.  With a clip playing it's hard to see.  
 
 mod shared;
-use ahash::AHashSet;
-use bevy::{
-    animation::AnimationTargetId,
-    camera::visibility::VisibilityRange,
-    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
-    prelude::*,
-};
+use ahash::{AHashMap, AHashSet};
+use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
 use shared::setup_app;
-use std::collections::HashMap;
-
 
 const SHAPE_NAME: &str = "bigboobs";
 
@@ -206,7 +207,7 @@ fn update_camera_distance(
 fn sync_skeleton_lod_to_visibility(
     characters: Query<(Entity, &CameraDistance, &SkeletonLodMap), With<SkeletonsReady>>,
     parts: Query<(&VisibilityRange, &CharacterPart, &ChildOf)>,
-    mut prev: Local<HashMap<(Entity, usize), bool>>,
+    mut prev: Local<AHashMap<(Entity, usize), bool>>,
     mut commands: Commands,
 ) {
     for (entity, cam_dist, lod_map) in &characters {

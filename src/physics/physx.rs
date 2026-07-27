@@ -370,7 +370,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
                         ..Default::default()
                     },
                     PoseOffset(collider_to_joint),
-                    colliders.filter.clone(),
+                    colliders.filter,
                     ColliderForCharacter(character_entity),
                 ))
                 .id();
@@ -517,7 +517,7 @@ pub(crate) fn spawn_ragdoll_colliders(
             let Ok(joint_to_world) = global_transforms.get(bone_entities[bone_name]) else {
                 continue;
             };
-            let joint_to_world = Transform::from(joint_to_world.clone());
+            let joint_to_world = Transform::from(*joint_to_world);
             let world_to_joint = Transform::from_matrix(joint_to_world.to_matrix().inverse());
             let collider_to_world = joint_to_world * collider_to_joint;
 
@@ -535,7 +535,7 @@ pub(crate) fn spawn_ragdoll_colliders(
                         ..Default::default()
                     },
                     PoseOffset(collider_to_joint),
-                    colliders.filter.clone(),
+                    colliders.filter,
                     MassProperties::density(1000.),
                     ColliderForCharacter(character_entity),
                 ))
@@ -786,7 +786,7 @@ pub(crate) fn sync_colliders<C: ColliderType + Send + Sync + 'static>(
                 continue;
             };
             let collider_to_joint = **offset;
-            let collider_to_world = Transform::from(joint_to_world.clone()) * collider_to_joint;
+            let collider_to_world = Transform::from(*joint_to_world) * collider_to_joint;
 
             collider_transform.target = collider_to_world;
         }

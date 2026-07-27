@@ -141,11 +141,11 @@ fn merge_hierarchy(
         }
 
         // Parent is always a surviving bone (subtree removal guarantees this).
-        if let Some(parent) = original_bone_parents.get(bone) {
-            if !parent.is_empty() {
-                let parent_leaked = NAME_INTERNER.intern(parent).leak();
-                new_bone_to_parent.insert(bone, parent_leaked);
-            }
+        if let Some(parent) = original_bone_parents.get(bone)
+            && !parent.is_empty()
+        {
+            let parent_leaked = NAME_INTERNER.intern(parent).leak();
+            new_bone_to_parent.insert(bone, parent_leaked);
         }
 
         // Local bindpose unchanged — no removed ancestors to compose.
@@ -285,10 +285,10 @@ fn build_merged_skeleton_scene(
             Some(e) => e,
             None => continue,
         };
-        if let Some(&parent_name) = bone_to_parent.get(name) {
-            if let Some(&parent) = bone_entities.get(parent_name) {
-                scene_world.entity_mut(parent).add_child(child);
-            }
+        if let Some(&parent_name) = bone_to_parent.get(name)
+            && let Some(&parent) = bone_entities.get(parent_name)
+        {
+            scene_world.entity_mut(parent).add_child(child);
         }
     }
 
@@ -299,10 +299,10 @@ fn build_merged_skeleton_scene(
             None => true,
             Some(parent_name) => !bone_entities.contains_key(parent_name),
         };
-        if is_root {
-            if let Some(&entity) = bone_entities.get(name) {
-                scene_world.entity_mut(rig_entity).add_child(entity);
-            }
+        if is_root
+            && let Some(&entity) = bone_entities.get(name)
+        {
+            scene_world.entity_mut(rig_entity).add_child(entity);
         }
     }
 

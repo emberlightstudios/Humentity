@@ -61,12 +61,18 @@ pub struct RigSpec {
     pub(crate) reference_rig: Arc<ReferenceRigAsset>,
 }
 
+impl Default for RigData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RigData {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(None)
     }
 
-    pub fn is_loaded(&self) -> bool {
+    pub const fn is_loaded(&self) -> bool {
         self.0.is_some()
     }
 }
@@ -180,7 +186,7 @@ pub(crate) fn build_rig_scenes(world: &mut World) {
     let merge_configs: Vec<_> = if lod_config.0.is_empty() {
         vec![crate::skeleton_lod::BoneMergeConfig::full()]
     } else {
-        lod_config.0.clone()
+        lod_config.0
     };
 
     // Build LOD variants
