@@ -550,14 +550,22 @@ pub fn adjust_helpers_to_morphs(
     mh_morphs: &Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh_vertices: &[Vec3],
 ) -> Result<Vec<Vec3>, MorphError> {
+    let targets = mh_morphs.read().map_err(|_| MorphError::LockPoisoned)?;
+    adjust_helpers_with_targets(morph_values, &targets, basemesh_vertices)
+}
+
+/// Apply morph deltas to basemesh vertices using a pre-locked target map.
+/// Prefer this over [`adjust_helpers_to_morphs`] when the caller already holds
+/// (or can take) a single read lock, avoiding per-target lock acquisition.
+pub(crate) fn adjust_helpers_with_targets(
+    morph_values: &MorphTargets,
+    targets: &AHashMap<&'static str, TargetAsset>,
+    basemesh_vertices: &[Vec3],
+) -> Result<Vec<Vec3>, MorphError> {
     let mut helpers = basemesh_vertices.to_vec();
     for (&target_name, &value) in morph_values.iter() {
-        let targets = mh_morphs.read().map_err(|_| MorphError::LockPoisoned)?;
-        let target = match targets.get(target_name) {
-            Some(t) => t,
-            None => {
-                return Err(MorphError::TargetNotFound(target_name));
-            }
+        let Some(target) = targets.get(target_name) else {
+            return Err(MorphError::TargetNotFound(target_name));
         };
         for TargetDelta { vertex, offset } in target.deltas.iter() {
             helpers[*vertex as usize] += offset * value;

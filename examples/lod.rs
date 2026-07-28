@@ -5,7 +5,7 @@
 //! IMPORTANT NOTE:
 //! There appears to be a bug in bevy, related to this I think...
 //! https://github.com/bevyengine/bevy/issues/18981
-//! 
+//!
 //! If you watch closely, you may occasionally notice the main character flicker at the origin for a single frame when
 //! a new lod is enabled.  If you disable the animation clip below it is more obvious because global transforms
 //! will not propagate and the mesh will not snap back to the correct position.  With a clip playing it's hard to see.  
@@ -30,7 +30,10 @@ fn main() {
     let mut app = setup_app();
 
     app.add_plugins(BoneDebugPlugin)
-        .add_observer(add_humans)
+        .add_systems(
+            Update,
+            add_humans.run_if(resource_added::<HumentityAssetsReady>),
+        )
         .add_systems(
             Update,
             (
@@ -43,7 +46,6 @@ fn main() {
 }
 
 fn add_humans(
-    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
@@ -102,6 +104,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
+        Helpers::default(),
         InheritedVisibility::default(),
         CameraDistance::default(),
         AnimationPlayer::default(),
@@ -175,6 +178,7 @@ fn add_humans(
                 template_handle.clone(),
                 morphs.clone(),
             ))),
+            Helpers::default(),
             InheritedVisibility::default(),
             SkeletonLodFilter(AHashSet::from([skeleton_lod])),
             children![(

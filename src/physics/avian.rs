@@ -8,9 +8,9 @@ use bevy::{
 use bevy::ecs::intern::Internable;
 
 use crate::{
-    morphs::MakeHumanMorphs,
+    helpers::Helpers,
     prelude::{
-        BaseMesh, CharacterShape, CharacterShapeAsset, CharacterTemplate, DisableSkeletonLod,
+        CharacterShape, DisableSkeletonLod,
         EnableSkeletonLod, ResetSkeletonToBindPose, SkeletonLodDisabled, SkeletonLodMap,
         SkeletonsReady,
     },
@@ -157,31 +157,27 @@ pub(crate) fn spawn_colliders(
             &mut CharacterColliders,
             &RagdollDensity,
             Option<&RagdollCollisionLayers>,
+            Option<&Helpers>,
         ),
         (With<NeedsColliders>, With<SkeletonsReady>),
     >,
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
-    templates: Res<Assets<CharacterTemplate>>,
-    basemesh: Res<BaseMesh>,
-    mh_morphs: Res<MakeHumanMorphs>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     skeleton_skins: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>)>,
     children_query: Query<&Children, Allow<SkeletonLodDisabled>>,
     joint_names: Query<&Name, (With<SkeletalBone>, Allow<SkeletonLodDisabled>)>,
 ) {
-    for (character_entity, character_shape, lod_map, mut colliders, density, collision_layers) in
+    for (character_entity, _character_shape, lod_map, mut colliders, density, collision_layers, computed_helpers) in
         characters.iter_mut()
     {
         let Some(collision_layers) = collision_layers else {
             continue;
         };
         let density = density.0;
-        let Some(asset) = shape_assets.get(&character_shape.0) else {
+
+        let Some(h) = computed_helpers else {
             continue;
         };
-        let Some(template) = templates.get(&asset.template) else {
-            continue;
-        };
+        let helpers = &h.0;
 
         // Resolve SkinnedMesh from the highest-detail (LOD 0) skeleton for
         // collider geometry and inverse bindposes (which are LOD-independent).
@@ -201,13 +197,6 @@ pub(crate) fn spawn_colliders(
 
         let collider_bone_map = DEFAULT_RIG_COLLIDER_BONE_NAMES;
 
-        let Ok(helpers) = template.get_helpers(
-            &asset.template_morph_targets,
-            &basemesh.vertices,
-            &mh_morphs,
-        ) else {
-            continue;
-        };
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
@@ -292,7 +281,7 @@ pub(crate) fn spawn_colliders(
         for &collider in &target_bones {
             let i_collider = collider_index(collider);
             let (geometry, collider_to_model) =
-                get_collider_geometry(collider, &helpers, i_collider, &inv_bindposes_map);
+                get_collider_geometry(collider, helpers, i_collider, &inv_bindposes_map);
 
             let joint_name = collider_bone_map[i_collider];
             let model_to_joint = inv_bindposes_map[joint_name];

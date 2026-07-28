@@ -14,11 +14,14 @@ const PANTIES: &str = "clothes/underwear/simple_briefs/simple_briefs.mhclo";
 fn main() {
     let mut app = setup_app();
 
-    app.add_observer(add_human).run();
+    app.add_systems(
+        Update,
+        add_human.run_if(resource_added::<HumentityAssetsReady>),
+    )
+    .run();
 }
 
 fn add_human(
-    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
@@ -104,6 +107,7 @@ fn add_human(
         Name::new("Character"),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         CharacterShape(shape_handle),
+        Helpers::default(),
         InheritedVisibility::default(),
         children![
             (
@@ -115,7 +119,10 @@ fn add_human(
                 MeshMaterial3d(skin_mat)
             ),
             (
-                CharacterPart { mesh: eyes, skeleton_lod: 0 },
+                CharacterPart {
+                    mesh: eyes,
+                    skeleton_lod: 0
+                },
                 Name::new("eyes"),
                 MeshMaterial3d(eyes_mat)
             ),
@@ -136,12 +143,18 @@ fn add_human(
                 MeshMaterial3d(eyelash_mat)
             ),
             (
-                CharacterPart { mesh: hair, skeleton_lod: 0 },
+                CharacterPart {
+                    mesh: hair,
+                    skeleton_lod: 0
+                },
                 Name::new("hair"),
                 MeshMaterial3d(hair_mat)
             ),
             (
-                CharacterPart { mesh: bra, skeleton_lod: 0 },
+                CharacterPart {
+                    mesh: bra,
+                    skeleton_lod: 0
+                },
                 Name::new("bra"),
                 MeshMaterial3d(clothes_mat.clone())
             ),

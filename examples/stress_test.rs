@@ -3,13 +3,16 @@
 mod shared;
 use ahash::AHashMap;
 use bevy::{
-    camera::{ComputedCameraValues, visibility::VisibilityRange}, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, light::cluster::ClusterVisibilityClass, prelude::*,
+    camera::{visibility::VisibilityRange, ComputedCameraValues},
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
+    light::cluster::ClusterVisibilityClass,
+    prelude::*,
 };
 use humentity::prelude::*;
 use shared::setup_app;
 
 // On my machine I can accomodate this many animated characters while staying near 60fps.
-// This is an improvement after implementing skeleton lod as I think transform propagation 
+// This is an improvement after implementing skeleton lod as I think transform propagation
 // was one of the biggest bottlenecks.
 // 24*24 = 576 characters
 // Of course further optimization (e.g. frs)
@@ -30,7 +33,10 @@ fn main() {
     let mut app = setup_app();
 
     app.add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .add_observer(add_humans)
+        .add_systems(
+            Update,
+            add_humans.run_if(resource_added::<HumentityAssetsReady>),
+        )
         .add_systems(Startup, setup_fps_text)
         .add_systems(
             Update,
@@ -80,7 +86,6 @@ fn update_fps_text(
 }
 
 fn add_humans(
-    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
@@ -140,6 +145,7 @@ fn add_humans(
                     template_handle.clone(),
                     morphs.clone(),
                 ))),
+                Helpers::default(),
                 InheritedVisibility::default(),
                 CameraDistance::default(),
                 AnimationPlayer::default(),

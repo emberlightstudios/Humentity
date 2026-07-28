@@ -76,7 +76,7 @@ impl CharacterTemplate {
         }
     }
 
-    pub(crate) fn get_helpers(
+    pub fn get_helpers(
         &self,
         morph_values: &MorphTargets,
         basemesh_vertices: &[Vec3],

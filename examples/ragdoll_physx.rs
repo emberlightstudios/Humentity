@@ -21,7 +21,7 @@ fn main() {
             ..DebugRenderSettings::enable()
         })
         .add_systems(Startup, floor)
-        .add_observer(add_human)
+        .add_systems(Update, add_human.run_if(resource_added::<HumentityAssetsReady>))
         .add_systems(Update, (toggle, setup_graph, start_clip))
         .run();
 }
@@ -97,7 +97,6 @@ struct RetargetedAnimations {
 }
 
 fn add_human(
-    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
@@ -133,6 +132,7 @@ fn add_human(
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
+        Helpers::default(),
         PhysxCharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
         children![(CharacterPart { mesh: basemesh, skeleton_lod: 0 }, MeshMaterial3d(mat),)],
     ));

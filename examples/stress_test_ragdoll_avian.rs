@@ -51,10 +51,10 @@ fn main() {
     ))
     .insert_resource(SubstepCount(10))
     .add_systems(Startup, (physics_floor, spawn_ui))
-    .add_observer(add_humans)
     .add_systems(
         Update,
         (
+            add_humans.run_if(resource_added::<HumentityAssetsReady>),
             update_camera_distance,
             sync_skeleton_lod_to_visibility,
             setup_graph.run_if(resource_added::<RetargetedAnims>),
@@ -124,7 +124,6 @@ fn update_fps_text(
 }
 
 fn add_humans(
-    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
@@ -184,6 +183,7 @@ fn add_humans(
                     template_handle.clone(),
                     morphs.clone(),
                 ))),
+                Helpers::default(),
                 InheritedVisibility::default(),
                 CameraDistance::default(),
                 AnimationPlayer::default(),

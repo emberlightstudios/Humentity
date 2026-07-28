@@ -1,9 +1,14 @@
 use ahash::AHashSet;
 
 use crate::{
-    basemesh::{BaseMesh, VertexGroups}, prelude::*, rigs::{
-        BoneTranslationData, RigBundleRes, RigData, SkeletonRootBone, get_model_space_skeleton_transforms,
-    }, skeleton_lod::SkeletonLodConfig,
+    basemesh::VertexGroups,
+    helpers::Helpers,
+    prelude::*,
+    rigs::{
+        BoneTranslationData, RigBundleRes, RigData, SkeletonRootBone,
+        get_model_space_skeleton_transforms,
+    },
+    skeleton_lod::SkeletonLodConfig,
 };
 use ahash::AHashMap;
 use bevy::{
@@ -140,7 +145,6 @@ pub(crate) fn spawn_rig_skeletons(
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
-    templates: Res<Assets<CharacterTemplate>>,
     skinned_meshes: Query<
         &SkinnedMesh,
         (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>),
@@ -155,34 +159,28 @@ pub(crate) fn fit_skeleton_to_shape(
         ),
         (With<FitSkeleton>, Allow<SkeletonLodDisabled>),
     >,
-    characters: Query<(&CharacterShape, Option<&AnimationPlayer>)>,
+    characters: Query<(&CharacterShape, Option<&AnimationPlayer>, Option<&Helpers>)>,
     mut local_transforms: Query<
         &mut Transform,
         (Without<CharacterShape>, Allow<SkeletonLodDisabled>),
     >,
     mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
-    basemesh: Res<BaseMesh>,
-    morph_targets: Res<MakeHumanMorphs>,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
     rig_bundle: Res<RigBundleRes>,
 ) {
     for (skeleton_entity, parent, skeleton, existing_bind_pose) in skeletons.iter() {
         let parent_entity = parent.parent();
-        let Ok((character_shape, animation_player)) = characters.get(parent_entity) else {
+        let Ok((character_shape, animation_player, computed_helpers)) =
+            characters.get(parent_entity)
+        else {
             continue;
         };
+        let Some(h) = computed_helpers else {
+            continue;
+        };
+        let helpers = &h.0;
         let Some(mut shape) = shape_assets.get_mut(&character_shape.0) else {
-            continue;
-        };
-        let Some(template) = templates.get(&shape.template) else {
-            continue;
-        };
-        let Ok(helpers) = template.get_helpers(
-            &shape.template_morph_targets,
-            &basemesh.vertices,
-            &morph_targets,
-        ) else {
             continue;
         };
 
@@ -262,7 +260,7 @@ pub(crate) fn fit_skeleton_to_shape(
         // Re-fit skeleton to mesh shape
         let mut model_space_bindposes = get_model_space_skeleton_transforms(
             &rig_spec.reference_rig.bone_names,
-            &helpers,
+            helpers,
             rig_spec,
             &vg,
         );

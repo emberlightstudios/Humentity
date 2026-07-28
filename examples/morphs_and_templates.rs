@@ -29,9 +29,12 @@ const BODYBUILDER: &str = "bodybuilder";
 fn main() {
     let mut app = setup_app();
 
-    app.add_observer(add_humans)
-        .add_observer(on_skeletons_ready)
-        .run();
+    app.add_systems(
+        Update,
+        add_humans.run_if(resource_added::<HumentityAssetsReady>),
+    )
+    .add_observer(on_skeletons_ready)
+    .run();
 }
 
 /// Skeletons are disabled by default, We manually enable the lod 0 skeleton
@@ -43,7 +46,6 @@ fn on_skeletons_ready(trigger: On<Add, SkeletonsReady>, mut commands: Commands) 
 }
 
 fn add_humans(
-    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
@@ -83,6 +85,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(template_handle.clone())),
+        Helpers::default(),
         children![
             (CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -103,6 +106,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
+        Helpers::default(),
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -123,6 +127,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
+        Helpers::default(),
         children![(
             Name::new("mesh"),
             CharacterPart {
@@ -144,6 +149,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
+        Helpers::default(),
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -163,6 +169,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
+        Helpers::default(),
         children![(
             CharacterPart {
                 mesh: basemesh_part,

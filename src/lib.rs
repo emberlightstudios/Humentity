@@ -2,6 +2,7 @@ mod animation;
 mod assets;
 mod basemesh;
 mod bone_debug;
+pub(crate) mod helpers;
 mod loaders;
 mod mesh_ops;
 mod morphs;
@@ -41,10 +42,12 @@ pub mod prelude {
     pub use crate::{
         bone_debug::BoneDebugPlugin,
         HumentityPlugin,
+        HumentityAssetsReady,
         NAME_INTERNER,
         animation::{HumentityAnimationPostProcess, TranslationTracks},
         assets::{StitchedPart, StitchedParts, shape_mesh_from_helpers_mhclo},
         basemesh::{BaseMesh, VertexGroups},
+        helpers::Helpers,
         load_and_insert_humentity_assets,
         loaders::{
             BoneJsonConfig, BoneTransformSpec, CategoryMorphsAsset, CharacterShapeAsset,
@@ -130,6 +133,30 @@ pub fn load_and_insert_humentity_assets(
     });
 }
 
+/// Marker resource inserted once all core humentity assets (BaseMesh,
+/// VertexGroups, MakeHumanMorphs, RigData) have finished loading.
+/// Use `resource_exists::<HumentityAssetsReady>` in `run_if` conditions
+/// to gate systems that need all assets available.
+#[derive(Resource)]
+pub struct HumentityAssetsReady;
+
+fn check_humentity_assets_ready(
+    basemesh: Res<basemesh::BaseMesh>,
+    vg: Res<basemesh::VertexGroups>,
+    morphs: Res<morphs::MakeHumanMorphs>,
+    rig_data: Res<rigs::RigData>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    if !basemesh.vertices.is_empty()
+        && !vg.is_empty()
+        && morphs.is_ready(&asset_server)
+        && rig_data.is_loaded()
+    {
+        commands.insert_resource(HumentityAssetsReady);
+    }
+}
+
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
 pub(crate) const MODEL_ROTATION_FIX: Quat = Quat::from_xyzw(0., 1., 0., 0.);
 
@@ -145,6 +172,7 @@ impl Plugin for HumentityPlugin {
         app.insert_resource(spawn_mesh::MhcloMeshBuilder::default())
             .insert_resource(spawn_mesh::CachedMhcloMeshHandles::default())
             .insert_resource(spawn_mesh::CachedMhcloRawMeshHandles::default())
+            .insert_resource(helpers::HelperComputeJobs::default())
             .insert_resource(rigs::RigData::new())
             .insert_resource(rigs::RigBundleRes::default());
 
@@ -180,6 +208,8 @@ impl Plugin for HumentityPlugin {
             .add_systems(
                 Update,
                 (
+                    check_humentity_assets_ready
+                        .run_if(not(resource_exists::<HumentityAssetsReady>)),
                     basemesh::extract_basemesh_asset.run_if(resource_exists::<basemesh::BaseMesh>),
                     basemesh::extract_vertex_groups_asset
                         .run_if(resource_exists::<basemesh::VertexGroups>),
@@ -202,6 +232,8 @@ impl Plugin for HumentityPlugin {
                         .run_if(not(resource_exists::<BuiltRigs>)),
                     (
                         (
+                            helpers::submit_helper_computations,
+                            helpers::collect_helper_computations,
                             spawn_skeleton::spawn_rig_skeletons,
                             spawn_skeleton::fit_skeleton_to_shape,
                             spawn_skeleton::check_skeletons_ready,

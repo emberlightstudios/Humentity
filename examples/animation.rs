@@ -23,9 +23,12 @@ const BABY: &str = "baby";
 fn main() {
     let mut app = setup_app();
 
-    app.add_observer(add_humans)
-        .add_systems(Update, (play_graph, add_graph))
-        .run();
+    app.add_systems(
+        Update,
+        add_humans.run_if(resource_added::<HumentityAssetsReady>),
+    )
+    .add_systems(Update, (play_graph, add_graph))
+    .run();
 }
 
 // Hold handle refs to keep the clip assets alive
@@ -38,7 +41,6 @@ struct RetargetedAnimations {
 struct AnimationIndex(AnimationNodeIndex);
 
 fn add_humans(
-    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
@@ -94,6 +96,7 @@ fn add_humans(
         InheritedVisibility::default(),
         AnimationPlayer::default(),
         CharacterShape(shape_handle),
+        Helpers::default(),
         children![(
             Name::new("Mesh"),
             CharacterPart {
