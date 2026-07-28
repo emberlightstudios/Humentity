@@ -166,9 +166,14 @@ pub(crate) fn spawn_colliders(
     children_query: Query<&Children, Allow<SkeletonLodDisabled>>,
     joint_names: Query<&Name, (With<SkeletalBone>, Allow<SkeletonLodDisabled>)>,
 ) {
+    const BATCH_SIZE: usize = 2;
+    let mut char_count = 0;
     for (character_entity, _character_shape, lod_map, mut colliders, density, collision_layers, computed_helpers) in
         characters.iter_mut()
     {
+        if char_count >= BATCH_SIZE {
+            break;
+        }
         let Some(collision_layers) = collision_layers else {
             continue;
         };
@@ -322,6 +327,7 @@ pub(crate) fn spawn_colliders(
             .entity(character_entity)
             .insert(ActiveSkeletonLods(vec![true; lod_num_variants]))
             .remove::<NeedsColliders>();
+        char_count += 1;
     }
 }
 
