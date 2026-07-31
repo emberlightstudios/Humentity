@@ -258,7 +258,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
 ) {
     for (character_entity, character_shape, mut colliders, lod_map) in needs_colliders.iter_mut() {
         // Resolve SkinnedMesh from the highest-detail (LOD 0) skeleton
-        let Some(&lod0_entity) = lod_map.0.get(&0) else {
+        let Some(lod0_entity) = lod_map.0[0] else {
             continue;
         };
         let mut skm: Option<SkinnedMesh> = None;
@@ -419,7 +419,7 @@ pub(crate) fn spawn_ragdoll_colliders(
 ) {
     for (character_entity, character_shape, mut colliders, lod_map) in needs_colliders.iter_mut() {
         // Resolve SkinnedMesh from the highest-detail (LOD 0) skeleton
-        let Some(&lod0_entity) = lod_map.0.get(&0) else {
+        let Some(lod0_entity) = lod_map.0[0] else {
             continue;
         };
         let mut skm: Option<SkinnedMesh> = None;

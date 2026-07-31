@@ -12,7 +12,7 @@ use bevy::{
 use humentity::prelude::*;
 use shared::setup_app;
 
-const N: usize = 10;
+const N: usize = 5;
 
 const RAGDOLL_LAYER: u32 = 1 << 3;
 const WORLD_LAYER: u32 = 1 << 0;
@@ -275,7 +275,10 @@ fn sync_skeleton_lod_to_visibility(
     mut commands: Commands,
 ) {
     for (entity, cam_dist, lod_map) in &characters {
-        for &lod in lod_map.0.keys() {
+        for lod in 0..4 {
+            if lod_map.0[lod].is_none() {
+                continue;
+            }
             let in_range = parts.iter().any(|(range, cp, child_of)| {
                 child_of.parent() == entity
                     && cp.skeleton_lod == lod

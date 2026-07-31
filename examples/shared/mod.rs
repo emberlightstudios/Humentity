@@ -42,7 +42,7 @@ pub fn setup_app() -> App {
 
     app.add_plugins((DefaultPlugins, HumentityPlugin))
         .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
-        .insert_resource(SkeletonLodConfig(default_skeleton_lods()))
+        .insert_resource(SkeletonLodConfig::new(&default_skeleton_lods()))
         .add_systems(Startup, load_assets)
         .add_systems(Startup, setup_env)
         .add_systems(
@@ -82,7 +82,7 @@ pub fn enable_first_skeleton_on_ready(
     mut commands: Commands,
 ) {
     for (entity, lod_map) in &characters {
-        if let Some(&lowest_lod) = lod_map.0.keys().min() {
+        if let Some(lowest_lod) = lod_map.0.iter().position(|e| e.is_some()) {
             commands.trigger(EnableSkeletonLod {
                 character: entity,
                 lod: lowest_lod,

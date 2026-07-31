@@ -34,8 +34,9 @@ pub struct SkeletonsReady;
 pub struct SkeletonLodFilter(pub AHashSet<usize>);
 
 /// Maps LOD index → skeleton entity. Placed on `CharacterShape` by `spawn_rig_skeletons`.
+/// Indexed directly by LOD key (0-3); `None` means that LOD variant doesn't exist.
 #[derive(Component, Debug, Default)]
-pub struct SkeletonLodMap(pub AHashMap<usize, Entity>);
+pub struct SkeletonLodMap(pub [Option<Entity>; 4]);
 
 /// Internal marker on a skeleton entity that has been spawned but not yet fitted to morphs.
 #[derive(Component, Debug)]
@@ -108,9 +109,9 @@ pub(crate) fn spawn_rig_skeletons(
         // Apply filter if present
         let lod_filter = filter_query.get(entity).ok().flatten();
 
-        let mut lod_map = AHashMap::default();
+        let mut lod_map: [Option<Entity>; 4] = [None; 4];
 
-        for lod_idx in 0..num_variants {
+        for lod_idx in 0..num_variants.min(4) {
             if let Some(SkeletonLodFilter(allowed)) = lod_filter
                 && !allowed.contains(&lod_idx)
             {
@@ -132,7 +133,7 @@ pub(crate) fn spawn_rig_skeletons(
                 .id();
 
             commands.entity(entity).add_child(skeleton_entity);
-            lod_map.insert(lod_idx, skeleton_entity);
+            lod_map[lod_idx] = Some(skeleton_entity);
         }
 
         commands.entity(entity).insert(SkeletonLodMap(lod_map));
@@ -398,8 +399,8 @@ pub(crate) fn check_skeletons_ready(
     fitted: Query<&CharacterSkeleton, (Without<FitSkeleton>, Allow<SkeletonLodDisabled>)>,
 ) {
     for (entity, lod_map) in &characters {
-        let all_fitted = lod_map.0.values().all(|e| fitted.get(*e).is_ok());
-        if all_fitted && !lod_map.0.is_empty() {
+        let all_fitted = lod_map.0.iter().filter_map(|e| *e).all(|e| fitted.get(e).is_ok());
+        if all_fitted && lod_map.0.iter().any(|e| e.is_some()) {
             commands.entity(entity).insert(SkeletonsReady);
         }
     }
@@ -409,18 +410,25 @@ pub(crate) fn check_skeletons_ready(
 pub(crate) fn on_enable_skeleton_lod(
     trigger: On<EnableSkeletonLod>,
     lod_map_query: Query<&SkeletonLodMap>,
+    parts: Query<(Entity, &CharacterPart, &SkinnedMesh, &ChildOf)>,
     mut commands: Commands,
 ) {
     let event = trigger.event();
     let Ok(lod_map) = lod_map_query.get(event.character) else {
         return;
     };
-    let Some(&skeleton_entity) = lod_map.0.get(&event.lod) else {
+    let Some(skeleton_entity) = lod_map.0.get(event.lod).copied().flatten() else {
         return;
     };
     commands
         .entity(skeleton_entity)
         .remove_recursive::<Children, SkeletonLodDisabled>();
+
+    for (part_entity, part, skinned_mesh, child_of) in &parts {
+        if child_of.parent() == event.character && part.skeleton_lod == event.lod {
+            commands.entity(part_entity).insert(skinned_mesh.clone());
+        }
+    }
 }
 
 /// Observer that disables a skeleton LOD variant by inserting `SkeletonLodDisabled`.
@@ -433,7 +441,7 @@ pub(crate) fn on_disable_skeleton_lod(
     let Ok(lod_map) = lod_map_query.get(event.character) else {
         return;
     };
-    let Some(&skeleton_entity) = lod_map.0.get(&event.lod) else {
+    let Some(skeleton_entity) = lod_map.0.get(event.lod).copied().flatten() else {
         return;
     };
     commands
@@ -462,7 +470,7 @@ pub(crate) fn on_reset_skeleton_to_bind_pose(
     let Ok(lod_map) = lod_map_query.get(event.character) else {
         return;
     };
-    let Some(&skeleton_entity) = lod_map.0.get(&event.lod) else {
+    let Some(skeleton_entity) = lod_map.0.get(event.lod).copied().flatten() else {
         return;
     };
     let Ok(bind_pose) = bind_pose_query.get(skeleton_entity) else {
@@ -501,7 +509,7 @@ pub(crate) fn setup_part_skinning(
         };
 
         // Find the skeleton entity for this part's LOD level
-        let Some(&skeleton_entity) = lod_map.0.get(&part.skeleton_lod) else {
+        let Some(skeleton_entity) = lod_map.0.get(part.skeleton_lod).copied().flatten() else {
             continue;
         };
 

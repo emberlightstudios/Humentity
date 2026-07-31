@@ -183,14 +183,10 @@ pub(crate) fn build_rig_scenes(world: &mut World) {
     let lod_config = lod_config.unwrap_or_default();
 
     // Use merge configs from SkeletonLodConfig (or full skeleton)
-    let merge_configs: Vec<_> = if lod_config.0.is_empty() {
-        vec![crate::skeleton_lod::BoneMergeConfig::full()]
-    } else {
-        lod_config.0
-    };
+    let merge_configs = &lod_config.0[..lod_config.1];
 
     // Build LOD variants
-    let lod_variants = build_lod_variants(&reference_rig, &weights, &merge_configs, world);
+    let lod_variants = build_lod_variants(&reference_rig, &weights, merge_configs, world);
 
     // Store in registry
     world

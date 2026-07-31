@@ -92,12 +92,39 @@ pub struct RigBundle {
     pub lod_variants: Vec<SkeletonLodVariant>,
 }
 
+const MAX_LODS: usize = 4;
+
 /// Resource specifying which merge configs to use for the rig.
 /// Insert this resource before `build_rig_scenes` runs to enable skeleton LOD.
 ///
 /// If not inserted (or empty), rigs get only the full (unmerged) skeleton variant.
-#[derive(Resource, Clone, Default)]
-pub struct SkeletonLodConfig(pub Vec<BoneMergeConfig>);
+#[derive(Resource, Clone)]
+pub struct SkeletonLodConfig(pub [BoneMergeConfig; MAX_LODS], pub usize);
+
+impl Default for SkeletonLodConfig {
+    fn default() -> Self {
+        Self(core::array::from_fn(|_| BoneMergeConfig::full()), 1)
+    }
+}
+
+impl SkeletonLodConfig {
+    /// Create a config from a slice of merge configs. Panics if more than
+    /// [`MAX_LODS`] configs are provided.
+    pub fn new(configs: &[BoneMergeConfig]) -> Self {
+        assert!(
+            configs.len() <= MAX_LODS,
+            "SkeletonLodConfig supports at most {} LOD levels, got {}",
+            MAX_LODS,
+            configs.len()
+        );
+        let count = configs.len().max(1);
+        let mut lods = core::array::from_fn(|_| BoneMergeConfig::full());
+        for (i, c) in configs.iter().enumerate() {
+            lods[i] = c.clone();
+        }
+        Self(lods, count)
+    }
+}
 
 // ─── Merge Algorithm ──────────────────────────────────────────────────
 

@@ -11,7 +11,7 @@ use crate::{
     helpers::Helpers,
     prelude::{
         CharacterShape, DisableSkeletonLod,
-        EnableSkeletonLod, ResetSkeletonToBindPose, SkeletonLodDisabled, SkeletonLodMap,
+        EnableSkeletonLod, SkeletonLodDisabled, SkeletonLodMap,
         SkeletonsReady,
     },
     rigs::SkeletalBone,
@@ -63,15 +63,16 @@ pub enum CharacterRagdoll {
 pub struct CharacterColliders {
     pub bones_subset: Option<Vec<ColliderBone>>,
     pub collider_entities: AHashMap<ColliderBone, Entity>,
-    /// Primary bone entity for each collider bone — points to the best active LOD.
-    /// Updated when skeleton LODs change.
-    pub bone_entities: AHashMap<ColliderBone, Entity>,
     /// Per-LOD bone entity mapping for each collider bone.
     /// Indexed by `[collider_index_in_COLLIDERS][lod_index]`.
     /// `None` if the bone doesn't exist in that LOD variant.
     /// Built once at collider spawn time, read-only afterwards.
     pub lod_bone_entities: Vec<Vec<Option<Entity>>>,
     pub(crate) joint_entities: Vec<Entity>,
+    /// Canonical local-space bone transforms computed from the highest-detail
+    /// active LOD's parent chain. Written every frame during active ragdoll,
+    /// then replicated to every LOD bone entity.
+    pub(crate) bone_transforms: [Transform; COLLIDERS.len()],
 }
 
 impl CharacterColliders {
@@ -79,18 +80,31 @@ impl CharacterColliders {
         Self {
             bones_subset,
             collider_entities: AHashMap::default(),
-            bone_entities: AHashMap::default(),
             lod_bone_entities: Vec::new(),
             joint_entities: Vec::new(),
+            bone_transforms: [Transform::IDENTITY; COLLIDERS.len()],
         }
     }
 }
 
-/// Tracks which skeleton LODs are currently active (not disabled).
-/// Indexed by LOD variant index. Updated on EnableSkeletonLod / DisableSkeletonLod events.
-/// Used by ragdoll sync systems to short-circuit disabled LODs.
+/// Tracks which skeleton LODs are currently active (not disabled) and which LOD
+/// was just enabled this frame (so its parent `GlobalTransform`s are still stale
+/// from the disabled-lod-no-propagate optimization).
+///
+/// `just_enabled` is cleared to `None` by [`clear_just_enabled_lods`] in PostUpdate
+/// each frame.
+///
+/// `canonical` is the first active LOD that was NOT just-enabled this frame
+/// (or the first active LOD as fallback). It acts as the authoritative LOD
+/// for collider bone lookups.
+///
+/// Updated on EnableSkeletonLod / DisableSkeletonLod events.
 #[derive(Component, Debug, Clone)]
-pub struct ActiveSkeletonLods(pub Vec<bool>);
+pub struct SkeletonLodState {
+    pub active: [bool; 4],
+    pub just_enabled: Option<u8>,
+    pub canonical: u8,
+}
 
 #[derive(Component)]
 pub(crate) struct NeedsColliders;
@@ -186,7 +200,7 @@ pub(crate) fn spawn_colliders(
 
         // Resolve SkinnedMesh from the highest-detail (LOD 0) skeleton for
         // collider geometry and inverse bindposes (which are LOD-independent).
-        let Some(&lod0_entity) = lod_map.0.get(&0) else {
+        let Some(lod0_entity) = lod_map.0[0] else {
             continue;
         };
         let mut skm: Option<SkinnedMesh> = None;
@@ -205,17 +219,6 @@ pub(crate) fn spawn_colliders(
         let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
             continue;
         };
-
-        let bone_entities: AHashMap<&str, Entity> = skm
-            .joints
-            .iter()
-            .filter_map(|&joint| {
-                joint_names
-                    .get(joint)
-                    .ok()
-                    .map(|name| (NAME_INTERNER.intern(name.as_str()).leak(), joint))
-            })
-            .collect();
 
         let inv_bindposes_map: AHashMap<&str, Transform> = skm
             .joints
@@ -242,16 +245,12 @@ pub(crate) fn spawn_colliders(
         }
 
         // ── Build per-LOD bone entity mapping ──────────────────────────
-        let mut lod_bone_maps: Vec<AHashMap<&str, Entity>> = Vec::new();
+        // Indexed by LOD key 0-3; `None` for missing LODs or missing bones.
+        let mut lod_bone_entities: Vec<Vec<Option<Entity>>> =
+            vec![vec![None; 4]; COLLIDERS.len()];
 
-        // Determine actual number of LOD variants from sorted lod_map keys.
-        let mut sorted_lod_keys: Vec<usize> = lod_map.0.keys().copied().collect();
-        sorted_lod_keys.sort();
-        let lod_num_variants = sorted_lod_keys.len();
-
-        for &lod_idx in &sorted_lod_keys {
-            let Some(&skeleton_entity) = lod_map.0.get(&lod_idx) else {
-                lod_bone_maps.push(AHashMap::default());
+        for lod_key in 0..4 {
+            let Some(skeleton_entity) = lod_map.0[lod_key] else {
                 continue;
             };
             let mut name_to_entity: AHashMap<&str, Entity> = AHashMap::default();
@@ -266,18 +265,10 @@ pub(crate) fn spawn_colliders(
                     break;
                 }
             }
-            lod_bone_maps.push(name_to_entity);
-        }
-
-        // Per-collider, per-LOD bone entity lookup
-        let mut lod_bone_entities: Vec<Vec<Option<Entity>>> =
-            vec![vec![None; lod_num_variants]; COLLIDERS.len()];
-
-        for &collider in &COLLIDERS {
-            let i_collider = collider_index(collider);
-            let joint_name = collider_bone_map[i_collider];
-            for (lod_pos, name_to_entity) in lod_bone_maps.iter().enumerate() {
-                lod_bone_entities[i_collider][lod_pos] =
+            for &collider in &COLLIDERS {
+                let i_collider = collider_index(collider);
+                let joint_name = collider_bone_map[i_collider];
+                lod_bone_entities[i_collider][lod_key] =
                     name_to_entity.get(joint_name).copied();
             }
         }
@@ -315,17 +306,23 @@ pub(crate) fn spawn_colliders(
             colliders
                 .collider_entities
                 .insert(collider, collider_entity);
-            colliders
-                .bone_entities
-                .insert(collider, bone_entities[joint_name]);
         }
 
         colliders.lod_bone_entities = lod_bone_entities;
 
-        // Insert ActiveSkeletonLods — all start enabled, observers correct this on events.
+        // Insert SkeletonLodState — all LODs start enabled, observers correct this on events.
+        let mut active = [false; 4];
+        for lod_key in 0..4 {
+            active[lod_key] = lod_map.0[lod_key].is_some();
+        }
+        let canonical = active.iter().position(|&a| a).unwrap_or(0) as u8;
         commands
             .entity(character_entity)
-            .insert(ActiveSkeletonLods(vec![true; lod_num_variants]))
+            .insert(SkeletonLodState {
+                active,
+                just_enabled: None,
+                canonical,
+            })
             .remove::<NeedsColliders>();
         char_count += 1;
     }
@@ -335,7 +332,7 @@ pub(crate) fn spawn_colliders(
 /// For each collider, iterates active LODs to find the first one that has the corresponding
 /// bone, then reads its GlobalTransform.
 pub(crate) fn sync_colliders(
-    characters: Query<(&CharacterColliders, &ActiveSkeletonLods)>,
+    characters: Query<(&CharacterColliders, &SkeletonLodState)>,
     bones: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
     mut collider_data: Query<
         (&mut Position, &mut Rotation, &ColliderOffset),
@@ -351,34 +348,15 @@ pub(crate) fn sync_colliders(
 
             let i_collider = collider_index(bone_type);
 
-            // Find the first active LOD that has this bone.
-            let mut found = false;
-            for (lod_idx, &is_active) in active_lods.0.iter().enumerate() {
-                if !is_active {
-                    continue;
-                }
-                if let Some(Some(bone_entity)) = colliders.lod_bone_entities.get(i_collider)
-                    .and_then(|lod_vec| lod_vec.get(lod_idx))
-                {
-                    if let Ok(joint_to_world) = bones.get(*bone_entity) {
-                        let world = Transform::from(*joint_to_world) * offset.collider_to_bone;
-                        *position = Position(world.translation);
-                        *rotation = Rotation(world.rotation);
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            // Fallback: try the primary bone_entities map
-            if !found {
-                if let Some(bone_entity) = colliders.bone_entities.get(&bone_type) {
-                    if let Ok(joint_to_world) = bones.get(*bone_entity) {
-                        let world = Transform::from(*joint_to_world) * offset.collider_to_bone;
-                        *position = Position(world.translation);
-                        *rotation = Rotation(world.rotation);
-                    }
-                }
+            if let Some(Some(bone_entity)) = colliders
+                .lod_bone_entities
+                .get(i_collider)
+                .and_then(|lod_vec| lod_vec.get(active_lods.canonical as usize))
+                && let Ok(joint_to_world) = bones.get(*bone_entity)
+            {
+                let world = Transform::from(*joint_to_world) * offset.collider_to_bone;
+                *position = Position(world.translation);
+                *rotation = Rotation(world.rotation);
             }
         }
     }
@@ -391,7 +369,7 @@ pub(crate) fn set_ragdoll_state(
             &CharacterRagdoll,
             &mut CharacterColliders,
             &RagdollDamping,
-            &ActiveSkeletonLods,
+            &SkeletonLodState,
             &SkeletonLodMap,
         ),
         Changed<CharacterRagdoll>,
@@ -401,7 +379,7 @@ pub(crate) fn set_ragdoll_state(
     collider_offsets: Query<&ColliderOffset>,
     mobility_query: Query<&RagdollMobility>,
 ) {
-    for (character_entity, ragdoll, mut char_colliders, damping, active_lods, lod_map) in
+    for (character_entity, ragdoll, mut char_colliders, damping, active_lods, _lod_map) in
         characters.iter_mut()
     {
         let damping = damping.0;
@@ -452,29 +430,9 @@ pub(crate) fn set_ragdoll_state(
                         .insert(RigidBody::Kinematic)
                         .insert(KinematicCollider);
                 }
-                for &lod_idx in lod_map.0.keys() {
-                    commands.trigger(ResetSkeletonToBindPose {
-                        character: character_entity,
-                        lod: lod_idx,
-                    });
-                }
                 continue;
             }
         }
-
-        // Helper: find the best bone entity for a ColliderBone across active LODs.
-        let find_bone = |bone: ColliderBone, colliders: &CharacterColliders, active_lods: &ActiveSkeletonLods| -> Option<Entity> {
-            let i_collider = collider_index(bone);
-            for (lod_idx, &is_active) in active_lods.0.iter().enumerate() {
-                if is_active && let Some(Some(entity)) = colliders.lod_bone_entities.get(i_collider)
-                    .and_then(|v| v.get(lod_idx))
-                {
-                    return Some(*entity);
-                }
-            }
-            // Fallback to primary bone_entities
-            colliders.bone_entities.get(&bone).copied()
-        };
 
         let joints_to_spawn: Vec<(
             ColliderBone,
@@ -497,8 +455,18 @@ pub(crate) fn set_ragdoll_state(
                 let parent_bone_type = get_collider_parent(*bone)?;
                 let parent = *char_colliders.collider_entities.get(&parent_bone_type)?;
 
-                let child_bone = find_bone(*bone, &char_colliders, active_lods)?;
-                let parent_bone = find_bone(parent_bone_type, &char_colliders, active_lods)?;
+                let child_bone = char_colliders
+                    .lod_bone_entities
+                    .get(collider_index(*bone))
+                    .and_then(|v| v.get(active_lods.canonical as usize))
+                    .copied()
+                    .flatten()?;
+                let parent_bone = char_colliders
+                    .lod_bone_entities
+                    .get(collider_index(parent_bone_type))
+                    .and_then(|v| v.get(active_lods.canonical as usize))
+                    .copied()
+                    .flatten()?;
 
                 let child_bone_world = bones.get(child_bone).ok()?;
                 let parent_bone_world = bones.get(parent_bone).ok()?;
@@ -569,18 +537,18 @@ pub(crate) fn set_ragdoll_state(
 }
 
 pub(crate) fn sync_bones_to_ragdoll(
-    characters: Query<(&CharacterRagdoll, &CharacterColliders)>,
+    mut characters: Query<(&CharacterRagdoll, &mut CharacterColliders, &SkeletonLodState)>,
     colliders: Query<
         (&Position, &Rotation, &ColliderOffset),
-        (With<ColliderBone>, Without<SkeletalBone>, Without<RigidBodyDisabled>),
+        (With<ColliderBone>, Without<SkeletalBone>),
     >,
     mut bones: Query<
         (&mut Transform, Option<&ChildOf>),
-        (With<SkeletalBone>, Without<ColliderBone>),
+        (With<SkeletalBone>, Without<ColliderBone>, Allow<SkeletonLodDisabled>),
     >,
     global_transforms: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
 ) {
-    for (ragdoll, char_colliders) in characters.iter() {
+    for (ragdoll, mut char_colliders, active_lods) in characters.iter_mut() {
         if matches!(ragdoll, CharacterRagdoll::None) {
             continue;
         }
@@ -590,28 +558,85 @@ pub(crate) fn sync_bones_to_ragdoll(
             _ => None,
         };
 
-        let mut applied_joint_world = AHashMap::<Entity, Transform>::default();
+        // Find a reference LOD that was already active last frame (not just re-enabled),
+        // so its parent GlobalTransforms are correctly propagated.
+        let reference_lod = active_lods.active.iter().enumerate().position(|(i, &active)| {
+            active && Some(i as u8) != active_lods.just_enabled
+        // Fallback: if every active LOD was just enabled, use the first active one
+        }).or_else(|| active_lods.active.iter().position(|&a| a));
+        let Some(reference_lod) = reference_lod else {
+            continue;
+        };
+        let lod_count = char_colliders
+            .lod_bone_entities
+            .first()
+            .map_or(0, |v| v.len());
 
-        for (&bone_type, &collider_entity) in char_colliders.collider_entities.iter() {
+        // ── Phase A: compute canonical local transforms from the active LOD ──
+        let mut applied_joint_world = AHashMap::<Entity, Transform>::default();
+        for (i_collider, &bone_type) in COLLIDERS.iter().enumerate() {
             if let Some(bones) = partial_bones
                 && !bones.contains(&bone_type)
             {
                 continue;
             }
+
+            let Some(&collider_entity) = char_colliders.collider_entities.get(&bone_type) else {
+                continue;
+            };
             let Ok((position, rotation, offset)) = colliders.get(collider_entity) else {
                 continue;
             };
 
             let joint_to_world =
-                Transform::from_translation(position.0).with_rotation(rotation.0)
-                    * offset.bone_to_collider;
-            let i_collider = collider_index(bone_type);
+                Transform::from_translation(position.0).with_rotation(rotation.0) * offset.bone_to_collider;
 
-            // Write ragdoll position to every LOD that has this bone.
-            let lod_count = char_colliders
+            // Find this bone's entity in the reference LOD
+            let Some(Some(bone_entity)) = char_colliders
                 .lod_bone_entities
                 .get(i_collider)
-                .map_or(0, |v| v.len());
+                .and_then(|lod_vec| lod_vec.get(reference_lod))
+            else {
+                continue;
+            };
+            let bone_entity = *bone_entity;
+
+            // Convert joint_to_world (world space) to local using the active
+            // LOD's parent chain, which is correctly propagated.
+            let local = {
+                let (_, parent) = bones.get(bone_entity).expect("bone entity should be valid");
+                if let Some(parent) = parent {
+                    let parent_entity = parent.parent();
+                    if let Some(parent_to_world) = applied_joint_world.get(&parent_entity) {
+                        Transform::from_matrix(parent_to_world.to_matrix().inverse())
+                            * joint_to_world
+                    } else if let Ok(parent_to_world) = global_transforms.get(parent_entity) {
+                        Transform::from_matrix(parent_to_world.to_matrix().inverse())
+                            * joint_to_world
+                    } else {
+                        joint_to_world
+                    }
+                } else {
+                    joint_to_world
+                }
+            };
+
+            char_colliders.bone_transforms[i_collider] = local;
+            applied_joint_world.insert(bone_entity, joint_to_world);
+        }
+
+        // ── Phase B: write canonical transforms to every LOD ──
+        // Lerp on the reference LOD for smooth animation; snap the rest directly
+        // so a previously-disabled LOD is instantly correct when re-enabled.
+        for (i_collider, &bone_type) in COLLIDERS.iter().enumerate() {
+            if let Some(bones) = partial_bones
+                && !bones.contains(&bone_type)
+            {
+                continue;
+            }
+
+            let local = char_colliders.bone_transforms[i_collider];
+
             for lod_idx in 0..lod_count {
                 let Some(Some(bone_entity)) = char_colliders
                     .lod_bone_entities
@@ -620,147 +645,73 @@ pub(crate) fn sync_bones_to_ragdoll(
                 else {
                     continue;
                 };
-                write_bone_to_skeleton(
-                    *bone_entity,
-                    joint_to_world,
-                    &mut bones,
-                    &global_transforms,
-                    &mut applied_joint_world,
-                );
-            }
-
-            // Fallback: primary bone_entities (may differ from LOD entities after remap).
-            if let Some(&bone_entity) = char_colliders.bone_entities.get(&bone_type) {
-                if !applied_joint_world.contains_key(&bone_entity) {
-                    write_bone_to_skeleton(
-                        bone_entity,
-                        joint_to_world,
-                        &mut bones,
-                        &global_transforms,
-                        &mut applied_joint_world,
-                    );
+                let Ok((mut transform, _)) = bones.get_mut(*bone_entity) else {
+                    continue;
+                };
+                if lod_idx == reference_lod {
+                    let dp = (local.translation - transform.translation).length();
+                    let dr = local.rotation.angle_between(transform.rotation);
+                    if dp > 0.0001 || dr > 0.0001 {
+                        const LERP_FACTOR: f32 = 0.85;
+                        transform.translation = transform
+                            .translation
+                            .lerp(local.translation, LERP_FACTOR);
+                        transform.rotation = transform
+                            .rotation
+                            .slerp(local.rotation, LERP_FACTOR);
+                    }
+                } else {
+                    *transform = local;
                 }
             }
         }
     }
 }
 
-fn write_bone_to_skeleton(
-    bone_entity: Entity,
-    joint_to_world: Transform,
-    bones: &mut Query<
-        (&mut Transform, Option<&ChildOf>),
-        (With<SkeletalBone>, Without<ColliderBone>),
-    >,
-    global_transforms: &Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
-    applied_joint_world: &mut AHashMap<Entity, Transform>,
-) {
-    let Ok((mut local_transform, parent)) = bones.get_mut(bone_entity) else {
-        return;
-    };
-
-    let local = if let Some(parent) = parent {
-        let parent_entity = parent.parent();
-        if let Some(parent_to_world) = applied_joint_world.get(&parent_entity) {
-            Transform::from_matrix(parent_to_world.to_matrix().inverse()) * joint_to_world
-        } else if let Ok(parent_to_world) = global_transforms.get(parent_entity) {
-            Transform::from_matrix(parent_to_world.to_matrix().inverse()) * joint_to_world
-        } else {
-            joint_to_world
-        }
-    } else {
-        joint_to_world
-    };
-
-    let dp = (local.translation - local_transform.translation).length();
-    let dr = local.rotation.angle_between(local_transform.rotation);
-    if dp > 0.0001 || dr > 0.0001 {
-        const LERP_FACTOR: f32 = 0.85;
-        local_transform.translation = local_transform
-            .translation
-            .lerp(local.translation, LERP_FACTOR);
-        local_transform.rotation =
-            local_transform.rotation.slerp(local.rotation, LERP_FACTOR);
-    }
-    applied_joint_world.insert(bone_entity, joint_to_world);
-}
-
-/// Observer: when a skeleton LOD is enabled, update `ActiveSkeletonLods` and
-/// remap `bone_entities` to the best available LOD.
+/// Observer: when a skeleton LOD is enabled, update `SkeletonLodState`
+/// and recompute the canonical LOD. Uses `event.lod` directly as the index.
 pub(crate) fn on_enable_skeleton_lod_ragdoll(
     trigger: On<EnableSkeletonLod>,
-    mut characters: Query<(
-        &mut CharacterColliders,
-        &mut ActiveSkeletonLods,
-        &SkeletonLodMap,
-    )>,
+    mut characters: Query<&mut SkeletonLodState>,
 ) {
     let event = trigger.event();
-    let Ok((mut colliders, mut active_lods, lod_map)) = characters.get_mut(event.character) else {
+    let Ok(mut state) = characters.get_mut(event.character) else {
         return;
     };
-    let mut sorted_keys: Vec<usize> = lod_map.0.keys().copied().collect();
-    sorted_keys.sort();
-    let lod_pos = sorted_keys.iter().position(|&k| k == event.lod);
-    if let Some(pos) = lod_pos {
-        if pos < active_lods.0.len() {
-            active_lods.0[pos] = true;
-        }
+    if event.lod > 3 {
+        return;
     }
-    remap_bone_entities(&mut colliders, &active_lods);
+    state.active[event.lod] = true;
+    state.just_enabled = Some(event.lod as u8);
+    state.canonical = compute_canonical_lod(&state);
 }
 
-/// Observer: when a skeleton LOD is disabled, update `ActiveSkeletonLods` and
-/// remap `bone_entities` to the best available LOD.
+/// Observer: when a skeleton LOD is disabled, update `SkeletonLodState`
+/// and recompute the canonical LOD. Uses `event.lod` directly as the index.
 pub(crate) fn on_disable_skeleton_lod_ragdoll(
     trigger: On<DisableSkeletonLod>,
-    mut characters: Query<(
-        &mut CharacterColliders,
-        &mut ActiveSkeletonLods,
-        &SkeletonLodMap,
-    )>,
+    mut characters: Query<&mut SkeletonLodState>,
 ) {
     let event = trigger.event();
-    let Ok((mut colliders, mut active_lods, lod_map)) = characters.get_mut(event.character) else {
+    let Ok(mut state) = characters.get_mut(event.character) else {
         return;
     };
-    let mut sorted_keys: Vec<usize> = lod_map.0.keys().copied().collect();
-    sorted_keys.sort();
-    let lod_pos = sorted_keys.iter().position(|&k| k == event.lod);
-    if let Some(pos) = lod_pos {
-        if pos < active_lods.0.len() {
-            active_lods.0[pos] = false;
-        }
+    if event.lod > 3 {
+        return;
     }
-    remap_bone_entities(&mut colliders, &active_lods);
+    state.active[event.lod] = false;
+    state.canonical = compute_canonical_lod(&state);
 }
 
 /// Remap `bone_entities` to point to the first active LOD that has each bone.
-fn remap_bone_entities(
-    colliders: &mut CharacterColliders,
-    active_lods: &ActiveSkeletonLods,
-) {
-    for (collider_idx, collider) in COLLIDERS.iter().enumerate() {
-        let mut found = false;
-        for (lod_idx, &is_active) in active_lods.0.iter().enumerate() {
-            if !is_active {
-                continue;
-            }
-            if let Some(Some(entity)) = colliders
-                .lod_bone_entities
-                .get(collider_idx)
-                .and_then(|v| v.get(lod_idx))
-            {
-                colliders.bone_entities.insert(*collider, *entity);
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            // No active LOD has this bone — remove from primary map.
-            colliders.bone_entities.remove(collider);
-        }
-    }
+fn compute_canonical_lod(state: &SkeletonLodState) -> u8 {
+    state
+        .active
+        .iter()
+        .enumerate()
+        .position(|(i, &active)| active && Some(i as u8) != state.just_enabled)
+        .or_else(|| state.active.iter().position(|&a| a))
+        .unwrap_or(0) as u8
 }
 
 fn get_collider_geometry(
@@ -987,6 +938,14 @@ pub(crate) fn on_disable_physics(
             .entity(collider_entity)
             .insert(RigidBodyDisabled)
             .insert(ColliderDisabled);
+    }
+}
+
+/// Clears `just_enabled` on every character's `SkeletonLodState` each frame,
+/// so the flag only lives for the single frame after the LOD was re-enabled.
+pub(crate) fn clear_just_enabled_lods(mut characters: Query<&mut SkeletonLodState>) {
+    for mut state in &mut characters {
+        state.just_enabled = None;
     }
 }
 

@@ -28,7 +28,7 @@ pub mod prelude {
     pub use crate::physics::avian::RagdollCollisionLayers;
     #[cfg(all(feature = "avian", not(feature = "physx")))]
     pub use crate::physics::avian::{
-        ActiveSkeletonLods, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
+        SkeletonLodState, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
         ColliderOffset, DisablePhysics, KinematicCollider,
     };
     #[cfg(all(feature = "physx", not(feature = "avian")))]
@@ -288,9 +288,13 @@ impl Plugin for HumentityPlugin {
                 .add_systems(FixedUpdate, physics::avian::sync_colliders)
                 .add_systems(
                     PostUpdate,
-                    physics::avian::sync_bones_to_ragdoll
-                        .after(AnimationSystems)
-                        .before(TransformSystems::Propagate),
+                    (
+                        physics::avian::sync_bones_to_ragdoll
+                            .after(AnimationSystems)
+                            .before(TransformSystems::Propagate),
+                        physics::avian::clear_just_enabled_lods
+                            .after(TransformSystems::Propagate),
+                    ),
                 )
                 .add_observer(physics::avian::on_enable_skeleton_lod_ragdoll)
                 .add_observer(physics::avian::on_disable_skeleton_lod_ragdoll)
