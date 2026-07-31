@@ -97,14 +97,6 @@ impl MakeHumanMorphs {
         )
     }
 
-    pub(crate) fn targets_id(&self) -> AssetId<LoadedFolder> {
-        self.targets_handle.id()
-    }
-
-    pub(crate) fn data_synced(&self) -> bool {
-        self.macros.read().unwrap().is_some() && self.composites.read().unwrap().is_some()
-    }
-
     pub fn get_min_values(&self) -> AHashMap<&'static str, f32> {
         let categories = self.categories.read().unwrap();
         let mut result = AHashMap::default();
@@ -442,25 +434,6 @@ impl MakeHumanMorphs {
         }
 
         Ok(result)
-    }
-}
-
-/// Fired once as a trigger when all morph assets have finished loading.
-#[derive(Event)]
-pub struct MorphsReady;
-
-pub(crate) fn check_morphs_ready(
-    morphs: Res<MakeHumanMorphs>,
-    mut folder_events: MessageReader<AssetEvent<LoadedFolder>>,
-    mut commands: Commands,
-) {
-    for ev in folder_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = ev
-            && *id == morphs.targets_id()
-            && morphs.data_synced()
-        {
-            commands.trigger(MorphsReady);
-        }
     }
 }
 

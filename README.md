@@ -30,8 +30,13 @@ fn main() {
             BoneMergeConfig::full().without_children_of(&["foot.L", "foot.R"]),
         ]))
         .add_systems(Startup, load_assets)
-        .add_systems(Update, attach_mesh)
-        .add_observer(spawn_character)
+        .add_systems(
+            Update,
+            (
+                attach_mesh,
+                spawn_character.run_if(resource_added::<HumentityAssetsReady>),
+            ),
+        )
         .run();
 }
 
@@ -51,7 +56,6 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
 }
 
 fn spawn_character(
-    _trigger: On<MorphsReady>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,

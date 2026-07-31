@@ -62,7 +62,7 @@ pub mod prelude {
         },
         mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_vertex_positions},
         morphs::{
-            MakeHumanMorphs, MorphError, MorphTargets, MorphsReady, adjust_helpers_to_morphs,
+            MakeHumanMorphs, MorphError, MorphTargets, adjust_helpers_to_morphs,
         },
         rigs::{RigData, RigSpec, SkeletonRootBone, SkeletalBone},
         skeleton_lod::{
@@ -218,11 +218,6 @@ impl Plugin for HumentityPlugin {
                     morphs::sync_composite_data
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     morphs::sync_loaded_morph_targets
-                        .run_if(resource_exists::<morphs::MakeHumanMorphs>),
-                    morphs::check_morphs_ready
-                        .after(morphs::sync_macro_data)
-                        .after(morphs::sync_composite_data)
-                        .after(morphs::sync_loaded_morph_targets)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     rigs::sync_and_build_rig_data
                         .run_if(resource_exists::<rigs::RigData>)
