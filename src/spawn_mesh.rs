@@ -1,7 +1,12 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo}, basemesh::BaseMesh, helpers::Helpers, loaders::{CharacterShapeAsset, MhcloAsset, ObjVertsAsset, TargetAsset}, morphs::MakeHumanMorphs, rigs::{RigBundleRes, RigData, RigSpec}, template::CharacterTemplate,
+    assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo},
+    basemesh::BaseMesh,
+    loaders::{CharacterShapeAsset, MhcloAsset, ObjVertsAsset, TargetAsset},
+    morphs::MakeHumanMorphs,
+    rigs::{RigBundleRes, RigData, RigSpec},
+    template::CharacterTemplate,
 };
 use ahash::AHashMap;
 use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
@@ -10,7 +15,6 @@ use crossbeam_channel::{Receiver, Sender};
 /// Component that references a [`CharacterShapeAsset`].  Place it on the root entity of a character.
 #[derive(Component, Clone, Debug)]
 #[require(Visibility)]
-#[require(Helpers)]
 pub struct CharacterShape(pub Handle<CharacterShapeAsset>);
 
 /// Marks an entity as representing a character mesh piece.
