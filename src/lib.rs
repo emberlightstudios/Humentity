@@ -230,7 +230,6 @@ impl Plugin for HumentityPlugin {
                             spawn_skeleton::fit_skeleton_to_shape,
                             spawn_skeleton::check_skeletons_ready,
                             spawn_skeleton::setup_part_skinning,
-                            spawn_skeleton::sync_skeleton_lod_subtrees,
                         )
                             .chain(),
                         (spawn_mesh::mesh_build, spawn_mesh::mediators_clean_up).chain(),
@@ -252,9 +251,12 @@ impl Plugin for HumentityPlugin {
             )
             .add_systems(
                 PostUpdate,
-                animation::rescale_root_bone_translation
-                    .in_set(animation::HumentityAnimationPostProcess)
-                    .after(bevy::app::AnimationSystems)
+                (
+                    animation::rescale_root_bone_translation
+                        .in_set(animation::HumentityAnimationPostProcess)
+                        .after(bevy::app::AnimationSystems),
+                    spawn_skeleton::sync_skeleton_lod_subtrees,
+                )
                     .before(TransformSystems::Propagate),
             );
 
