@@ -132,7 +132,7 @@ fn add_human(
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.)),
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         PhysxCharacterColliders::<HitboxCollider>::new(hitbox_filter, None),
         children![(CharacterPart { mesh: basemesh, skeleton_lod: 0 }, MeshMaterial3d(mat),)],
     ));

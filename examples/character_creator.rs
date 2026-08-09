@@ -22,7 +22,6 @@ use bevy::ui_widgets::SliderPrecision;
 use bevy::ui_widgets::SliderStep;
 use bevy::ui_widgets::ValueChange;
 use bevy::ui_widgets::slider_self_update;
-use crossbeam_channel;
 use humentity::prelude::*;
 use shared::setup_app;
 use std::sync::Arc;
@@ -31,7 +30,7 @@ use std::sync::Arc;
 struct ButtonCategory(&'static str);
 
 impl ButtonCategory {
-    fn new(s: &'static str) -> Self {
+    const fn new(s: &'static str) -> Self {
         Self(s)
     }
 }
@@ -40,7 +39,7 @@ impl ButtonCategory {
 struct SliderMetadata(&'static str, &'static str);
 
 impl SliderMetadata {
-    fn new(a: &'static str, b: &'static str) -> Self {
+    const fn new(a: &'static str, b: &'static str) -> Self {
         Self(a, b)
     }
 }
@@ -72,7 +71,7 @@ impl Default for SliderValues {
 
 impl SliderValues {
     fn insert_value(&mut self, category: &'static str, name: &'static str, value: f32) {
-        let category = self.entry(category).or_insert(MorphTargets::default());
+        let category = self.entry(category).or_default();
         category.insert(name, value);
     }
 }
@@ -268,11 +267,11 @@ fn update_character_mesh(
             let helpers =
                 adjust_helpers_to_morphs(&resolved, &mh_morphs_targets, &basemesh_vec).unwrap();
             let mesh = shape_mesh_from_helpers_mhclo(
-                &*input_mesh_arc,
-                &*mhclo_arc,
+                &input_mesh_arc,
+                &mhclo_arc,
                 &helpers,
-                &*mhid_lookup,
-                &*vertex_map,
+                &mhid_lookup,
+                &vertex_map,
             );
             let _ = tx.send(BuildResult { mesh });
         })
@@ -319,7 +318,7 @@ fn init_ui(
         let Some(morph_names) = morphs.get(category) else {
             continue;
         };
-        let sliders = sliders.entry(category).or_insert(MorphTargets::default());
+        let sliders = sliders.entry(category).or_default();
         for &morph in morph_names.iter() {
             if !sliders.contains_key(morph) {
                 sliders.insert(morph, 0.);
@@ -345,7 +344,7 @@ fn init_ui(
             continue;
         }
         let morph_names = &morphs[category];
-        let sliders = sliders.entry(category).or_insert(MorphTargets::default());
+        let sliders = sliders.entry(category).or_default();
         for &morph in morph_names.iter() {
             if !sliders.contains_key(morph) {
                 sliders.insert(morph, 0.);

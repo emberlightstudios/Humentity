@@ -11,7 +11,6 @@
 //! will not propagate and the mesh will not snap back to the correct position.  With a clip playing it's hard to see.  
 
 mod shared;
-use ahash::{AHashMap, AHashSet};
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
 use shared::setup_app;
@@ -39,6 +38,7 @@ fn main() {
             (
                 update_camera_distance,
                 sync_skeleton_lod_to_visibility,
+                sync_reference_lod_state,
                 play_idle_animation.run_if(resource_added::<RetargetedAnims>),
             ),
         )
@@ -94,7 +94,7 @@ fn add_humans(
     let black = materials.add(StandardMaterial::from_color(Color::BLACK));
 
     let _clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
-    commands.insert_resource(RetargetedAnims { _clips: _clips });
+    commands.insert_resource(RetargetedAnims { _clips });
 
     // LOD character with all proxy meshes as children, each with a VisibilityRange
     commands.spawn((
@@ -104,7 +104,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         InheritedVisibility::default(),
         CameraDistance::default(),
         AnimationPlayer::default(),
@@ -178,9 +178,8 @@ fn add_humans(
                 template_handle.clone(),
                 morphs.clone(),
             ))),
-            Helpers::default(),
+            HelperVertexPositions::default(),
             InheritedVisibility::default(),
-            SkeletonLodFilter(AHashSet::from([skeleton_lod])),
             children![(
                 CharacterPart {
                     mesh: proxy,
@@ -207,41 +206,59 @@ fn update_camera_distance(
     }
 }
 
-/// Primitive skeleton lod state management based on distance to camera
+/// Primitive skeleton lod state management based on distance to camera.
+/// Writes `SkeletonLodState.active` with each LOD that currently has a mesh in
+/// range; the reconcile system disables the bone sub-trees removed by every
+/// active LOD.
 fn sync_skeleton_lod_to_visibility(
-    characters: Query<(Entity, &CameraDistance, &SkeletonLodMap), With<SkeletonsReady>>,
+    characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonsReady>>,
     parts: Query<(&VisibilityRange, &CharacterPart, &ChildOf)>,
-    mut prev: Local<AHashMap<(Entity, usize), bool>>,
     mut commands: Commands,
 ) {
-    for (entity, cam_dist, lod_map) in &characters {
-        for lod in 0..4 {
-            if lod_map.0[lod].is_none() {
-                continue;
-            }
-            let in_range = parts.iter().any(|(range, cp, child_of)| {
+    for (entity, cam_dist, existing) in &characters {
+        let mut active = [false; MAX_LODS];
+        for (lod, active_lod) in active.iter_mut().enumerate() {
+            *active_lod = parts.iter().any(|(range, cp, child_of)| {
                 child_of.parent() == entity
                     && cp.skeleton_lod == lod
                     && cam_dist.0 >= range.start_margin.start
                     && cam_dist.0 < range.end_margin.end
             });
+        }
 
-            let key = (entity, lod);
-            let was_in_range = prev.get(&key).copied().unwrap_or(!in_range);
+        let changed = existing.is_none_or(|s| s.active != active);
+        if changed {
+            commands.entity(entity).insert(SkeletonLodState { active });
+        }
+    }
+}
 
-            if was_in_range && !in_range {
-                commands.trigger(DisableSkeletonLod {
-                    character: entity,
-                    lod,
-                });
-            } else if !was_in_range && in_range {
-                commands.trigger(EnableSkeletonLod {
-                    character: entity,
-                    lod,
-                });
+/// Reference characters each show a single proxy mesh at a fixed skeleton LOD.
+/// The shared `enable_first_skeleton_on_ready` system would set them all to LOD 0,
+/// so this keeps their `SkeletonLodState` in sync with their part's `skeleton_lod`
+/// to disable the bone sub-trees relevant to that LOD in the background.
+fn sync_reference_lod_state(
+    parts: Query<(&CharacterPart, &ChildOf), Without<VisibilityRange>>,
+    characters: Query<
+        (Entity, Option<&SkeletonLodState>),
+        (With<SkeletonsReady>, Without<CameraDistance>),
+    >,
+    mut commands: Commands,
+) {
+    for (entity, existing) in &characters {
+        let mut active = [false; MAX_LODS];
+        let mut found = false;
+        for (part, child_of) in &parts {
+            if child_of.parent() == entity {
+                active[part.skeleton_lod.min(MAX_LODS - 1)] = true;
+                found = true;
             }
-
-            prev.insert(key, in_range);
+        }
+        if !found {
+            continue;
+        }
+        if existing.is_none_or(|s| s.active != active) {
+            commands.entity(entity).insert(SkeletonLodState { active });
         }
     }
 }
@@ -255,6 +272,7 @@ fn play_idle_animation(
     >,
     mut commands: Commands,
 ) {
+    return;
     let Some((_id, clips_map)) = clips.iter().next() else {
         return;
     };

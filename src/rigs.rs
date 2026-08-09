@@ -16,7 +16,7 @@ use crate::{
     basemesh::VertexGroups,
     loaders::{MhcloVertexMap, ReferenceRigAsset, RigConfigAsset, RigWeightsAsset},
     prelude::*,
-    skeleton_lod::{RigBundle, SkeletonLodConfig, build_lod_variants},
+    skeleton_lod::{RigBundle, SkeletonLodConfig, build_lod_data},
 };
 
 #[derive(Clone, Default, Debug)]
@@ -47,8 +47,15 @@ pub struct SkeletonRootBone {
 }
 
 /// The single rig bundle, populated by `build_rig_scenes`.
+/// Holds the full skeleton scene (used for spawning) plus the per-LOD merge data
+/// (used for mesh painting / part skinning).
 #[derive(Resource, Default)]
-pub(crate) struct RigBundleRes(pub Option<RigBundle>);
+pub(crate) struct RigBundleRes {
+    /// Full skeleton scene (all bones), spawned once per character.
+    pub scene: Option<Handle<DynamicWorld>>,
+    /// Per-LOD merge data for the rig.
+    pub bundle: Option<RigBundle>,
+}
 
 /// Stores the single loaded rig specification.
 #[derive(Resource)]
@@ -178,20 +185,20 @@ pub(crate) fn build_rig_scenes(world: &mut World) {
     };
 
     // Build full skeleton scene (index 0)
-    let _scene = build_skeleton_scene(&reference_rig, world);
+    let scene = build_skeleton_scene(&reference_rig, world);
 
     let lod_config = lod_config.unwrap_or_default();
 
     // Use merge configs from SkeletonLodConfig (or full skeleton)
     let merge_configs = &lod_config.0[..lod_config.1];
 
-    // Build LOD variants
-    let lod_variants = build_lod_variants(&reference_rig, &weights, merge_configs, world);
+    // Build per-LOD merge data (no separate skeleton scenes are built)
+    let lod_data = build_lod_data(&reference_rig, &weights, merge_configs);
 
     // Store in registry
-    world
-        .resource_mut::<RigBundleRes>()
-        .0 = Some(RigBundle { lod_variants });
+    let mut bundle_res = world.resource_mut::<RigBundleRes>();
+    bundle_res.scene = Some(scene);
+    bundle_res.bundle = Some(RigBundle { lod_data });
 
     // Mark as built
     world.insert_resource(BuiltRigs);

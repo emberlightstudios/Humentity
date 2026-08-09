@@ -60,7 +60,7 @@ fn add_humans(
     // Spawn the raw GLB animation scene for comparison, includes basemesh+helpers
     let clip_handle =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("animation/idle.glb"));
-    let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
+    let (graph, index) = AnimationGraph::from_clip(clip_handle);
     let graph_handle = graphs.add(graph);
 
     commands
@@ -71,7 +71,7 @@ fn add_humans(
             Transform::from_translation(Vec3::new(-1., 0., 0.))
                 .with_rotation(Quat::from_rotation_y(PI)),
             AnimationIndex(index),
-            AnimationGraphHandle(graph_handle.clone()),
+            AnimationGraphHandle(graph_handle),
         ))
         .observe(on_gltf_scene_ready);
 
@@ -89,14 +89,14 @@ fn add_humans(
     // Spawn the character with baby morphs
     let mut morphs = MorphTargets::default();
     morphs.insert(BABY, 1.);
-    let shape_handle = shape_assets.add(CharacterShapeAsset::new(template_handle.clone(), morphs));
+    let shape_handle = shape_assets.add(CharacterShapeAsset::new(template_handle, morphs));
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         Name::new("Retargeted"),
         InheritedVisibility::default(),
         AnimationPlayer::default(),
         CharacterShape(shape_handle),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         children![(
             Name::new("Mesh"),
             CharacterPart {
@@ -146,7 +146,7 @@ fn add_graph(
     if let Some((_id, clips_map)) = retargeted_clips.iter().next() {
         let clip_handle = clips_map.clips.get("Idle-loop").unwrap();
         let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
-        commands.entity(entity.clone()).insert((
+        commands.entity(entity).insert((
             AnimationIndex(index),
             AnimationGraphHandle(graphs.add(graph)),
         ));

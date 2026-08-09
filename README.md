@@ -12,7 +12,7 @@ A Bevy plugin for loading, morphing, rigging, and animating MakeHuman-based 3D h
 - **Mesh LOD** — use MakeHuman's lower-poly proxy meshes with Bevy's `VisibilityRange` for distance-based mesh switching
 - **Animation retargeting** — import glTF animation clips and retarget them to arbitrary character shapes
 - **Stitched meshes** — split a character into multiple mesh pieces (head, body, clothing) with continuous normals across seam cuts
-- **Skeleton LOD filtering** — use `SkeletonLodFilter` to restrict which LOD levels are spawned per character, saving memory when certain detail levels are unnecessary
+- **Bone sub-tree pruning** — each character has one fixed full skeleton; the active LOD set determines which bone sub-trees are disabled (via `SkeletonLodDisabled`) so their `GlobalTransform`s stop propagating
 - **Ragdoll physics** — optional integration with [avian3d](https://github.com/Jondolf/avian)
 - **Asset loaders** — native Bevy loaders for `.mhclo`, `.obj`, `.target`, `.macro`, rig configs, and other MakeHuman data formats
 - **Custom assets** — build your own meshes and morph targets in Blender via MPFB
@@ -137,9 +137,9 @@ fn attach_mesh(
 
 5. **Spawn** — Create a `CharacterShape` entity with `CharacterPart` children. Each `CharacterPart` specifies which mesh handle to use and which skeleton LOD level it targets.
 
-6. **Rig** — The plugin automatically spawns skeleton entities for each LOD level, fits bone transforms to the morphed shape, computes inverse bindposes, and sets up `SkinnedMesh` on each part.
+6. **Rig** — The plugin spawns one full skeleton per character, fits its bone transforms to the morphed shape, computes the inverse bindposes, and sets up `SkinnedMesh` on each part over the surviving bone subset for its LOD level.
 
-7. **Activate** — Trigger `EnableSkeletonLod` to enable a specific LOD level. All other levels start disabled via `SkeletonLodDisabled`.
+7. **Activate** — Write `SkeletonLodState { active: [...] }` on the character to set the active LOD levels. The reconcile system disables every bone sub-tree removed by all active LODs, so unneeded bones stop propagating transforms.
 
 ## Examples
 

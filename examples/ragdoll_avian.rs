@@ -47,7 +47,7 @@ fn toggle(
         return;
     };
 
-    let clip_index = controller.map_or(AnimationNodeIndex::new(0), |c| c.0);
+    let clip_index = controller.map_or_else(|| AnimationNodeIndex::new(0), |c| c.0);
 
     match &*ragdoll {
         CharacterRagdoll::Full => {
@@ -73,9 +73,9 @@ fn toggle(
                     let seed = (t * 100.0).floor() / 100.0;
                     let h = ((i as f32 + seed) * 0x9e3779b9u32 as f32).sin();
                     let dir = Vec3::new(
-                        ((h * 43758.5453).fract() - 0.5) * 2.0,
-                        ((h * 27118.3129).fract()) * 0.5,
-                        ((h * 30903.5511).fract() - 0.5) * 2.0,
+                        ((h * 43_758.547).fract() - 0.5) * 2.0,
+                        ((h * 27_118.313).fract()) * 0.5,
+                        ((h * 30_903.55).fract() - 0.5) * 2.0,
                     )
                     .normalize_or_zero();
                     vel.0 += dir * 2.0;
@@ -176,7 +176,7 @@ fn add_human(
         Transform::from_xyz(0.0, 0.0, 0.0),
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         CharacterRagdoll::None,
         CharacterColliders::new(None),
         RagdollCollisionLayers(CollisionLayers::new(

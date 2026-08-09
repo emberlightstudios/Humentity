@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use ahash::AHashMap;
 use bevy::{
-    animation::AnimationTargetId,
     ecs::intern::Internable,
-    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
@@ -65,34 +63,27 @@ pub fn all_children_of(
     result
 }
 
-/// A skeleton LOD variant — a reduced-bone subset of the original rig.
+/// Per-LOD merge data for a rig. Consumed by mesh building (weight painting)
+/// and by part skinning. It deliberately does NOT carry any skeleton scene or
+/// bindpose data: a character uses a single fixed skeleton, so LOD is expressed
+/// purely by disabling bone sub-trees (see `SkeletonLodConfig`).
 #[derive(Clone)]
-pub struct SkeletonLodVariant {
-    pub merge_config: BoneMergeConfig,
-    pub scene: Handle<DynamicWorld>,
-    /// Surviving bones after merge (subset of original bone_names).
+pub struct SkeletonLodData {
+    /// Surviving bones after merge, in reference rig order.
     pub bone_names: Vec<&'static str>,
-    /// Updated parent chain for merged hierarchy.
-    pub bone_to_parent: AHashMap<&'static str, &'static str>,
-    /// Local bindposes for surviving bones (after merge composition).
-    pub local_bindpose: AHashMap<&'static str, Transform>,
-    /// Model-space bindposes for surviving bones.
-    pub model_space_bindpose: AHashMap<&'static str, Transform>,
-    /// Inverse bindposes for surviving bones.
-    pub inverse_bindposes: Handle<SkinnedMeshInverseBindposes>,
-    /// AnimationTargetIds computed from ORIGINAL reference rig paths.
-    pub animation_target_ids: AHashMap<&'static str, AnimationTargetId>,
-    /// Merged rig weights for surviving bones.
+    /// Merged rig weights for surviving bones (removed bones' weights are
+    /// forwarded to their surviving anchors).
     pub merged_weights: AHashMap<&'static str, AHashMap<u16, f32>>,
 }
 
-/// Complete rig bundle: all LOD variants for a rig.
+/// Complete rig bundle: merge data for all LOD levels of a rig.
 #[derive(Clone)]
 pub struct RigBundle {
-    pub lod_variants: Vec<SkeletonLodVariant>,
+    pub lod_data: Vec<SkeletonLodData>,
 }
 
-const MAX_LODS: usize = 4;
+/// Maximum number of LOD levels supported by the skeleton LOD system.
+pub const MAX_LODS: usize = 4;
 
 /// Resource specifying which merge configs to use for the rig.
 /// Insert this resource before `build_rig_scenes` runs to enable skeleton LOD.
@@ -190,35 +181,7 @@ fn merge_hierarchy(
     (new_bone_names, new_bone_to_parent, new_local_bindpose)
 }
 
-/// Step 3: Compute AnimationTargetIds from the ORIGINAL reference rig paths.
-fn compute_animation_target_ids(
-    surviving_bones: &[&'static str],
-    original_bone_parents: &AHashMap<&'static str, String>,
-) -> AHashMap<&'static str, AnimationTargetId> {
-    let mut result = AHashMap::default();
-
-    for &bone in surviving_bones {
-        let mut path = Vec::<Name>::new();
-        path.push(Name::from(bone));
-
-        let mut current = bone;
-        while let Some(parent_str) = original_bone_parents.get(current) {
-            if parent_str.is_empty() {
-                break;
-            }
-            path.push(Name::new(parent_str.clone()));
-            current = NAME_INTERNER.intern(parent_str).leak();
-        }
-        // Reverse to root-first
-        path.reverse();
-        let id = AnimationTargetId::from_names(path.iter());
-        result.insert(bone, id);
-    }
-
-    result
-}
-
-/// Step 4: Merge rig weights.
+/// Step 3: Merge rig weights.
 fn merge_weights(
     original_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
     remove_set: &AHashMap<&'static str, &'static str>,
@@ -269,181 +232,39 @@ fn merge_weights(
     merged
 }
 
-/// Build a merged skeleton DynamicWorld scene.
-fn build_merged_skeleton_scene(
-    bone_names: &[&'static str],
-    bone_to_parent: &AHashMap<&'static str, &'static str>,
-    local_bindpose: &AHashMap<&'static str, Transform>,
-    animation_target_ids: &AHashMap<&'static str, AnimationTargetId>,
-    inverse_bindposes: Handle<SkinnedMeshInverseBindposes>,
-    world: &mut World,
-) -> Handle<DynamicWorld> {
-    let registry = world.resource::<AppTypeRegistry>();
-    let mut scene_world = World::new();
-    scene_world.insert_resource(registry.clone());
-
-    let rig_entity = scene_world
-        .spawn((
-            Name::new("Human.rig"),
-            Transform::IDENTITY,
-            crate::rigs::SkeletalBone,
-        ))
-        .id();
-
-    let mut bone_entities = AHashMap::<&'static str, Entity>::default();
-
-    for (i, &name) in bone_names.iter().enumerate() {
-        let Some(target_id) = animation_target_ids.get(name).copied() else {
-            continue;
-        };
-        let entity = scene_world
-            .spawn((Name::new(name), target_id, crate::rigs::SkeletalBone))
-            .id();
-
-        if i == 0 {
-            scene_world.entity_mut(entity).insert(crate::rigs::RootBone);
-        }
-        bone_entities.insert(name, entity);
-    }
-
-    // Wire up parent-child relationships
-    for &name in bone_names {
-        let &child = match bone_entities.get(name) {
-            Some(e) => e,
-            None => continue,
-        };
-        if let Some(&parent_name) = bone_to_parent.get(name)
-            && let Some(&parent) = bone_entities.get(parent_name)
-        {
-            scene_world.entity_mut(parent).add_child(child);
-        }
-    }
-
-    // Attach root bones to rig entity — any bone whose parent is not itself
-    // a bone in this scene (e.g. "" or "Human.rig") belongs under rig_entity.
-    for &name in bone_names {
-        let is_root = match bone_to_parent.get(name) {
-            None => true,
-            Some(parent_name) => !bone_entities.contains_key(parent_name),
-        };
-        if is_root
-            && let Some(&entity) = bone_entities.get(name)
-        {
-            scene_world.entity_mut(rig_entity).add_child(entity);
-        }
-    }
-
-    // Set local transforms on bone entities
-    for &name in bone_names {
-        let entity = bone_entities[name];
-        let local = local_bindpose
-            .get(name)
-            .copied()
-            .unwrap_or(Transform::IDENTITY);
-        scene_world.entity_mut(entity).insert(local);
-    }
-
-    let joint_entities: Vec<Entity> = bone_names.iter().map(|n| bone_entities[n]).collect();
-
-    let skinned_mesh = SkinnedMesh {
-        inverse_bindposes,
-        joints: joint_entities,
-    };
-    scene_world.entity_mut(rig_entity).insert(skinned_mesh);
-
-    let mut ds = world.resource_mut::<Assets<DynamicWorld>>();
-    ds.add(DynamicWorld::from_world(&scene_world))
-}
-
-/// Build all LOD variants for a rig.
-pub(crate) fn build_lod_variants(
+/// Build merge data for every LOD level of a rig. No skeleton scenes are
+/// produced — a character uses a single fixed skeleton, and each LOD only
+/// contributes the surviving bone names + merged weights used for mesh painting.
+pub(crate) fn build_lod_data(
     reference_rig: &Arc<ReferenceRigAsset>,
     weights: &Arc<RigWeightsAsset>,
     configs: &[BoneMergeConfig],
-    world: &mut World,
-) -> Vec<SkeletonLodVariant> {
-    let mut variants = Vec::with_capacity(configs.len());
+) -> Vec<SkeletonLodData> {
+    let mut lod_data = Vec::with_capacity(configs.len());
 
     for config in configs {
         let remove_set = resolve_remove_set(&reference_rig.bone_parents, config);
 
-        let (new_bone_names, new_bone_to_parent, new_local_bindpose) = if remove_set.is_empty() {
+        let new_bone_names: Vec<&'static str> = if remove_set.is_empty() {
             // Full skeleton — no merge
-            let bone_to_parent: AHashMap<&'static str, &'static str> = reference_rig
-                .bone_parents
-                .iter()
-                .map(|(&name, parent)| {
-                    let parent_leaked = if parent.is_empty() {
-                        ""
-                    } else {
-                        NAME_INTERNER.intern(parent).leak()
-                    };
-                    (name, parent_leaked)
-                })
-                .collect();
-            (
-                reference_rig.bone_names.clone(),
-                bone_to_parent,
-                reference_rig.local_bindpose.clone(),
-            )
+            reference_rig.bone_names.clone()
         } else {
-            merge_hierarchy(
+            let (bone_names, _, _) = merge_hierarchy(
                 &reference_rig.bone_names,
                 &reference_rig.bone_parents,
                 &reference_rig.local_bindpose,
                 &remove_set,
-            )
+            );
+            bone_names
         };
-
-        let model_space: AHashMap<&'static str, Transform> = new_bone_names
-            .iter()
-            .filter_map(|&name| {
-                reference_rig
-                    .model_space_bindpose
-                    .get(name)
-                    .map(|&v| (name, v))
-            })
-            .collect();
-
-        let animation_target_ids =
-            compute_animation_target_ids(&new_bone_names, &reference_rig.bone_parents);
 
         let merged_weights = merge_weights(&weights.weights, &remove_set);
 
-        // Compute inverse bindposes
-        let mut inv_bindposes_assets = world.resource_mut::<Assets<SkinnedMeshInverseBindposes>>();
-        let inv_bindposes_vec: Vec<Mat4> = new_bone_names
-            .iter()
-            .map(|name| {
-                model_space
-                    .get(name)
-                    .map(|global| global.to_matrix().inverse())
-                    .unwrap_or(Mat4::IDENTITY)
-            })
-            .collect();
-        let inverse_bindposes = inv_bindposes_assets.add(inv_bindposes_vec);
-
-        let scene = build_merged_skeleton_scene(
-            &new_bone_names,
-            &new_bone_to_parent,
-            &new_local_bindpose,
-            &animation_target_ids,
-            inverse_bindposes.clone(),
-            world,
-        );
-
-        variants.push(SkeletonLodVariant {
-            merge_config: config.clone(),
-            scene,
+        lod_data.push(SkeletonLodData {
             bone_names: new_bone_names,
-            bone_to_parent: new_bone_to_parent,
-            local_bindpose: new_local_bindpose,
-            model_space_bindpose: model_space,
-            inverse_bindposes,
-            animation_target_ids,
             merged_weights,
         });
     }
 
-    variants
+    lod_data
 }

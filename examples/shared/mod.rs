@@ -75,19 +75,17 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
     );
 }
 
-/// Enables the first available skeleton (lowest LOD) when all skeletons for a
-/// character have been fitted.
+/// Enables the first skeleton LOD (lowest detail) when a character's skeleton
+/// has been fitted. With a single fixed skeleton, this is expressed by writing
+/// `SkeletonLodState` with only LOD 0 active.
 pub fn enable_first_skeleton_on_ready(
-    characters: Query<(Entity, &SkeletonLodMap), Added<SkeletonsReady>>,
+    characters: Query<Entity, Added<SkeletonsReady>>,
     mut commands: Commands,
 ) {
-    for (entity, lod_map) in &characters {
-        if let Some(lowest_lod) = lod_map.0.iter().position(|e| e.is_some()) {
-            commands.trigger(EnableSkeletonLod {
-                character: entity,
-                lod: lowest_lod,
-            });
-        }
+    for entity in &characters {
+        let mut active = [false; MAX_LODS];
+        active[0] = true;
+        commands.entity(entity).insert(SkeletonLodState { active });
     }
 }
 
@@ -134,7 +132,7 @@ fn update_mesh_when_ready(
                 let active_template = template_overrides
                     .get(entity)
                     .ok()
-                    .map_or(template.clone(), |o| o.0.clone());
+                    .map_or_else(|| template.clone(), |o| o.0.clone());
                 if let Some(template_data) = template_assets.get(&active_template) {
                     let morph_weights = template_data
                         .shapes
@@ -231,14 +229,14 @@ pub fn setup_env(
     commands.spawn((
         Name::new("Floor"),
         Mesh3d(mesh),
-        MeshMaterial3d(material.clone()),
+        MeshMaterial3d(material),
         Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
     ));
 
     // A light:
     commands.spawn((
         PointLight {
-            intensity: 8_000_0.0,
+            intensity: 80_000.0,
             radius: 19.,
             range: 19.,
             shadow_maps_enabled: true,

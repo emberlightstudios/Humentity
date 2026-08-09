@@ -2,7 +2,6 @@
 //! SPACE toggles ragdoll on ALL characters simultaneously.
 
 mod shared;
-use ahash::AHashMap;
 use avian3d::prelude::*;
 use bevy::{
     camera::visibility::VisibilityRange,
@@ -47,7 +46,7 @@ fn main() {
     app.add_plugins((
         PhysicsPlugins::default(),
         FrameTimeDiagnosticsPlugin::default(),
-        PhysicsDebugPlugin::default(),
+        PhysicsDebugPlugin,
     ))
     .insert_resource(SubstepCount(10))
     .add_systems(Startup, (physics_floor, spawn_ui))
@@ -183,7 +182,7 @@ fn add_humans(
                     template_handle.clone(),
                     morphs.clone(),
                 ))),
-                Helpers::default(),
+                HelperVertexPositions::default(),
                 InheritedVisibility::default(),
                 CameraDistance::default(),
                 AnimationPlayer::default(),
@@ -269,39 +268,24 @@ fn update_camera_distance(
 }
 
 fn sync_skeleton_lod_to_visibility(
-    characters: Query<(Entity, &CameraDistance, &SkeletonLodMap), With<SkeletonsReady>>,
+    characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonsReady>>,
     parts: Query<(&VisibilityRange, &CharacterPart, &ChildOf)>,
-    mut prev: Local<AHashMap<(Entity, usize), bool>>,
     mut commands: Commands,
 ) {
-    for (entity, cam_dist, lod_map) in &characters {
-        for lod in 0..4 {
-            if lod_map.0[lod].is_none() {
-                continue;
-            }
-            let in_range = parts.iter().any(|(range, cp, child_of)| {
+    for (entity, cam_dist, existing) in &characters {
+        let mut active = [false; MAX_LODS];
+        for (lod, active_lod) in active.iter_mut().enumerate() {
+            *active_lod = parts.iter().any(|(range, cp, child_of)| {
                 child_of.parent() == entity
                     && cp.skeleton_lod == lod
                     && cam_dist.0 >= range.start_margin.start
                     && cam_dist.0 < range.end_margin.end
             });
+        }
 
-            let key = (entity, lod);
-            let was_in_range = prev.get(&key).copied().unwrap_or(!in_range);
-
-            if was_in_range && !in_range {
-                commands.trigger(DisableSkeletonLod {
-                    character: entity,
-                    lod,
-                });
-            } else if !was_in_range && in_range {
-                commands.trigger(EnableSkeletonLod {
-                    character: entity,
-                    lod,
-                });
-            }
-
-            prev.insert(key, in_range);
+        let changed = existing.is_none_or(|s| s.active != active);
+        if changed {
+            commands.entity(entity).insert(SkeletonLodState { active });
         }
     }
 }

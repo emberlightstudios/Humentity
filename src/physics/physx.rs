@@ -14,7 +14,7 @@ use crate::{
     morphs::MakeHumanMorphs,
     prelude::{BaseMesh, CharacterShape, CharacterShapeAsset},
     rigs::{RigData, SkeletalBone},
-    spawn_skeleton::{SkeletonLodMap, SkeletonsReady},
+    spawn_skeleton::{CharacterSkeleton, SkeletonsReady},
     template::CharacterTemplate,
 };
 
@@ -235,7 +235,7 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
             Entity,
             &CharacterShape,
             &mut PhysxCharacterColliders<C>,
-            &SkeletonLodMap,
+            &CharacterSkeleton,
         ),
         (
             With<SkeletonsReady>,
@@ -256,13 +256,11 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
     children_query: Query<&Children>,
     mut commands: Commands,
 ) {
-    for (character_entity, character_shape, mut colliders, lod_map) in needs_colliders.iter_mut() {
-        // Resolve SkinnedMesh from the highest-detail (LOD 0) skeleton
-        let Some(lod0_entity) = lod_map.0[0] else {
-            continue;
-        };
+    for (character_entity, character_shape, mut colliders, skeleton) in needs_colliders.iter_mut() {
+        // Resolve SkinnedMesh from the single skeleton
+        let skeleton_entity = skeleton.skeleton_entity;
         let mut skm: Option<SkinnedMesh> = None;
-        for child in children_query.iter_descendants(lod0_entity) {
+        for child in children_query.iter_descendants(skeleton_entity) {
             if let Ok(s) = skeleton_skins.get(child) {
                 skm = Some(s.clone());
                 break;
@@ -396,7 +394,7 @@ pub(crate) fn spawn_ragdoll_colliders(
             Entity,
             &CharacterShape,
             &mut PhysxCharacterColliders<RagdollCollider>,
-            &SkeletonLodMap,
+            &CharacterSkeleton,
         ),
         (
             With<SkeletonsReady>,
@@ -417,13 +415,11 @@ pub(crate) fn spawn_ragdoll_colliders(
     children_query: Query<&Children>,
     mut commands: Commands,
 ) {
-    for (character_entity, character_shape, mut colliders, lod_map) in needs_colliders.iter_mut() {
-        // Resolve SkinnedMesh from the highest-detail (LOD 0) skeleton
-        let Some(lod0_entity) = lod_map.0[0] else {
-            continue;
-        };
+    for (character_entity, character_shape, mut colliders, skeleton) in needs_colliders.iter_mut() {
+        // Resolve SkinnedMesh from the single skeleton
+        let skeleton_entity = skeleton.skeleton_entity;
         let mut skm: Option<SkinnedMesh> = None;
-        for child in children_query.iter_descendants(lod0_entity) {
+        for child in children_query.iter_descendants(skeleton_entity) {
             if let Ok(s) = skeleton_skins.get(child) {
                 skm = Some(s.clone());
                 break;

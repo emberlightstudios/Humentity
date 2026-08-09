@@ -49,10 +49,10 @@ fn toggle(
             *ragdoll = CharacterRagdoll::None;
             colliders.bones_subset = None;
 
-            if let Some(mut graph) = graphs.get_mut(&graph.0) {
-                if let Some(node) = graph.graph.node_weight_mut(controller.0) {
-                    node.mask = 0;
-                }
+            if let Some(mut graph) = graphs.get_mut(&graph.0)
+                && let Some(node) = graph.graph.node_weight_mut(controller.0)
+            {
+                node.mask = 0;
             }
 
             player.stop(controller.0);
@@ -68,10 +68,10 @@ fn toggle(
             ]);
             colliders.bones_subset = None;
 
-            if let Some(mut graph) = graphs.get_mut(&graph.0) {
-                if let Some(node) = graph.graph.node_weight_mut(controller.0) {
-                    node.mask = 1;
-                }
+            if let Some(mut graph) = graphs.get_mut(&graph.0)
+                && let Some(node) = graph.graph.node_weight_mut(controller.0)
+            {
+                node.mask = 1;
             }
         }
     }
@@ -132,7 +132,7 @@ fn add_human(
             .with_translation(Vec3::new(1., 0., 0.)),
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         CharacterRagdoll::None,
         CharacterColliders::new(Some(vec![
             ColliderBone::Chest,

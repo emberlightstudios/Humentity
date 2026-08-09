@@ -101,13 +101,13 @@ fn add_human(
     // A CharacterShapeAsset can be constructed from just a template handle without specifying morph
     // targets.  Single-shape templates like this one bake that shape down into the base mesh.
     // In that case there are no morph targets on the final mesh.
-    let shape_handle = shape_assets.add(template_handle.clone());
+    let shape_handle = shape_assets.add(template_handle);
 
     commands.spawn((
         Name::new("Character"),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         CharacterShape(shape_handle),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         InheritedVisibility::default(),
         children![
             (

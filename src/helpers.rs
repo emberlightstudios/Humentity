@@ -10,20 +10,37 @@ use crate::{
     template::CharacterTemplate,
 };
 
-///  A cache for morph-deformed base-mesh vertex positions for a single character.
+/// A cache for morph-deformed base-mesh vertex positions for a single character.
 ///
-/// Insert `Helpers::default()` (empty) on a `CharacterShape` entity to request
-/// background computation.  A system detects the `Added` event, spawns a
-/// background task, and fills the vec once complete.  Both skeleton fitting
-/// and collider spawning read from this.
+/// Insert `HelperVertexPositions::default()` (empty) on a `CharacterShape` entity to
+/// request background computation. A system detects the `Added` event, spawns a
+/// background task, and fills the vec once complete. Both skeleton fitting and
+/// collider spawning read from this.
 ///
-/// To re-fit (e.g. after morph changes), remove and re-insert `Helpers::default()`.
+/// To re-fit (e.g. after morph changes), remove and re-insert
+/// `HelperVertexPositions::default()`.
+///
+/// Removing this component tears the character's render/physics state back down to a
+/// bare state blob: the skeleton, `CharacterSkeleton`/`SkeletonsReady`, per-part mesh
+/// handles, and (avian) colliders, joints, `NeedsColliders` are all cleaned up.
+/// humentity registers an `On<Remove, HelperVertexPositions>` observer for this. Register
+/// your own observer on the same trigger to clean up additional per-character data that
+/// humentity can't know about generically, such as material handles:
+///
+/// ```
+/// app.add_observer(
+///     |trigger: On<Remove, humentity::prelude::HelperVertexPositions>,
+///      mut commands: Commands| {
+///         // e.g. commands.entity(trigger.entity()).remove::<MeshMaterial3d>()
+///     },
+/// );
+/// ```
 #[derive(Component, Debug, Clone, Default)]
-pub struct Helpers(pub Vec<Vec3>);
+pub struct HelperVertexPositions(pub Vec<Vec3>);
 
-impl FromIterator<Vec3> for Helpers {
+impl FromIterator<Vec3> for HelperVertexPositions {
     fn from_iter<T: IntoIterator<Item = Vec3>>(iter: T) -> Self {
-        Helpers(iter.into_iter().collect())
+        HelperVertexPositions(iter.into_iter().collect())
     }
 }
 
@@ -70,12 +87,12 @@ fn compute_helpers_from_data(
     adjust_helpers_with_targets(&mh_morph_values, targets, basemesh_vertices)
 }
 
-/// Watches for newly-added `Helpers` components with empty vecs and spawns
+/// Watches for newly-added `HelperVertexPositions` components with empty vecs and spawns
 /// background tasks to compute them.
 pub(crate) fn submit_helper_computations(
     characters: Query<
-        (Entity, &CharacterShape, &Helpers),
-        Added<Helpers>,
+        (Entity, &CharacterShape, &HelperVertexPositions),
+        Added<HelperVertexPositions>,
     >,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
@@ -127,10 +144,10 @@ pub(crate) fn submit_helper_computations(
     }
 }
 
-/// Polls for completed background tasks and fills in the `Helpers` component
+/// Polls for completed background tasks and fills in the `HelperVertexPositions` component
 /// on the corresponding `CharacterShape` entities.
 pub(crate) fn collect_helper_computations(
-    mut helpers_query: Query<&mut Helpers>,
+    mut helpers_query: Query<&mut HelperVertexPositions>,
     jobs: ResMut<HelperComputeJobs>,
 ) {
     let Some(rx) = jobs.receiver.as_ref() else {

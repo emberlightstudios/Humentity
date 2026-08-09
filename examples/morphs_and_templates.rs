@@ -37,12 +37,14 @@ fn main() {
     .run();
 }
 
-/// Skeletons are disabled by default, We manually enable the lod 0 skeleton
+/// Skeletons start fully enabled by default; here we narrow the active LOD set
+/// to LOD 0 so bone sub-trees it doesn't reference get disabled.
 fn on_skeletons_ready(trigger: On<Add, SkeletonsReady>, mut commands: Commands) {
-    commands.trigger(EnableSkeletonLod {
-        character: trigger.entity,
-        lod: 0,
-    });
+    let mut active = [false; MAX_LODS];
+    active[0] = true;
+    commands
+        .entity(trigger.entity)
+        .insert(SkeletonLodState { active });
 }
 
 fn add_humans(
@@ -85,7 +87,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(template_handle.clone())),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         children![
             (CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -106,7 +108,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -127,7 +129,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         children![(
             Name::new("mesh"),
             CharacterPart {
@@ -149,7 +151,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -169,7 +171,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
-        Helpers::default(),
+        HelperVertexPositions::default(),
         children![(
             CharacterPart {
                 mesh: basemesh_part,

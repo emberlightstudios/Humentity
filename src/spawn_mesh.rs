@@ -322,11 +322,11 @@ pub(crate) fn build_single_mesh_process(
         let rig_spec = rig_entry.clone();
 
         let (lod_bone_names, lod_weights) = rig_bundle
-            .0
+            .bundle
             .as_ref()
             .map(|bundle| {
-                let idx = lod.min(bundle.lod_variants.len() - 1);
-                let variant = &bundle.lod_variants[idx];
+                let idx = lod.min(bundle.lod_data.len().saturating_sub(1));
+                let variant = &bundle.lod_data[idx];
                 (variant.bone_names.clone(), variant.merged_weights.clone())
             })
             .unwrap_or_else(|| {
@@ -463,11 +463,11 @@ fn build_stitched_meshes_process(
 
         let lod = parts.first().map(|p| p.lod).unwrap_or(0);
         let (lod_bone_names, lod_weights) = rig_bundle
-            .0
+            .bundle
             .as_ref()
             .map(|bundle| {
-                let idx = lod.min(bundle.lod_variants.len() - 1);
-                let variant = &bundle.lod_variants[idx];
+                let idx = lod.min(bundle.lod_data.len().saturating_sub(1));
+                let variant = &bundle.lod_data[idx];
                 (variant.bone_names.clone(), variant.merged_weights.clone())
             })
             .unwrap_or_else(|| {

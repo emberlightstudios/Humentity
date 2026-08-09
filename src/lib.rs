@@ -28,8 +28,8 @@ pub mod prelude {
     pub use crate::physics::avian::RagdollCollisionLayers;
     #[cfg(all(feature = "avian", not(feature = "physx")))]
     pub use crate::physics::avian::{
-        SkeletonLodState, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
-        ColliderOffset, DisablePhysics, KinematicCollider,
+        CharacterColliders, CharacterRagdoll, ColliderForCharacter, ColliderOffset,
+        DisablePhysics, KinematicCollider,
     };
     #[cfg(all(feature = "physx", not(feature = "avian")))]
     pub use crate::physics::physx::{
@@ -47,7 +47,7 @@ pub mod prelude {
         animation::{HumentityAnimationPostProcess, TranslationTracks},
         assets::{StitchedPart, StitchedParts, shape_mesh_from_helpers_mhclo},
         basemesh::{BaseMesh, VertexGroups},
-        helpers::Helpers,
+        helpers::HelperVertexPositions,
         load_and_insert_humentity_assets,
         loaders::{
             BoneJsonConfig, BoneTransformSpec, CategoryMorphsAsset, CharacterShapeAsset,
@@ -66,17 +66,14 @@ pub mod prelude {
         },
         rigs::{RigData, RigSpec, SkeletonRootBone, SkeletalBone},
         skeleton_lod::{
-            BoneMergeConfig, RigBundle, SkeletonLodConfig,
-            SkeletonLodVariant,
+            BoneMergeConfig, MAX_LODS, RigBundle, SkeletonLodConfig, SkeletonLodData,
         },
         spawn_mesh::{
             CachedMhcloMeshHandles, CharacterPart, CharacterShape, LoadAssetMeshJob,
             MhcloMeshBuilder, build_single_mesh_direct,
         },
         spawn_skeleton::{
-            CharacterSkeleton, DisableSkeletonLod, EnableSkeletonLod, ResetSkeletonToBindPose,
-            SkeletonLodDisabled, SkeletonLodFilter, SkeletonLodMap, SkeletonLocalBindPose,
-            SkeletonsReady,
+            CharacterSkeleton, SkeletonLodDisabled, SkeletonLodState, SkeletonsReady,
         },
         template::{CharacterMorphShape, CharacterTemplate, TemplateOverride},
     };
@@ -229,10 +226,11 @@ impl Plugin for HumentityPlugin {
                         (
                             helpers::submit_helper_computations,
                             helpers::collect_helper_computations,
-                            spawn_skeleton::spawn_rig_skeletons,
+                            spawn_skeleton::spawn_rig_skeleton,
                             spawn_skeleton::fit_skeleton_to_shape,
                             spawn_skeleton::check_skeletons_ready,
                             spawn_skeleton::setup_part_skinning,
+                            spawn_skeleton::sync_skeleton_lod_subtrees,
                         )
                             .chain(),
                         (spawn_mesh::mesh_build, spawn_mesh::mediators_clean_up).chain(),
@@ -245,9 +243,7 @@ impl Plugin for HumentityPlugin {
                         .run_if(resource_exists::<rigs::RigData>),
                 ),
             )
-            .add_observer(spawn_skeleton::on_enable_skeleton_lod)
-            .add_observer(spawn_skeleton::on_disable_skeleton_lod)
-            .add_observer(spawn_skeleton::on_reset_skeleton_to_bind_pose)
+            .add_observer(spawn_skeleton::on_character_helpers_removed)
             .add_systems(
                 Update,
                 template::resolve_template_morphs
@@ -283,16 +279,11 @@ impl Plugin for HumentityPlugin {
                 .add_systems(FixedUpdate, physics::avian::sync_colliders)
                 .add_systems(
                     PostUpdate,
-                    (
-                        physics::avian::sync_bones_to_ragdoll
-                            .after(AnimationSystems)
-                            .before(TransformSystems::Propagate),
-                        physics::avian::clear_just_enabled_lods
-                            .after(TransformSystems::Propagate),
-                    ),
+                    physics::avian::sync_bones_to_ragdoll
+                        .after(AnimationSystems)
+                        .before(TransformSystems::Propagate),
                 )
-                .add_observer(physics::avian::on_enable_skeleton_lod_ragdoll)
-                .add_observer(physics::avian::on_disable_skeleton_lod_ragdoll)
+                .add_observer(physics::avian::on_character_helpers_removed)
                 .add_observer(physics::avian::on_disable_physics);
         }
 

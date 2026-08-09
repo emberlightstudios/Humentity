@@ -1,147 +1,107 @@
-use ahash::AHashSet;
-
 use crate::{
     basemesh::VertexGroups,
-    helpers::Helpers,
+    helpers::HelperVertexPositions,
     prelude::*,
     rigs::{
         BoneTranslationData, RigBundleRes, RigData, SkeletonRootBone,
         get_model_space_skeleton_transforms,
     },
-    skeleton_lod::SkeletonLodConfig,
+    skeleton_lod::{MAX_LODS, SkeletonLodConfig, all_children_of},
 };
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use bevy::{
     animation::AnimatedBy,
     ecs::intern::Internable,
+    mesh::morph::MeshMorphWeights,
     mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
 };
 
-/// Placed on each rig scene entity to identify it as a character skeleton at a given LOD level.
+/// Describes a character's single fixed skeleton.
+///
+/// Placed on the `CharacterShape` entity once the skeleton has been fitted.
+/// All bones exist as entities in `skeleton_entity`'s scene; skeleton LOD is
+/// expressed purely by enabling/disabling bone sub-trees within it (via
+/// `SkeletonLodDisabled`).
 #[derive(Component, Debug)]
 pub struct CharacterSkeleton {
-    pub lod: usize,
+    /// The one full skeleton scene entity, a child of the `CharacterShape`.
+    pub skeleton_entity: Entity,
+    /// Bone name → bone entity in the fixed skeleton (full reference rig).
+    pub bone_map: AHashMap<&'static str, Entity>,
+    /// Full inverse bindposes, in reference bone order.
+    pub model_space_inv_bindposes: Vec<Mat4>,
 }
 
-/// Placed on `CharacterShape` once all `CharacterSkeleton` children have been fitted.
+/// Placed on `CharacterShape` once its single skeleton has been fitted.
 #[derive(Component, Debug)]
 pub struct SkeletonsReady;
 
-/// Filter on `CharacterShape` to restrict which LOD levels get spawned.
-/// Absent from the entity means all LOD levels are spawned.
-#[derive(Component, Debug)]
-pub struct SkeletonLodFilter(pub AHashSet<usize>);
+/// Tracks which skeleton LOD levels are currently active (in use by a shown mesh).
+///
+/// Placed on the `CharacterShape`. `active[k] == true` means LOD `k` is active.
+/// The reconcile system (`sync_skeleton_lod_subtrees`) disables a bone sub-tree
+/// iff its root is present in **every** active LOD's cumulative remove list.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct SkeletonLodState {
+    pub active: [bool; MAX_LODS],
+}
 
-/// Maps LOD index → skeleton entity. Placed on `CharacterShape` by `spawn_rig_skeletons`.
-/// Indexed directly by LOD key (0-3); `None` means that LOD variant doesn't exist.
-#[derive(Component, Debug, Default)]
-pub struct SkeletonLodMap(pub [Option<Entity>; 4]);
-
-/// Internal marker on a skeleton entity that has been spawned but not yet fitted to morphs.
+/// Internal marker on a `CharacterShape` that has spawned a skeleton but not yet
+/// fitted it to morphs.
 #[derive(Component, Debug)]
 pub(crate) struct FitSkeleton;
 
-/// Custom disabling component for skeleton LOD entities.
+/// Custom disabling component for skeleton LOD bone sub-trees.
 /// Registered as a disabling component so Bevy's default query filters exclude it.
 /// Used instead of [`Disabled`] to avoid conflicting with other systems.
 #[derive(Component, Clone, Debug, Default)]
 pub struct SkeletonLodDisabled;
 
-/// Event to enable a skeleton LOD variant on a character.
-/// Removes `SkeletonLodDisabled` from the skeleton entity and all its descendants.
-#[derive(Event, Debug, Clone)]
-pub struct EnableSkeletonLod {
-    pub character: Entity,
-    pub lod: usize,
-}
-
-/// Event to disable a skeleton LOD variant on a character.
-/// Inserts `SkeletonLodDisabled` on the skeleton entity and all its descendants.
-#[derive(Event, Debug, Clone)]
-pub struct DisableSkeletonLod {
-    pub character: Entity,
-    pub lod: usize,
-}
-
-/// Local-space bind pose transforms for each joint in a skeleton.
-/// Indexed to match `SkinnedMesh.joints`. Stored on each `CharacterSkeleton` entity during fitting.
-#[derive(Component, Debug, Clone)]
-pub struct SkeletonLocalBindPose(pub Vec<Transform>);
-
-/// Event to reset a skeleton's bones to their fitted bind pose.
-/// Useful when re-enabling a skeleton that was mid-animation when disabled.
-#[derive(Event, Debug, Clone)]
-pub struct ResetSkeletonToBindPose {
-    pub character: Entity,
-    pub lod: usize,
-}
-
-/// Spawns one skeleton scene per unique LOD level as a child of each `CharacterShape`.
-/// LOD levels are determined from `SkeletonLodConfig`, not from `CharacterPart` children.
-pub(crate) fn spawn_rig_skeletons(
+/// Spawns the single full skeleton scene as a child of each `CharacterShape`,
+/// and marks the character as needing a fit.
+pub(crate) fn spawn_rig_skeleton(
     characters: Query<
         Entity,
         (
             Without<SkeletonsReady>,
             Without<FitSkeleton>,
             With<CharacterShape>,
+            With<HelperVertexPositions>,
         ),
     >,
-    has_skeleton_children: Query<&SkeletonLodMap>,
     rig_bundle: Res<RigBundleRes>,
-    lod_config: Option<Res<SkeletonLodConfig>>,
-    filter_query: Query<Option<&SkeletonLodFilter>>,
     mut commands: Commands,
 ) {
     for entity in &characters {
-        // Skip if we already spawned skeletons (SkeletonLodMap present) but haven't fitted yet
-        if has_skeleton_children.get(entity).is_ok() {
-            continue;
-        }
-        let Some(bundle) = rig_bundle.0.as_ref() else {
+        let Some(scene) = rig_bundle.scene.clone() else {
             continue;
         };
 
-        // Determine LOD levels from SkeletonLodConfig
-        let num_variants = lod_config.as_ref().map(|c| c.0.len()).unwrap_or(1);
+        let skeleton_entity = commands
+            .spawn((
+                DynamicWorldRoot::from(scene),
+                Transform::from_rotation(crate::MODEL_ROTATION_FIX),
+                FitSkeleton,
+                Name::new("Skeleton"),
+            ))
+            .id();
 
-        // Apply filter if present
-        let lod_filter = filter_query.get(entity).ok().flatten();
-
-        let mut lod_map: [Option<Entity>; 4] = [None; 4];
-
-        for lod_idx in 0..num_variants.min(4) {
-            if let Some(SkeletonLodFilter(allowed)) = lod_filter
-                && !allowed.contains(&lod_idx)
-            {
-                continue;
-            }
-
-            let variant_idx = lod_idx.min(bundle.lod_variants.len() - 1);
-            let variant = &bundle.lod_variants[variant_idx];
-            let scene = variant.scene.clone();
-
-            let skeleton_entity = commands
-                .spawn((
-                    DynamicWorldRoot::from(scene),
-                    Transform::from_rotation(crate::MODEL_ROTATION_FIX),
-                    CharacterSkeleton { lod: lod_idx },
-                    FitSkeleton,
-                    Name::new(format!("Skeleton LOD {lod_idx}")),
-                ))
-                .id();
-
-            commands.entity(entity).add_child(skeleton_entity);
-            lod_map[lod_idx] = Some(skeleton_entity);
-        }
-
-        commands.entity(entity).insert(SkeletonLodMap(lod_map));
+        commands.entity(entity).add_child(skeleton_entity);
+        commands.entity(entity).insert((
+            CharacterSkeleton {
+                skeleton_entity,
+                bone_map: AHashMap::default(),
+                model_space_inv_bindposes: Vec::new(),
+            },
+            FitSkeleton,
+        ));
     }
 }
 
-/// Fits each skeleton's bone transforms to the character's morph shape.
-/// Operates on `CharacterSkeleton + FitSkeleton` entities, not on `CharacterPart`.
+/// Fits the single skeleton's bone transforms to the character's morph shape.
+/// Builds the full `bone_map` and `model_space_inv_bindposes` for `CharacterSkeleton`,
+/// then removes `FitSkeleton`.
 #[allow(clippy::type_complexity)]
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
@@ -151,36 +111,36 @@ pub(crate) fn fit_skeleton_to_shape(
         (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>),
     >,
     children: Query<&Children, Allow<SkeletonLodDisabled>>,
-    skeletons: Query<
+    joint_names: Query<&Name, (With<SkeletalBone>, Allow<SkeletonLodDisabled>)>,
+    mut characters: Query<
         (
             Entity,
-            &ChildOf,
-            &CharacterSkeleton,
-            Option<&SkeletonLocalBindPose>,
+            &CharacterShape,
+            Option<&AnimationPlayer>,
+            Option<&HelperVertexPositions>,
+            &mut CharacterSkeleton,
         ),
         (With<FitSkeleton>, Allow<SkeletonLodDisabled>),
     >,
-    characters: Query<(&CharacterShape, Option<&AnimationPlayer>, Option<&Helpers>)>,
     mut local_transforms: Query<
         &mut Transform,
         (Without<CharacterShape>, Allow<SkeletonLodDisabled>),
     >,
-    mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
-    rig_bundle: Res<RigBundleRes>,
 ) {
-    for (skeleton_entity, parent, skeleton, existing_bind_pose) in skeletons.iter() {
-        let parent_entity = parent.parent();
-        let Ok((character_shape, animation_player, computed_helpers)) =
-            characters.get(parent_entity)
-        else {
-            continue;
-        };
+    for (entity, character_shape, animation_player, computed_helpers, skeleton) in
+        characters.iter_mut()
+    {
         let Some(h) = computed_helpers else {
             continue;
         };
         let helpers = &h.0;
+        // Wait for the background helper computation before fitting; FitSkeleton is
+        // only removed on a successful fit, so this retries until helpers are ready.
+        if helpers.is_empty() {
+            continue;
+        }
         let Some(mut shape) = shape_assets.get_mut(&character_shape.0) else {
             continue;
         };
@@ -189,62 +149,26 @@ pub(crate) fn fit_skeleton_to_shape(
             continue;
         };
 
-        // Determine which bone names and parent mapping to use for this LOD variant
-        let (variant_bone_names, variant_bone_to_parent): (
-            Vec<&'static str>,
-            AHashMap<&'static str, &'static str>,
-        ) = rig_bundle
-            .0
-            .as_ref()
-            .map(|bundle| {
-                let idx = skeleton.lod.min(bundle.lod_variants.len() - 1);
-                let variant = &bundle.lod_variants[idx];
-                (variant.bone_names.clone(), variant.bone_to_parent.clone())
-            })
-            .unwrap_or_else(|| {
-                let bone_to_parent: AHashMap<&'static str, &'static str> = rig_spec
-                    .reference_rig
-                    .bone_parents
-                    .iter()
-                    .map(|(&name, parent)| {
-                        let parent_leaked = if parent.is_empty() {
-                            ""
-                        } else {
-                            NAME_INTERNER.intern(parent).leak()
-                        };
-                        (name, parent_leaked)
-                    })
-                    .collect();
-                (rig_spec.reference_rig.bone_names.clone(), bone_to_parent)
-            });
-
-        // Find the rig scene child (DynamicWorld) that was spawned for this skeleton
-        let mut rig_entity: Option<Entity> = None;
-        let mut skinned_mesh: Option<SkinnedMesh> = None;
-        for child in children.iter_descendants(skeleton_entity) {
-            if let Ok(rig) = skinned_meshes.get(child) {
-                rig_entity = Some(child);
-                skinned_mesh = Some(rig.clone());
+        // Find the rig scene entity (holds SkinnedMesh) inside the single skeleton.
+        let mut skm: Option<SkinnedMesh> = None;
+        for child in children.iter_descendants(skeleton.skeleton_entity) {
+            if let Ok(s) = skinned_meshes.get(child) {
+                skm = Some(s.clone());
+                break;
             }
         }
-
-        let (Some(rig_entity), Some(skm)) = (rig_entity, skinned_mesh) else {
+        let Some(skm) = skm else {
             continue;
         };
 
-        // Build bone_entities from SkinnedMesh.joints (already entity-mapped during
-        // DynamicWorld spawning) and the variant's bone_names order.
-        // skm.joints is ordered by variant bone_names, not the full reference rig.
+        // Build the full bone_map from SkinnedMesh.joints + joint names.
+        // With a single full skeleton, skm.joints is in reference rig order.
         let mut bone_entities = AHashMap::default();
-        for (i, &bone_name) in variant_bone_names.iter().enumerate() {
-            if let Some(&joint_entity) = skm.joints.get(i) {
-                bone_entities.insert(bone_name, joint_entity);
+        for &joint in &skm.joints {
+            if let Ok(name) = joint_names.get(joint) {
+                bone_entities.insert(NAME_INTERNER.intern(name.as_str()).leak(), joint);
             }
         }
-
-        // Filter to only the variant bone names we actually need
-        let variant_set: AHashSet<&str> = variant_bone_names.iter().copied().collect();
-        bone_entities.retain(|k, _| variant_set.contains(*k));
 
         if bone_entities.is_empty() {
             continue;
@@ -254,11 +178,11 @@ pub(crate) fn fit_skeleton_to_shape(
             for &bone_entity in bone_entities.values() {
                 commands
                     .entity(bone_entity)
-                    .insert(AnimatedBy(parent_entity));
+                    .insert(AnimatedBy(entity));
             }
         }
 
-        // Re-fit skeleton to mesh shape
+        // Re-fit skeleton to mesh shape.
         let mut model_space_bindposes = get_model_space_skeleton_transforms(
             &rig_spec.reference_rig.bone_names,
             helpers,
@@ -285,22 +209,22 @@ pub(crate) fn fit_skeleton_to_shape(
             }
         }
 
-        // Pass 2: Compute local transforms from model-space using the merged parent chain.
+        // Pass 2: Compute local transforms from model-space using the reference rig parent chain.
         let mut local_bone_transforms = AHashMap::default();
-
         for &bone in &rig_spec.reference_rig.bone_names {
             if let Some(bone_data) = bone_config.bones.get(bone) {
-                let parent_name = variant_bone_to_parent
-                    .get(bone)
-                    .copied()
-                    .unwrap_or_else(|| NAME_INTERNER.intern(&bone_data.parent).leak());
+                let parent_name = if bone_data.parent.is_empty() {
+                    ""
+                } else {
+                    NAME_INTERNER.intern(&bone_data.parent).leak()
+                };
                 let parent_transform = if parent_name.is_empty() {
                     Transform::IDENTITY
                 } else {
-                    match model_space_bindposes.get(parent_name) {
-                        Some(xform) => *xform,
-                        None => Transform::IDENTITY,
-                    }
+                    model_space_bindposes
+                        .get(parent_name)
+                        .copied()
+                        .unwrap_or(Transform::IDENTITY)
                 };
 
                 let child_matrix = model_space_bindposes[bone].to_matrix();
@@ -309,19 +233,15 @@ pub(crate) fn fit_skeleton_to_shape(
 
                 local_bone_transforms.insert(bone, new_local);
 
-                if let Some(&joint) = bone_entities.get(bone) {
-                    let mut local_transform = local_transforms.get_mut(joint).unwrap();
+                if let Some(&joint) = bone_entities.get(bone)
+                    && let Ok(mut local_transform) = local_transforms.get_mut(joint)
+                {
                     *local_transform = new_local;
                 }
             }
         }
 
-        let local_bind_pose: Vec<Transform> = variant_bone_names
-            .iter()
-            .filter_map(|bone| local_bone_transforms.get(bone).copied())
-            .collect();
-
-        // Cache per-bone translation data for animation rescaling (computed once per asset)
+        // Cache per-bone translation data for animation rescaling (computed once per asset).
         if matches!(shape.bone_translations, BoneTranslationData::None) {
             let translations = model_space_bindposes
                 .iter()
@@ -331,35 +251,20 @@ pub(crate) fn fit_skeleton_to_shape(
             shape.bone_delta_rotations = AHashMap::<&'static str, Quat>::default();
         }
 
-        // Compute inverse bindposes from fitted transforms for this LOD variant
-        let model_space_inv_bindposes = model_space_bindposes
+        // Compute full inverse bindposes in reference bone order.
+        let model_space_inv_bindposes: Vec<Mat4> = rig_spec
+            .reference_rig
+            .bone_names
             .iter()
-            .map(|(&bone, transform)| {
-                (
-                    bone,
-                    Transform::from_matrix(transform.to_matrix().inverse()),
-                )
-            })
-            .collect::<AHashMap<_, _>>();
+            .map(|&bone| model_space_bindposes[bone].to_matrix().inverse())
+            .collect();
 
-        let mut inv_bindposes = vec![];
-        for &bone in variant_bone_names.iter() {
-            inv_bindposes.push(model_space_inv_bindposes[bone].to_matrix());
-        }
-
-        // Update the rig entity's SkinnedMesh with correct inverse bindposes
-        let new_inv_handle = inv_bindpose_assets.add(inv_bindposes);
-        commands.entity(rig_entity).insert(SkinnedMesh {
-            joints: skm.joints.clone(),
-            inverse_bindposes: new_inv_handle,
-        });
-
-        // Rotate skeleton to face -Z (model verts face +Z)
+        // Rotate skeleton to face -Z (model verts face +Z).
         commands
-            .entity(skeleton_entity)
+            .entity(skeleton.skeleton_entity)
             .insert(Transform::from_rotation(crate::MODEL_ROTATION_FIX));
 
-        // Compute root bone scale factor for retargeted animation Y correction
+        // Compute root bone scale factor for retargeted animation Y correction.
         let root_bone_name = rig_spec.reference_rig.bone_names[0];
         let reference_root_y = rig_spec.reference_rig.model_space_bindpose[root_bone_name]
             .translation
@@ -371,159 +276,229 @@ pub(crate) fn fit_skeleton_to_shape(
             1.0
         };
 
-        // Remove FitSkeleton. Only disable on initial fit (no existing bind pose).
-        // Re-fits preserve the current enabled/disabled state so the skeleton
-        // stays visible if the user triggers a refit at runtime.
+        // Capture the root entity before `bone_entities` is moved into the
+        // deferred insert below.
+        let root_bone_entity = bone_entities[root_bone_name];
+
+        commands.entity(entity).insert(CharacterSkeleton {
+            skeleton_entity: skeleton.skeleton_entity,
+            bone_map: bone_entities,
+            model_space_inv_bindposes,
+        });
         commands
-            .entity(skeleton_entity)
-            .insert(SkeletonLocalBindPose(local_bind_pose))
+            .entity(skeleton.skeleton_entity)
             .insert(SkeletonRootBone {
-                entity: bone_entities[root_bone_name],
+                entity: root_bone_entity,
                 root_scale,
                 bind_pose_y: fitted_root_y,
-            })
-            .remove::<FitSkeleton>();
-        if existing_bind_pose.is_none() {
-            commands
-                .entity(skeleton_entity)
-                .insert_recursive::<Children>(SkeletonLodDisabled);
-        }
+            });
+        // `FitSkeleton` lives on the CharacterShape (the query filter), so remove
+        // it there. This is what allows `check_skeletons_ready` to fire.
+        commands.entity(entity).remove::<FitSkeleton>();
     }
 }
 
-/// Once all `CharacterSkeleton` children of a `CharacterShape` have been fitted
-/// (no longer have `FitSkeleton`), insert `SkeletonsReady`.
+/// Once the single skeleton is fitted (no `FitSkeleton`), insert `SkeletonsReady`.
 pub(crate) fn check_skeletons_ready(
     mut commands: Commands,
-    characters: Query<(Entity, &SkeletonLodMap), Without<SkeletonsReady>>,
-    fitted: Query<&CharacterSkeleton, (Without<FitSkeleton>, Allow<SkeletonLodDisabled>)>,
+    characters: Query<(Entity, Option<&FitSkeleton>), (With<CharacterSkeleton>, Without<SkeletonsReady>)>,
 ) {
-    for (entity, lod_map) in &characters {
-        let all_fitted = lod_map.0.iter().filter_map(|e| *e).all(|e| fitted.get(e).is_ok());
-        if all_fitted && lod_map.0.iter().any(|e| e.is_some()) {
+    for (entity, fit) in &characters {
+        if fit.is_none() {
             commands.entity(entity).insert(SkeletonsReady);
         }
     }
 }
 
-/// Observer that enables a skeleton LOD variant by removing `SkeletonLodDisabled`.
-pub(crate) fn on_enable_skeleton_lod(
-    trigger: On<EnableSkeletonLod>,
-    lod_map_query: Query<&SkeletonLodMap>,
-    parts: Query<(Entity, &CharacterPart, &SkinnedMesh, &ChildOf)>,
-    mut commands: Commands,
-) {
-    let event = trigger.event();
-    let Ok(lod_map) = lod_map_query.get(event.character) else {
-        return;
-    };
-    let Some(skeleton_entity) = lod_map.0.get(event.lod).copied().flatten() else {
-        return;
-    };
-    commands
-        .entity(skeleton_entity)
-        .remove_recursive::<Children, SkeletonLodDisabled>();
-
-    for (part_entity, part, skinned_mesh, child_of) in &parts {
-        if child_of.parent() == event.character && part.skeleton_lod == event.lod {
-            commands.entity(part_entity).insert(skinned_mesh.clone());
-        }
-    }
-}
-
-/// Observer that disables a skeleton LOD variant by inserting `SkeletonLodDisabled`.
-pub(crate) fn on_disable_skeleton_lod(
-    trigger: On<DisableSkeletonLod>,
-    lod_map_query: Query<&SkeletonLodMap>,
-    mut commands: Commands,
-) {
-    let event = trigger.event();
-    let Ok(lod_map) = lod_map_query.get(event.character) else {
-        return;
-    };
-    let Some(skeleton_entity) = lod_map.0.get(event.lod).copied().flatten() else {
-        return;
-    };
-    commands
-        .entity(skeleton_entity)
-        .insert_recursive::<Children>(SkeletonLodDisabled);
-}
-
-/// Observer that resets a skeleton's bones to their fitted bind pose.
-/// Called automatically on enable, or can be triggered standalone.
+/// Reconciles the enabled/disabled bone sub-trees against the active LOD set.
+///
+/// A bone sub-tree is disabled iff its **anchor** root is present in *every*
+/// active LOD's cumulative remove list (the intersection of active LOD lists).
+/// This is the safe rule during crossfades: only sub-trees removed by *all*
+/// active LODs are disabled; everything else stays enabled.
+///
+/// Only the removed *descendants* of each anchor are disabled — the anchor bone
+/// itself always survives (it is the merge target that the removed bones' weights
+/// are folded into). For example LOD 1 (`without_children_of ["foot.*", "head"]`)
+/// disables the toe and face bones but keeps `foot.*` and `head` enabled so the
+/// skinned mesh does not collapse to the origin.
+///
+/// Only acts when a character's `SkeletonLodState` changes (including fresh
+/// inserts after a respawn), via `Changed<SkeletonLodState>`.
 #[allow(clippy::type_complexity)]
-pub(crate) fn on_reset_skeleton_to_bind_pose(
-    trigger: On<ResetSkeletonToBindPose>,
-    lod_map_query: Query<&SkeletonLodMap>,
-    bind_pose_query: Query<&SkeletonLocalBindPose, Allow<SkeletonLodDisabled>>,
-    skinned_meshes: Query<
-        &SkinnedMesh,
-        (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>),
+pub(crate) fn sync_skeleton_lod_subtrees(
+    characters: Query<
+        (Entity, &SkeletonLodState, &CharacterSkeleton),
+        Changed<SkeletonLodState>,
     >,
-    children_query: Query<&Children, Allow<SkeletonLodDisabled>>,
-    mut bone_transforms: Query<
-        &mut Transform,
-        (Without<CharacterShape>, Allow<SkeletonLodDisabled>),
+    lod_config: Option<Res<SkeletonLodConfig>>,
+    rig_data: Res<RigData>,
+    mut commands: Commands,
+    bones: Query<
+        (
+            &Transform,
+            &GlobalTransform,
+            Has<SkeletonLodDisabled>,
+        ),
+        Allow<SkeletonLodDisabled>,
     >,
 ) {
-    let event = trigger.event();
-    let Ok(lod_map) = lod_map_query.get(event.character) else {
+    let Some(config) = lod_config else {
         return;
     };
-    let Some(skeleton_entity) = lod_map.0.get(event.lod).copied().flatten() else {
+    let config_count = config.1;
+    let Some(rig_spec) = rig_data.0.as_ref() else {
         return;
     };
-    let Ok(bind_pose) = bind_pose_query.get(skeleton_entity) else {
-        return;
-    };
+    let bone_parents = &rig_spec.reference_rig.bone_parents;
 
-    // Find the SkinnedMesh joints inside the skeleton's descendants and reset
-    for child in children_query.iter_descendants(skeleton_entity) {
-        if let Ok(skm) = skinned_meshes.get(child) {
-            for (joint_entity, bind_transform) in skm.joints.iter().zip(bind_pose.0.iter()) {
-                if let Ok(mut transform) = bone_transforms.get_mut(*joint_entity) {
-                    *transform = *bind_transform;
+    for (_entity, state, skeleton) in &characters {
+        let active = state.active;
+
+        if !active.iter().any(|&a| a) {
+            continue;
+        }
+
+        // Union (per the intersection rule over anchors) of every removed bone
+        // name: descendants of each anchor that is present in all active LODs.
+        let mut disabled: AHashSet<&'static str> = AHashSet::default();
+        for k in 0..config_count {
+            if !active[k] {
+                continue;
+            }
+            for anchor in &config.0[k].without_children_of {
+                let present_in_all = (0..config_count)
+                    .filter(|&m| active[m])
+                    .all(|m| config.0[m].without_children_of.iter().any(|r| r == anchor));
+                if !present_in_all {
+                    continue;
+                }
+                for descendant in all_children_of(bone_parents, anchor) {
+                    disabled.insert(descendant);
                 }
             }
-            return;
+        }
+
+        // Apply: disable removed bones, re-enable everything else.
+        for (&bone_name, &bone_entity) in skeleton.bone_map.iter() {
+            let should_disable = disabled.contains(bone_name);
+            let Ok((transform, global_transform, is_disabled)) = bones.get(bone_entity) else {
+                continue;
+            };
+            if should_disable {
+                if !is_disabled {
+                    commands.entity(bone_entity).insert(SkeletonLodDisabled);
+                }
+            } else if is_disabled {
+                // Re-enable: force `Changed<Transform>` (so transform propagation
+                // recomputes the tree) AND `Changed<GlobalTransform>` (so the skin
+                // extraction re-samples the joint). Removing the disabling
+                // component alone marks neither. Re-inserting marks changed
+                // regardless of value equality, which matters because propagation's
+                // `set_if_neq` won't fire when the frozen global transform is already
+                // correct, leaving a stale `IDENTITY` joint matrix in the render
+                // staging buffer and detaching the mesh.
+                commands
+                    .entity(bone_entity)
+                    .insert((transform.clone(), global_transform.clone()))
+                    .remove::<SkeletonLodDisabled>();
+            }
         }
     }
 }
 
-/// Sets up `SkinnedMesh` on each `CharacterPart` by cloning from the matching
-/// `CharacterSkeleton`'s rig entity.
+/// Sets up `SkinnedMesh` on each `CharacterPart` from the single skeleton:
+/// the joints are the surviving bones for the part's LOD level, and the inverse
+/// bindposes are the corresponding subset of the full skeleton's.
+#[allow(clippy::type_complexity)]
 pub(crate) fn setup_part_skinning(
     parts: Query<(Entity, &ChildOf, &CharacterPart), Without<SkinnedMesh>>,
-    characters: Query<(&SkeletonLodMap, &SkeletonsReady)>,
-    skinned_meshes: Query<
-        &SkinnedMesh,
-        (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>),
-    >,
-    children: Query<&Children, Allow<SkeletonLodDisabled>>,
+    characters: Query<(&CharacterSkeleton, &SkeletonsReady)>,
+    rig_bundle: Res<RigBundleRes>,
+    rig_data: Res<RigData>,
+    mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     mut commands: Commands,
 ) {
     for (part_entity, parent, part) in &parts {
         let parent_entity = parent.parent();
-        let Ok((lod_map, _)) = characters.get(parent_entity) else {
+        let Ok((skeleton, _)) = characters.get(parent_entity) else {
+            continue;
+        };
+        let Some(rig_spec) = rig_data.0.as_ref() else {
+            continue;
+        };
+        let Some(lod_data) = rig_bundle.bundle.as_ref().map(|b| &b.lod_data) else {
             continue;
         };
 
-        // Find the skeleton entity for this part's LOD level
-        let Some(skeleton_entity) = lod_map.0.get(part.skeleton_lod).copied().flatten() else {
-            continue;
-        };
+        let idx = part.skeleton_lod.min(lod_data.len().saturating_sub(1));
+        let bone_names = &lod_data[idx].bone_names;
 
-        // Find the rig entity inside the skeleton's scene that has SkinnedMesh
-        let mut part_skm: Option<SkinnedMesh> = None;
-        for child in children.iter_descendants(skeleton_entity) {
-            if let Ok(skm) = skinned_meshes.get(child) {
-                part_skm = Some(skm.clone());
+        // Map surviving bone names to entities and their inverse-bindpose subset.
+        let mut joints = Vec::with_capacity(bone_names.len());
+        let mut inv_bindposes = Vec::with_capacity(bone_names.len());
+        let mut valid = true;
+        for &bone_name in bone_names {
+            let Some(&joint) = skeleton.bone_map.get(bone_name) else {
+                valid = false;
                 break;
-            }
+            };
+            let Some(ref_idx) = rig_spec.bone_index(bone_name) else {
+                valid = false;
+                break;
+            };
+            joints.push(joint);
+            inv_bindposes.push(skeleton.model_space_inv_bindposes[ref_idx]);
         }
 
-        if let Some(skm) = part_skm {
-            commands.entity(part_entity).insert(skm);
+        if !valid || joints.is_empty() {
+            continue;
+        }
+
+        let inv_bindpose_handle = inv_bindpose_assets.add(inv_bindposes);
+        commands.entity(part_entity).insert(SkinnedMesh {
+            joints,
+            inverse_bindposes: inv_bindpose_handle,
+        });
+    }
+}
+
+/// Observer that strips a character's skeleton and mesh state when its `HelperVertexPositions`
+/// are removed (e.g. the character went off-screen and gave up its per-vertex data).
+///
+/// Physics/ragdoll cleanup is handled separately by the avian observer on the same
+/// trigger. Users can register their own `On<Remove, HelperVertexPositions>` observers to clean up
+/// additional per-character data that humentity can't know about generically, such as
+/// material handles.
+pub(crate) fn on_character_helpers_removed(
+    trigger: On<Remove, HelperVertexPositions>,
+    characters: Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
+    parts: Query<(Entity, &ChildOf, &CharacterPart)>,
+    mut commands: Commands,
+) {
+    let entity = trigger.entity;
+    if characters.get(entity).is_err() {
+        return;
+    }
+
+    if let Ok(Some(skeleton)) = characters.get(entity) {
+        commands.entity(skeleton.skeleton_entity).despawn();
+    }
+    commands
+        .entity(entity)
+        .remove::<CharacterSkeleton>()
+        .remove::<SkeletonLodState>()
+        .remove::<SkeletonsReady>();
+
+    // Strip mesh handles from the character's parts so they don't dangle against
+    // the despawned skeleton joints.
+    for (part_entity, parent, _part) in &parts {
+        if parent.parent() == entity {
+            commands
+                .entity(part_entity)
+                .remove::<Mesh3d>()
+                .remove::<SkinnedMesh>()
+                .remove::<MeshMorphWeights>();
         }
     }
 }
