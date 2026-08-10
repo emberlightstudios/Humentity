@@ -2,13 +2,12 @@
 //! can be used for lods with the VisibilityRanges component.
 //! We also demonstrate the use of skeleton lod here.
 //!
-//! IMPORTANT NOTE:
-//! There appears to be a bug in bevy, related to this I think...
-//! https://github.com/bevyengine/bevy/issues/18981
+//! NOTE: Overlapping visibility ranges (as used for crossfade dithering between
+//! LODs) do NOT work when a depth prepass is enabled. During the overlap the
+//! two meshes are drawn at the same depth, and the dithered transition writes
+//! inconsistent values to the prepass, producing visible popping/flicker. Keep
+//! your LOD visibility ranges non-overlapping when a depth prepass is active.
 //!
-//! If you watch closely, you may occasionally notice the main character flicker at the origin for a single frame when
-//! a new lod is enabled.  If you disable the animation clip below it is more obvious because global transforms
-//! will not propagate and the mesh will not snap back to the correct position.  With a clip playing it's hard to see.  
 
 mod shared;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
@@ -206,6 +205,24 @@ fn update_camera_distance(
     }
 }
 
+/// How far (in world units) beyond a mesh part's visibility range its skeleton
+/// LOD is kept active.
+///
+/// Skeleton LOD enables/disables bone sub-trees, but a re-enabled bone's frozen
+/// `GlobalTransform` isn't corrected until a frame or more later: Bevy resets a
+/// disabled bone's `GlobalTransform` to `Transform::IDENTITY`, and the skinned
+/// mesh extraction only re-samples a joint after transform propagation
+/// recomputes it. If we flipped the skeleton LOD exactly when a mesh became
+/// visible, that new part would render for at least one frame with stale
+/// `IDENTITY` joint matrices, detaching the mesh from its bones.
+///
+/// By activating a part's skeleton LOD a little *before* it comes into range,
+/// the joints get a frame or two to settle before the part is actually drawn.
+/// We expand both ends of the range so joints are also released late while
+/// receding; over-enabling is harmless (each part only skins its own joint
+/// subset), whereas under-enabling is what causes the rendering artifacts.
+const SKELETON_LOD_ACTIVATION_BUFFER: f32 = 1.0;
+
 /// Primitive skeleton lod state management based on distance to camera.
 /// Writes `SkeletonLodState.active` with each LOD that currently has a mesh in
 /// range; the reconcile system disables the bone sub-trees removed by every
@@ -221,8 +238,8 @@ fn sync_skeleton_lod_to_visibility(
             *active_lod = parts.iter().any(|(range, cp, child_of)| {
                 child_of.parent() == entity
                     && cp.skeleton_lod == lod
-                    && cam_dist.0 >= range.start_margin.start
-                    && cam_dist.0 < range.end_margin.end
+                    && cam_dist.0 >= range.start_margin.start - SKELETON_LOD_ACTIVATION_BUFFER
+                    && cam_dist.0 < range.end_margin.end + SKELETON_LOD_ACTIVATION_BUFFER
             });
         }
 

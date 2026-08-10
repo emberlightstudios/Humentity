@@ -219,6 +219,24 @@ fn update_camera_distance(
     }
 }
 
+/// How far (in world units) beyond a mesh part's visibility range its skeleton
+/// LOD is kept active.
+///
+/// Skeleton LOD enables/disables bone sub-trees, but a re-enabled bone's frozen
+/// `GlobalTransform` isn't corrected until a frame or more later: Bevy resets a
+/// disabled bone's `GlobalTransform` to `Transform::IDENTITY`, and the skinned
+/// mesh extraction only re-samples a joint after transform propagation
+/// recomputes it. If we flipped the skeleton LOD exactly when a mesh became
+/// visible, that new part would render for at least one frame with stale
+/// `IDENTITY` joint matrices, detaching the mesh from its bones.
+///
+/// By activating a part's skeleton LOD a little *before* it comes into range,
+/// the joints get a frame or two to settle before the part is actually drawn.
+/// We expand both ends of the range so joints are also released late while
+/// receding; over-enabling is harmless (each part only skins its own joint
+/// subset), whereas under-enabling is what causes the rendering artifacts.
+const SKELETON_LOD_ACTIVATION_BUFFER: f32 = 1.0;
+
 fn sync_skeleton_lod_to_visibility(
     characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonsReady>>,
     parts: Query<(&VisibilityRange, &CharacterPart, &ChildOf)>,
@@ -230,8 +248,8 @@ fn sync_skeleton_lod_to_visibility(
             *active_lod = parts.iter().any(|(range, cp, child_of)| {
                 child_of.parent() == entity
                     && cp.skeleton_lod == lod
-                    && cam_dist.0 >= range.start_margin.start
-                    && cam_dist.0 < range.end_margin.end
+                    && cam_dist.0 >= range.start_margin.start - SKELETON_LOD_ACTIVATION_BUFFER
+                    && cam_dist.0 < range.end_margin.end + SKELETON_LOD_ACTIVATION_BUFFER
             });
         }
 
