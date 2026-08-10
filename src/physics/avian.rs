@@ -54,6 +54,13 @@ pub enum CharacterRagdoll {
     Partial(Vec<ColliderBone>),
 }
 
+/// Single global, static (identity, world-root) entity that holds all characters'
+/// collider and joint entities. Keeps them grouped under one world-root entity in
+/// the inspector rather than polluting the root with one entity per collider/joint.
+/// Plain identity entity: no `RigidBody`/`Collider`, so avian ignores it.
+#[derive(Resource)]
+pub struct CharacterPhysicsContainer(pub Entity);
+
 #[derive(Component, Default)]
 pub struct CharacterColliders {
     pub bones_subset: Option<Vec<ColliderBone>>,
@@ -149,7 +156,21 @@ pub(crate) fn spawn_colliders(
         (With<NeedsColliders>, With<SkeletonsReady>),
     >,
     rig_data: Res<RigData>,
+    container: Option<Res<CharacterPhysicsContainer>>,
 ) {
+    // Create the single global container on first use, then reuse it for every
+    // character so all colliders/joints share one world-root parent.
+    let container_entity = match container {
+        Some(container) => container.0,
+        None => {
+            let entity = commands
+                .spawn((Name::new("CharacterPhysics"), Transform::IDENTITY))
+                .id();
+            commands.insert_resource(CharacterPhysicsContainer(entity));
+            entity
+        }
+    };
+
     const BATCH_SIZE: usize = 2;
     let mut char_count = 0;
     for (
@@ -250,6 +271,7 @@ pub(crate) fn spawn_colliders(
                 ))
                 .id();
 
+            commands.entity(container_entity).add_child(collider_entity);
             colliders
                 .collider_entities
                 .insert(collider, collider_entity);
@@ -308,7 +330,9 @@ pub(crate) fn set_ragdoll_state(
     bones: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
     collider_offsets: Query<&ColliderOffset>,
     mobility_query: Query<&RagdollMobility>,
+    container: Option<Res<CharacterPhysicsContainer>>,
 ) {
+    let container_entity = container.map(|c| c.0);
     for (character_entity, ragdoll, mut char_colliders, damping) in characters.iter_mut() {
         let damping = damping.0;
         let joint_damping = JointDamping {
@@ -448,6 +472,7 @@ pub(crate) fn set_ragdoll_state(
                 knee_damping,
                 r,
                 character_entity,
+                container_entity,
             );
             char_colliders.joint_entities.push(joint);
         }
@@ -676,6 +701,7 @@ fn spawn_ragdoll_joint(
     knee_damping: JointDamping,
     r: f32,
     character: Entity,
+    container_entity: Option<Entity>,
 ) -> Entity {
     let joint_name: &'static str = NAME_INTERNER
         .intern(&format!(
@@ -683,7 +709,7 @@ fn spawn_ragdoll_joint(
             DEFAULT_RIG_COLLIDER_BONE_NAMES[collider_index(bone)]
         ))
         .leak();
-    match bone {
+    let joint_entity = match bone {
         ColliderBone::LowerRightArm | ColliderBone::LowerLeftArm => commands
             .spawn((
                 Name::new(joint_name),
@@ -741,7 +767,11 @@ fn spawn_ragdoll_joint(
             ))
             .id()
         }
+    };
+    if let Some(container_entity) = container_entity {
+        commands.entity(container_entity).add_child(joint_entity);
     }
+    joint_entity
 }
 
 /// Event to atomically disable physics on a character's collider entities.
