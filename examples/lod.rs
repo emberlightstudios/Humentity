@@ -272,7 +272,6 @@ fn play_idle_animation(
     >,
     mut commands: Commands,
 ) {
-    return;
     let Some((_id, clips_map)) = clips.iter().next() else {
         return;
     };
