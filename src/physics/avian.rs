@@ -100,9 +100,9 @@ pub struct ColliderOffset {
     pub bone_to_collider: Transform,
 }
 
-/// Marker for colliders that are currently in kinematic (animation-following) mode.
-#[derive(Component)]
-pub struct KinematicCollider;
+/// Links a collider entity to the skeleton bone it follows.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct BoneForCollider(pub Entity);
 
 /// Links a collider entity to its owning character entity.
 #[derive(Component)]
@@ -245,6 +245,7 @@ pub(crate) fn spawn_colliders(
             let model_to_joint = inv_bindposes_map[joint_name];
             let collider_to_joint = model_to_joint * collider_to_model;
             let joint_to_collider = Transform::from_matrix(collider_to_joint.to_matrix().inverse());
+            let bone_entity = colliders.bone_entities.get(&collider).copied();
 
             let collider_entity = commands
                 .spawn((
@@ -254,7 +255,6 @@ pub(crate) fn spawn_colliders(
                             .leak(),
                     ),
                     RigidBody::Kinematic,
-                    KinematicCollider,
                     collider,
                     geometry,
                     ColliderOffset {
@@ -271,6 +271,12 @@ pub(crate) fn spawn_colliders(
                 ))
                 .id();
 
+            if let Some(bone_entity) = bone_entity {
+                commands
+                    .entity(collider_entity)
+                    .insert(BoneForCollider(bone_entity));
+            }
+
             commands.entity(container_entity).add_child(collider_entity);
             colliders
                 .collider_entities
@@ -285,34 +291,28 @@ pub(crate) fn spawn_colliders(
 }
 
 /// This function syncs kinematic character colliders to align with the skeletal bones.
-/// Reads each collider's bone entity from the single skeleton and follows its
-/// `GlobalTransform`.
+/// Iterates all colliders directly and follows the linked bone's `GlobalTransform`.
 pub(crate) fn sync_colliders(
-    characters: Query<&CharacterColliders>,
     bones: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
-    mut collider_data: Query<
-        (&mut Position, &mut Rotation, &ColliderOffset),
-        With<KinematicCollider>,
-    >,
+    mut collider_data: Query<(
+        &mut Position,
+        &mut Rotation,
+        &ColliderOffset,
+        &RigidBody,
+        &BoneForCollider,
+    )>,
 ) {
-    for colliders in &characters {
-        for (&bone_type, collider_entity) in colliders.collider_entities.iter() {
-            let Ok((mut position, mut rotation, offset)) = collider_data.get_mut(*collider_entity)
-            else {
-                continue;
-            };
-
-            let Some(&bone_entity) = colliders.bone_entities.get(&bone_type) else {
-                continue;
-            };
-            let Ok(joint_to_world) = bones.get(bone_entity) else {
-                continue;
-            };
-
-            let world = Transform::from(*joint_to_world) * offset.collider_to_bone;
-            *position = Position(world.translation);
-            *rotation = Rotation(world.rotation);
+    for (mut position, mut rotation, offset, rigidbody, bone_link) in collider_data.iter_mut() {
+        if *rigidbody != RigidBody::Kinematic {
+            continue;
         }
+        let Ok(joint_to_world) = bones.get(bone_link.0) else {
+            continue;
+        };
+
+        let world = Transform::from(*joint_to_world) * offset.collider_to_bone;
+        *position = Position(world.translation);
+        *rotation = Rotation(world.rotation);
     }
 }
 
@@ -354,33 +354,23 @@ pub(crate) fn set_ragdoll_state(
         match ragdoll {
             CharacterRagdoll::Full => {
                 for (_bone, &collider_entity) in char_colliders.collider_entities.iter() {
-                    commands
-                        .entity(collider_entity)
-                        .insert(RigidBody::Dynamic)
-                        .remove::<KinematicCollider>();
+                    commands.entity(collider_entity).insert(RigidBody::Dynamic);
                 }
             }
             CharacterRagdoll::Partial(bones) => {
                 for (bone, &collider_entity) in char_colliders.collider_entities.iter() {
-                    if bones.contains(bone) {
-                        commands
-                            .entity(collider_entity)
-                            .insert(RigidBody::Dynamic)
-                            .remove::<KinematicCollider>();
-                    } else {
-                        commands
-                            .entity(collider_entity)
-                            .insert(RigidBody::Kinematic)
-                            .insert(KinematicCollider);
-                    }
+                    commands
+                        .entity(collider_entity)
+                        .insert(if bones.contains(bone) {
+                            RigidBody::Dynamic
+                        } else {
+                            RigidBody::Kinematic
+                        });
                 }
             }
             CharacterRagdoll::None => {
                 for (_bone, &collider_entity) in char_colliders.collider_entities.iter() {
-                    commands
-                        .entity(collider_entity)
-                        .insert(RigidBody::Kinematic)
-                        .insert(KinematicCollider);
+                    commands.entity(collider_entity).insert(RigidBody::Kinematic);
                 }
                 continue;
             }
