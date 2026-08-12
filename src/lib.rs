@@ -44,7 +44,7 @@ pub mod prelude {
         HumentityPlugin,
         HumentityAssetsReady,
         NAME_INTERNER,
-        animation::{HumentityAnimationPostProcess, TranslationTracks},
+        animation::{HumentitySkeletonSystemSet, TranslationTracks},
         assets::{StitchedPart, StitchedParts, shape_mesh_from_helpers_mhclo},
         basemesh::{BaseMesh, VertexGroups},
         helpers::HelperVertexPositions,
@@ -253,7 +253,7 @@ impl Plugin for HumentityPlugin {
                 PostUpdate,
                 (
                     animation::rescale_root_bone_translation
-                        .in_set(animation::HumentityAnimationPostProcess)
+                        .in_set(animation::HumentitySkeletonSystemSet)
                         .after(bevy::app::AnimationSystems),
                     spawn_skeleton::sync_skeleton_lod_subtrees,
                 )
@@ -282,6 +282,7 @@ impl Plugin for HumentityPlugin {
                 .add_systems(
                     PostUpdate,
                     physics::avian::sync_bones_to_ragdoll
+                        .in_set(animation::HumentitySkeletonSystemSet)
                         .after(AnimationSystems)
                         .before(TransformSystems::Propagate),
                 )

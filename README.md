@@ -174,15 +174,15 @@ cargo run --example animation --features avian
 
 Custom meshes, morph targets, and rig data can be authored in Blender using [MPFB](https://github.com/makehumancommunity/makehuman-plugin-for-blender) and exported as `.mhclo`/`.obj` files with `.target` shape keys. The crate's native asset loaders handle these formats automatically.
 
-## Animation postprocessing
+## Animation and ragdoll bone sync
 
-The `HumentityAnimationPostProcess` system set runs in `PostUpdate` after Bevy's `AnimationSystems` and before `TransformSystems::Propagate`. The built-in `rescale_root_bone_translation` system runs in this set to correct root bone Y translation for different human proportions.
+The `HumentitySkeletonSystemSet` system set runs in `PostUpdate` after Bevy's `AnimationSystems` and before `TransformSystems::Propagate`. The built-in `rescale_root_bone_translation` system (corrects root bone Y translation for different human proportions) and `sync_bones_to_ragdoll` (writes ragdoll collider positions back to the skeleton) both run in this set.
 
-To add your own animation postprocessing, order your systems relative to this set:
+To run your own systems after this pass, order them relative to this set:
 
 ```rust
 app.add_systems(
     PostUpdate,
-    my_system.after(HumentityAnimationPostProcess),
+    my_system.after(HumentitySkeletonSystemSet),
 );
 ```

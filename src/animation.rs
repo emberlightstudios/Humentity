@@ -8,11 +8,13 @@ use bevy::{
 use gltf::Skin;
 use serde::{Deserialize, Serialize};
 
-/// System set for animation postprocessing that runs after Bevy's `AnimationSystems`
-/// and before `TransformSystems::Propagate`. Add your own systems to this set
-/// with `.after(HumentityAnimationPostProcess)` to run after built-in postprocessing.
+/// humentity's PostUpdate bone-authoritative pass that runs after Bevy's
+/// `AnimationSystems` and before `TransformSystems::Propagate`. It covers both
+/// animation post-processing (`rescale_root_bone_translation`) and ragdoll
+/// bone→skeleton sync (`sync_bones_to_ragdoll`). Add your own systems with
+/// `.after(HumentitySkeletonSystemSet)` to run after this pass.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct HumentityAnimationPostProcess;
+pub struct HumentitySkeletonSystemSet;
 
 /// Which translation tracks should be kept on animation clips
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
