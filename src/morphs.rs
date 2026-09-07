@@ -97,6 +97,14 @@ impl MakeHumanMorphs {
         )
     }
 
+    pub fn has_targets_for_shapes(&self, shapes: &[CharacterMorphShape]) -> bool {
+        let targets = self.targets.read().unwrap();
+        shapes
+            .iter()
+            .flat_map(|s| s.morphs.keys())
+            .all(|k| targets.contains_key(k))
+    }
+
     pub fn get_min_values(&self) -> AHashMap<&'static str, f32> {
         let categories = self.categories.read().unwrap();
         let mut result = AHashMap::default();

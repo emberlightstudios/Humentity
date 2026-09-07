@@ -13,9 +13,11 @@ use crate::{
 /// A cache for morph-deformed base-mesh vertex positions for a single character.
 ///
 /// Insert `HelperVertexPositions::default()` (empty) on a `CharacterShape` entity to
-/// request background computation. A system detects the `Added` event, spawns a
-/// background task, and fills the vec once complete. Both skeleton fitting and
-/// collider spawning read from this.
+/// request background computation. Empty inserts are tagged for pickup, a
+/// background task spawns once the shape and morph assets are available, and
+/// the vec is filled once complete. Both skeleton fitting and
+/// collider spawning read from this. Spawn timing does not matter: pickup
+/// retries until dispatch.
 ///
 /// To re-fit (e.g. after morph changes), remove and re-insert
 /// `HelperVertexPositions::default()`.
@@ -41,6 +43,21 @@ pub struct HelperVertexPositions(pub Vec<Vec3>);
 impl FromIterator<Vec3> for HelperVertexPositions {
     fn from_iter<T: IntoIterator<Item = Vec3>>(iter: T) -> Self {
         HelperVertexPositions(iter.into_iter().collect())
+    }
+}
+
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub(crate) struct EmptyHelpers;
+
+pub(crate) fn tag_empty_helpers(
+    trigger: On<Add, HelperVertexPositions>,
+    helpers: Query<&HelperVertexPositions>,
+    mut commands: Commands,
+) {
+    if let Ok(h) = helpers.get(trigger.entity) {
+        if h.0.is_empty() {
+            commands.entity(trigger.entity).insert(EmptyHelpers);
+        }
     }
 }
 
@@ -87,18 +104,21 @@ fn compute_helpers_from_data(
     adjust_helpers_with_targets(&mh_morph_values, targets, basemesh_vertices)
 }
 
-/// Watches for newly-added `HelperVertexPositions` components with empty vecs and spawns
-/// background tasks to compute them.
+/// Dispatches background compute tasks for tagged `HelperVertexPositions` components
+/// with empty vecs. Retries every frame until the shape and morph assets are
+/// available and a task is dispatched.
 pub(crate) fn submit_helper_computations(
     characters: Query<
         (Entity, &CharacterShape, &HelperVertexPositions),
-        Added<HelperVertexPositions>,
+        With<EmptyHelpers>,
     >,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
     basemesh: Res<BaseMesh>,
     morphs: Res<MakeHumanMorphs>,
     mut jobs: ResMut<HelperComputeJobs>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
 ) {
     jobs.ensure_channels();
     let tx = jobs.sender.as_ref().unwrap().clone();
@@ -110,6 +130,7 @@ pub(crate) fn submit_helper_computations(
 
     for (entity, character_shape, helpers) in &characters {
         if !helpers.0.is_empty() {
+            commands.entity(entity).remove::<EmptyHelpers>();
             continue;
         }
 
@@ -119,6 +140,12 @@ pub(crate) fn submit_helper_computations(
         let Some(template) = templates.get(&asset.template) else {
             continue;
         };
+        if !morphs.is_ready(&asset_server) {
+            continue;
+        }
+        if !morphs.has_targets_for_shapes(&template.shapes) {
+            continue;
+        }
 
         let morph_values = asset.template_morph_targets.clone();
         let template_shapes = template.shapes.clone();
@@ -126,6 +153,7 @@ pub(crate) fn submit_helper_computations(
         let morphs_ref = morphs_arc.clone();
         let tx = tx.clone();
 
+        commands.entity(entity).remove::<EmptyHelpers>();
         pool.spawn(async move {
             let result = compute_helpers_from_data(
                 &morph_values,

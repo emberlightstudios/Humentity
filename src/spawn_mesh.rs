@@ -308,6 +308,9 @@ pub(crate) fn build_single_mesh_process(
         if !morphs.is_ready(asset_server) {
             return;
         }
+        if !morphs.has_targets_for_shapes(&template.shapes) {
+            return;
+        }
 
         *load_state = AssetLoadState::BuildSubmitted;
         cached_raw_meshes.remove(part);
@@ -430,18 +433,6 @@ fn build_stitched_meshes_process(
             return;
         }
 
-        *load_state = AssetLoadState::BuildSubmitted;
-
-        let mut input_meshes: Vec<Mesh> = loaded_meshes.into_iter().cloned().collect();
-        let mesh_verts: Vec<ObjVertsAsset> = raw_handles
-            .iter()
-            .filter_map(|h| h.and_then(|cache| mesh_verts.get(&cache.verts).cloned()))
-            .collect();
-        let mhclos: Vec<_> = parts
-            .iter()
-            .map(|p| mhclo_assets.get(&p.part).unwrap().clone())
-            .collect();
-
         let templates_for_build: Vec<_> = parts
             .iter()
             .map(|p| {
@@ -452,6 +443,25 @@ fn build_stitched_meshes_process(
                 templates.get(h).unwrap_or(parent_template)
             })
             .cloned()
+            .collect();
+        if !morphs.has_targets_for_shapes(&parent_template.shapes)
+            || templates_for_build
+                .iter()
+                .any(|t| !morphs.has_targets_for_shapes(&t.shapes))
+        {
+            return;
+        }
+
+        *load_state = AssetLoadState::BuildSubmitted;
+
+        let mut input_meshes: Vec<Mesh> = loaded_meshes.into_iter().cloned().collect();
+        let mesh_verts: Vec<ObjVertsAsset> = raw_handles
+            .iter()
+            .filter_map(|h| h.and_then(|cache| mesh_verts.get(&cache.verts).cloned()))
+            .collect();
+        let mhclos: Vec<_> = parts
+            .iter()
+            .map(|p| mhclo_assets.get(&p.part).unwrap().clone())
             .collect();
 
         let mh_morphs = morphs.targets.clone();

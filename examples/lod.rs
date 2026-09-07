@@ -28,10 +28,7 @@ fn main() {
     let mut app = setup_app();
 
     app.add_plugins(BoneDebugPlugin)
-        .add_systems(
-            Update,
-            add_humans.run_if(resource_added::<HumentityAssetsReady>),
-        )
+        .add_systems(Startup, add_humans)
         .add_systems(
             Update,
             (

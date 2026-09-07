@@ -29,12 +29,9 @@ const BODYBUILDER: &str = "bodybuilder";
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(
-        Update,
-        add_humans.run_if(resource_added::<HumentityAssetsReady>),
-    )
-    .add_observer(on_skeletons_ready)
-    .run();
+    app.add_systems(Startup, add_humans)
+        .add_observer(on_skeletons_ready)
+        .run();
 }
 
 /// Skeletons start fully enabled by default; here we narrow the active LOD set

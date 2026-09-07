@@ -20,11 +20,7 @@ use shared::setup_app;
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(
-        Update,
-        add_humans.run_if(resource_added::<HumentityAssetsReady>),
-    )
-    .run();
+    app.add_systems(Startup, add_humans).run();
 }
 
 fn add_humans(

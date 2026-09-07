@@ -243,6 +243,7 @@ impl Plugin for HumentityPlugin {
                 ),
             )
             .add_observer(spawn_skeleton::on_character_helpers_removed)
+            .add_observer(helpers::tag_empty_helpers)
             .add_systems(
                 Update,
                 template::resolve_template_morphs

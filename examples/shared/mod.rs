@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use bevy::{
-    input::mouse::MouseMotion, mesh::morph::MeshMorphWeights, mesh::skinning::SkinnedMesh,
-    prelude::*,
+    asset::AssetPlugin, input::mouse::MouseMotion, mesh::morph::MeshMorphWeights,
+    mesh::skinning::SkinnedMesh, prelude::*,
 };
 use bevy_egui::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -40,21 +40,31 @@ pub fn setup_app() -> App {
 
     let mut app = App::new();
 
-    app.add_plugins((DefaultPlugins, HumentityPlugin))
-        .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
-        .insert_resource(SkeletonLodConfig::new(&default_skeleton_lods()))
-        .add_systems(Startup, load_assets)
-        .add_systems(Startup, setup_env)
-        .add_systems(
-            Update,
-            (
-                enable_first_skeleton_on_ready,
-                update_mesh_when_ready,
-                cam_controls,
-                add_material,
-                //debug_forward_gizmo,
-            ),
-        );
+    let asset_dir: String = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .to_string_lossy()
+        .into_owned();
+    app.add_plugins((
+        DefaultPlugins.set(AssetPlugin {
+            file_path: asset_dir,
+            ..default()
+        }),
+        HumentityPlugin,
+    ))
+    .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
+    .insert_resource(SkeletonLodConfig::new(&default_skeleton_lods()))
+    .add_systems(Startup, load_assets)
+    .add_systems(Startup, setup_env)
+    .add_systems(
+        Update,
+        (
+            enable_first_skeleton_on_ready,
+            update_mesh_when_ready,
+            cam_controls,
+            add_material,
+            //debug_forward_gizmo,
+        ),
+    );
 
     app
 }

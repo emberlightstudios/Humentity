@@ -130,7 +130,7 @@ fn main() {
 
     app        .add_plugins(FeathersPlugins)
         .insert_resource(UiTheme(create_dark_theme()))
-        .add_systems(Update, setup_and_add_human.run_if(resource_added::<HumentityAssetsReady>))
+        .add_systems(Startup, setup_and_add_human)
         .add_systems(
             Update,
             update_character_mesh.run_if(resource_exists::<CreatorAssets>),

@@ -21,7 +21,7 @@ fn main() {
             ..DebugRenderSettings::enable()
         })
         .add_systems(Startup, floor)
-        .add_systems(Update, add_human.run_if(resource_added::<HumentityAssetsReady>))
+        .add_systems(Startup, add_human)
         .add_systems(Update, (toggle, setup_graph, start_clip))
         .run();
 }

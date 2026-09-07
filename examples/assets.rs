@@ -14,11 +14,7 @@ const PANTIES: &str = "clothes/underwear/simple_briefs/simple_briefs.mhclo";
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(
-        Update,
-        add_human.run_if(resource_added::<HumentityAssetsReady>),
-    )
-    .run();
+    app.add_systems(Startup, add_human).run();
 }
 
 fn add_human(

@@ -49,11 +49,10 @@ fn main() {
         PhysicsDebugPlugin,
     ))
     .insert_resource(SubstepCount(10))
-    .add_systems(Startup, (physics_floor, spawn_ui))
+    .add_systems(Startup, (physics_floor, spawn_ui, add_humans))
     .add_systems(
         Update,
         (
-            add_humans.run_if(resource_added::<HumentityAssetsReady>),
             update_camera_distance,
             sync_skeleton_lod_to_visibility,
             setup_graph.run_if(resource_added::<RetargetedAnims>),
