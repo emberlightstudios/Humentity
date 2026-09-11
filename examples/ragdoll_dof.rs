@@ -187,7 +187,8 @@ fn main() {
         .insert_resource(Gravity(Vec3::ZERO))
         .insert_resource(ActiveDof::default())
         .insert_resource(BindPose::default())
-        .add_systems(Startup, (floor, spawn_status_text, add_human))
+        .add_systems(Startup, (floor, spawn_status_text))
+        .add_systems(Update, add_human.run_if(resource_exists::<HumentityAssetsReady>))
         .add_systems(
             Update,
             (
@@ -610,7 +611,12 @@ fn add_human(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut done: Local<bool>,
 ) {
+    if *done {
+        return;
+    }
+    *done = true;
     let template_handle = template_assets.add(CharacterTemplate::new([]));
 
     let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");

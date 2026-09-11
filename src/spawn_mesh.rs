@@ -305,12 +305,22 @@ pub(crate) fn build_single_mesh_process(
         && let Some(input_mesh) = meshes.get(&cache.mesh)
         && let Some(mesh_verts) = mesh_verts.get(&cache.verts)
     {
+        // Bulletproof ordering: every async dependency must be proven loaded
+        // BEFORE advancing state or consuming cached inputs. Advancing first
+        // strands the job in BuildSubmitted forever (no mesh, no retry).
         if !morphs.is_ready(asset_server) {
             return;
         }
         if !morphs.has_targets_for_shapes(&template.shapes) {
             return;
         }
+        if basemesh.is_empty() {
+            return;
+        }
+        let Some(rig_entry) = rig_data.0.as_ref() else {
+            return;
+        };
+        let rig_spec = rig_entry.clone();
 
         *load_state = AssetLoadState::BuildSubmitted;
         cached_raw_meshes.remove(part);
@@ -319,10 +329,6 @@ pub(crate) fn build_single_mesh_process(
         let mesh_verts = mesh_verts.clone();
         let template = template.clone();
         let mh_morphs = morphs.targets.clone();
-        let Some(rig_entry) = rig_data.0.as_ref() else {
-            return;
-        };
-        let rig_spec = rig_entry.clone();
 
         let (lod_bone_names, lod_weights) = rig_bundle
             .bundle
@@ -452,13 +458,29 @@ fn build_stitched_meshes_process(
             return;
         }
 
-        *load_state = AssetLoadState::BuildSubmitted;
-
-        let mut input_meshes: Vec<Mesh> = loaded_meshes.into_iter().cloned().collect();
+        // Bulletproof ordering: every async dependency must be proven loaded
+        // BEFORE advancing state or consuming cached inputs. Advancing first
+        // strands the job in BuildSubmitted forever (no mesh, no retry).
+        if basemesh.is_empty() {
+            return;
+        }
+        let Some(rig_entry) = rig_data.0.as_ref() else {
+            return;
+        };
+        let rig_spec = rig_entry.clone();
+        // All per-part vertex snapshots must be loaded; a short vec would
+        // misalign meshes/verts/mhclos in the background build.
         let mesh_verts: Vec<ObjVertsAsset> = raw_handles
             .iter()
             .filter_map(|h| h.and_then(|cache| mesh_verts.get(&cache.verts).cloned()))
             .collect();
+        if mesh_verts.len() != parts.len() {
+            return;
+        }
+
+        *load_state = AssetLoadState::BuildSubmitted;
+
+        let mut input_meshes: Vec<Mesh> = loaded_meshes.into_iter().cloned().collect();
         let mhclos: Vec<_> = parts
             .iter()
             .map(|p| mhclo_assets.get(&p.part).unwrap().clone())
@@ -466,10 +488,6 @@ fn build_stitched_meshes_process(
 
         let mh_morphs = morphs.targets.clone();
         let basemesh = basemesh.clone();
-        let Some(rig_entry) = rig_data.0.as_ref() else {
-            return;
-        };
-        let rig_spec = rig_entry.clone();
 
         let lod = parts.first().map(|p| p.lod).unwrap_or(0);
         let (lod_bone_names, lod_weights) = rig_bundle

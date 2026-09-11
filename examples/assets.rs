@@ -14,7 +14,7 @@ const PANTIES: &str = "clothes/underwear/simple_briefs/simple_briefs.mhclo";
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(Startup, add_human).run();
+    app.add_systems(Update, add_human.run_if(resource_exists::<HumentityAssetsReady>)).run();
 }
 
 fn add_human(
@@ -24,7 +24,12 @@ fn add_human(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut done: Local<bool>,
 ) {
+    if *done {
+        return;
+    }
+    *done = true;
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.);
 

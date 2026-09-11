@@ -29,7 +29,7 @@ const BODYBUILDER: &str = "bodybuilder";
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(Startup, add_humans)
+    app.add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
         .add_observer(on_skeletons_ready)
         .run();
 }
@@ -50,7 +50,12 @@ fn add_humans(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut done: Local<bool>,
 ) {
+    if *done {
+        return;
+    }
+    *done = true;
     let mut baby_targets = MorphTargets::default();
     baby_targets.insert("age", 0.);
 

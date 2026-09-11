@@ -31,7 +31,7 @@ fn main() {
     let mut app = setup_app();
 
     app.add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .add_systems(Startup, add_humans)
+        .add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
         .add_systems(Startup, setup_fps_text)
         .add_systems(
             Update,
@@ -87,7 +87,12 @@ fn add_humans(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut done: Local<bool>,
 ) {
+    if *done {
+        return;
+    }
+    *done = true;
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 1.0);
 

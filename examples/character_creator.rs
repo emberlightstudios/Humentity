@@ -130,7 +130,7 @@ fn main() {
 
     app        .add_plugins(FeathersPlugins)
         .insert_resource(UiTheme(create_dark_theme()))
-        .add_systems(Startup, setup_and_add_human)
+        .add_systems(Update, setup_and_add_human.run_if(resource_exists::<HumentityAssetsReady>))
         .add_systems(
             Update,
             update_character_mesh.run_if(resource_exists::<CreatorAssets>),
@@ -149,7 +149,12 @@ fn main() {
 fn setup_and_add_human(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    mut done: Local<bool>,
 ) {
+    if *done {
+        return;
+    }
+    *done = true;
     let mhclo_handle = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     let entity = commands
         .spawn((

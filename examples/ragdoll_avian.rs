@@ -14,7 +14,8 @@ fn main() {
 
     app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin))
         .insert_resource(SubstepCount(10))
-        .add_systems(Startup, (floor, spawn_ui, add_human))
+        .add_systems(Startup, (floor, spawn_ui))
+        .add_systems(Update, add_human.run_if(resource_exists::<HumentityAssetsReady>))
         .add_systems(Update, (toggle, sleep_ragdoll, setup_graph, start_clip))
         .run();
 }
@@ -154,7 +155,12 @@ fn add_human(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut done: Local<bool>,
 ) {
+    if *done {
+        return;
+    }
+    *done = true;
     let template_handle = template_assets.add(CharacterTemplate::new([]));
 
     let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");

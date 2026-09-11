@@ -231,8 +231,17 @@ impl Plugin for HumentityPlugin {
                             spawn_skeleton::check_skeletons_ready,
                             spawn_skeleton::setup_part_skinning,
                         )
-                            .chain(),
-                        (spawn_mesh::mesh_build, spawn_mesh::mediators_clean_up).chain(),
+                            .chain()
+                            // Helpers snapshot basemesh vertices at dispatch and the
+                            // retry marker is consumed, so dispatch must also wait
+                            // for every core asset like the mesh does.
+                            .run_if(resource_exists::<HumentityAssetsReady>),
+                        // No mesh may construct until every core asset is proven
+                        // loaded. Resource existence alone races async loads and
+                        // stranded jobs in BuildSubmitted with no mesh.
+                        (spawn_mesh::mesh_build, spawn_mesh::mediators_clean_up)
+                            .chain()
+                            .run_if(resource_exists::<HumentityAssetsReady>),
                     )
                         .chain()
                         .after(rigs::build_rig_scenes)
