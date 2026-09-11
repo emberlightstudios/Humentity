@@ -400,7 +400,7 @@ pub(crate) fn sync_skeleton_lod_subtrees(
                 // staging buffer and detaching the mesh.
                 commands
                     .entity(bone_entity)
-                    .insert((transform.clone(), global_transform.clone()))
+                    .insert((*transform, *global_transform))
                     .remove::<SkeletonLodDisabled>();
             }
         }

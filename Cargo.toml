@@ -40,6 +40,10 @@ required-features = ["avian"]
 name = "stress_test_ragdoll_avian"
 required-features = ["avian"]
 
+[[example]]
+name = "ragdoll_dof"
+required-features = ["avian"]
+
 [features]
 default = []
 debug = ["bevy/debug"]

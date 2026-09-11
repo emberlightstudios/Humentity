@@ -29,7 +29,8 @@ pub mod prelude {
     #[cfg(all(feature = "avian", not(feature = "physx")))]
     pub use crate::physics::avian::{
         BoneForCollider, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
-        ColliderOffset, DisablePhysics,
+        ColliderOffset, DisablePhysics, RagdollJointLimit, RagdollJointLimitOverrides,
+        default_joint_limit, resolve_joint_limit,
     };
     #[cfg(all(feature = "physx", not(feature = "avian")))]
     pub use crate::physics::physx::{
@@ -37,7 +38,8 @@ pub mod prelude {
         PhysxCharacterColliders, RagdollCollider, RagdollColliderFilter,
     };
     pub use crate::physics::{
-        COLLIDERS, ColliderBone, RagdollDamping, RagdollDensity, RagdollMobility,
+        COLLIDERS, ColliderBone, HumentityRagdollSystemSet, RagdollDamping, RagdollDensity,
+        RagdollMobility, get_collider_parent,
     };
     pub use crate::{
         bone_debug::BoneDebugPlugin,
@@ -284,7 +286,8 @@ impl Plugin for HumentityPlugin {
                         physics::avian::spawn_colliders
                             .after(physics::avian::mark_needs_colliders)
                             .after(spawn_skeleton::check_skeletons_ready),
-                        physics::avian::set_ragdoll_state,
+                        physics::avian::set_ragdoll_state.in_set(HumentityRagdollSystemSet),
+                        physics::avian::apply_joint_limit_overrides,
                         physics::avian::update_collision_layers,
                     ),
                 )

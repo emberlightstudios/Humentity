@@ -85,6 +85,7 @@ fn toggle(
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Text::new("SPACE: toggle full ragdoll"),
+        TextLayout::justify(Justify::Right),
         TextFont::from_font_size(24.0),
         Node {
             position_type: PositionType::Absolute,

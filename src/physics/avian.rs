@@ -5,14 +5,12 @@ use bevy::{
     prelude::*,
 };
 use bevy::ecs::intern::Internable;
-
 use crate::{
     helpers::HelperVertexPositions,
     prelude::{CharacterShape, CharacterSkeleton, SkeletonLodDisabled, SkeletonsReady},
     rigs::{RigData, SkeletalBone},
     NAME_INTERNER,
 };
-
 use super::*;
 
 /// Collision layers for ragdoll/hitbox colliders on this character.
@@ -69,6 +67,9 @@ pub struct CharacterColliders {
     /// Built once at collider spawn time, read-only afterwards.
     pub bone_entities: AHashMap<ColliderBone, Entity>,
     pub(crate) joint_entities: Vec<Entity>,
+    /// Joint entity → the collider bone it constrains. Used to live-apply
+    /// [`RagdollJointLimitOverrides`] without respawning joints.
+    pub(crate) joint_bone: AHashMap<Entity, ColliderBone>,
     /// Canonical local-space bone transforms computed from the collider positions
     /// during active ragdoll, written back to the single skeleton's bones.
     pub(crate) bone_transforms: [Transform; COLLIDERS.len()],
@@ -81,7 +82,111 @@ impl CharacterColliders {
             collider_entities: AHashMap::default(),
             bone_entities: AHashMap::default(),
             joint_entities: Vec::new(),
+            joint_bone: AHashMap::default(),
             bone_transforms: [Transform::IDENTITY; COLLIDERS.len()],
+        }
+    }
+}
+
+/// The resolved rotational limits for a single ragdoll joint.
+///
+/// Spherical joints (shoulders, hips, spine, neck, hands, feet) use `swing`
+/// (cone half-angle in radians) and `twist` (twist half-angle in radians).
+/// Revolute joints (elbows, knees) use `angle_min`/`angle_max` (radians).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RagdollJointLimit {
+    pub swing: f32,
+    pub twist: f32,
+    pub angle_min: f32,
+    pub angle_max: f32,
+}
+
+/// Returns the default [`RagdollJointLimit`] for a collider bone, before any
+/// [`RagdollMobility`] scaling or [`RagdollJointLimitOverrides`] are applied.
+pub fn default_joint_limit(bone: ColliderBone) -> RagdollJointLimit {
+    match bone {
+        ColliderBone::LowerRightArm | ColliderBone::LowerLeftArm => RagdollJointLimit {
+            angle_min: -0.17,
+            angle_max: 2.5,
+            ..default()
+        },
+        ColliderBone::LowerRightLeg | ColliderBone::LowerLeftLeg => RagdollJointLimit {
+            angle_min: -2.4,
+            angle_max: 0.0,
+            ..default()
+        },
+        _ => {
+            let (swing, twist) = get_spherical_limits(bone);
+            RagdollJointLimit {
+                swing,
+                twist,
+                ..default()
+            }
+        }
+    }
+}
+
+/// Resolves the effective [`RagdollJointLimit`] for a collider bone: an explicit
+/// override wins, otherwise [`default_joint_limit`]; either way the result is
+/// scaled by `mobility` (clamped to 0..=1).
+///
+/// Single source of truth shared by joint spawn (`set_ragdoll_state`), live
+/// tuning (`apply_joint_limit_overrides`), and debug tooling.
+pub fn resolve_joint_limit(
+    bone: ColliderBone,
+    overrides: Option<&RagdollJointLimitOverrides>,
+    mobility: f32,
+) -> RagdollJointLimit {
+    let r = mobility.clamp(0.0, 1.0);
+    let mut limit = overrides
+        .and_then(|o| o.get(bone))
+        .unwrap_or_else(|| default_joint_limit(bone));
+    limit.swing *= r;
+    limit.twist *= r;
+    limit.angle_min *= r;
+    limit.angle_max *= r;
+    limit
+}
+
+/// Per-bone joint limit overrides applied when ragdoll joints are spawned and
+/// re-applied live whenever this component changes on a character.
+///
+/// Apply to your character entity. Any bone absent from the relevant map falls
+/// back to [`default_joint_limit`] scaled by [`RagdollMobility`].
+///
+/// Use this to fine-tune joint limits while the ragdoll is active and watch for
+/// visual artifacts as each degree of freedom reaches its limit.
+#[derive(Component, Clone, Default, Debug)]
+pub struct RagdollJointLimitOverrides {
+    /// Spherical joints: bone → (swing half-angle, twist half-angle), radians.
+    pub spherical: AHashMap<ColliderBone, (f32, f32)>,
+    /// Revolute joints: bone → (min angle, max angle), radians.
+    pub revolute: AHashMap<ColliderBone, (f32, f32)>,
+}
+
+impl RagdollJointLimitOverrides {
+    fn get(&self, bone: ColliderBone) -> Option<RagdollJointLimit> {
+        match bone {
+            ColliderBone::LowerRightArm
+            | ColliderBone::LowerLeftArm
+            | ColliderBone::LowerRightLeg
+            | ColliderBone::LowerLeftLeg => {
+                self.revolute
+                    .get(&bone)
+                    .map(|&(min, max)| RagdollJointLimit {
+                        angle_min: min,
+                        angle_max: max,
+                        ..default()
+                    })
+            }
+            _ => self
+                .spherical
+                .get(&bone)
+                .map(|&(swing, twist)| RagdollJointLimit {
+                    swing,
+                    twist,
+                    ..default()
+                }),
         }
     }
 }
@@ -328,8 +433,11 @@ pub(crate) fn set_ragdoll_state(
     >,
     mut commands: Commands,
     bones: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
+    bodies: Query<(&Position, &Rotation), With<ColliderBone>>,
+    collider_shapes: Query<&Collider>,
     collider_offsets: Query<&ColliderOffset>,
     mobility_query: Query<&RagdollMobility>,
+    overrides_query: Query<&RagdollJointLimitOverrides>,
     container: Option<Res<CharacterPhysicsContainer>>,
 ) {
     let container_entity = container.map(|c| c.0);
@@ -339,6 +447,7 @@ pub(crate) fn set_ragdoll_state(
             linear: damping,
             angular: damping,
         };
+        let overrides = overrides_query.get(character_entity).ok();
 
         let partial_bones: Option<&[ColliderBone]> = match ragdoll {
             CharacterRagdoll::Partial(bones) => Some(bones.as_slice()),
@@ -350,6 +459,7 @@ pub(crate) fn set_ragdoll_state(
             commands.entity(joint).despawn();
         }
         char_colliders.joint_entities.clear();
+        char_colliders.joint_bone.clear();
 
         match ragdoll {
             CharacterRagdoll::Full => {
@@ -370,7 +480,9 @@ pub(crate) fn set_ragdoll_state(
             }
             CharacterRagdoll::None => {
                 for (_bone, &collider_entity) in char_colliders.collider_entities.iter() {
-                    commands.entity(collider_entity).insert(RigidBody::Kinematic);
+                    commands
+                        .entity(collider_entity)
+                        .insert(RigidBody::Kinematic);
                 }
                 continue;
             }
@@ -384,6 +496,7 @@ pub(crate) fn set_ragdoll_state(
             Quat,
             Transform,
             Transform,
+            RagdollJointLimit,
         )> = char_colliders
             .collider_entities
             .iter()
@@ -400,21 +513,68 @@ pub(crate) fn set_ragdoll_state(
                 let child_bone = *char_colliders.bone_entities.get(bone)?;
                 let parent_bone = *char_colliders.bone_entities.get(&parent_bone_type)?;
 
-                let child_bone_world = bones.get(child_bone).ok()?;
-                let parent_bone_world = bones.get(parent_bone).ok()?;
-                let anchor_world = child_bone_world.translation();
-
                 let parent_offset = collider_offsets.get(parent).ok()?;
                 let child_offset = collider_offsets.get(child).ok()?;
 
-                let parent_collider =
-                    Transform::from(*parent_bone_world) * parent_offset.collider_to_bone;
-                let child_collider =
-                    Transform::from(*child_bone_world) * child_offset.collider_to_bone;
+                // Joint rest frames come from the collider bodies as they stand:
+                // tooling seats these at the bind pose (direct writes, visible
+                // immediately) before flipping `CharacterRagdoll`, while bone
+                // `GlobalTransform`s still hold last frame's displaced pose until
+                // the next `PostUpdate` propagate — reading them here baked the
+                // swung pose into every respawned joint. Bone globals remain only
+                // as a fallback for freshly spawned colliders with no body yet.
+                let parent_collider = match bodies.get(parent) {
+                    Ok((position, rotation)) => {
+                        Transform::from_translation(position.0).with_rotation(rotation.0)
+                    }
+                    Err(_) => {
+                        let world = bones.get(parent_bone).ok()?;
+                        Transform::from(*world) * parent_offset.collider_to_bone
+                    }
+                };
+                let child_collider = match bodies.get(child) {
+                    Ok((position, rotation)) => {
+                        Transform::from_translation(position.0).with_rotation(rotation.0)
+                    }
+                    Err(_) => {
+                        let world = bones.get(child_bone).ok()?;
+                        Transform::from(*world) * child_offset.collider_to_bone
+                    }
+                };
 
-                // Basis for body2's joint frame so the bindpose relative
-                // rotation is the rest position and axes align.
-                let local_basis2 = child_collider.rotation.inverse() * parent_collider.rotation;
+                // Anchor: the child bone's origin is the anatomical pivot for
+                // limbs (knee, elbow, ankle, ...), but `spine03` sits high in
+                // the torso (bind z ~ 0.20 vs pelvis ~ 0.06), so a bone-derived
+                // pelvis->chest anchor hinges the chest at its top. Chest
+                // instead pivots at the waist: top-center of the parent
+                // (pelvis) collider. Its local +Y is model-up: midsection
+                // boxes are measured axis-aligned in model space.
+                let child_joint = child_collider * child_offset.collider_to_bone;
+                let anchor_world = if *bone == ColliderBone::Chest {
+                    collider_shapes
+                        .get(parent)
+                        .ok()
+                        .and_then(|shape| shape.shape().as_cuboid())
+                        .map(|cuboid| {
+                            parent_collider.transform_point(Vec3::new(
+                                0.0,
+                                cuboid.half_extents.y,
+                                0.0,
+                            ))
+                        })
+                        .unwrap_or(child_joint.translation)
+                } else {
+                    child_joint.translation
+                };
+                // basis2 aligns the two *body* frames so the as-seated relative
+                // rotation is the rest position (frame1 keeps identity basis).
+                let local_basis2 =
+                    child_collider.rotation.inverse() * parent_collider.rotation;
+
+                // Resolve the limit for this joint: explicit override wins,
+                // otherwise the anatomical default; scaled by mobility.
+                let mobility = mobility_query.get(character_entity).map_or(1.0, |m| m.0);
+                let limit = resolve_joint_limit(*bone, overrides, mobility);
 
                 Some((
                     *bone,
@@ -424,27 +584,29 @@ pub(crate) fn set_ragdoll_state(
                     local_basis2,
                     parent_collider,
                     child_collider,
+                    limit,
                 ))
             })
             .collect();
 
-        let r = mobility_query
-            .get(character_entity)
-            .ok()
-            .map_or(1.0, |m| m.0.clamp(0.0, 1.0));
-        for (bone, parent, child, anchor, local_basis2, parent_collider, child_collider) in
+        for (bone, parent, child, anchor, local_basis2, parent_collider, child_collider, limit) in
             joints_to_spawn
         {
-            // Ensure colliders are at their correct positions before creating joints,
-            // in case sync_colliders hasn't run yet (e.g. newly-spawned colliders).
-            commands.entity(parent).insert((
-                Position(parent_collider.translation),
-                Rotation(parent_collider.rotation),
-            ));
-            commands.entity(child).insert((
-                Position(child_collider.translation),
-                Rotation(child_collider.rotation),
-            ));
+            // Seat bodies that have no transform yet (newly spawned colliders).
+            // Seated bodies are already correct and must not be rewritten:
+            // identical values would still trip change detection.
+            if bodies.get(parent).is_err() {
+                commands.entity(parent).insert((
+                    Position(parent_collider.translation),
+                    Rotation(parent_collider.rotation),
+                ));
+            }
+            if bodies.get(child).is_err() {
+                commands.entity(child).insert((
+                    Position(child_collider.translation),
+                    Rotation(child_collider.rotation),
+                ));
+            }
             // If we don't increase the damping at the knee the whole ragdoll collapses very quickly at
             // the knees.  I guess we need this to support all the weight above
             let knee_damping = JointDamping {
@@ -458,13 +620,14 @@ pub(crate) fn set_ragdoll_state(
                 child,
                 anchor,
                 local_basis2,
+                limit,
                 joint_damping,
                 knee_damping,
-                r,
                 character_entity,
                 container_entity,
             );
             char_colliders.joint_entities.push(joint);
+            char_colliders.joint_bone.insert(joint, bone);
         }
     }
 }
@@ -687,9 +850,9 @@ fn spawn_ragdoll_joint(
     child: Entity,
     anchor: Vec3,
     local_basis2: Quat,
+    limit: RagdollJointLimit,
     joint_damping: JointDamping,
     knee_damping: JointDamping,
-    r: f32,
     character: Entity,
     container_entity: Option<Entity>,
 ) -> Entity {
@@ -706,7 +869,7 @@ fn spawn_ragdoll_joint(
                 RevoluteJoint::new(parent, child)
                     .with_anchor(anchor)
                     .with_local_basis2(local_basis2)
-                    .with_angle_limits(-0.17 * r, 2.5 * r)
+                    .with_angle_limits(limit.angle_min, limit.angle_max)
                     .with_point_compliance(0.0)
                     .with_align_compliance(0.0),
                 JointCollisionDisabled,
@@ -720,7 +883,7 @@ fn spawn_ragdoll_joint(
                 RevoluteJoint::new(parent, child)
                     .with_anchor(anchor)
                     .with_local_basis2(local_basis2)
-                    .with_angle_limits(-2.4 * r, 0.0)
+                    .with_angle_limits(limit.angle_min, limit.angle_max)
                     .with_point_compliance(0.0)
                     .with_align_compliance(0.0),
                 JointCollisionDisabled,
@@ -738,25 +901,22 @@ fn spawn_ragdoll_joint(
         | ColliderBone::LeftHand
         | ColliderBone::RightHand
         | ColliderBone::LeftFoot
-        | ColliderBone::RightFoot => {
-            let (swing, twist) = get_spherical_limits(bone);
-            commands
-                .spawn((
-                    Name::new(joint_name),
-                    SphericalJoint::new(parent, child)
-                        .with_anchor(anchor)
-                        .with_local_basis2(local_basis2)
-                        .with_swing_limits(-swing * r, swing * r)
-                        .with_twist_limits(-twist * r, twist * r)
-                        .with_point_compliance(0.0)
-                        .with_swing_compliance(0.0)
-                        .with_twist_compliance(0.0),
+        | ColliderBone::RightFoot => commands
+            .spawn((
+                Name::new(joint_name),
+                SphericalJoint::new(parent, child)
+                    .with_anchor(anchor)
+                    .with_local_basis2(local_basis2)
+                    .with_swing_limits(-limit.swing, limit.swing)
+                    .with_twist_limits(-limit.twist, limit.twist)
+                    .with_point_compliance(0.0)
+                    .with_swing_compliance(0.0)
+                    .with_twist_compliance(0.0),
                 JointCollisionDisabled,
                 joint_damping,
                 JointForCharacter(character),
             ))
-            .id()
-        }
+            .id(),
     };
     if let Some(container_entity) = container_entity {
         commands.entity(container_entity).add_child(joint_entity);
@@ -833,6 +993,40 @@ pub(crate) fn on_character_helpers_removed(
         .remove::<NeedsColliders>();
 }
 
+/// Re-applies [`RagdollJointLimitOverrides`] to live joints whenever the
+/// overrides component changes on a character. Lets you tune joint limits
+/// interactively while the ragdoll is active without respawning the joints.
+pub(crate) fn apply_joint_limit_overrides(
+    characters: Query<
+        (
+            Option<&RagdollJointLimitOverrides>,
+            &CharacterColliders,
+            Option<&RagdollMobility>,
+        ),
+        Or<(
+            Changed<RagdollJointLimitOverrides>,
+            Changed<RagdollMobility>,
+        )>,
+    >,
+    mut revolute: Query<&mut RevoluteJoint>,
+    mut spherical: Query<&mut SphericalJoint>,
+) {
+    for (overrides, colliders, mobility) in &characters {
+        let m = mobility.map_or(1.0, |mob| mob.0);
+        for (&joint_entity, &bone) in &colliders.joint_bone {
+            // Absent overrides fall back to the mobility-scaled default so the
+            // live joint always matches what a respawn would produce.
+            let limit = resolve_joint_limit(bone, overrides, m);
+            if let Ok(mut joint) = revolute.get_mut(joint_entity) {
+                joint.angle_limit = Some(AngleLimit::new(limit.angle_min, limit.angle_max));
+            } else if let Ok(mut joint) = spherical.get_mut(joint_entity) {
+                joint.swing_limit = Some(AngleLimit::new(-limit.swing, limit.swing));
+                joint.twist_limit = Some(AngleLimit::new(-limit.twist, limit.twist));
+            }
+        }
+    }
+}
+
 /// Propagates [`RagdollCollisionLayers`] changes from the character entity
 /// to all of its spawned collider entities at runtime.
 pub(crate) fn update_collision_layers(
@@ -848,7 +1042,7 @@ pub(crate) fn update_collision_layers(
 
 const fn get_spherical_limits(bone: ColliderBone) -> (f32, f32) {
     match bone {
-        ColliderBone::Chest => (0.5, 0.3),
+        ColliderBone::Chest | ColliderBone::Pelvis => (0.5, 0.3),
         ColliderBone::Head => (0.5, 0.3),
         ColliderBone::UpperRightArm | ColliderBone::UpperLeftArm => (1.5, 0.5),
         ColliderBone::UpperRightLeg | ColliderBone::UpperLeftLeg => (1.5, 0.3),

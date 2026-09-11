@@ -77,6 +77,7 @@ fn toggle(
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Text::new("Press SPACEBAR to toggle ragdoll arms"),
+        TextLayout::justify(Justify::Right),
         TextFont::from_font_size(24.0),
         Node {
             position_type: PositionType::Absolute,

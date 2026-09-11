@@ -80,6 +80,7 @@ fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         FpsText,
         Text::new("FPS: --"),
+        TextLayout::justify(Justify::Right),
         TextFont {
             font_size: FontSize::Px(30.0),
             ..default()
@@ -88,12 +89,13 @@ fn spawn_ui(mut commands: Commands) {
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(5.0),
-            left: Val::Px(5.0),
+            right: Val::Px(5.0),
             ..default()
         },
     ));
     commands.spawn((
         Text::new("SPACE: toggle ragdoll on all characters"),
+        TextLayout::justify(Justify::Right),
         TextFont::from_font_size(24.0),
         TextColor(Color::WHITE),
         Node {

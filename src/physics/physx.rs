@@ -1,10 +1,7 @@
 use std::marker::PhantomData;
 
 use ahash::AHashMap;
-use bevy::{
-    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
-    prelude::*,
-};
+use bevy::prelude::*;
 use bevy_mod_physx::{
     physx_sys::PxArticulationJointType,
     prelude::{self as bpx, *},
@@ -249,26 +246,11 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
     basemesh: Res<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
-    inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     rig_data: Res<RigData>,
     mut geometries: ResMut<Assets<Geometry>>,
-    skeleton_skins: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>)>,
-    children_query: Query<&Children>,
     mut commands: Commands,
 ) {
     for (character_entity, character_shape, mut colliders, skeleton) in needs_colliders.iter_mut() {
-        // Resolve SkinnedMesh from the single skeleton
-        let skeleton_entity = skeleton.skeleton_entity;
-        let mut skm: Option<SkinnedMesh> = None;
-        for child in children_query.iter_descendants(skeleton_entity) {
-            if let Ok(s) = skeleton_skins.get(child) {
-                skm = Some(s.clone());
-                break;
-            }
-        }
-        let Some(skm) = skm else {
-            continue;
-        };
         let Some(asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
@@ -287,26 +269,27 @@ pub(crate) fn spawn_kinematic_colliders<C: ColliderType + Send + Sync + 'static>
                 continue;
             }
         };
-        let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
-            continue;
-        };
         let Some(rig_spec) = rig_data.0.as_ref() else {
             continue;
         };
         let reference_rig = &rig_spec.reference_rig;
 
-        let bone_entities = reference_rig
-            .bone_names
+        let bone_entities = skeleton
+            .bone_map
             .iter()
-            .cloned()
-            .zip(skm.joints.iter().cloned())
+            .map(|(&k, &v)| (k, v))
             .collect::<AHashMap<&str, Entity>>();
 
         let inv_bindposes_map = reference_rig
             .bone_names
             .iter()
             .cloned()
-            .zip(inv_bindposes.iter().map(|m| Transform::from_matrix(*m)))
+            .zip(
+                skeleton
+                    .model_space_inv_bindposes
+                    .iter()
+                    .map(|m| Transform::from_matrix(*m)),
+            )
             .collect::<AHashMap<&str, Transform>>();
 
         let target_bones: Vec<ColliderBone> = match &colliders.bones_subset {
@@ -408,26 +391,11 @@ pub(crate) fn spawn_ragdoll_colliders(
     basemesh: Res<BaseMesh>,
     mh_morphs: Res<MakeHumanMorphs>,
     collider_mat: Res<ColliderMaterial>,
-    inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     rig_data: Res<RigData>,
     mut geometries: ResMut<Assets<Geometry>>,
-    skeleton_skins: Query<&SkinnedMesh, (Without<Mesh3d>, With<ChildOf>)>,
-    children_query: Query<&Children>,
     mut commands: Commands,
 ) {
     for (character_entity, character_shape, mut colliders, skeleton) in needs_colliders.iter_mut() {
-        // Resolve SkinnedMesh from the single skeleton
-        let skeleton_entity = skeleton.skeleton_entity;
-        let mut skm: Option<SkinnedMesh> = None;
-        for child in children_query.iter_descendants(skeleton_entity) {
-            if let Ok(s) = skeleton_skins.get(child) {
-                skm = Some(s.clone());
-                break;
-            }
-        }
-        let Some(skm) = skm else {
-            continue;
-        };
         let Some(asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
@@ -446,26 +414,27 @@ pub(crate) fn spawn_ragdoll_colliders(
                 return;
             }
         };
-        let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) else {
-            return;
-        };
         let Some(rig_spec) = rig_data.0.as_ref() else {
             return;
         };
         let reference_rig = &rig_spec.reference_rig;
 
-        let bone_entities = reference_rig
-            .bone_names
+        let bone_entities = skeleton
+            .bone_map
             .iter()
-            .cloned()
-            .zip(skm.joints.iter().cloned())
+            .map(|(&k, &v)| (k, v))
             .collect::<AHashMap<&str, Entity>>();
 
         let inv_bindposes_map = reference_rig
             .bone_names
             .iter()
             .cloned()
-            .zip(inv_bindposes.iter().map(|m| Transform::from_matrix(*m)))
+            .zip(
+                skeleton
+                    .model_space_inv_bindposes
+                    .iter()
+                    .map(|m| Transform::from_matrix(*m)),
+            )
             .collect::<AHashMap<&str, Transform>>();
 
         let mut collider_to_world_transforms = AHashMap::default();

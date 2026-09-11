@@ -94,7 +94,7 @@ pub(crate) const DEFAULT_RIG_COLLIDER_BONE_NAMES: [&str; 15] = [
     "head",
 ];
 
-pub(crate) const fn get_collider_parent(bone: ColliderBone) -> Option<ColliderBone> {
+pub const fn get_collider_parent(bone: ColliderBone) -> Option<ColliderBone> {
     match bone {
         ColliderBone::Head => Some(ColliderBone::Chest),
         ColliderBone::Chest => Some(ColliderBone::Pelvis),
@@ -113,6 +113,13 @@ pub(crate) const fn get_collider_parent(bone: ColliderBone) -> Option<ColliderBo
         ColliderBone::RightFoot => Some(ColliderBone::LowerRightLeg),
     }
 }
+/// SystemSet for ragdoll joint (re)spawn (`avian::set_ragdoll_state`).
+///
+/// Order tooling that seats collider bodies and flips `CharacterRagdoll`
+/// before this set: joint rest frames are baked from the collider bodies as
+/// they stand when the set runs.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HumentityRagdollSystemSet;
 
 /// Scales the mass of all ragdoll colliders on this character.
 ///

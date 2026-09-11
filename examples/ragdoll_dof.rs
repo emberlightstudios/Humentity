@@ -1,10 +1,10 @@
 //! Lets you inspect one degree of freedom of the ragdoll at a time.
 //!
-//! The character stands on the floor in its bind pose. With a single key press you
-//! cycle to the next joint degree of freedom. Only that one DOF is made physical:
-//! the rest of the body stays in the bind pose (kinematic), and the single joint's
-//! limb is driven through its limit back and forth by an oscillating torque (spherical
-//! joints) or motor (revolute joints) so you can watch where the limit bites and
+//! The character floats in its bind pose (no floor, no floor collision). With a
+//! single key press you cycle to the next joint degree of freedom. Only that one
+//! DOF is made physical: the rest of the body stays in the bind pose (kinematic),
+//! and the single joint's limb is driven through its limit back and forth by an
+//! oscillating torque (spherical joints) or motor (revolute joints) so you can
 //! judge whether it is appropriate.
 //!
 //! Joints come in two families:
@@ -23,22 +23,18 @@
 mod shared;
 
 use ahash::AHashMap;
-use avian3d::dynamics::rigid_body::forces::ConstantLocalTorque;
 use avian3d::prelude::*;
-use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::prelude::*;
 use humentity::prelude::*;
 use shared::setup_app;
+use std::f32::consts::FRAC_PI_2;
 
 const RAGDOLL_LAYER: u32 = 1 << 3;
 const WORLD_LAYER: u32 = 1 << 0;
 const CHARACTER_LAYER: u32 = 1 << 1;
 
 /// Angular speed (rad/s) of the oscillation that sweeps each DOF through its limit.
-const OMEGA: f32 = 1.2;
-/// Peak torque (N·m) used to drive spherical (swing/twist) DOFs.
-const TORQUE: f32 = 8.0;
-
+const OMEGA: f32 = 2.0;
 /// Which axis of a joint is currently being exercised.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Axis {
@@ -63,8 +59,8 @@ impl Dof {
         format!("{:?} — {}", self.bone, axis)
     }
 
-    fn limit_text(&self) -> String {
-        let l = default_joint_limit(self.bone);
+    fn limit_text(&self, mobility: f32) -> String {
+        let l = resolve_joint_limit(self.bone, None, mobility);
         match self.axis {
             Axis::Twist => format!("twist ±{:.0}°", l.twist.to_degrees()),
             Axis::Swing => format!("swing ±{:.0}°", l.swing.to_degrees()),
@@ -117,27 +113,6 @@ fn dofs() -> Vec<Dof> {
     v
 }
 
-/// Parent bone of a collider bone (mirrors `get_collider_parent` in the crate).
-const fn collider_parent(bone: ColliderBone) -> Option<ColliderBone> {
-    match bone {
-        ColliderBone::Head => Some(ColliderBone::Chest),
-        ColliderBone::Chest => Some(ColliderBone::Pelvis),
-        ColliderBone::Pelvis => None,
-        ColliderBone::UpperRightArm => Some(ColliderBone::Chest),
-        ColliderBone::UpperLeftArm => Some(ColliderBone::Chest),
-        ColliderBone::LowerRightArm => Some(ColliderBone::UpperRightArm),
-        ColliderBone::LowerLeftArm => Some(ColliderBone::UpperLeftArm),
-        ColliderBone::UpperRightLeg => Some(ColliderBone::Pelvis),
-        ColliderBone::UpperLeftLeg => Some(ColliderBone::Pelvis),
-        ColliderBone::LowerRightLeg => Some(ColliderBone::UpperRightLeg),
-        ColliderBone::LowerLeftLeg => Some(ColliderBone::UpperLeftLeg),
-        ColliderBone::LeftHand => Some(ColliderBone::LowerLeftArm),
-        ColliderBone::RightHand => Some(ColliderBone::LowerRightArm),
-        ColliderBone::LeftFoot => Some(ColliderBone::LowerLeftLeg),
-        ColliderBone::RightFoot => Some(ColliderBone::LowerRightLeg),
-    }
-}
-
 /// `bone` plus every collider bone descended from it (inclusive). This is the set of
 /// bones that become dynamic: the active joint is the top of the chain, and all
 /// descendants are held rigid by locking their joints, so the whole limb moves as a
@@ -145,7 +120,7 @@ const fn collider_parent(bone: ColliderBone) -> Option<ColliderBone> {
 fn subchain(bone: ColliderBone) -> Vec<ColliderBone> {
     let mut children: AHashMap<ColliderBone, Vec<ColliderBone>> = default();
     for &b in COLLIDERS.iter() {
-        if let Some(p) = collider_parent(b) {
+        if let Some(p) = get_collider_parent(b) {
             children.entry(p).or_default().push(b);
         }
     }
@@ -187,7 +162,7 @@ fn main() {
         .insert_resource(Gravity(Vec3::ZERO))
         .insert_resource(ActiveDof::default())
         .insert_resource(BindPose::default())
-        .add_systems(Startup, (floor, spawn_status_text))
+        .add_systems(Startup, spawn_status_text)
         .add_systems(Update, add_human.run_if(resource_exists::<HumentityAssetsReady>))
         .add_systems(
             Update,
@@ -195,19 +170,20 @@ fn main() {
                 ground_character,
                 capture_bind_pose,
                 cycle_dof,
-                apply_active_dof,
+                apply_active_dof.before(HumentityRagdollSystemSet),
                 reset_inactive_bones,
                 drive_dof,
                 gravity_toggle,
-            ),
+            )
+                .chain(),
         )
         .run();
 }
 
-/// Lowers the character so its bind-pose feet sit on the floor (y = 0). The bind-pose
-/// vertices become available asynchronously, so we wait for them and then offset the
-/// `CharacterShape` by the lowest vertex height. Idempotent: it just re-asserts the
-/// (constant) grounded transform once the vertices are known.
+/// Offsets the character by its bind-pose lowest vertex height so it sits at a
+/// fixed, known height (y = 0 at the feet). The bind-pose vertices become
+/// available asynchronously, so we wait for them. Idempotent: it just re-asserts
+/// the (constant) transform once the vertices are known.
 fn ground_character(
     mut commands: Commands,
     characters: Query<(Entity, &HelperVertexPositions), With<CharacterShape>>,
@@ -217,11 +193,8 @@ fn ground_character(
             continue;
         }
         let min_y = helpers.0.iter().map(|v| v.y).fold(f32::INFINITY, f32::min);
-        // +0.05 so the bind-pose feet rest on top of the floor slab.
+        // +0.05 clearance above y = 0.
         let y = -min_y + 0.05;
-        info!(
-            "ground_character: lowering CharacterShape to y = {y:.3} (min vertex y = {min_y:.3})"
-        );
         commands
             .entity(entity)
             .insert(Transform::from_xyz(0.0, y, 0.0));
@@ -313,21 +286,27 @@ fn cycle_dof(input: Res<ButtonInput<KeyCode>>, mut active: ResMut<ActiveDof>) {
         active.applied = false;
         pressed = Some(",");
     }
-    if let Some(key) = pressed {
-        info!(
-            "cycle_dof: pressed '{}' -> index {} / {} ({})",
-            key,
-            active.index + 1,
-            n,
-            list[active.index].label()
-        );
+    if pressed.is_some() {
+        // Start each DOF at the sweep end nearest bind (zero initial drive):
+        // knees rest at max (straight), elbows at min, sphericals at center.
+        let dof = &dofs()[active.index];
+        active.phase = match dof.axis {
+            Axis::Hinge => {
+                let l = default_joint_limit(dof.bone);
+                if l.angle_min.abs() < l.angle_max.abs() {
+                    -FRAC_PI_2
+                } else {
+                    FRAC_PI_2
+                }
+            }
+            Axis::Swing | Axis::Twist => FRAC_PI_2,
+        };
     }
 }
 
 /// Reconfigures the ragdoll so only the active joint is free. Runs whenever the
 /// selection changes (or once colliders have spawned).
 fn apply_active_dof(
-    mut commands: Commands,
     mut active: ResMut<ActiveDof>,
     bind_pose: Res<BindPose>,
     mut character: Query<(
@@ -337,8 +316,8 @@ fn apply_active_dof(
         &CharacterColliders,
     )>,
     mut bones: Query<&mut Transform, With<SkeletalBone>>,
-    skinned_meshes: Query<(&SkinnedMesh, &GlobalTransform)>,
-    inv_bind_assets: Res<Assets<SkinnedMeshInverseBindposes>>,
+    parents: Query<&ChildOf>,
+    globals: Query<&GlobalTransform>,
     mut collider_poses: Query<(&mut Position, &mut Rotation, &ColliderOffset), With<ColliderBone>>,
     mut collider_vels: Query<(&mut LinearVelocity, &mut AngularVelocity), With<ColliderBone>>,
     mut revolute_joints: Query<&mut RevoluteJoint>,
@@ -366,50 +345,68 @@ fn apply_active_dof(
         if bind_pose.0.is_empty() {
             // Capture hasn't run yet; nothing to reset against.
         } else {
-            // Seat every collider body at its bind-pose *world* transform, taken
-            // directly from the `SkinnedMesh` inverse bindposes — the canonical rest
-            // pose (mesh-local space), composed with the skinned mesh's world
-            // transform. Bevy's skinning is `joint_matrix = joint_world *
-            // inverse_bindpose`, so `joint_world_bind = skinned_mesh_global *
-            // inverse(inverse_bindpose)`. This is displacement-independent and correct
-            // for children of the active bone. Velocity is zeroed so a fast-swinging
-            // limb doesn't fling on reset.
-            let bone_to_collider: AHashMap<Entity, Entity> = colliders
-                .bone_entities
-                .iter()
-                .filter_map(|(&bone, &bone_entity)| {
-                    colliders
-                        .collider_entities
-                        .get(&bone)
-                        .map(|&collider_entity| (bone_entity, collider_entity))
-                })
-                .collect();
-
-            for (skm, skm_global) in skinned_meshes.iter() {
-                let Some(inv_bind) = inv_bind_assets.get(&skm.inverse_bindposes) else {
+            // Seat every collider body at its bind-pose *world* transform,
+            // rebuilt by composing the captured bind locals top-down under the
+            // skeleton entity's global. That global carries MODEL_ROTATION_FIX
+            // (pi about Y); mesh-part globals don't, so seating from inverse
+            // bindposes mirrored every body left/right. Bind locals are
+            // displacement-independent, unlike live GlobalTransforms, so the
+            // previously driven DOF can't pollute the reset. Velocity is zeroed
+            // so a fast-swinging limb doesn't fling on reset.
+            let skeleton_global = globals
+                .get(skeleton.skeleton_entity)
+                .copied()
+                .unwrap_or(GlobalTransform::IDENTITY);
+            for (&bone, &collider_entity) in &colliders.collider_entities {
+                let Some(&bone_entity) = colliders.bone_entities.get(&bone) else {
                     continue;
                 };
-                for (i, &joint_entity) in skm.joints.iter().enumerate() {
-                    let Some(&collider_entity) = bone_to_collider.get(&joint_entity) else {
-                        continue;
+                // Collect the bone-to-skeleton entity chain; refuse partial
+                // chains so one missing bind entry can't seat a body halfway.
+                let mut lineage = vec![bone_entity];
+                let rooted = loop {
+                    let Some(&top) = lineage.last() else {
+                        break false;
                     };
-                    // `inv_bind[i]` is model→joint in MODEL space. The bind-pose joint
-                    // transform is its inverse (joint→model), and the collider body
-                    // sits at `collider_to_model = joint→model * collider_to_bone`,
-                    // all composed in model space. Lift the result to world via the
-                    // skinned mesh's global transform.
-                    if let Ok((mut pos, mut rot, offset)) = collider_poses.get_mut(collider_entity)
-                    {
-                        let joint_model = Transform::from_matrix(inv_bind[i].inverse());
-                        let collider_model = joint_model * offset.collider_to_bone;
-                        let body_world = skm_global.mul_transform(collider_model);
-                        pos.0 = body_world.translation();
-                        rot.0 = body_world.rotation();
+                    let Ok(child_of) = parents.get(top) else {
+                        break false;
+                    };
+                    if child_of.parent() == skeleton.skeleton_entity {
+                        break true;
                     }
-                    if let Ok((mut lv, mut av)) = collider_vels.get_mut(collider_entity) {
-                        *lv = LinearVelocity::ZERO;
-                        *av = AngularVelocity::ZERO;
+                    lineage.push(child_of.parent());
+                };
+                if !rooted {
+                    continue;
+                }
+                let mut world = Transform::from(skeleton_global);
+                let mut complete = true;
+                for &entity in lineage.iter().rev() {
+                    // Bind entries are displacement-proof; intermediate links
+                    // like the armature object have none, so take their local
+                    // instead — the armature already matches this query, and
+                    // nothing but bones ever moves.
+                    if let Some(bind) = bind_pose.0.get(&entity) {
+                        world = world * *bind;
+                    } else if let Ok(local) = bones.get(entity) {
+                        world = world * *local;
+                    } else {
+                        complete = false;
+                        break;
                     }
+                }
+                if !complete {
+                    continue;
+                }
+                if let Ok((mut pos, mut rot, offset)) = collider_poses.get_mut(collider_entity)
+                {
+                    let body_world = world * offset.collider_to_bone;
+                    pos.0 = body_world.translation;
+                    rot.0 = body_world.rotation;
+                }
+                if let Ok((mut lv, mut av)) = collider_vels.get_mut(collider_entity) {
+                    *lv = LinearVelocity::ZERO;
+                    *av = AngularVelocity::ZERO;
                 }
             }
             // Then snap every bone's local transform to the bind pose so the visible
@@ -424,7 +421,7 @@ fn apply_active_dof(
         }
     }
 
-    let Ok((mut ragdoll, mut overrides, _skeleton, colliders)) = character.single_mut() else {
+    let Ok((mut ragdoll, mut overrides, _skeleton, _colliders)) = character.single_mut() else {
         return;
     };
 
@@ -434,13 +431,6 @@ fn apply_active_dof(
     // 1. Make the active joint's limb (and its descendants) dynamic; everything else
     //    stays kinematic in the bind pose.
     let chain = subchain(dof.bone);
-
-    info!(
-        "apply_active_dof: index {} -> {} (chain: {:?})",
-        active.index,
-        dof.label(),
-        chain
-    );
 
     // 2. Build limits: the active DOF is free, every other axis (and every
     //    descendant joint) is locked to zero so the limb holds its bind pose.
@@ -474,12 +464,7 @@ fn apply_active_dof(
     *overrides = next;
     *ragdoll = CharacterRagdoll::Partial(chain);
 
-    // 3. Clear any drive state left over from a previous selection.
-    for &collider_entity in colliders.collider_entities.values() {
-        commands
-            .entity(collider_entity)
-            .remove::<ConstantLocalTorque>();
-    }
+    // 3. Clear any motor state left over from a previous selection.
     for mut joint in revolute_joints.iter_mut() {
         joint.motor.enabled = false;
     }
@@ -488,15 +473,24 @@ fn apply_active_dof(
 }
 
 /// Drives the active DOF through its limit each frame.
+///
+/// Spherical DOFs sweep at a prescribed angular velocity about the live joint
+/// frame (`local_twist_axis2` for twist, the orthogonal swing axis for swing).
+/// Open-loop torque is banned here: constant torque spins feather-weight
+/// extremities up until NaN kills avian's AABB pass. Prescribing the sweep
+/// velocity bounds the motion by construction, and the amplitude follows the
+/// resolved limit so each DOF parks at its bite. Hinge DOFs reuse the joint's
+/// angular motor with a target swept between the resolved limits.
 fn drive_dof(
     time: Res<Time>,
     mut active: ResMut<ActiveDof>,
-    mut commands: Commands,
-    character: Query<&CharacterColliders>,
+    character: Query<(&CharacterColliders, Option<&RagdollMobility>)>,
     mut revolute_joints: Query<&mut RevoluteJoint>,
+    spherical_joints: Query<&SphericalJoint>,
+    mut bodies: Query<(&Rotation, &mut AngularVelocity), With<ColliderBone>>,
     mut text: Query<&mut Text, With<DofText>>,
 ) {
-    let Ok(colliders) = character.single() else {
+    let Ok((colliders, mobility)) = character.single() else {
         return;
     };
     if !active.applied || colliders.collider_entities.is_empty() {
@@ -514,43 +508,69 @@ fn drive_dof(
         return;
     };
 
+    let m = mobility.map_or(1.0, |mob| mob.0);
+
     active.phase += time.delta_secs() * OMEGA;
     let s = active.phase.sin();
 
     match dof.axis {
         Axis::Hinge => {
-            // Use the joint's angular motor, targeting a sine sweep between limits.
-            let def = default_joint_limit(dof.bone);
-            let mid = (def.angle_min + def.angle_max) * 0.5;
-            let half = (def.angle_max - def.angle_min) * 0.5;
+            let limit = resolve_joint_limit(dof.bone, None, m);
+            let mid = (limit.angle_min + limit.angle_max) * 0.5;
+            let half = (limit.angle_max - limit.angle_min) * 0.5;
             let target = mid + half * s;
             for mut joint in revolute_joints.iter_mut() {
                 if joint.body2 == active_collider {
                     joint.motor = AngularMotor::new(MotorModel::SpringDamper {
-                        frequency: 2.0,
+                        frequency: 3.0,
                         damping_ratio: 1.0,
                     })
                     .with_target_position(target)
-                    .with_max_torque(50.0);
+                    .with_max_torque(500.0);
                 }
             }
         }
-        Axis::Twist => {
-            // Twist is about the bone's local Y axis.
-            commands
-                .entity(active_collider)
-                .insert(ConstantLocalTorque(Vec3::Y * TORQUE * s));
-        }
-        Axis::Swing => {
-            // Swing is about a local axis perpendicular to the bone (local X).
-            commands
-                .entity(active_collider)
-                .insert(ConstantLocalTorque(Vec3::X * TORQUE * s));
+        Axis::Twist | Axis::Swing => {
+            // Child-local drive axis from the live joint frame, rotated into
+            // world: `AngularVelocity` is world-frame, so writing the local
+            // axis raw cross-wires twist and swing (e.g. head swing yaws).
+            // Right after a selection change the joint may not have respawned
+            // yet; skip the frame in that case.
+            let mut axis = None;
+            for joint in spherical_joints.iter() {
+                if joint.body2 != active_collider {
+                    continue;
+                }
+                axis = Some(if dof.axis == Axis::Twist {
+                    joint.local_twist_axis2().unwrap_or(Vec3::Y)
+                } else {
+                    joint
+                        .local_basis2()
+                        .map_or(Vec3::X, |b| b * joint.twist_axis.any_orthonormal_vector())
+                });
+                break;
+            }
+            if let Some(axis) = axis.filter(|a| a.is_finite()) {
+                let limit = resolve_joint_limit(dof.bone, None, m);
+                let range = if dof.axis == Axis::Twist {
+                    limit.twist
+                } else {
+                    limit.swing
+                };
+                let target = range * OMEGA * active.phase.cos();
+                if target.is_finite() {
+                    if let Ok((rot, mut av)) = bodies.get_mut(active_collider) {
+                        let axis = rot.0 * axis;
+                        let w: Vec3 = av.0;
+                        av.0 = w - axis * w.dot(axis) + axis * target;
+                    }
+                }
+            }
         }
     }
 
     if let Ok(mut text) = text.single_mut() {
-        *text = Text::new(status_string(active.index));
+        *text = Text::new(status_string(active.index, m));
     }
 }
 
@@ -561,14 +581,10 @@ fn gravity_toggle(input: Res<ButtonInput<KeyCode>>, mut gravity: ResMut<Gravity>
         } else {
             Vec3::ZERO
         };
-        info!(
-            "gravity_toggle: gravity now {}",
-            if gravity.0 == Vec3::ZERO { "OFF" } else { "ON" }
-        );
     }
 }
 
-fn status_string(index: usize) -> String {
+fn status_string(index: usize, mobility: f32) -> String {
     let list = dofs();
     let dof = &list[index];
     format!(
@@ -576,32 +592,23 @@ fn status_string(index: usize) -> String {
         index + 1,
         list.len(),
         dof.label(),
-        dof.limit_text(),
+        dof.limit_text(mobility),
     )
 }
 
 fn spawn_status_text(mut commands: Commands) {
     commands.spawn((
         DofText,
-        Text::new(status_string(0)),
+        Text::new(status_string(0, 1.0)),
+        TextLayout::justify(Justify::Right),
         TextFont::from_font_size(22.0),
         TextColor(Color::WHITE),
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(12.),
-            left: Val::Px(12.),
+            right: Val::Px(12.),
             ..default()
         },
-    ));
-}
-
-fn floor(mut commands: Commands) {
-    commands.spawn((
-        Collider::cuboid(100.0, 0.1, 100.0),
-        Friction::new(0.5),
-        Restitution::new(0.1),
-        RigidBody::Static,
-        Transform::IDENTITY,
     ));
 }
 
@@ -627,8 +634,8 @@ fn add_human(
         skeleton_lod: 0,
     });
 
-    // The character is lowered onto the floor once its bind-pose vertices are ready
-    // (see `ground_character`); it starts at the origin.
+    // The character is offset to a fixed height once its bind-pose vertices are
+    // ready (see `ground_character`); it starts at the origin.
     commands.spawn((
         Transform::IDENTITY,
         CharacterShape(shape_assets.add(template_handle)),
@@ -648,4 +655,4 @@ fn add_human(
             skeleton_lod: 0
         },)],
     ));
-}
+    }

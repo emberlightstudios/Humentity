@@ -49,6 +49,7 @@ fn setup_fps_text(mut commands: Commands) {
     commands.spawn((
         FpsText,
         Text::new("FPS: --"),
+        TextLayout::justify(Justify::Right),
         TextFont {
             font_size: FontSize::Px(30.0),
             ..default()
@@ -57,7 +58,7 @@ fn setup_fps_text(mut commands: Commands) {
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(5.0),
-            left: Val::Px(5.0),
+            right: Val::Px(5.0),
             ..default()
         },
     ));

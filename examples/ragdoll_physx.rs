@@ -1,5 +1,4 @@
-//! bevy_mod_physx hasn't been updated in a while.
-//! You'll have to update it to use the latest version of bevy before this will work
+//! Ragdoll example using the `physx` feature (bevy_mod_physx).
 
 mod shared;
 
@@ -21,7 +20,7 @@ fn main() {
             ..DebugRenderSettings::enable()
         })
         .add_systems(Startup, floor)
-        .add_systems(Startup, add_human)
+        .add_systems(Update, add_human.run_if(resource_exists::<HumentityAssetsReady>))
         .add_systems(Update, (toggle, setup_graph, start_clip))
         .run();
 }
@@ -30,7 +29,11 @@ fn toggle(
     input: Res<ButtonInput<KeyCode>>,
     mut hitbox: Single<&mut PhysxCharacterColliders<HitboxCollider>>,
     mut ragdoll: Single<&mut PhysxCharacterColliders<RagdollCollider>>,
-    mut human: Single<(&SkinnedMesh, &mut AnimationPlayer)>,
+    human: Single<(
+        &SkinnedMesh,
+        &mut AnimationPlayer,
+        Option<&AnimationController>,
+    )>,
     inv_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut bones: Query<(&mut Transform, Option<&ChildOf>), With<SkeletalBone>>,
 ) {
@@ -40,11 +43,13 @@ fn toggle(
             .as_ref()
             .map_or(false, |v| v.is_empty());
 
+        let (skm, mut player, controller) = human.into_inner();
+        let clip = controller.map_or_else(|| AnimationNodeIndex::new(0), |c| c.0);
+
         if ragdoll_active {
             ragdoll.bones_subset = Some(vec![]);
             hitbox.bones_subset = None;
 
-            let ((skm, mut_player)) = human.into_inner();
             if let Some(inv_bindposes) = inv_bindposes.get(&skm.inverse_bindposes) {
                 let model_bind_poses: Vec<Mat4> =
                     inv_bindposes.iter().map(|m| m.inverse()).collect();
@@ -65,9 +70,9 @@ fn toggle(
                 }
             }
 
-            player.play(controller.0).repeat();
+            player.play(clip).repeat();
         } else {
-            player.stop(controller.0);
+            player.stop(clip);
             hitbox.bones_subset = Some(vec![]);
             ragdoll.bones_subset = None;
         }
@@ -103,7 +108,12 @@ fn add_human(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut done: Local<bool>,
 ) {
+    if *done {
+        return;
+    }
+    *done = true;
     let template_handle = template_assets.add(CharacterTemplate::new([]));
 
     let hitbox_filter = ShapeFilterData {
