@@ -780,10 +780,22 @@ fn get_midsection_collider(
     let zmin = verts.iter().map(|v| v.z).reduce(f32::min).unwrap();
     let zmax = verts.iter().map(|v| v.z).reduce(f32::max).unwrap();
 
-    (
-        Collider::cuboid(xmax - xmin, ymax - ymin, zmax - zmin),
-        Transform::from_translation(center).with_rotation(bind_rot),
-    )
+    // Chest: explicit 90° flip about local X, swapping forward and up vs the
+    // inherited bind frame. The y/z extents swap with the axes so the box
+    // keeps its measured shape.
+    if joint == ColliderBone::Chest {
+        (
+            Collider::cuboid(xmax - xmin, zmax - zmin, ymax - ymin),
+            Transform::from_translation(center).with_rotation(
+                bind_rot * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+            ),
+        )
+    } else {
+        (
+            Collider::cuboid(xmax - xmin, ymax - ymin, zmax - zmin),
+            Transform::from_translation(center).with_rotation(bind_rot),
+        )
+    }
 }
 
 fn get_limb_collider(helpers: &[Vec3], joint: ColliderBone) -> (Collider, Transform) {
