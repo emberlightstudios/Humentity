@@ -91,6 +91,10 @@ impl RigSpec {
             .get(bone_name)
             .copied()
     }
+
+    pub fn reference_rig(&self) -> &ReferenceRigAsset {
+        &self.reference_rig
+    }
 }
 
 /// Tracks which rig assets have loaded, for event-driven sync.

@@ -98,9 +98,9 @@ pub(crate) fn rescale_root_bone_translation(
         let delta = t.translation.y - info.bind_pose_y;
         if delta.abs() > 1e-3 {
             t.translation.y *= info.root_scale;
-            t.translation.x = 0.;
-            t.translation.z = 0.;
         }
+        t.translation.x = 0.;
+        t.translation.z = 0.;
     }
 }
 
