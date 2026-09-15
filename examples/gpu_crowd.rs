@@ -1,6 +1,6 @@
 //! Basic GPU crowd: 8000 characters posed entirely on the GPU.
 //!
-//! The idle clip is baked once to local bone matrices on skeleton LOD 2. Every
+//! The idle clip is baked once to local bone matrices on the single crowd skeleton. Every
 //! frame a compute shader poses all instances x bones and the joint buffer
 //! feeds the skinning vertex shader bindlessly. The main world holds only
 //! static `Transform`s: no skeletons, no `AnimationPlayer`, no transform
@@ -20,18 +20,18 @@ use humentity::{load_and_insert_humentity_assets, HumentityPlugin};
 use shared::{custom_crowd_material, CustomCrowdMaterial};
 
 const INSTANCES: usize = 8_000;
-const SKELETON_LOD: usize = 2;
+const SKELETON_LOD: usize = 0;
 
-fn gpu_skeleton_lods() -> Vec<BoneMergeConfig> {
-    let lod0 = BoneMergeConfig::full().without_children_of(&["foot.L", "foot.R"]);
-    let lod1 = lod0.clone().without_children_of(&["head"]);
-    let lod2 = lod1.clone().without_children_of(&[
+fn gpu_skeleton() -> BoneMergeConfig {
+    BoneMergeConfig::full().without_children_of(&[
+        "foot.L",
+        "foot.R",
+        "head",
         "lowerarm02.L",
         "lowerarm02.R",
         "lowerleg02.L",
         "lowerleg02.R",
-    ]);
-    vec![lod0, lod1, lod2]
+    ])
 }
 
 fn main() {
@@ -54,7 +54,7 @@ fn main() {
         },
         MaterialPlugin::<CustomCrowdMaterial>::default(),
     ));
-    app.insert_resource(SkeletonLodConfig::new(&gpu_skeleton_lods()));
+    app.insert_resource(SkeletonLodConfig::new(&[gpu_skeleton()]));
     app.insert_resource(GpuSkeletonLod(SKELETON_LOD));
     app.add_systems(Startup, (load_assets, setup_scene, setup_fps_text))
         .add_systems(

@@ -21,9 +21,9 @@ impl Default for GpuCrowdConfig {
     }
 }
 
-/// Which skeleton LOD the bake poses. Must match the `skeleton_lod` the crowd
-/// meshes were built with so joint indices line up. `0` is the full skeleton;
-/// higher LODs pose fewer bones.
+/// Which skeleton variant the bake poses. Must match the `skeleton_lod` the crowd
+/// meshes were built with so joint indices line up. `0` selects the first
+/// [`SkeletonLodConfig`](crate::prelude::SkeletonLodConfig) entry.
 #[derive(Resource, Clone, Copy, Default)]
 pub struct GpuSkeletonLod(pub usize);
 

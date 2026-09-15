@@ -122,17 +122,13 @@ pub(super) fn bake_gpu_animation(
         return;
     };
     let reference = rig.reference_rig();
-    let bones: Vec<&'static str> = if skeleton_lod.0 == 0 {
-        reference.bone_names.clone()
-    } else {
-        let Some(bundle) = rig_bundle.bundle.as_ref() else {
-            return;
-        };
-        let Some(data) = bundle.lod_data.get(skeleton_lod.0) else {
-            return;
-        };
-        data.bone_names.clone()
+    let Some(bundle) = rig_bundle.bundle.as_ref() else {
+        return;
     };
+    let Some(data) = bundle.lod_data.get(skeleton_lod.0) else {
+        return;
+    };
+    let bones: Vec<&'static str> = data.bone_names.clone();
     *base_done = true;
 
     let targets: Vec<AnimationTargetId> = bones
