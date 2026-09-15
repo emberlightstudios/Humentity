@@ -9,11 +9,7 @@
 
 mod shared;
 
-use bevy::{
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    mesh::MeshTag,
-    prelude::*,
-};
+use bevy::{mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
 use shared::{CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
 
@@ -23,18 +19,14 @@ const INSTANCES: usize = 6_000;
 
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0);
-    app.insert_resource(GpuBlendClips {
-        names: vec![WALK.to_string(), STRAFE_RIGHT.to_string()],
-    });
     app.insert_resource(GpuBlendWeights([0.5, 0.5, 0.0, 0.0]));
-    app.add_systems(Startup, (setup_scene, setup_fps_text))
+    app.add_systems(Startup, setup_scene)
         .add_systems(
             Update,
             (
                 trigger_crowd_build.run_if(resource_exists::<HumentityAssetsReady>),
                 spawn_crowd,
                 sweep_blend_weights,
-                update_fps_text,
             ),
         )
         .run();
@@ -46,10 +38,6 @@ struct CrowdBuild {
     template: Handle<CharacterTemplate>,
     _clips: Handle<RetargetedAnimationAsset>,
 }
-
-#[derive(Component)]
-struct FpsText;
-
 
 fn setup_scene(
     mut commands: Commands,
@@ -71,25 +59,6 @@ fn setup_scene(
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(0.0, 18.0, -30.0).looking_at(Vec3::new(0.0, 1.0, 8.0), Vec3::Y),
-    ));
-}
-
-fn setup_fps_text(mut commands: Commands) {
-    commands.spawn((
-        FpsText,
-        Text::new("FPS: --"),
-        TextLayout::justify(Justify::Right),
-        TextFont {
-            font_size: FontSize::Px(30.0),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(5.0),
-            right: Val::Px(5.0),
-            ..default()
-        },
     ));
 }
 
@@ -194,27 +163,5 @@ fn sweep_blend_weights(time: Res<Time>, anims: Option<ResMut<GpuInstanceAnims>>)
     let target = [walk, 1.0 - walk, 0.0, 0.0];
     for t in anims.targets.iter_mut() {
         *t = target;
-    }
-}
-
-fn update_fps_text(
-    diagnostics: Res<DiagnosticsStore>,
-    anims: Option<Res<GpuInstanceAnims>>,
-    mut query: Query<&mut Text, With<FpsText>>,
-) {
-    let fps = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|d| d.smoothed())
-        .unwrap_or(0.0);
-    let (walk, strafe) = anims
-        .and_then(|a| a.targets.first().copied())
-        .map(|t| (t[0], t[1]))
-        .unwrap_or((0.5, 0.5));
-    for mut text in &mut query {
-        **text = format!(
-            "FPS: {fps:.1}  walk {:.0}% / strafe {:.0}%",
-            walk * 100.0,
-            strafe * 100.0
-        );
     }
 }

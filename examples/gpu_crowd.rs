@@ -9,25 +9,21 @@
 mod shared;
 
 use bevy::{
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     mesh::{MeshTag, VertexAttributeValues},
     prelude::*,
 };
 use humentity::prelude::*;
 use shared::{CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
-
 const INSTANCES: usize = 8_000;
 
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0);
-    app.add_systems(Startup, (setup_scene, setup_fps_text))
+    app.add_systems(Startup, setup_scene)
         .add_systems(
             Update,
             (
                 trigger_crowd_build.run_if(resource_added::<HumentityAssetsReady>),
-                request_clip_bakes,
                 spawn_crowd,
-                update_fps_text,
             ),
         )
         .run();
@@ -39,10 +35,6 @@ struct CrowdBuild {
     template: Handle<CharacterTemplate>,
     _clips: Handle<RetargetedAnimationAsset>,
 }
-
-#[derive(Component)]
-struct FpsText;
-
 
 fn setup_scene(
     mut commands: Commands,
@@ -90,29 +82,6 @@ fn trigger_crowd_build(
         _clips: clips,
     });
     info!("crowd build triggered");
-}
-
-/// Manual clip loads: when a retargeted clip asset finishes loading, queue
-/// every clip it contains for background baking. Nothing else queues loads.
-fn request_clip_bakes(
-    bank: Option<ResMut<GpuAnimationBank>>,
-    retargeted: Res<Assets<RetargetedAnimationAsset>>,
-    mut events: MessageReader<AssetEvent<RetargetedAnimationAsset>>,
-) {
-    let Some(mut bank) = bank else {
-        return;
-    };
-    for ev in events.read() {
-        let (AssetEvent::Added { id } | AssetEvent::LoadedWithDependencies { id }) = ev else {
-            continue;
-        };
-        let Some(asset) = retargeted.get(*id) else {
-            continue;
-        };
-        for name in asset.clips.keys() {
-            bank.request_load((*name).to_string(), GpuClipMode::Loop);
-        }
-    }
 }
 
 fn spawn_crowd(
@@ -187,31 +156,3 @@ fn spawn_crowd(
     info!("spawned {count} GPU-posed characters sharing one mesh and one material");
 }
 
-fn setup_fps_text(mut commands: Commands) {
-    commands.spawn((
-        FpsText,
-        Text::new("FPS: --"),
-        TextLayout::justify(Justify::Right),
-        TextFont {
-            font_size: FontSize::Px(29.0),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(4.0),
-            right: Val::Px(4.0),
-            ..default()
-        },
-    ));
-}
-
-fn update_fps_text(diagnostics: Res<DiagnosticsStore>, mut query: Query<&mut Text, With<FpsText>>) {
-    let fps = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|d| d.smoothed())
-        .unwrap_or(0.0);
-    for mut text in &mut query {
-        **text = format!("GPU crowd FPS: {fps:.1}");
-    }
-}

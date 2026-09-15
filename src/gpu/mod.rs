@@ -22,8 +22,7 @@ mod state;
 use bake::{bake_gpu_animation, collect_clip_bakes, submit_clip_bakes};
 pub use bank::{GpuAnimationBank, GpuAnimationReady, GpuRenderHandles};
 pub use config::{
-    GpuBlendClips, GpuBlendWeights, GpuClipMode, GpuClipModes, GpuCrowdConfig, GpuSkeletonLod,
-    MAX_BLEND_CLIPS, MAX_GPU_CLIPS,
+    GpuBlendWeights, GpuClipMode, GpuCrowdConfig, GpuSkeletonLod, MAX_BLEND_CLIPS, MAX_GPU_CLIPS,
 };
 pub use material::{
     ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, CrowdMaterial, GpuCrowdExtension,
@@ -121,9 +120,7 @@ impl Plugin for HumentityGpuPlugin {
             instances: self.instances,
             sample_rate: self.sample_rate,
         });
-        app.init_resource::<GpuBlendClips>();
         app.init_resource::<GpuBlendWeights>();
-        app.init_resource::<GpuClipModes>();
         app.init_resource::<GpuSkeletonLod>();
         app.init_resource::<bank::GpuBakeJobs>();
         app.add_message::<GpuOneShotDone>();

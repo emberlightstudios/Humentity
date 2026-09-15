@@ -69,8 +69,8 @@ pub mod prelude {
         },
         gpu::{
             ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, CROWD_SKIN_SHADER,
-            CrowdMaterial, GpuAnimationBank, GpuAnimationReady, GpuBlendClips, GpuBlendWeights,
-            GpuClipMode, GpuClipModes, GpuCrowdConfig, GpuCrowdExtension, GpuCrowdUniform,
+            CrowdMaterial, GpuAnimationBank, GpuAnimationReady, GpuBlendWeights,
+            GpuClipMode, GpuCrowdConfig, GpuCrowdExtension, GpuCrowdUniform,
             GpuInstanceAnims, GpuOneShotDone, GpuRenderHandles, GpuSkeletonLod, HumentityGpuPlugin,
             MAX_BLEND_CLIPS, MAX_GPU_CLIPS, POSE_SHADER, gpu_skin_wgsl, make_gpu_mesh,
             specialize_gpu_vertex_layout,

@@ -1,5 +1,5 @@
-//! GPU crowd configuration: instance counts, clip selection, blend-weight
-//! templates, playback modes, and skeleton LOD selection.
+//! GPU crowd configuration: instance counts, blend-weight templates,
+//! playback modes, and skeleton LOD selection.
 
 use bevy::prelude::*;
 
@@ -36,27 +36,10 @@ pub const MAX_BLEND_CLIPS: usize = 4;
 /// hardcoded table sizes in `pose.wgsl`.
 pub const MAX_GPU_CLIPS: usize = 64;
 
-/// Initial clips to auto-request once the base buffers exist (up to
-/// [`MAX_GPU_CLIPS`]), resolved by name against the loaded
-/// [`RetargetedAnimationAsset`](crate::prelude::RetargetedAnimationAsset).
-/// Further loads/unloads are manual via
+/// Clip loads/unloads are manual via
 /// [`GpuAnimationBank`](super::bank::GpuAnimationBank) `request_load` /
-/// `request_unload`. Defaults to the idle loop so the crowd example needs no
-/// configuration.
-#[derive(Resource, Clone)]
-pub struct GpuBlendClips {
-    pub names: Vec<String>,
-}
-
-impl Default for GpuBlendClips {
-    fn default() -> Self {
-        Self {
-            names: vec!["Idle-loop".to_string()],
-        }
-    }
-}
-
-/// Per-clip blend weights template used once at bake to seed every instance.
+/// `request_unload`.
+/// Per-instance blend weights template used once at bake to seed every instance.
 /// Runtime weights are per-instance in [`GpuInstanceAnims`](super::state::GpuInstanceAnims);
 /// drive those to crossfade.
 #[derive(Resource, Clone, Copy)]
@@ -76,13 +59,3 @@ pub enum GpuClipMode {
     OnceHold,
 }
 
-/// Static per-clip modes for the initial auto-request, resolved by bank order.
-/// Manual loads via `GpuAnimationBank::request_load` carry their own mode.
-#[derive(Resource, Clone, Copy)]
-pub struct GpuClipModes(pub [GpuClipMode; MAX_GPU_CLIPS]);
-
-impl Default for GpuClipModes {
-    fn default() -> Self {
-        Self([GpuClipMode::Loop; MAX_GPU_CLIPS])
-    }
-}

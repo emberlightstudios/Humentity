@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use bevy::{
     asset::AssetPlugin,
-    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     input::mouse::MouseMotion,
     mesh::{MeshVertexBufferLayoutRef, morph::MeshMorphWeights, skinning::SkinnedMesh},
     pbr::{
@@ -81,8 +81,81 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32) -> App {
     ));
     app.insert_resource(SkeletonLodConfig::new(&[gpu_skeleton()]));
     app.insert_resource(GpuSkeletonLod(GPU_SKELETON_LOD));
-    app.add_systems(Startup, load_core_assets);
+    app.add_systems(Startup, (load_core_assets, setup_fps_text));
+    app.add_systems(Update, (request_clip_bakes, update_fps_text));
     app
+}
+
+/// Marker for the shared FPS readout.
+#[derive(Component)]
+pub struct FpsText;
+
+/// Spawns the shared FPS readout (top-right).
+pub fn setup_fps_text(mut commands: Commands) {
+    commands.spawn((
+        FpsText,
+        Text::new("FPS: --"),
+        TextLayout::justify(Justify::Right),
+        TextFont {
+            font_size: FontSize::Px(30.0),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(5.0),
+            right: Val::Px(5.0),
+            ..default()
+        },
+    ));
+}
+
+/// Updates the shared FPS readout, appending the walk/strafe mix when
+/// per-instance animation state exists.
+pub fn update_fps_text(
+    diagnostics: Res<DiagnosticsStore>,
+    anims: Option<Res<GpuInstanceAnims>>,
+    mut query: Query<&mut Text, With<FpsText>>,
+) {
+    let fps = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|d| d.smoothed())
+        .unwrap_or(0.0);
+    let mut text = format!("FPS: {fps:.1}");
+    if let Some(mix) = anims.and_then(|a| a.targets.first().copied()) {
+        text.push_str(&format!(
+            "  walk {:.0}% / strafe {:.0}%",
+            mix[0] * 100.0,
+            mix[1] * 100.0
+        ));
+    }
+    for mut line in &mut query {
+        **line = text.clone();
+    }
+}
+
+/// Manual clip loads: when a retargeted clip asset finishes loading, queue
+/// every clip it contains for background baking. This is the only path that
+/// queues loads.
+pub fn request_clip_bakes(
+    bank: Option<ResMut<GpuAnimationBank>>,
+    retargeted: Res<Assets<RetargetedAnimationAsset>>,
+    mut events: MessageReader<AssetEvent<RetargetedAnimationAsset>>,
+) {
+    let Some(mut bank) = bank else {
+        return;
+    };
+    for ev in events.read() {
+        let (AssetEvent::Added { id } | AssetEvent::LoadedWithDependencies { id }) = ev else {
+            continue;
+        };
+        let Some(asset) = retargeted.get(*id) else {
+            continue;
+        };
+        for name in asset.clips.keys() {
+            bank.request_load((*name).to_string(), GpuClipMode::Loop);
+        }
+    }
 }
 
 /// Core humentity assets every GPU crowd example needs, loaded from the

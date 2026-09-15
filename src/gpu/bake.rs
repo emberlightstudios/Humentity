@@ -3,12 +3,14 @@
 //! The first pass samples nothing: it snapshots the LOD skeleton (bones,
 //! animation targets, bindposes), uploads the static buffers (`parents`,
 //! `inv_bind`, a frame-0 bindpose seed, `joints`, `uniforms`,
-//! `instance_data`), creates the [`GpuAnimationBank`] registry, and queues
-//! the [`GpuBlendClips`] names as manual loads. Follow-up passes dispatch one
-//! background [`AsyncComputeTaskPool`] task per queued load; completions are
-//! collected on the main thread, appended to the shared `frames` buffer, and
-//! published through the bank tables + [`GpuRenderHandles`]. Unloads clear the
-//! bank slot and the uniform row (neighbours never move).
+//! `instance_data`), creates the [`GpuAnimationBank`] registry, and seeds
+//! per-instance state. Clip loads are always manual: callers queue them via
+//! [`GpuAnimationBank::request_load`](super::bank::GpuAnimationBank::request_load),
+//! follow-up passes dispatch one background [`AsyncComputeTaskPool`] task per
+//! queued load; completions are collected on the main thread, appended to the
+//! shared `frames` buffer, and published through the bank tables +
+//! [`GpuRenderHandles`]. Unloads clear the bank slot and the uniform row
+//! (neighbours never move).
 
 use ahash::AHashMap;
 use bevy::{
@@ -23,10 +25,7 @@ use crate::{prelude::*, rigs::RigBundleRes};
 
 use super::{
     bank::{BakedClip, BankSlot, GpuAnimationBank, GpuAnimationReady, GpuBakeJobs, GpuRenderHandles},
-    config::{
-        GpuBlendClips, GpuBlendWeights, GpuClipModes, GpuCrowdConfig, GpuSkeletonLod,
-        MAX_BLEND_CLIPS, MAX_GPU_CLIPS,
-    },
+    config::{GpuBlendWeights, GpuCrowdConfig, GpuSkeletonLod, MAX_BLEND_CLIPS, MAX_GPU_CLIPS},
     state::GpuInstanceAnims,
 };
 
@@ -102,13 +101,12 @@ fn sample_clip_frames(
 }
 
 /// First pass: uploads static buffers + frame-0 bindpose seed, creates the
-/// bank, seeds per-instance state, and queues the initial clip names.
+/// bank, and seeds per-instance state. Clip loads are manual via
+/// [`GpuAnimationBank::request_load`](super::bank::GpuAnimationBank::request_load).
 pub(super) fn bake_gpu_animation(
     mut commands: Commands,
     config: Res<GpuCrowdConfig>,
-    blend_clips: Res<GpuBlendClips>,
     blend_weights: Res<GpuBlendWeights>,
-    clip_modes: Res<GpuClipModes>,
     skeleton_lod: Res<GpuSkeletonLod>,
     rig_data: Res<RigData>,
     rig_bundle: Res<RigBundleRes>,
@@ -188,13 +186,7 @@ pub(super) fn bake_gpu_animation(
 
     let num_bones = bones.len() as u32;
     let instances = config.instances as u32;
-    let mut bank = GpuAnimationBank::new(bones, targets, binds, config.sample_rate);
-    for (index, name) in blend_clips.names.iter().take(MAX_GPU_CLIPS).enumerate() {
-        bank.request_load(
-            name.clone(),
-            clip_modes.0.get(index).copied().unwrap_or_default(),
-        );
-    }
+    let bank = GpuAnimationBank::new(bones, targets, binds, config.sample_rate);
     let (offsets, counts, durations, modes) = bank.tables();
 
     let parents_handle = buffers.add(ShaderBuffer::new(
