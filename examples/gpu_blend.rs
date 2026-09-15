@@ -1,64 +1,29 @@
 //! GPU locomotion blend: 6000 characters blending forward walk with strafe
 //! right entirely on the GPU.
 //!
-//! The `normal-walk` and `normal-walk-strafe-right` clips from the workspace
-//! root `assets/animation/movement_normal.glb` are baked once on skeleton
-//! LOD 2; every frame the pose shader blends them with per-instance
+//! The `normal-walk` and `normal-walk-strafe-right` clips from
+//! `assets/animation/movement_normal.glb` are baked once on the single crowd
+//! skeleton; every frame the pose shader blends them with per-instance
 //! [`GpuInstanceAnims`] weights. This example sweeps the weights on a sine so
 //! the blend is visible, and shows the live mix in the FPS readout.
 
 mod shared;
 
 use bevy::{
-    asset::AssetPlugin,
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     mesh::MeshTag,
-    pbr::MaterialPlugin,
     prelude::*,
 };
+use humentity::load_and_insert_humentity_assets;
 use humentity::prelude::*;
-use humentity::{load_and_insert_humentity_assets, HumentityPlugin};
-use shared::{custom_crowd_material, CustomCrowdMaterial};
+use shared::{CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
 
 const WALK: &str = "normal-walk";
 const STRAFE_RIGHT: &str = "normal-walk-strafe-right";
 const INSTANCES: usize = 6_000;
-const SKELETON_LOD: usize = 2;
-
-fn gpu_skeleton_lods() -> Vec<BoneMergeConfig> {
-    let lod0 = BoneMergeConfig::full().without_children_of(&["foot.L", "foot.R"]);
-    let lod1 = lod0.clone().without_children_of(&["head"]);
-    let lod2 = lod1.clone().without_children_of(&[
-        "lowerarm02.L",
-        "lowerarm02.R",
-        "lowerleg02.L",
-        "lowerleg02.R",
-    ]);
-    vec![lod0, lod1, lod2]
-}
 
 fn main() {
-    let workspace_assets: String = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../assets")
-        .to_string_lossy()
-        .into_owned();
-    let mut app = App::new();
-    app.add_plugins((
-        DefaultPlugins.set(AssetPlugin {
-            file_path: workspace_assets,
-            ..default()
-        }),
-        FrameTimeDiagnosticsPlugin::default(),
-        LogDiagnosticsPlugin::default(),
-        HumentityPlugin,
-        HumentityGpuPlugin {
-            instances: INSTANCES,
-            sample_rate: 30.0,
-        },
-        MaterialPlugin::<CustomCrowdMaterial>::default(),
-    ));
-    app.insert_resource(SkeletonLodConfig::new(&gpu_skeleton_lods()));
-    app.insert_resource(GpuSkeletonLod(SKELETON_LOD));
+    let mut app = setup_app_gpu(INSTANCES, 30.0);
     app.insert_resource(GpuBlendClips {
         names: vec![WALK.to_string(), STRAFE_RIGHT.to_string()],
     });
@@ -90,14 +55,14 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
     load_and_insert_humentity_assets(
         &mut commands,
         &asset_server,
-        "characters/humentity/base.obj",
-        "characters/humentity/basemesh_vertex_groups.json",
-        "characters/humentity/target.json",
-        "characters/humentity/macro.macro",
-        "characters/humentity/targets",
-        "characters/humentity/rigs/rig.default.json",
-        "characters/humentity/rigs/weights.default.json",
-        "characters/humentity/skeletons/default.glb",
+        "base.obj",
+        "basemesh_vertex_groups.json",
+        "target.json",
+        "macro.macro",
+        "targets",
+        "rigs/rig.default.json",
+        "rigs/weights.default.json",
+        "skeletons/default.glb",
     );
 }
 
@@ -157,12 +122,11 @@ fn trigger_crowd_build(
         "neutral",
         MorphTargets::default(),
     )]));
-    let part =
-        asset_server.load::<MhcloAsset>("characters/humentity/proxymeshes/basemesh/basemesh.proxy");
+    let part = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: part.clone(),
         template_handle: template.clone(),
-        skeleton_lod: SKELETON_LOD,
+        skeleton_lod: GPU_SKELETON_LOD,
     });
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/movement_normal.glb");
     commands.insert_resource(CrowdBuild {
@@ -191,13 +155,12 @@ fn spawn_crowd(
         return;
     };
     // Walk on slot 0, strafe on slot 1; wait until both are resident.
-    let (Some(walk_slot), Some(strafe_slot)) =
-        (bank.slot_of(WALK), bank.slot_of(STRAFE_RIGHT))
+    let (Some(walk_slot), Some(strafe_slot)) = (bank.slot_of(WALK), bank.slot_of(STRAFE_RIGHT))
     else {
         return;
     };
     let Some(source_handle) =
-        cached.get(&(build.part.clone(), build.template.clone(), SKELETON_LOD))
+        cached.get(&(build.part.clone(), build.template.clone(), GPU_SKELETON_LOD))
     else {
         return;
     };

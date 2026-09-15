@@ -9,53 +9,18 @@
 mod shared;
 
 use bevy::{
-    asset::AssetPlugin,
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     mesh::{MeshTag, VertexAttributeValues},
-    pbr::MaterialPlugin,
     prelude::*,
 };
+use humentity::load_and_insert_humentity_assets;
 use humentity::prelude::*;
-use humentity::{load_and_insert_humentity_assets, HumentityPlugin};
-use shared::{custom_crowd_material, CustomCrowdMaterial};
+use shared::{CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
 
 const INSTANCES: usize = 8_000;
-const SKELETON_LOD: usize = 0;
-
-fn gpu_skeleton() -> BoneMergeConfig {
-    BoneMergeConfig::full().without_children_of(&[
-        "foot.L",
-        "foot.R",
-        "head",
-        "lowerarm02.L",
-        "lowerarm02.R",
-        "lowerleg02.L",
-        "lowerleg02.R",
-    ])
-}
 
 fn main() {
-    let humentity_assets: String = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .to_string_lossy()
-        .into_owned();
-    let mut app = App::new();
-    app.add_plugins((
-        DefaultPlugins.set(AssetPlugin {
-            file_path: humentity_assets,
-            ..default()
-        }),
-        FrameTimeDiagnosticsPlugin::default(),
-        LogDiagnosticsPlugin::default(),
-        HumentityPlugin,
-        HumentityGpuPlugin {
-            instances: INSTANCES,
-            sample_rate: 30.0,
-        },
-        MaterialPlugin::<CustomCrowdMaterial>::default(),
-    ));
-    app.insert_resource(SkeletonLodConfig::new(&[gpu_skeleton()]));
-    app.insert_resource(GpuSkeletonLod(SKELETON_LOD));
+    let mut app = setup_app_gpu(INSTANCES, 30.0);
     app.add_systems(Startup, (load_assets, setup_scene, setup_fps_text))
         .add_systems(
             Update,
@@ -130,7 +95,7 @@ fn trigger_crowd_build(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: part.clone(),
         template_handle: template.clone(),
-        skeleton_lod: SKELETON_LOD,
+        skeleton_lod: GPU_SKELETON_LOD,
     });
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
     commands.insert_resource(CrowdBuild {
@@ -163,7 +128,7 @@ fn spawn_crowd(
         return;
     };
     let Some(source_handle) =
-        cached.get(&(build.part.clone(), build.template.clone(), SKELETON_LOD))
+        cached.get(&(build.part.clone(), build.template.clone(), GPU_SKELETON_LOD))
     else {
         return;
     };

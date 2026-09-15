@@ -1,14 +1,20 @@
 #![allow(dead_code)]
 use bevy::{
+    asset::AssetPlugin,
+    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     input::mouse::MouseMotion,
-    mesh::{morph::MeshMorphWeights, skinning::SkinnedMesh, MeshVertexBufferLayoutRef},
-    pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline},
+    mesh::{MeshVertexBufferLayoutRef, morph::MeshMorphWeights, skinning::SkinnedMesh},
+    pbr::{
+        ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+        MaterialPlugin,
+    },
     prelude::*,
     render::{render_resource::*, storage::ShaderBuffer},
     shader::ShaderRef,
 };
 use bevy_egui::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use humentity::HumentityPlugin;
 use humentity::prelude::*;
 
 /// Default skeleton LOD configurations.
@@ -30,6 +36,52 @@ pub fn default_skeleton_lods() -> Vec<BoneMergeConfig> {
     ]);
 
     vec![lod0, lod1, lod2]
+}
+
+/// The single trimmed skeleton every GPU crowd example poses: toes, face,
+/// and hand/foot detail are merged away for crowd distance.
+pub fn gpu_skeleton() -> BoneMergeConfig {
+    BoneMergeConfig::full().without_children_of(&[
+        "foot.L",
+        "foot.R",
+        "head",
+        "lowerarm02.L",
+        "lowerarm02.R",
+        "lowerleg02.L",
+        "lowerleg02.R",
+    ])
+}
+
+/// Index of the single crowd skeleton in [`SkeletonLodConfig`].
+pub const GPU_SKELETON_LOD: usize = 0;
+
+/// Builds the `App` every GPU crowd example shares: humentity assets live at
+/// the crate's `assets/` dir, diagnostics + GPU plugin + crowd material are
+/// wired, and the single [`gpu_skeleton`] is registered at
+/// [`GPU_SKELETON_LOD`].
+pub fn setup_app_gpu(instances: usize, sample_rate: f32) -> App {
+    let asset_dir: String = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .to_string_lossy()
+        .into_owned();
+    let mut app = App::new();
+    app.add_plugins((
+        DefaultPlugins.set(AssetPlugin {
+            file_path: asset_dir,
+            ..default()
+        }),
+        FrameTimeDiagnosticsPlugin::default(),
+        LogDiagnosticsPlugin::default(),
+        HumentityPlugin,
+        HumentityGpuPlugin {
+            instances,
+            sample_rate,
+        },
+        MaterialPlugin::<CustomCrowdMaterial>::default(),
+    ));
+    app.insert_resource(SkeletonLodConfig::new(&[gpu_skeleton()]));
+    app.insert_resource(GpuSkeletonLod(GPU_SKELETON_LOD));
+    app
 }
 
 pub fn setup_app() -> App {
