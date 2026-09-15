@@ -14,6 +14,7 @@ use bevy::{
 };
 use humentity::prelude::*;
 use shared::{CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
+
 const INSTANCES: usize = 8_000;
 
 fn main() {
@@ -23,6 +24,7 @@ fn main() {
             Update,
             (
                 trigger_crowd_build.run_if(resource_added::<HumentityAssetsReady>),
+                request_clip_bakes,
                 spawn_crowd,
             ),
         )
@@ -82,6 +84,29 @@ fn trigger_crowd_build(
         _clips: clips,
     });
     info!("crowd build triggered");
+}
+
+/// Manual clip loads: when a retargeted clip asset finishes loading, queue
+/// every clip it contains for background baking. Nothing else queues loads.
+fn request_clip_bakes(
+    bank: Option<ResMut<GpuAnimationBank>>,
+    retargeted: Res<Assets<RetargetedAnimationAsset>>,
+    mut events: MessageReader<AssetEvent<RetargetedAnimationAsset>>,
+) {
+    let Some(mut bank) = bank else {
+        return;
+    };
+    for ev in events.read() {
+        let (AssetEvent::Added { id } | AssetEvent::LoadedWithDependencies { id }) = ev else {
+            continue;
+        };
+        let Some(asset) = retargeted.get(*id) else {
+            continue;
+        };
+        for name in asset.clips.keys() {
+            bank.request_load((*name).to_string(), GpuClipMode::Loop);
+        }
+    }
 }
 
 fn spawn_crowd(

@@ -12,6 +12,7 @@ mod shared;
 use bevy::{mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
 use shared::{CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
+use shared::FpsText;
 
 const WALK: &str = "normal-walk";
 const STRAFE_RIGHT: &str = "normal-walk-strafe-right";
@@ -25,8 +26,10 @@ fn main() {
             Update,
             (
                 trigger_crowd_build.run_if(resource_exists::<HumentityAssetsReady>),
+                request_clip_bakes,
                 spawn_crowd,
                 sweep_blend_weights,
+                update_blend_text,
             ),
         )
         .run();
@@ -163,5 +166,46 @@ fn sweep_blend_weights(time: Res<Time>, anims: Option<ResMut<GpuInstanceAnims>>)
     let target = [walk, 1.0 - walk, 0.0, 0.0];
     for t in anims.targets.iter_mut() {
         *t = target;
+    }
+}
+
+/// Manual clip loads: when a retargeted clip asset finishes loading, queue
+/// every clip it contains for background baking. Nothing else queues loads.
+fn request_clip_bakes(
+    bank: Option<ResMut<GpuAnimationBank>>,
+    retargeted: Res<Assets<RetargetedAnimationAsset>>,
+    mut events: MessageReader<AssetEvent<RetargetedAnimationAsset>>,
+) {
+    let Some(mut bank) = bank else {
+        return;
+    };
+    for ev in events.read() {
+        let (AssetEvent::Added { id } | AssetEvent::LoadedWithDependencies { id }) = ev else {
+            continue;
+        };
+        let Some(asset) = retargeted.get(*id) else {
+            continue;
+        };
+        for name in asset.clips.keys() {
+            bank.request_load((*name).to_string(), GpuClipMode::Loop);
+        }
+    }
+}
+
+/// Shows the live walk/strafe mix on the shared [`FpsText`] readout.
+fn update_blend_text(
+    anims: Option<Res<GpuInstanceAnims>>,
+    mut query: Query<&mut Text, With<FpsText>>,
+) {
+    let Some(mix) = anims.and_then(|a| a.targets.first().copied()) else {
+        return;
+    };
+    for mut text in &mut query {
+        **text = format!(
+            "{}  walk {:.0}% / strafe {:.0}%",
+            text.as_str(),
+            mix[0] * 100.0,
+            mix[1] * 100.0
+        );
     }
 }
