@@ -303,9 +303,9 @@ pub fn custom_crowd_material(
             joints: handles.joints.clone(),
             crowd: GpuCrowdUniform {
                 num_bones: handles.num_bones,
-                num_instances: handles.instance_count,
                 pad0: 0,
                 pad1: 0,
+                pad2: 0,
             },
         },
     })

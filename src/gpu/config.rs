@@ -6,14 +6,17 @@ use bevy::prelude::*;
 #[derive(Resource, Clone, Copy)]
 pub struct GpuCrowdConfig {
     pub instances: usize,
-    pub frames: usize,
+    /// Fixed sampling rate in frames per second. Each clip bakes to
+    /// `ceil(duration * sample_rate)` frames, so short clips stay small and
+    /// long clips keep time resolution.
+    pub sample_rate: f32,
 }
 
 impl Default for GpuCrowdConfig {
     fn default() -> Self {
         Self {
             instances: 1000,
-            frames: 64,
+            sample_rate: 30.0,
         }
     }
 }
@@ -24,12 +27,22 @@ impl Default for GpuCrowdConfig {
 #[derive(Resource, Clone, Copy, Default)]
 pub struct GpuSkeletonLod(pub usize);
 
-/// Maximum number of clips blended in the pose shader.
+/// Maximum number of clips blended per instance in the pose shader.
 pub const MAX_BLEND_CLIPS: usize = 4;
 
-/// Which animation clips to bake (up to [`MAX_BLEND_CLIPS`]), resolved by name
-/// against the loaded [`RetargetedAnimationAsset`](crate::prelude::RetargetedAnimationAsset).
-/// Defaults to the idle loop so the crowd example needs no configuration.
+/// Maximum number of clips resident in the global GPU clip bank.
+/// Per-instance blend slots (`MAX_BLEND_CLIPS`) index into this bank, so the
+/// crowd can pick any 4 of up to 64 loaded clips. Must stay in sync with the
+/// hardcoded table sizes in `pose.wgsl`.
+pub const MAX_GPU_CLIPS: usize = 64;
+
+/// Initial clips to auto-request once the base buffers exist (up to
+/// [`MAX_GPU_CLIPS`]), resolved by name against the loaded
+/// [`RetargetedAnimationAsset`](crate::prelude::RetargetedAnimationAsset).
+/// Further loads/unloads are manual via
+/// [`GpuAnimationBank`](super::bank::GpuAnimationBank) `request_load` /
+/// `request_unload`. Defaults to the idle loop so the crowd example needs no
+/// configuration.
 #[derive(Resource, Clone)]
 pub struct GpuBlendClips {
     pub names: Vec<String>,
@@ -55,7 +68,7 @@ impl Default for GpuBlendWeights {
     }
 }
 
-/// Loop vs one-shot behaviour per baked clip slot.
+/// Loop vs one-shot behaviour per bank clip.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum GpuClipMode {
     #[default]
@@ -63,12 +76,13 @@ pub enum GpuClipMode {
     OnceHold,
 }
 
-/// Static per-clip modes, resolved by baked slot order.
+/// Static per-clip modes for the initial auto-request, resolved by bank order.
+/// Manual loads via `GpuAnimationBank::request_load` carry their own mode.
 #[derive(Resource, Clone, Copy)]
-pub struct GpuClipModes(pub [GpuClipMode; MAX_BLEND_CLIPS]);
+pub struct GpuClipModes(pub [GpuClipMode; MAX_GPU_CLIPS]);
 
 impl Default for GpuClipModes {
     fn default() -> Self {
-        Self([GpuClipMode::Loop; MAX_BLEND_CLIPS])
+        Self([GpuClipMode::Loop; MAX_GPU_CLIPS])
     }
 }

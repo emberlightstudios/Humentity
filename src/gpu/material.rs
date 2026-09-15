@@ -26,9 +26,9 @@ pub struct GpuCrowdExtension {
 #[derive(Clone, Copy, ShaderType)]
 pub struct GpuCrowdUniform {
     pub num_bones: u32,
-    pub num_instances: u32,
     pub pad0: u32,
     pub pad1: u32,
+    pub pad2: u32,
 }
 
 impl MaterialExtension for GpuCrowdExtension {

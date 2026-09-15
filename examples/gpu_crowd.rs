@@ -50,7 +50,7 @@ fn main() {
         HumentityPlugin,
         HumentityGpuPlugin {
             instances: INSTANCES,
-            frames: 64,
+            sample_rate: 30.0,
         },
         MaterialPlugin::<CustomCrowdMaterial>::default(),
     ));
@@ -60,7 +60,7 @@ fn main() {
         .add_systems(
             Update,
             (
-                trigger_crowd_build.run_if(resource_exists::<HumentityAssetsReady>),
+                trigger_crowd_build.run_if(resource_added::<HumentityAssetsReady>),
                 spawn_crowd,
                 update_fps_text,
             ),
@@ -116,35 +116,12 @@ fn setup_scene(
     ));
 }
 
-fn setup_fps_text(mut commands: Commands) {
-    commands.spawn((
-        FpsText,
-        Text::new("FPS: --"),
-        TextLayout::justify(Justify::Right),
-        TextFont {
-            font_size: FontSize::Px(30.0),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(5.0),
-            right: Val::Px(5.0),
-            ..default()
-        },
-    ));
-}
-
 fn trigger_crowd_build(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut templates: ResMut<Assets<CharacterTemplate>>,
-    build: Option<Res<CrowdBuild>>,
 ) {
-    if build.is_some() {
-        return;
-    }
     let template = templates.add(CharacterTemplate::new([CharacterMorphShape::new(
         "neutral",
         MorphTargets::default(),
@@ -168,15 +145,21 @@ fn spawn_crowd(
     mut commands: Commands,
     build: Option<Res<CrowdBuild>>,
     handles: Option<Res<GpuRenderHandles>>,
+    bank: Option<Res<GpuAnimationBank>>,
     cached: Res<CachedMhcloMeshHandles>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<CustomCrowdMaterial>>,
+    mut anims: Option<ResMut<GpuInstanceAnims>>,
     mut spawned: Local<bool>,
 ) {
     if *spawned {
         return;
     }
-    let (Some(build), Some(handles)) = (build, handles) else {
+    let (Some(build), Some(handles), Some(bank)) = (build, handles, bank) else {
+        return;
+    };
+    // Idle must be resident before the crowd binds blend slot 0 to it.
+    let Some(idle) = bank.slot_of("Idle-loop") else {
         return;
     };
     let Some(source_handle) =
@@ -202,6 +185,11 @@ fn spawn_crowd(
     };
     let mesh = meshes.add(mesh);
     let material = custom_crowd_material(&handles, &mut materials);
+    if let Some(anims) = anims.as_mut() {
+        for index in 0..INSTANCES {
+            anims.set_slot(index, 0, idle as u32);
+        }
+    }
     *spawned = true;
     let count = INSTANCES;
     let side = (count as f32).sqrt().ceil() as usize;
@@ -223,6 +211,25 @@ fn spawn_crowd(
         ));
     }
     info!("spawned {count} GPU-posed characters sharing one mesh and one material");
+}
+
+fn setup_fps_text(mut commands: Commands) {
+    commands.spawn((
+        FpsText,
+        Text::new("FPS: --"),
+        TextLayout::justify(Justify::Right),
+        TextFont {
+            font_size: FontSize::Px(29.0),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(4.0),
+            right: Val::Px(4.0),
+            ..default()
+        },
+    ));
 }
 
 fn update_fps_text(diagnostics: Res<DiagnosticsStore>, mut query: Query<&mut Text, With<FpsText>>) {

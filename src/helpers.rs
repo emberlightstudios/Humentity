@@ -54,10 +54,9 @@ pub(crate) fn tag_empty_helpers(
     helpers: Query<&HelperVertexPositions>,
     mut commands: Commands,
 ) {
-    if let Ok(h) = helpers.get(trigger.entity) {
-        if h.0.is_empty() {
-            commands.entity(trigger.entity).insert(EmptyHelpers);
-        }
+    if let Ok(h) = helpers.get(trigger.entity)
+        && h.0.is_empty() {
+        commands.entity(trigger.entity).insert(EmptyHelpers);
     }
 }
 

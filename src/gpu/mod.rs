@@ -19,11 +19,11 @@ mod material;
 mod pipeline;
 mod state;
 
-use bake::bake_gpu_animation;
-pub use bank::{GpuAnimationBank, GpuAnimationHandles, GpuAnimationReady, GpuRenderHandles};
+use bake::{bake_gpu_animation, collect_clip_bakes, submit_clip_bakes};
+pub use bank::{GpuAnimationBank, GpuAnimationReady, GpuRenderHandles};
 pub use config::{
     GpuBlendClips, GpuBlendWeights, GpuClipMode, GpuClipModes, GpuCrowdConfig, GpuSkeletonLod,
-    MAX_BLEND_CLIPS,
+    MAX_BLEND_CLIPS, MAX_GPU_CLIPS,
 };
 pub use material::{
     ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, CrowdMaterial, GpuCrowdExtension,
@@ -58,7 +58,7 @@ pub const CROWD_SKIN_SHADER: Handle<Shader> = Handle::Uuid(
 /// returned `VertexOutput`. Entries must not re-import what the snippet
 /// already imports (`VertexOutput`, `position_world_to_clip`); duplicate
 /// imports fail as ambiguous.
-pub fn gpu_skin_wgsl() -> &'static str {
+pub const fn gpu_skin_wgsl() -> &'static str {
     include_str!("skin.wgsl")
 }
 
@@ -88,14 +88,14 @@ fn vertex(vertex: GpuVertex) -> VertexOutput {
 
 pub struct HumentityGpuPlugin {
     pub instances: usize,
-    pub frames: usize,
+    pub sample_rate: f32,
 }
 
 impl Default for HumentityGpuPlugin {
     fn default() -> Self {
         Self {
             instances: 1000,
-            frames: 64,
+            sample_rate: 30.0,
         }
     }
 }
@@ -119,16 +119,23 @@ impl Plugin for HumentityGpuPlugin {
         app.add_plugins(ExtractResourcePlugin::<GpuRenderHandles>::default());
         app.insert_resource(GpuCrowdConfig {
             instances: self.instances,
-            frames: self.frames,
+            sample_rate: self.sample_rate,
         });
         app.init_resource::<GpuBlendClips>();
         app.init_resource::<GpuBlendWeights>();
         app.init_resource::<GpuClipModes>();
         app.init_resource::<GpuSkeletonLod>();
+        app.init_resource::<bank::GpuBakeJobs>();
         app.add_message::<GpuOneShotDone>();
         app.add_systems(
             Update,
-            (bake_gpu_animation, state::update_instance_clocks).chain(),
+            (
+                bake_gpu_animation,
+                submit_clip_bakes,
+                collect_clip_bakes,
+                state::update_instance_clocks,
+            )
+                .chain(),
         );
         let render_app = app.sub_app_mut(RenderApp);
         render_app

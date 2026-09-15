@@ -53,7 +53,7 @@ fn main() {
         HumentityPlugin,
         HumentityGpuPlugin {
             instances: INSTANCES,
-            frames: 64,
+            sample_rate: 30.0,
         },
         MaterialPlugin::<CustomCrowdMaterial>::default(),
     ));
@@ -177,15 +177,23 @@ fn spawn_crowd(
     mut commands: Commands,
     build: Option<Res<CrowdBuild>>,
     handles: Option<Res<GpuRenderHandles>>,
+    bank: Option<Res<GpuAnimationBank>>,
     cached: Res<CachedMhcloMeshHandles>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<CustomCrowdMaterial>>,
+    mut anims: Option<ResMut<GpuInstanceAnims>>,
     mut spawned: Local<bool>,
 ) {
     if *spawned {
         return;
     }
-    let (Some(build), Some(handles)) = (build, handles) else {
+    let (Some(build), Some(handles), Some(bank)) = (build, handles, bank) else {
+        return;
+    };
+    // Walk on slot 0, strafe on slot 1; wait until both are resident.
+    let (Some(walk_slot), Some(strafe_slot)) =
+        (bank.slot_of(WALK), bank.slot_of(STRAFE_RIGHT))
+    else {
         return;
     };
     let Some(source_handle) =
@@ -201,6 +209,12 @@ fn spawn_crowd(
     };
     let mesh = meshes.add(mesh);
     let material = custom_crowd_material(&handles, &mut materials);
+    if let Some(anims) = anims.as_mut() {
+        for index in 0..INSTANCES {
+            anims.set_slot(index, 0, walk_slot as u32);
+            anims.set_slot(index, 1, strafe_slot as u32);
+        }
+    }
     *spawned = true;
     let count = INSTANCES;
     let side = (count as f32).sqrt().ceil() as usize;
