@@ -180,19 +180,16 @@ impl GpuAnimationBank {
 }
 
 /// Channel for completed background clip bakes.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub(crate) struct GpuBakeJobs {
-    pub sender: Option<Sender<BakedClip>>,
-    pub receiver: Option<Receiver<BakedClip>>,
+    pub sender: Sender<BakedClip>,
+    pub receiver: Receiver<BakedClip>,
 }
 
-impl GpuBakeJobs {
-    pub(crate) fn ensure_channels(&mut self) {
-        if self.sender.is_none() {
-            let (tx, rx) = crossbeam_channel::unbounded();
-            self.sender = Some(tx);
-            self.receiver = Some(rx);
-        }
+impl Default for GpuBakeJobs {
+    fn default() -> Self {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        Self { sender, receiver }
     }
 }
 

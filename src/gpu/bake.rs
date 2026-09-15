@@ -277,15 +277,14 @@ pub(super) fn bake_gpu_animation(
 /// available. Clones the clip so the task owns its samples with no ECS access.
 pub(super) fn submit_clip_bakes(
     bank: Option<ResMut<GpuAnimationBank>>,
-    mut jobs: ResMut<GpuBakeJobs>,
+    jobs: Res<GpuBakeJobs>,
     retargeted: Res<Assets<RetargetedAnimationAsset>>,
     clips: Res<Assets<AnimationClip>>,
 ) {
     let Some(mut bank) = bank else {
         return;
     };
-    jobs.ensure_channels();
-    let tx = jobs.sender.as_ref().unwrap().clone();
+    let tx = jobs.sender.clone();
     let pool = AsyncComputeTaskPool::get();
     let mut i = 0;
     while i < bank.pending.len() {
@@ -342,11 +341,8 @@ pub(super) fn collect_clip_bakes(
     let Some(mut bank) = bank else {
         return;
     };
-    let Some(rx) = jobs.receiver.as_ref() else {
-        return;
-    };
     let mut appended = false;
-    for baked in rx.try_iter() {
+    for baked in jobs.receiver.try_iter() {
         bank.baking.retain(|b| b != &baked.name);
         // Unloaded while baking, or a duplicate: drop the bytes.
         if bank.slot_of(&baked.name).is_some() {
