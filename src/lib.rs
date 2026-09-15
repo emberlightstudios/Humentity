@@ -2,6 +2,7 @@ mod animation;
 mod assets;
 mod basemesh;
 mod bone_debug;
+pub mod gpu;
 pub(crate) mod helpers;
 mod loaders;
 mod mesh_ops;
@@ -65,6 +66,14 @@ pub mod prelude {
         mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_vertex_positions},
         morphs::{
             MakeHumanMorphs, MorphError, MorphTargets, adjust_helpers_to_morphs,
+        },
+        gpu::{
+            ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, CROWD_SKIN_SHADER,
+            CrowdMaterial, GpuAnimationBank, GpuAnimationHandles, GpuAnimationReady,
+            GpuBlendClips, GpuBlendWeights, GpuClipMode, GpuClipModes, GpuCrowdConfig,
+            GpuCrowdExtension, GpuCrowdUniform, GpuInstanceAnims, GpuOneShotDone,
+            GpuRenderHandles, GpuSkeletonLod, HumentityGpuPlugin, MAX_BLEND_CLIPS, POSE_SHADER,
+            gpu_skin_wgsl, make_gpu_mesh, specialize_gpu_vertex_layout,
         },
         rigs::{RigData, RigSpec, SkeletonRootBone, SkeletalBone},
         skeleton_lod::{
