@@ -81,7 +81,25 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32) -> App {
     ));
     app.insert_resource(SkeletonLodConfig::new(&[gpu_skeleton()]));
     app.insert_resource(GpuSkeletonLod(GPU_SKELETON_LOD));
+    app.add_systems(Startup, load_core_assets);
     app
+}
+
+/// Core humentity assets every GPU crowd example needs, loaded from the
+/// crate's `assets/` dir.
+fn load_core_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
+    load_and_insert_humentity_assets(
+        &mut commands,
+        &asset_server,
+        "base.obj",
+        "basemesh_vertex_groups.json",
+        "target.json",
+        "macro.macro",
+        "targets",
+        "rigs/rig.default.json",
+        "rigs/weights.default.json",
+        "skeletons/default.glb",
+    );
 }
 
 pub fn setup_app() -> App {

@@ -14,7 +14,6 @@ use bevy::{
     mesh::MeshTag,
     prelude::*,
 };
-use humentity::load_and_insert_humentity_assets;
 use humentity::prelude::*;
 use shared::{CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
 
@@ -28,7 +27,7 @@ fn main() {
         names: vec![WALK.to_string(), STRAFE_RIGHT.to_string()],
     });
     app.insert_resource(GpuBlendWeights([0.5, 0.5, 0.0, 0.0]));
-    app.add_systems(Startup, (load_assets, setup_scene, setup_fps_text))
+    app.add_systems(Startup, (setup_scene, setup_fps_text))
         .add_systems(
             Update,
             (
@@ -51,20 +50,6 @@ struct CrowdBuild {
 #[derive(Component)]
 struct FpsText;
 
-fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
-    load_and_insert_humentity_assets(
-        &mut commands,
-        &asset_server,
-        "base.obj",
-        "basemesh_vertex_groups.json",
-        "target.json",
-        "macro.macro",
-        "targets",
-        "rigs/rig.default.json",
-        "rigs/weights.default.json",
-        "skeletons/default.glb",
-    );
-}
 
 fn setup_scene(
     mut commands: Commands,
