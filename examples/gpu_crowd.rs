@@ -17,10 +17,7 @@ use bevy::{
 };
 use humentity::prelude::*;
 use humentity::{load_and_insert_humentity_assets, HumentityPlugin};
-use shared::{
-    custom_crowd_material, insert_crowd_vertex_shader, CustomCrowdMaterial, EXAMPLE_VERTEX_ENTRY,
-    EXAMPLE_VERTEX_SHADER,
-};
+use shared::{custom_crowd_material, CustomCrowdMaterial};
 
 const INSTANCES: usize = 8_000;
 const SKELETON_LOD: usize = 2;
@@ -55,14 +52,8 @@ fn main() {
             instances: INSTANCES,
             frames: 64,
         },
-        MaterialPlugin::<CustomCrowdMaterial<EXAMPLE_VERTEX_SHADER>>::default(),
+        MaterialPlugin::<CustomCrowdMaterial>::default(),
     ));
-    insert_crowd_vertex_shader(
-        &mut app,
-        EXAMPLE_VERTEX_SHADER,
-        EXAMPLE_VERTEX_ENTRY,
-        "crowd_vertex.wgsl",
-    );
     app.insert_resource(SkeletonLodConfig::new(&gpu_skeleton_lods()));
     app.insert_resource(GpuSkeletonLod(SKELETON_LOD));
     app.add_systems(Startup, (load_assets, setup_scene, setup_fps_text))
@@ -179,7 +170,7 @@ fn spawn_crowd(
     handles: Option<Res<GpuRenderHandles>>,
     cached: Res<CachedMhcloMeshHandles>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<CustomCrowdMaterial<EXAMPLE_VERTEX_SHADER>>>,
+    mut materials: ResMut<Assets<CustomCrowdMaterial>>,
     mut spawned: Local<bool>,
 ) {
     if *spawned {

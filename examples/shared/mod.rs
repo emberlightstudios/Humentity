@@ -1,14 +1,11 @@
 #![allow(dead_code)]
-use std::marker::PhantomData;
-
 use bevy::{
-    asset::{uuid::Uuid, AssetPlugin},
     input::mouse::MouseMotion,
     mesh::{morph::MeshMorphWeights, skinning::SkinnedMesh, MeshVertexBufferLayoutRef},
     pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline},
     prelude::*,
     render::{render_resource::*, storage::ShaderBuffer},
-    shader::{Shader, ShaderRef},
+    shader::ShaderRef,
 };
 use bevy_egui::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -263,32 +260,26 @@ pub fn setup_env(
     ));
 }
 
-/// Shared example vertex shader: the `crowd_vertex.wgsl` entry composed with
-/// the crate's `gpu_skin_vertex` snippet.
-pub const EXAMPLE_VERTEX_SHADER: u128 = 0x68756d6578616d707633647830763141;
-
 /// Entry source for [`EXAMPLE_VERTEX_SHADER`], shared by all GPU crowd
 /// examples so there is exactly one of them.
 pub const EXAMPLE_VERTEX_ENTRY: &str = include_str!("crowd_vertex.wgsl");
 
 /// Material extension for examples with their own GPU crowd vertex shader.
-/// The `SHADER` const selects the composed vertex shader (see
-/// [`insert_crowd_vertex_shader`]); skinning itself always comes from the
+/// skinning itself always comes from the
 /// shared `gpu_skin_vertex` function.
-pub type CustomCrowdMaterial<const SHADER: u128> =
-    ExtendedMaterial<StandardMaterial, CustomCrowdExtension<SHADER>>;
+pub type CustomCrowdMaterial = ExtendedMaterial<StandardMaterial, CustomCrowdExtension>;
 
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
-pub struct CustomCrowdExtension<const SHADER: u128> {
+pub struct CustomCrowdExtension {
     #[storage(100, read_only)]
     joints: Handle<ShaderBuffer>,
     #[uniform(101)]
     crowd: GpuCrowdUniform,
 }
 
-impl<const SHADER: u128> MaterialExtension for CustomCrowdExtension<SHADER> {
+impl MaterialExtension for CustomCrowdExtension {
     fn vertex_shader() -> ShaderRef {
-        Handle::Uuid(Uuid::from_u128(SHADER), PhantomData).into()
+        CROWD_SKIN_SHADER.into()
     }
 
     fn specialize(
@@ -301,26 +292,11 @@ impl<const SHADER: u128> MaterialExtension for CustomCrowdExtension<SHADER> {
     }
 }
 
-/// Registers an example-owned vertex entry composed from the shared
-/// `gpu_skin_vertex` snippet plus the example's own additions.
-pub fn insert_crowd_vertex_shader(
-    app: &mut App,
-    uuid: u128,
-    entry: &'static str,
-    label: &'static str,
-) {
-    let handle = Handle::Uuid(Uuid::from_u128(uuid), PhantomData);
-    let _ = app.world_mut().resource_mut::<Assets<Shader>>().insert(
-        handle.id(),
-        Shader::from_wgsl(format!("{}\n{}", gpu_skin_wgsl(), entry), label),
-    );
-}
-
 /// Builds the example crowd material from the baked render handles.
-pub fn custom_crowd_material<const SHADER: u128>(
+pub fn custom_crowd_material(
     handles: &GpuRenderHandles,
-    materials: &mut Assets<CustomCrowdMaterial<SHADER>>,
-) -> Handle<CustomCrowdMaterial<SHADER>> {
+    materials: &mut Assets<CustomCrowdMaterial>,
+) -> Handle<CustomCrowdMaterial> {
     materials.add(ExtendedMaterial {
         base: StandardMaterial::from_color(Color::WHITE),
         extension: CustomCrowdExtension {
