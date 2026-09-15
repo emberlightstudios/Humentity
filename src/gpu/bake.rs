@@ -54,6 +54,11 @@ fn joint_path(bone: &str, rig: &RigSpec) -> Vec<Name> {
 
 /// Pure computation: samples `clip` onto the snapshot LOD skeleton at the
 /// bank's fixed rate. Runs on a background thread with no ECS access.
+///
+/// Frames use inclusive-endpoint sampling: frame `i` of `n` sits at
+/// `i / (n - 1) * duration`, so the last frame lands exactly on `duration`
+/// (clamped to the final key) and the pose shader's `frame(nf-1) -> frame(0)`
+/// wrap blends the true loop endpoints instead of a near-miss pair.
 fn sample_clip_frames(
     clip: &AnimationClip,
     duration: f32,
@@ -65,7 +70,11 @@ fn sample_clip_frames(
     let frames = ((duration * sample_rate.max(1.0)).ceil() as usize).max(1);
     let mut out = Vec::with_capacity(bones.len() * frames);
     for frame in 0..frames {
-        let time = frame as f32 / frames as f32 * duration;
+        let time = if frames == 1 {
+            0.0
+        } else {
+            frame as f32 / (frames - 1) as f32 * duration
+        };
         for (index, _) in bones.iter().enumerate() {
             let bind = binds[index];
             let mut translation = clip
@@ -100,6 +109,48 @@ fn sample_clip_frames(
     out
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn translation_clip(times: &[f32]) -> AnimationClip {
+        let mut clip = AnimationClip::default();
+        let target = AnimationTargetId::from_name(&Name::new("bone"));
+        clip.add_curve_to_target(
+            target,
+            AnimatableCurve::new(
+                animated_field!(Transform::translation),
+                AnimatableKeyframeCurve::new(
+                    times
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| (*t, Vec3::new(0.0, i as f32, 0.0))),
+                )
+                .unwrap(),
+            ),
+        );
+        clip
+    }
+
+    /// The wrap blend `frame(nf-1) -> frame(0)` must span the true loop
+    /// endpoints. With exclusive sampling the last frame sits a full step
+    /// before `duration`, so a clip whose only motion is at the end key
+    /// never appears in the bake and the seam jumps.
+    #[test]
+    fn baked_last_frame_samples_duration_endpoint() {
+        let clip = translation_clip(&[0.0, 2.0]);
+        let bones = ["bone"];
+        let targets = [AnimationTargetId::from_name(&Name::new("bone"))];
+        let binds = [Transform::IDENTITY];
+        let frames = sample_clip_frames(&clip, 2.0, &bones, &targets, &binds, 30.0);
+        assert_eq!(frames.len() / bones.len(), 60);
+        let last = frames.last().unwrap().to_scale_rotation_translation().2;
+        assert!(
+            (last.y - 1.0).abs() < 1e-4,
+            "last baked frame must hold the duration endpoint, got {last:?}"
+        );
+    }
+}
 /// First pass: uploads static buffers + frame-0 bindpose seed, creates the
 /// bank, and seeds per-instance state. Clip loads are manual via
 /// [`GpuAnimationBank::request_load`](super::bank::GpuAnimationBank::request_load).
