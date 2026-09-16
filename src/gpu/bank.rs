@@ -4,10 +4,12 @@
 //! Per-instance blend slots ([`MAX_BLEND_CLIPS`]) index into the bank, so the
 //! crowd can blend any 4 of the loaded clips. Loads are manual via
 //! [`GpuAnimationBank::request_load`]: each request spawns one background bake
-//! task, and the baked frames are appended to the shared `frames` buffer when
-//! ready. Unloads ([`GpuAnimationBank::request_unload`]) clear the slot's
-//! uniform row; the buffer bytes stay in place (fragmentation, compaction is
-//! future work), so neighbouring clips are unaffected.
+//! task, and the baked frames are appended to the packed `frames` shadow when
+//! ready. Unloads ([`GpuAnimationBank::request_unload`]) splice the clip's
+//! bytes out of the shadow and rewrite later offsets, so the buffer stays
+//! packed with no dead bytes. Every mutation re-uploads the whole shadow;
+//! uploads are deferred while bake work is still pending so a burst of clips
+//! sends once.
 //!
 //! A cleared uniform row reads frame 0, which the base bake seeds with the
 //! bindpose — an unloaded slot falls back to the bindpose. Callers must still
@@ -23,9 +25,9 @@ use crossbeam_channel::{Receiver, Sender};
 use super::config::{GpuClipMode, MAX_GPU_CLIPS};
 
 /// Metadata for one resident bank slot. The clip's bytes live at
-/// `offset_frames * num_bones` in the shared `frames` buffer and are never
-/// moved, so unload never disturbs neighbours.
-#[derive(Clone, Copy)]
+/// `offset_frames * num_bones` in the packed `frames` shadow; unloads splice
+/// bytes out and rewrite later offsets, so offsets are only stable while no
+/// load/unload is in flight.
 pub(crate) struct BankSlot {
     pub offset_frames: u32,
     pub frame_count: u32,
@@ -35,7 +37,7 @@ pub(crate) struct BankSlot {
 
 /// A queued manual load request, awaiting asset resolution + background bake.
 #[derive(Clone)]
-pub(crate) struct PendingLoad {
+pub(crate) struct PendingGpuAnimationClip {
     pub(crate) name: String,
     pub(crate) mode: GpuClipMode,
 }
@@ -64,9 +66,13 @@ pub struct GpuAnimationBank {
     /// upload, so the buffer itself cannot be used as the append source.
     pub(crate) frames: Vec<Mat4>,
     pub(crate) slots: Vec<Option<(String, BankSlot)>>,
-    pub(crate) pending: Vec<PendingLoad>,
+    pub(crate) pending: Vec<PendingGpuAnimationClip>,
     pub(crate) baking: Vec<String>,
     pub(crate) unload_queue: Vec<String>,
+    /// Completed bakes waiting for a quiet moment. Committed (slots assigned,
+    /// shadow rebuilt) only when no bake work is pending, so a burst of clips
+    /// re-uploads once and bank offsets never lead the GPU buffer.
+    pub(crate) staged: Vec<BakedClip>,
 }
 
 impl GpuAnimationBank {
@@ -87,18 +93,24 @@ impl GpuAnimationBank {
             pending: Vec::new(),
             baking: Vec::new(),
             unload_queue: Vec::new(),
+            staged: Vec::new(),
         }
     }
 
     /// Queues a background bake of `name` with the given playback mode.
     /// Returns false when the clip is already resident, queued, or baking, or
     /// when every bank slot is occupied (unload something, then retry).
+    /// Staged-but-uncommitted clips report success without queueing a
+    /// duplicate bake.
     pub fn request_load(&mut self, name: impl Into<String>, mode: GpuClipMode) -> bool {
         let name = name.into();
         if let Some(idx) = self.slot_of(&name) {
             // Already resident: cancel a queued unload so the load wins.
             self.unload_queue.retain(|n| n != &name);
             let _ = idx;
+            return true;
+        }
+        if self.staged.iter().any(|s| s.name == name) {
             return true;
         }
         if self.pending.iter().any(|p| p.name == name)
@@ -109,21 +121,24 @@ impl GpuAnimationBank {
         if self.slots.iter().all(|s| s.is_some()) {
             return false;
         }
-        self.pending.push(PendingLoad { name, mode });
+        self.pending.push(PendingGpuAnimationClip { name, mode });
         true
     }
-
-    /// Unloads `name`. Resident clips are queued for uniform clearing (their
-    /// buffer bytes stay until a future compaction); queued-but-undispatched
+    /// Unloads `name`. Resident clips are queued for a packed rebuild (bytes
+    /// spliced out of the shadow, later offsets rewritten, cleared slots read
+    /// the bindpose seed — drive the slot weight to 0); staged-but-
+    /// uncommitted clips are dropped outright; queued-but-undispatched
     /// requests are just dequeued. Returns false when the clip is unknown or
     /// currently baking (bakes cannot be cancelled — retry once it lands).
-    ///
-    /// Cleared slots read the bindpose seed; drive the slot weight to 0.
     pub fn request_unload(&mut self, name: &str) -> bool {
         if self.slot_of(name).is_some() {
             if !self.unload_queue.iter().any(|n| n == name) {
                 self.unload_queue.push(name.to_string());
             }
+            return true;
+        }
+        if let Some(i) = self.staged.iter().position(|s| s.name == name) {
+            self.staged.remove(i);
             return true;
         }
         if let Some(i) = self.pending.iter().position(|p| p.name == name) {

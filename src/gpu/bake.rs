@@ -214,9 +214,6 @@ pub(super) fn bake_gpu_animation(
         }
     }
 
-    // TEMP DEBUG: verify the LOD parent table.
-    info!("gpu bake parents: {:?}", parents);
-
     // Frame 0 is the bindpose seed so cleared uniform rows read a valid pose.
     let mut seed: Vec<Mat4> = Vec::with_capacity(bones.len());
     for (index, _) in bones.iter().enumerate() {
@@ -367,10 +364,10 @@ pub(super) fn submit_clip_bakes(
     }
 }
 
-/// Appends completed bakes to the shared `frames` buffer, publishes the new
-/// slot through the bank tables + handles + uniforms, then processes the
-/// unload queue (bank slot + uniform row cleared, bytes left for future
-/// compaction).
+/// Appends completed bakes to the packed `frames` shadow, splices unloads out
+/// of it, then re-uploads the whole shadow — deferred while bake work is
+/// still pending so a burst of clips sends once. Publishes the new slots
+/// through the bank tables + handles + uniforms.
 pub(super) fn collect_clip_bakes(
     bank: Option<ResMut<GpuAnimationBank>>,
     jobs: Res<GpuBakeJobs>,
@@ -381,10 +378,35 @@ pub(super) fn collect_clip_bakes(
     let Some(mut bank) = bank else {
         return;
     };
-    let mut appended = false;
+    // Stage 1: collect completed background bakes without touching slots,
+    // shadow, or tables. Bank offsets must never lead the GPU buffer.
+    let mut newly_staged = false;
     for baked in jobs.receiver.try_iter() {
         bank.baking.retain(|b| b != &baked.name);
         // Unloaded while baking, or a duplicate: drop the bytes.
+        if bank.slot_of(&baked.name).is_some()
+            || bank.staged.iter().any(|s| s.name == baked.name)
+        {
+            continue;
+        }
+        bank.staged.push(baked);
+        newly_staged = true;
+    }
+    let unload_requested = !bank.unload_queue.is_empty();
+    // Stage 2: commit only at a quiet moment — no undispatched requests, no
+    // in-flight bakes, and nothing newly arrived this pass (which implies a
+    // bake just finished and siblings may follow). A burst of clips then
+    // re-uploads exactly once.
+    let work_pending = !bank.pending.is_empty()
+        || !bank.baking.is_empty()
+        || !jobs.receiver.is_empty()
+        || newly_staged;
+    if work_pending || (bank.staged.is_empty() && !unload_requested) {
+        return;
+    }
+    let bones = bank.bones.len().max(1);
+    let mut changed = false;
+    for baked in std::mem::take(&mut bank.staged) {
         if bank.slot_of(&baked.name).is_some() {
             continue;
         }
@@ -395,7 +417,6 @@ pub(super) fn collect_clip_bakes(
             );
             continue;
         };
-        let bones = bank.bones.len().max(1);
         let frame_count = (baked.frames.len() / bones) as u32;
         let offset = bank.frame_total;
         bank.frame_total += frame_count;
@@ -408,38 +429,34 @@ pub(super) fn collect_clip_bakes(
                 mode: baked.mode,
             },
         ));
-        // Shadow first: stays in sync with `frame_total` even if the GPU
-        // upload below is skipped this pass (the next append uploads all).
         bank.frames.extend_from_slice(&baked.frames);
-        appended = true;
-        // TEMP DEBUG: limb-bone variation on the freshly appended clip.
-        // Constant values mean sampling missed and fell back to bindpose.
-        if bank.bones.len() > 4 {
-            let nf = frame_count.max(1);
-            for f in [0, nf / 4, nf / 2, nf * 3 / 4] {
-                let m = baked.frames[f as usize * bank.bones.len() + 4];
-                let (sx, sy, sz) = (m.x_axis.length(), m.y_axis.length(), m.z_axis.length());
-                info!(
-                    "bake '{}' frame {f}: lowerleg01.L row0 ({:.3}, {:.3}, {:.3}) scale ({:.3}, {:.3}, {:.3})",
-                    baked.name, m.x_axis.x, m.x_axis.y, m.x_axis.z, sx, sy, sz
-                );
-            }
-        }
+        changed = true;
         info!(
             "GPU clip '{}' ready: bank slot {slot}, {} frames at offset {offset}",
             baked.name, frame_count
         );
     }
-    // Unloads: clear bank slot + uniform row. Buffer bytes stay (compaction
-    // later), so neighbours are unaffected. Rebind per-instance slots that
-    // pointed at the freed bank index to 0 (bindpose seed; weight decides).
-    let mut unloaded = false;
+    // Unloads: splice the clip's bytes out of the packed shadow and rewrite
+    // later offsets, so the buffer stays packed with no dead bytes. Rebind
+    // per-instance slots that pointed at the freed bank index to 0 (bindpose
+    // seed; weight decides).
     for name in std::mem::take(&mut bank.unload_queue) {
         let Some(slot) = bank.slot_of(&name) else {
             continue;
         };
-        bank.slots[slot] = None;
-        unloaded = true;
+        let Some((_, meta)) = bank.slots[slot].take() else {
+            continue;
+        };
+        let start = meta.offset_frames as usize * bones;
+        let len = meta.frame_count as usize * bones;
+        bank.frames.drain(start..start + len);
+        for entry in bank.slots.iter_mut().flatten() {
+            if entry.1.offset_frames > meta.offset_frames {
+                entry.1.offset_frames -= meta.frame_count;
+            }
+        }
+        bank.frame_total -= meta.frame_count;
+        changed = true;
         if let Some(anims) = anims.as_mut() {
             for slots in anims.slots.iter_mut() {
                 for s in slots.iter_mut() {
@@ -449,9 +466,9 @@ pub(super) fn collect_clip_bakes(
                 }
             }
         }
-        info!("GPU clip '{name}' unloaded: bank slot {slot} cleared");
+        info!("GPU clip '{name}' unloaded: bank slot {slot} cleared, packed buffer rebuilt");
     }
-    if !(appended || unloaded) {
+    if !changed {
         return;
     }
     // Publish through the extracted mirrors + the uniforms buffer, so the
@@ -465,10 +482,8 @@ pub(super) fn collect_clip_bakes(
         handles.clip_frames = counts;
         handles.durations = durations;
         handles.modes = modes;
-        if appended {
-            if let Some(mut frames) = buffers.get_mut(&handles.frames) {
-                frames.data = Some(bytemuck::cast_slice(&bank.frames).to_vec());
-            }
+        if let Some(mut frames) = buffers.get_mut(&handles.frames) {
+            frames.data = Some(bytemuck::cast_slice(&bank.frames).to_vec());
         }
         if let Some(mut uniforms) = buffers.get_mut(&handles.uniforms) {
             uniforms.data = Some(

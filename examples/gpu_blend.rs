@@ -21,48 +21,24 @@ const INSTANCES: usize = 6_000;
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0);
     app.insert_resource(GpuBlendWeights([0.5, 0.5, 0.0, 0.0]));
-    app.add_systems(Startup, setup_scene)
-        .add_systems(
-            Update,
-            (
-                trigger_crowd_build.run_if(resource_exists::<HumentityAssetsReady>),
-                request_clip_bakes,
-                spawn_crowd,
-                sweep_blend_weights,
-                update_blend_text,
-            ),
-        )
-        .run();
+    app.add_systems(
+        Update,
+        (
+            trigger_crowd_build.run_if(resource_exists::<HumentityAssetsReady>),
+            request_clip_bakes,
+            spawn_crowd,
+            sweep_blend_weights,
+            update_blend_text,
+        ),
+    )
+    .run();
 }
 
 #[derive(Resource)]
 struct CrowdBuild {
     part: Handle<MhcloAsset>,
     template: Handle<CharacterTemplate>,
-    _clips: Handle<RetargetedAnimationAsset>,
-}
-
-fn setup_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
-        MeshMaterial3d(materials.add(Color::srgb(0.2, 0.2, 0.25))),
-    ));
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 3000.0,
-            shadow_maps_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(10.0, 20.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 18.0, -30.0).looking_at(Vec3::new(0.0, 1.0, 8.0), Vec3::Y),
-    ));
+    clips: Handle<RetargetedAnimationAsset>,
 }
 
 fn trigger_crowd_build(
@@ -89,7 +65,7 @@ fn trigger_crowd_build(
     commands.insert_resource(CrowdBuild {
         part,
         template,
-        _clips: clips,
+        clips,
     });
     info!("locomotion crowd build triggered");
 }
@@ -173,23 +149,31 @@ fn sweep_blend_weights(time: Res<Time>, anims: Option<ResMut<GpuInstanceAnims>>)
 /// every clip it contains for background baking. Nothing else queues loads.
 fn request_clip_bakes(
     bank: Option<ResMut<GpuAnimationBank>>,
-    retargeted: Res<Assets<RetargetedAnimationAsset>>,
-    mut events: MessageReader<AssetEvent<RetargetedAnimationAsset>>,
+    build: Option<Res<CrowdBuild>>,
+    clips: Res<Assets<RetargetedAnimationAsset>>,
+    mut done: Local<bool>,
 ) {
-    let Some(mut bank) = bank else {
+    if *done {
+        return;
+    }
+    let (Some(mut bank), Some(build)) = (bank, build) else {
         return;
     };
-    for ev in events.read() {
-        let (AssetEvent::Added { id } | AssetEvent::LoadedWithDependencies { id }) = ev else {
-            continue;
-        };
-        let Some(asset) = retargeted.get(*id) else {
-            continue;
-        };
-        for name in asset.clips.keys() {
-            bank.request_load((*name).to_string(), GpuClipMode::Loop);
+    let Some(asset) = clips.get(&build.clips) else {
+        return;
+    };
+    // Level-driven, not event-driven: a bank that is missing (base bake not
+    // done) or full must not lose the load, so keep asking until accepted.
+    let mut retry = false;
+    for name in asset.clips.keys() {
+        if !bank.is_loaded(name)
+            && !bank.is_baking(name)
+            && !bank.request_load(name.to_string(), GpuClipMode::Loop)
+        {
+            retry = true;
         }
     }
+    *done = !retry;
 }
 
 /// Shows the live walk/strafe mix on the shared [`FpsText`] readout.

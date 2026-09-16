@@ -81,7 +81,7 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32) -> App {
     ));
     app.insert_resource(SkeletonLodConfig::new(&[gpu_skeleton()]));
     app.insert_resource(GpuSkeletonLod(GPU_SKELETON_LOD));
-    app.add_systems(Startup, (load_core_assets, setup_fps_text));
+    app.add_systems(Startup, (load_core_assets, setup_fps_text, setup_env));
     app.add_systems(Update, update_fps_text);
     app
 }
@@ -340,33 +340,21 @@ pub fn setup_env(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // circular base
-    let mesh = meshes.add(Circle::new(3.0));
-    let material = materials.add(Color::WHITE);
-
     commands.spawn((
-        Name::new("Floor"),
-        Mesh3d(mesh),
-        MeshMaterial3d(material),
-        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
+        MeshMaterial3d(materials.add(Color::srgb(0.2, 0.2, 0.25))),
     ));
-
-    // A light:
     commands.spawn((
-        PointLight {
-            intensity: 80_000.0,
-            radius: 19.,
-            range: 19.,
+        DirectionalLight {
+            illuminance: 3000.0,
             shadow_maps_enabled: true,
             ..default()
         },
-        Transform::from_xyz(-1.0, 3.0, -5.0),
+        Transform::from_xyz(10.0, 20.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-
-    // A camera:
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 1.0, -4.0).looking_at(Vec3::Y * 0.7, Vec3::Y),
+        Transform::from_xyz(0.0, 18.0, -30.0).looking_at(Vec3::new(0.0, 1.0, 8.0), Vec3::Y),
     ));
 }
 

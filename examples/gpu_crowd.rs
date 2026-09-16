@@ -8,10 +8,7 @@
 
 mod shared;
 
-use bevy::{
-    mesh::{MeshTag, VertexAttributeValues},
-    prelude::*,
-};
+use bevy::{mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
 use shared::{CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
 
@@ -19,47 +16,24 @@ const INSTANCES: usize = 8_000;
 
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0);
-    app.add_systems(Startup, setup_scene)
-        .add_systems(
-            Update,
-            (
-                trigger_crowd_build.run_if(resource_added::<HumentityAssetsReady>),
-                request_clip_bakes,
-                spawn_crowd,
-            ),
-        )
-        .run();
+    app.add_systems(
+        Update,
+        (
+            trigger_crowd_build.run_if(resource_added::<HumentityAssetsReady>),
+            request_clip_bakes,
+            spawn_crowd,
+        ),
+    )
+    .run();
 }
 
 #[derive(Resource)]
 struct CrowdBuild {
     part: Handle<MhcloAsset>,
     template: Handle<CharacterTemplate>,
-    _clips: Handle<RetargetedAnimationAsset>,
+    clips: Handle<RetargetedAnimationAsset>,
 }
 
-fn setup_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
-        MeshMaterial3d(materials.add(Color::srgb(0.2, 0.2, 0.25))),
-    ));
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 3000.0,
-            shadow_maps_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(10.0, 20.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 18.0, -30.0).looking_at(Vec3::new(0.0, 1.0, 8.0), Vec3::Y),
-    ));
-}
 
 fn trigger_crowd_build(
     mut commands: Commands,
@@ -81,32 +55,40 @@ fn trigger_crowd_build(
     commands.insert_resource(CrowdBuild {
         part,
         template,
-        _clips: clips,
+        clips,
     });
     info!("crowd build triggered");
 }
 
-/// Manual clip loads: when a retargeted clip asset finishes loading, queue
-/// every clip it contains for background baking. Nothing else queues loads.
+/// Manual clip loads: retries every frame until the bank accepts every clip
+/// in the retargeted asset. Nothing else queues loads.
 fn request_clip_bakes(
     bank: Option<ResMut<GpuAnimationBank>>,
-    retargeted: Res<Assets<RetargetedAnimationAsset>>,
-    mut events: MessageReader<AssetEvent<RetargetedAnimationAsset>>,
+    build: Option<Res<CrowdBuild>>,
+    clips: Res<Assets<RetargetedAnimationAsset>>,
+    mut done: Local<bool>,
 ) {
-    let Some(mut bank) = bank else {
+    if *done {
+        return;
+    }
+    let (Some(mut bank), Some(build)) = (bank, build) else {
         return;
     };
-    for ev in events.read() {
-        let (AssetEvent::Added { id } | AssetEvent::LoadedWithDependencies { id }) = ev else {
-            continue;
-        };
-        let Some(asset) = retargeted.get(*id) else {
-            continue;
-        };
-        for name in asset.clips.keys() {
-            bank.request_load((*name).to_string(), GpuClipMode::Loop);
+    let Some(asset) = clips.get(&build.clips) else {
+        return;
+    };
+    // Level-driven, not event-driven: a bank that is missing (base bake not
+    // done) or full must not lose the load, so keep asking until accepted.
+    let mut retry = false;
+    for name in asset.clips.keys() {
+        if !bank.is_loaded(name)
+            && !bank.is_baking(name)
+            && !bank.request_load(name.to_string(), GpuClipMode::Loop)
+        {
+            retry = true;
         }
     }
+    *done = !retry;
 }
 
 fn spawn_crowd(
@@ -138,16 +120,6 @@ fn spawn_crowd(
     let Some(source) = meshes.get(source_handle) else {
         return;
     };
-    // TEMP DEBUG: verify mesh joint indices fit the baked LOD bone count.
-    if let Some(VertexAttributeValues::Uint16x4(indices)) =
-        source.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
-    {
-        let max_idx = indices.iter().flatten().copied().max().unwrap_or(0);
-        info!(
-            "crowd mesh verts {} max joint index {max_idx}",
-            indices.len()
-        );
-    }
     let Some(mesh) = make_gpu_mesh(source) else {
         return;
     };
