@@ -55,11 +55,20 @@ pub fn gpu_skeleton() -> BoneMergeConfig {
 /// Index of the single crowd skeleton in [`SkeletonLodConfig`].
 pub const GPU_SKELETON_LOD: usize = 0;
 
+/// Camera framing for the shared `setup_env`: `Close` frames a single
+/// character at the origin (CPU examples), `Far` frames the wide crowd
+/// centered at z = 8 (GPU crowd examples).
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CameraFraming {
+    Close,
+    Far,
+}
+
 /// Builds the `App` every GPU crowd example shares: humentity assets live at
 /// the crate's `assets/` dir, diagnostics + GPU plugin + crowd material are
 /// wired, and the single [`gpu_skeleton`] is registered at
 /// [`GPU_SKELETON_LOD`].
-pub fn setup_app_gpu(instances: usize, sample_rate: f32) -> App {
+pub fn setup_app_gpu(instances: usize, sample_rate: f32, framing: CameraFraming) -> App {
     let asset_dir: String = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("assets")
         .to_string_lossy()
@@ -81,6 +90,7 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32) -> App {
     ));
     app.insert_resource(SkeletonLodConfig::new(&[gpu_skeleton()]));
     app.insert_resource(GpuSkeletonLod(GPU_SKELETON_LOD));
+    app.insert_resource(framing);
     app.add_systems(Startup, (load_core_assets, setup_fps_text, setup_env));
     app.add_systems(Update, update_fps_text);
     app
@@ -161,6 +171,7 @@ pub fn setup_app() -> App {
     ))
     .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
     .insert_resource(SkeletonLodConfig::new(&default_skeleton_lods()))
+    .insert_resource(CameraFraming::Close)
     .add_systems(Startup, load_assets)
     .add_systems(Startup, setup_env)
     .add_systems(
@@ -339,6 +350,7 @@ pub fn setup_env(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    framing: Res<CameraFraming>,
 ) {
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
@@ -352,10 +364,18 @@ pub fn setup_env(
         },
         Transform::from_xyz(10.0, 20.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 18.0, -30.0).looking_at(Vec3::new(0.0, 1.0, 8.0), Vec3::Y),
-    ));
+    // Close frames a single character at the origin (same 4m-back, 1m-up
+    // framing as the old gpu_morphs reframe, retargeted to the origin);
+    // Far keeps the wide-crowd framing centered at z = 8.
+    let camera = match *framing {
+        CameraFraming::Close => {
+            Transform::from_xyz(0.0, 1.0, -4.0).looking_at(Vec3::new(0.0, 0.7, 0.0), Vec3::Y)
+        }
+        CameraFraming::Far => {
+            Transform::from_xyz(0.0, 18.0, -30.0).looking_at(Vec3::new(0.0, 1.0, 8.0), Vec3::Y)
+        }
+    };
+    commands.spawn((Camera3d::default(), camera));
 }
 
 /// Entry source for [`EXAMPLE_VERTEX_SHADER`], shared by all GPU crowd

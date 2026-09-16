@@ -65,6 +65,7 @@ pub const fn gpu_skin_wgsl() -> &'static str {
 const CROWD_SKIN_ENTRY: &str = r#"
 struct GpuVertex {
     @builtin(instance_index) instance_index: u32,
+    @builtin(vertex_index) vertex_index: u32,
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
@@ -76,6 +77,7 @@ struct GpuVertex {
 fn vertex(vertex: GpuVertex) -> VertexOutput {
     return gpu_skin_vertex(
         vertex.instance_index,
+        vertex.vertex_index,
         vertex.position,
         vertex.normal,
         vertex.uv,

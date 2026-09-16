@@ -89,9 +89,8 @@ pub const ATTRIBUTE_GPU_JOINT_WEIGHT: MeshVertexAttribute =
 /// plus the custom GPU joint attributes. Standard joint attributes are
 /// dropped so Bevy treats the mesh as unskinned (no CPU skin buffer, no
 /// `SkinnedMesh`), while the custom vertex shader still skins from the GPU
-/// joint buffer. Morph targets are dropped; the mesh matches the baked
-/// bindpose proportions.
-///
+/// joint buffer. Morph targets (and names) are preserved so per-entity
+/// `MeshMorphWeights` keep working through the GPU vertex shader.
 /// The source mesh must be painted for the same skeleton LOD the bake poses
 /// (see [`GpuSkeletonLod`](super::config::GpuSkeletonLod)) so joint indices
 /// line up.
@@ -109,6 +108,12 @@ pub fn make_gpu_mesh(source: &Mesh) -> Option<Mesh> {
     mesh.insert_attribute(ATTRIBUTE_GPU_JOINT_WEIGHT, joint_weight);
     if let Some(indices) = source.indices() {
         mesh.insert_indices(indices.clone());
+    }
+    if let Some(targets) = source.morph_targets() {
+        mesh.set_morph_targets(targets.clone());
+    }
+    if let Some(names) = source.morph_target_names() {
+        mesh.set_morph_target_names(names.to_vec());
     }
     Some(mesh)
 }

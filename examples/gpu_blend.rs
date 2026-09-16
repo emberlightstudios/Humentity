@@ -11,7 +11,7 @@ mod shared;
 
 use bevy::{mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
-use shared::{CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
+use shared::{CameraFraming, CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
 use shared::FpsText;
 
 const WALK: &str = "normal-walk";
@@ -19,7 +19,7 @@ const STRAFE_RIGHT: &str = "normal-walk-strafe-right";
 const INSTANCES: usize = 6_000;
 
 fn main() {
-    let mut app = setup_app_gpu(INSTANCES, 30.0);
+    let mut app = setup_app_gpu(INSTANCES, 30.0, CameraFraming::Far);
     app.insert_resource(GpuBlendWeights([0.5, 0.5, 0.0, 0.0]));
     app.add_systems(
         Update,
