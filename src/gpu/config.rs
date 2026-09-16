@@ -59,3 +59,18 @@ pub enum GpuClipMode {
     OnceHold,
 }
 
+/// Pose compute workgroup tile. Must stay in sync with `@workgroup_size` in
+/// `pose.wgsl`. Instances tile across X/Y, bones across Z, so no single
+/// dispatch dimension grows with `instances * bones`.
+pub const POSE_WORKGROUP_X: u32 = 8;
+pub const POSE_WORKGROUP_Y: u32 = 8;
+pub const POSE_WORKGROUP_Z: u32 = 4;
+
+/// Side of the square instance grid the pose shader walks. Instance
+/// `i` lives at `x = i % side`, `y = i / side`.
+pub fn pose_grid_side(instances: u32) -> u32 {
+    if instances == 0 {
+        return 1;
+    }
+    (instances as f64).sqrt().ceil() as u32
+}

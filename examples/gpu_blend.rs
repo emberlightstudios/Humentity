@@ -16,7 +16,7 @@ use shared::FpsText;
 
 const WALK: &str = "normal-walk";
 const STRAFE_RIGHT: &str = "normal-walk-strafe-right";
-const INSTANCES: usize = 6_000;
+const INSTANCES: usize = 25_000;
 
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0, CameraFraming::Far);
@@ -55,7 +55,7 @@ fn trigger_crowd_build(
         "neutral",
         MorphTargets::default(),
     )]));
-    let part = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+    let part = asset_server.load::<MhcloAsset>("proxymeshes/proxy741/proxy741.proxy");
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: part.clone(),
         template_handle: template.clone(),

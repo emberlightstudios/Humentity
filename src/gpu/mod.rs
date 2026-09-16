@@ -20,9 +20,10 @@ mod pipeline;
 mod state;
 
 use bake::{bake_gpu_animation, collect_clip_bakes, submit_clip_bakes};
-pub use bank::{GpuAnimationBank, GpuAnimationReady, GpuRenderHandles};
+pub use bank::{BIND_POSE_CLIP, BIND_POSE_SLOT, GpuAnimationBank, GpuAnimationReady, GpuRenderHandles};
 pub use config::{
     GpuBlendWeights, GpuClipMode, GpuCrowdConfig, GpuSkeletonLod, MAX_BLEND_CLIPS, MAX_GPU_CLIPS,
+    POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z, pose_grid_side,
 };
 pub use material::{
     ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, CrowdMaterial, GpuCrowdExtension,

@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 use bevy::{
     asset::AssetPlugin,
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     input::mouse::MouseMotion,
     mesh::{MeshVertexBufferLayoutRef, morph::MeshMorphWeights, skinning::SkinnedMesh},
     pbr::{
@@ -38,18 +37,9 @@ pub fn default_skeleton_lods() -> Vec<BoneMergeConfig> {
     vec![lod0, lod1, lod2]
 }
 
-/// The single trimmed skeleton every GPU crowd example poses: toes, face,
-/// and hand/foot detail are merged away for crowd distance.
+/// The single full skeleton every GPU crowd example poses: no bones merged away.
 pub fn gpu_skeleton() -> BoneMergeConfig {
-    BoneMergeConfig::full().without_children_of(&[
-        "foot.L",
-        "foot.R",
-        "head",
-        "lowerarm02.L",
-        "lowerarm02.R",
-        "lowerleg02.L",
-        "lowerleg02.R",
-    ])
+    BoneMergeConfig::full()
 }
 
 /// Index of the single crowd skeleton in [`SkeletonLodConfig`].
@@ -65,8 +55,8 @@ pub enum CameraFraming {
 }
 
 /// Builds the `App` every GPU crowd example shares: humentity assets live at
-/// the crate's `assets/` dir, diagnostics + GPU plugin + crowd material are
-/// wired, and the single [`gpu_skeleton`] is registered at
+/// the crate's `assets/` dir, GPU plugin + crowd material are wired,
+/// and the single [`gpu_skeleton`] is registered at
 /// [`GPU_SKELETON_LOD`].
 pub fn setup_app_gpu(instances: usize, sample_rate: f32, framing: CameraFraming) -> App {
     let asset_dir: String = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -79,8 +69,6 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32, framing: CameraFraming)
             file_path: asset_dir,
             ..default()
         }),
-        FrameTimeDiagnosticsPlugin::default(),
-        LogDiagnosticsPlugin::default(),
         HumentityPlugin,
         HumentityGpuPlugin {
             instances,
@@ -92,7 +80,7 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32, framing: CameraFraming)
     app.insert_resource(GpuSkeletonLod(GPU_SKELETON_LOD));
     app.insert_resource(framing);
     app.add_systems(Startup, (load_core_assets, setup_fps_text, setup_env));
-    app.add_systems(Update, update_fps_text);
+    app.add_systems(Update, (update_fps_text, cam_controls));
     app
 }
 
@@ -120,16 +108,13 @@ pub fn setup_fps_text(mut commands: Commands) {
     ));
 }
 
-/// Updates the shared FPS readout. Plain `FPS: x` for every example;
-/// per-example mix readouts live in the example itself.
+/// Updates the shared FPS readout from `Time` delta. Plain `FPS: x` for every
+/// example; per-example mix readouts live in the example itself.
 pub fn update_fps_text(
-    diagnostics: Res<DiagnosticsStore>,
+    time: Res<Time>,
     mut query: Query<&mut Text, With<FpsText>>,
 ) {
-    let fps = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|d| d.smoothed())
-        .unwrap_or(0.0);
+    let fps = 1.0 / time.delta_secs().max(1e-6);
     for mut line in &mut query {
         **line = format!("FPS: {fps:.1}");
     }

@@ -11,7 +11,11 @@ use bevy::{
     },
 };
 
-use super::{bank::GpuRenderHandles, POSE_SHADER};
+use super::{
+    bank::GpuRenderHandles,
+    config::{POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z, pose_grid_side},
+    POSE_SHADER,
+};
 
 #[derive(Resource)]
 pub(super) struct CrowdPosePipeline {
@@ -157,8 +161,10 @@ pub(super) fn dispatch_pose(
     let Some(compute_pipeline) = pipeline_cache.get_compute_pipeline(pipeline.pipeline) else {
         return;
     };
-    let total = handles.instance_count * handles.num_bones;
-    let workgroups = total.div_ceil(64);
+    let side = pose_grid_side(handles.instance_count);
+    let groups_x = side.div_ceil(POSE_WORKGROUP_X);
+    let groups_y = side.div_ceil(POSE_WORKGROUP_Y);
+    let groups_z = handles.num_bones.div_ceil(POSE_WORKGROUP_Z);
     let mut encoder =
         render_device
             .wgpu_device()
@@ -169,7 +175,7 @@ pub(super) fn dispatch_pose(
         let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
         pass.set_bind_group(0, &bind_group.0, &[]);
         pass.set_pipeline(compute_pipeline);
-        pass.dispatch_workgroups(workgroups, 1, 1);
+        pass.dispatch_workgroups(groups_x, groups_y, groups_z);
     }
     render_queue.submit(std::iter::once(encoder.finish()));
 }

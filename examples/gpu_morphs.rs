@@ -31,7 +31,6 @@ fn main() {
     )
     .run();
 }
-
 #[derive(Resource)]
 struct MorphBuild {
     part: Handle<MhcloAsset>,
@@ -56,18 +55,14 @@ fn trigger_morph_build(
         CharacterMorphShape::new(BODYBUILDER, bodybuilder_targets),
         CharacterMorphShape::new(BABY, baby_targets),
     ]));
-    let part = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+    let part = asset_server.load::<MhcloAsset>("proxymeshes/proxy741/proxy741.proxy");
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: part.clone(),
         template_handle: template.clone(),
         skeleton_lod: GPU_SKELETON_LOD,
     });
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
-    commands.insert_resource(MorphBuild {
-        part,
-        template,
-        clips,
-    });
+    commands.insert_resource(MorphBuild { part, template, clips });
     info!("gpu morph build triggered");
 }
 
@@ -119,7 +114,8 @@ fn spawn_crowd(
     let (Some(build), Some(handles), Some(bank)) = (build, handles, bank) else {
         return;
     };
-    // Idle must be resident before the crowd binds blend slot 0 to it.
+    // Idle must be resident before the crowd binds blend slot 0 to it. With
+    // slot 0 reserved for the bindpose clip, idle lands at slot 1+.
     let Some(idle) = bank.slot_of("Idle-loop") else {
         return;
     };

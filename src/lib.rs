@@ -68,12 +68,12 @@ pub mod prelude {
             MakeHumanMorphs, MorphError, MorphTargets, adjust_helpers_to_morphs,
         },
         gpu::{
-            ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, CROWD_SKIN_SHADER,
-            CrowdMaterial, GpuAnimationBank, GpuAnimationReady, GpuBlendWeights,
-            GpuClipMode, GpuCrowdConfig, GpuCrowdExtension, GpuCrowdUniform,
-            GpuInstanceAnims, GpuOneShotDone, GpuRenderHandles, GpuSkeletonLod, HumentityGpuPlugin,
-            MAX_BLEND_CLIPS, MAX_GPU_CLIPS, POSE_SHADER, gpu_skin_wgsl, make_gpu_mesh,
-            specialize_gpu_vertex_layout,
+            ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, BIND_POSE_CLIP, BIND_POSE_SLOT,
+            CROWD_SKIN_SHADER, CrowdMaterial, GpuAnimationBank, GpuAnimationReady, GpuBlendWeights,
+            GpuClipMode, GpuCrowdConfig, GpuCrowdExtension, GpuCrowdUniform, GpuInstanceAnims,
+            GpuOneShotDone, GpuRenderHandles, GpuSkeletonLod, HumentityGpuPlugin, MAX_BLEND_CLIPS,
+            MAX_GPU_CLIPS, POSE_SHADER, POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z,
+            gpu_skin_wgsl, make_gpu_mesh, pose_grid_side, specialize_gpu_vertex_layout,
         },
         rigs::{RigData, RigSpec, SkeletonRootBone, SkeletalBone},
         skeleton_lod::{

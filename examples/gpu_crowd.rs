@@ -45,7 +45,7 @@ fn trigger_crowd_build(
         "neutral",
         MorphTargets::default(),
     )]));
-    let part = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+    let part = asset_server.load::<MhcloAsset>("proxymeshes/proxy741/proxy741.proxy");
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: part.clone(),
         template_handle: template.clone(),

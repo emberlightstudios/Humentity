@@ -2,7 +2,7 @@
 //!
 //! The first pass samples nothing: it snapshots the LOD skeleton (bones,
 //! animation targets, bindposes), uploads the static buffers (`parents`,
-//! `inv_bind`, a frame-0 bindpose seed, `joints`, `uniforms`,
+//! `inv_bind`, the frame-0 bindpose clip, `joints`, `uniforms`,
 //! `instance_data`), creates the [`GpuAnimationBank`] registry, and seeds
 //! per-instance state. Clip loads are always manual: callers queue them via
 //! [`GpuAnimationBank::request_load`](super::bank::GpuAnimationBank::request_load),
@@ -24,8 +24,8 @@ use bevy::{
 use crate::{prelude::*, rigs::RigBundleRes};
 
 use super::{
-    bank::{BakedClip, BankSlot, GpuAnimationBank, GpuAnimationReady, GpuBakeJobs, GpuRenderHandles},
-    config::{GpuBlendWeights, GpuCrowdConfig, GpuSkeletonLod, MAX_BLEND_CLIPS, MAX_GPU_CLIPS},
+    bank::{BIND_POSE_CLIP, BIND_POSE_SLOT, BakedClip, BankSlot, GpuAnimationBank, GpuAnimationReady, GpuBakeJobs, GpuRenderHandles},
+    config::{GpuBlendWeights, GpuCrowdConfig, GpuSkeletonLod, MAX_BLEND_CLIPS, MAX_GPU_CLIPS, pose_grid_side},
     state::GpuInstanceAnims,
 };
 
@@ -214,8 +214,18 @@ pub(super) fn bake_gpu_animation(
         }
     }
 
-    // Frame 0 is the bindpose seed so cleared uniform rows read a valid pose.
-    let mut seed: Vec<Mat4> = Vec::with_capacity(bones.len());
+    // Frame 0 is the bindpose clip: plain rest bends in the same shape as
+    // every baked clip frame. The pose shader walks parents and applies the
+    // undo itself, so storing anything already finished here double-applies
+    // both. Bank slot 0 permanently points at this frame.
+    let seed: Vec<Mat4> = binds.iter().map(|bind| bind.to_matrix()).collect();
+    let fix = Mat4::from_cols(
+        Vec4::new(-1.0, 0.0, 0.0, 0.0),
+        Vec4::new(0.0, 1.0, 0.0, 0.0),
+        Vec4::new(0.0, 0.0, -1.0, 0.0),
+        Vec4::new(0.0, 0.0, 0.0, 1.0),
+    );
+    let mut rest_finals: Vec<Mat4> = Vec::with_capacity(bones.len());
     for (index, _) in bones.iter().enumerate() {
         let mut model = binds[index].to_matrix();
         let mut parent = parents[index];
@@ -225,11 +235,13 @@ pub(super) fn bake_gpu_animation(
             parent = parents[parent as usize];
             guard += 1;
         }
-        seed.push(model * reference.model_space_bindpose[bones[index]].to_matrix().inverse());
+        rest_finals.push(
+            fix * model * reference.model_space_bindpose[bones[index]].to_matrix().inverse(),
+        );
     }
     let mut joints_data = Vec::with_capacity(bones.len() * config.instances);
     for _ in 0..config.instances {
-        joints_data.extend_from_slice(&seed);
+        joints_data.extend_from_slice(&rest_finals);
     }
 
     let num_bones = bones.len() as u32;
@@ -326,6 +338,10 @@ pub(super) fn submit_clip_bakes(
     let mut i = 0;
     while i < bank.pending.len() {
         let req = bank.pending[i].clone();
+        if req.name == BIND_POSE_CLIP {
+            bank.pending.remove(i);
+            continue;
+        }
         let Some(map) = retargeted
             .iter()
             .find_map(|(_id, map)| map.clips.contains_key(req.name.as_str()).then_some(map))
@@ -383,8 +399,10 @@ pub(super) fn collect_clip_bakes(
     let mut newly_staged = false;
     for baked in jobs.receiver.try_iter() {
         bank.baking.retain(|b| b != &baked.name);
-        // Unloaded while baking, or a duplicate: drop the bytes.
-        if bank.slot_of(&baked.name).is_some()
+        // Unloaded while baking, a duplicate, or the reserved bindpose name:
+        // drop the bytes.
+        if baked.name == BIND_POSE_CLIP
+            || bank.slot_of(&baked.name).is_some()
             || bank.staged.iter().any(|s| s.name == baked.name)
         {
             continue;
@@ -407,7 +425,7 @@ pub(super) fn collect_clip_bakes(
     let bones = bank.bones.len().max(1);
     let mut changed = false;
     for baked in std::mem::take(&mut bank.staged) {
-        if bank.slot_of(&baked.name).is_some() {
+        if baked.name == BIND_POSE_CLIP || bank.slot_of(&baked.name).is_some() {
             continue;
         }
         let Some(slot) = bank.free_slot() else {
@@ -438,12 +456,16 @@ pub(super) fn collect_clip_bakes(
     }
     // Unloads: splice the clip's bytes out of the packed shadow and rewrite
     // later offsets, so the buffer stays packed with no dead bytes. Rebind
-    // per-instance slots that pointed at the freed bank index to 0 (bindpose
-    // seed; weight decides).
+    // per-instance slots that pointed at the freed bank index to the bindpose
+    // clip (weight decides). Slot 0 is the permanent bindpose clip and is
+    // never spliced, so frame 0 never moves.
     for name in std::mem::take(&mut bank.unload_queue) {
         let Some(slot) = bank.slot_of(&name) else {
             continue;
         };
+        if slot == BIND_POSE_SLOT {
+            continue;
+        }
         let Some((_, meta)) = bank.slots[slot].take() else {
             continue;
         };
@@ -461,7 +483,7 @@ pub(super) fn collect_clip_bakes(
             for slots in anims.slots.iter_mut() {
                 for s in slots.iter_mut() {
                     if *s as usize == slot {
-                        *s = 0;
+                        *s = BIND_POSE_SLOT as u32;
                     }
                 }
             }
@@ -512,7 +534,7 @@ fn pose_uniform_bytes(
     let mut words = [0u32; 272];
     words[0] = num_bones;
     words[1] = instances;
-    words[2] = 0;
+    words[2] = pose_grid_side(instances);
     words[3] = 0;
     for i in 0..MAX_GPU_CLIPS {
         words[4 + i] = clip_offsets[i];

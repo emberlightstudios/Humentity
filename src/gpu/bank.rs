@@ -11,9 +11,10 @@
 //! uploads are deferred while bake work is still pending so a burst of clips
 //! sends once.
 //!
-//! A cleared uniform row reads frame 0, which the base bake seeds with the
-//! bindpose — an unloaded slot falls back to the bindpose. Callers must still
-//! drive the slot weight to 0 so it contributes nothing.
+//! Bank slot 0 permanently holds the bindpose clip (frame 0, plain rest
+//! bends): empty rows read offset 0, so an unloaded slot falls back to
+//! rest. Callers must still drive the slot weight to 0 so it contributes
+//! nothing.
 
 use bevy::{
     animation::AnimationTargetId,
@@ -23,6 +24,15 @@ use bevy::{
 use crossbeam_channel::{Receiver, Sender};
 
 use super::config::{GpuClipMode, MAX_GPU_CLIPS};
+
+/// Bank slot permanently holding the bindpose fallback clip. Frame 0 of the
+/// shared frames buffer is the bindpose in plain rest-bend shape (the same
+/// shape as every baked clip frame); this entry points at it, so empty blend
+/// slots (bank 0) and cleared table entries (offset 0) read rest. Never
+/// handed out to real clips, never unloaded.
+pub const BIND_POSE_SLOT: usize = 0;
+/// Reserved clip name for the bindpose fallback in [`BIND_POSE_SLOT`].
+pub const BIND_POSE_CLIP: &str = "__bindpose__";
 
 /// Metadata for one resident bank slot. The clip's bytes live at
 /// `offset_frames * num_bones` in the packed `frames` shadow; unloads splice
@@ -34,8 +44,6 @@ pub(crate) struct BankSlot {
     pub duration: f32,
     pub mode: GpuClipMode,
 }
-
-/// A queued manual load request, awaiting asset resolution + background bake.
 #[derive(Clone)]
 pub(crate) struct PendingGpuAnimationClip {
     pub(crate) name: String,
@@ -59,7 +67,7 @@ pub struct GpuAnimationBank {
     pub(crate) binds: Vec<Transform>,
     pub(crate) sample_rate: f32,
     /// Next free frame in the shared buffer. Starts at 1: frame 0 is the
-    /// bindpose seed, so cleared uniform rows read a valid pose.
+    /// permanent bindpose clip in slot 0, so cleared table entries read rest.
     pub(crate) frame_total: u32,
     /// CPU-side shadow of the shared `frames` buffer (seed + every appended
     /// clip). Bevy 0.19 `take_gpu_data` empties `ShaderBuffer::data` on
@@ -82,6 +90,17 @@ impl GpuAnimationBank {
         binds: Vec<Transform>,
         sample_rate: f32,
     ) -> Self {
+        let mut slots: Vec<Option<(String, BankSlot)>> =
+            (0..MAX_GPU_CLIPS).map(|_| None).collect();
+        slots[BIND_POSE_SLOT] = Some((
+            BIND_POSE_CLIP.to_string(),
+            BankSlot {
+                offset_frames: 0,
+                frame_count: 1,
+                duration: 1.0 / sample_rate.max(1.0),
+                mode: GpuClipMode::Loop,
+            },
+        ));
         Self {
             bones,
             targets,
@@ -89,7 +108,7 @@ impl GpuAnimationBank {
             sample_rate,
             frame_total: 1,
             frames: Vec::new(),
-            slots: (0..MAX_GPU_CLIPS).map(|_| None).collect(),
+            slots,
             pending: Vec::new(),
             baking: Vec::new(),
             unload_queue: Vec::new(),
@@ -100,10 +119,13 @@ impl GpuAnimationBank {
     /// Queues a background bake of `name` with the given playback mode.
     /// Returns false when the clip is already resident, queued, or baking, or
     /// when every bank slot is occupied (unload something, then retry).
+    /// Slot 0 is the permanent bindpose clip: real clips start at slot 1.
     /// Staged-but-uncommitted clips report success without queueing a
-    /// duplicate bake.
     pub fn request_load(&mut self, name: impl Into<String>, mode: GpuClipMode) -> bool {
         let name = name.into();
+        if name == BIND_POSE_CLIP {
+            return false;
+        }
         if let Some(idx) = self.slot_of(&name) {
             // Already resident: cancel a queued unload so the load wins.
             self.unload_queue.retain(|n| n != &name);
@@ -118,7 +140,7 @@ impl GpuAnimationBank {
         {
             return false;
         }
-        if self.slots.iter().all(|s| s.is_some()) {
+        if self.slots.iter().skip(1).all(|s| s.is_some()) {
             return false;
         }
         self.pending.push(PendingGpuAnimationClip { name, mode });
@@ -126,11 +148,14 @@ impl GpuAnimationBank {
     }
     /// Unloads `name`. Resident clips are queued for a packed rebuild (bytes
     /// spliced out of the shadow, later offsets rewritten, cleared slots read
-    /// the bindpose seed — drive the slot weight to 0); staged-but-
+    /// the frame-0 bindpose clip — drive the slot weight to 0); staged-but-
     /// uncommitted clips are dropped outright; queued-but-undispatched
     /// requests are just dequeued. Returns false when the clip is unknown or
     /// currently baking (bakes cannot be cancelled — retry once it lands).
     pub fn request_unload(&mut self, name: &str) -> bool {
+        if name == BIND_POSE_CLIP {
+            return false;
+        }
         if self.slot_of(name).is_some() {
             if !self.unload_queue.iter().any(|n| n == name) {
                 self.unload_queue.push(name.to_string());
@@ -167,11 +192,11 @@ impl GpuAnimationBank {
     }
 
     pub(crate) fn free_slot(&self) -> Option<usize> {
-        self.slots.iter().position(|s| s.is_none())
+        self.slots.iter().enumerate().skip(1).find(|(_, s)| s.is_none()).map(|(i, _)| i)
     }
 
     /// Uniform tables in shader order (offsets, counts, durations, modes).
-    /// Cleared rows are zero, which reads the bindpose seed frame.
+    /// Cleared rows are zero, which reads the frame-0 bindpose clip.
     pub(crate) fn tables(
         &self,
     ) -> (

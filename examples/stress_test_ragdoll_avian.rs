@@ -3,11 +3,7 @@
 
 mod shared;
 use avian3d::prelude::*;
-use bevy::{
-    camera::visibility::VisibilityRange,
-    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    prelude::*,
-};
+use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
 use shared::setup_app;
 
@@ -43,11 +39,7 @@ impl Default for RagdollSleepTimer {
 fn main() {
     let mut app = setup_app();
 
-    app.add_plugins((
-        PhysicsPlugins::default(),
-        FrameTimeDiagnosticsPlugin::default(),
-        PhysicsDebugPlugin,
-    ))
+    app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin))
     .insert_resource(SubstepCount(10))
     .add_systems(Startup, (physics_floor, spawn_ui))
     .add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
@@ -108,14 +100,11 @@ fn spawn_ui(mut commands: Commands) {
 }
 
 fn update_fps_text(
-    diagnostics: Res<DiagnosticsStore>,
+    time: Res<Time>,
     characters: Query<Entity, With<CharacterShape>>,
     mut query: Query<&mut Text, With<FpsText>>,
 ) {
-    let fps = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|d| d.smoothed())
-        .unwrap_or(0.0);
+    let fps = 1.0 / time.delta_secs().max(1e-6);
 
     let count = characters.iter().count();
 

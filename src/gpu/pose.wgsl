@@ -1,7 +1,7 @@
 struct PoseUniforms {
     num_bones: u32,
     instance_count: u32,
-    _pad0: u32,
+    grid_side: u32,
     _pad1: u32,
     // Clip tables sized for MAX_GPU_CLIPS (64). Keep in sync with config.rs.
     offsets: array<u32, 64>,
@@ -71,15 +71,17 @@ fn blended_local(bone: u32, instance: u32, wsum: f32) -> mat4x4f {
     return local;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(8, 8, 4)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let total = uniforms.instance_count * uniforms.num_bones;
-    let idx = gid.x;
-    if (idx >= total) {
+    // Instances tile across X/Y on a square grid of `grid_side`; bones run
+    // down Z. This keeps every dispatch dimension small: X/Y grow with
+    // sqrt(instances), Z with bones.
+    let instance = gid.x + gid.y * uniforms.grid_side;
+    let bone = gid.z;
+    if (instance >= uniforms.instance_count || bone >= uniforms.num_bones) {
         return;
     }
-    let bone = idx % uniforms.num_bones;
-    let instance = idx / uniforms.num_bones;
+    let idx = instance * uniforms.num_bones + bone;
 
     var wsum = 0.0;
     for (var s = 0u; s < 4u; s++) {
