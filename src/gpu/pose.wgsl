@@ -96,5 +96,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         p = parents[pb];
         guard += 1;
     }
-    joints[idx] = model * inv_bind[bone];
+    // MODEL_ROTATION_FIX: model verts face +Z, so CPU skeletons carry a PI
+    // rotation about Y on the skeleton entity to face -Z. The GPU has no
+    // skeleton entity, so the pose root carries the same rotation: premultiply
+    // the model chain once, exactly like the skeleton-entity global on CPU.
+    let fix = mat4x4f(
+        vec4f(-1.0, 0.0, 0.0, 0.0),
+        vec4f(0.0, 1.0, 0.0, 0.0),
+        vec4f(0.0, 0.0, -1.0, 0.0),
+        vec4f(0.0, 0.0, 0.0, 1.0),
+    );
+    joints[idx] = fix * model * inv_bind[bone];
 }
