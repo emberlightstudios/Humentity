@@ -237,7 +237,8 @@ pub(super) fn bake_gpu_animation(
 
     let num_bones = bones.len() as u32;
     let instances = config.instances as u32;
-    let bank = GpuAnimationBank::new(bones, targets, binds, config.sample_rate);
+    let mut bank = GpuAnimationBank::new(bones, targets, binds, config.sample_rate);
+    bank.frames.extend_from_slice(&seed);
     let (offsets, counts, durations, modes) = bank.tables();
 
     let parents_handle = buffers.add(ShaderBuffer::new(
@@ -407,15 +408,9 @@ pub(super) fn collect_clip_bakes(
                 mode: baked.mode,
             },
         ));
-        let Some(handles_ref) = handles.as_ref() else {
-            continue;
-        };
-        let Some(mut frames) = buffers.get_mut(&handles_ref.frames) else {
-            continue;
-        };
-        let mut bytes = frames.data.clone().unwrap_or_default();
-        bytes.extend_from_slice(bytemuck::cast_slice(&baked.frames));
-        frames.data = Some(bytes);
+        // Shadow first: stays in sync with `frame_total` even if the GPU
+        // upload below is skipped this pass (the next append uploads all).
+        bank.frames.extend_from_slice(&baked.frames);
         appended = true;
         // TEMP DEBUG: limb-bone variation on the freshly appended clip.
         // Constant values mean sampling missed and fell back to bindpose.
@@ -461,12 +456,20 @@ pub(super) fn collect_clip_bakes(
     }
     // Publish through the extracted mirrors + the uniforms buffer, so the
     // compute pipeline picks the rows up on its next bind-group rebuild.
+    // The frames upload is the full shadow (seed + every clip): extraction
+    // empties `data` on upload, so incremental read-extend-write would drop
+    // the prefix.
     let (offsets, counts, durations, modes) = bank.tables();
     if let Some(handles) = handles.as_mut() {
         handles.clip_offsets = offsets;
         handles.clip_frames = counts;
         handles.durations = durations;
         handles.modes = modes;
+        if appended {
+            if let Some(mut frames) = buffers.get_mut(&handles.frames) {
+                frames.data = Some(bytemuck::cast_slice(&bank.frames).to_vec());
+            }
+        }
         if let Some(mut uniforms) = buffers.get_mut(&handles.uniforms) {
             uniforms.data = Some(
                 pose_uniform_bytes(

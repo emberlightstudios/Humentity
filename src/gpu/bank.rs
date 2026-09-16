@@ -59,6 +59,10 @@ pub struct GpuAnimationBank {
     /// Next free frame in the shared buffer. Starts at 1: frame 0 is the
     /// bindpose seed, so cleared uniform rows read a valid pose.
     pub(crate) frame_total: u32,
+    /// CPU-side shadow of the shared `frames` buffer (seed + every appended
+    /// clip). Bevy 0.19 `take_gpu_data` empties `ShaderBuffer::data` on
+    /// upload, so the buffer itself cannot be used as the append source.
+    pub(crate) frames: Vec<Mat4>,
     pub(crate) slots: Vec<Option<(String, BankSlot)>>,
     pub(crate) pending: Vec<PendingLoad>,
     pub(crate) baking: Vec<String>,
@@ -78,6 +82,7 @@ impl GpuAnimationBank {
             binds,
             sample_rate,
             frame_total: 1,
+            frames: Vec::new(),
             slots: (0..MAX_GPU_CLIPS).map(|_| None).collect(),
             pending: Vec::new(),
             baking: Vec::new(),
