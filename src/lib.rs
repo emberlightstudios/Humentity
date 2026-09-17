@@ -75,8 +75,9 @@ pub mod prelude {
         rigs::{RigData, RigSpec, SkeletalBone, SkeletonRootBone},
         skeleton_lod::{BoneMergeConfig, MAX_LODS, RigBundle, SkeletonLodConfig, SkeletonLodData},
         spawn_mesh::{
-            CachedMhcloMeshHandles, CharacterPart, CharacterShape, LoadAssetMeshJob,
-            MeshBuildLod, MhcloMeshBuilder, build_single_mesh_direct, request_gpu_mesh,
+            CachedMhcloMeshHandles, CharacterPart, CharacterShape, GpuCharacterPart,
+            LoadAssetMeshJob, MeshBuildLod, MhcloMeshBuilder, build_single_mesh_direct,
+            request_gpu_mesh,
         },
         spawn_skeleton::{
             CharacterSkeleton, SkeletonLodDisabled, SkeletonLodState, SkeletonsReady,

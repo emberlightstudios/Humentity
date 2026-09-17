@@ -444,6 +444,7 @@ pub(crate) fn on_character_helpers_removed(
     trigger: On<Remove, HelperVertexPositions>,
     characters: Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
     parts: Query<(Entity, &ChildOf, &CharacterPart)>,
+    gpu_parts: Query<(Entity, &ChildOf, &GpuCharacterPart)>,
     parents: Query<&ChildOf>,
     mut commands: Commands,
 ) {
@@ -474,6 +475,16 @@ pub(crate) fn on_character_helpers_removed(
                 .remove::<Mesh3d>()
                 .remove::<SkinnedMesh>()
                 .remove::<MeshMorphWeights>();
+        }
+    }
+    // GPU parts hold static meshes with no skinning, but still drop the handle
+    // so a refit re-attaches a fresh one.
+    for (part_entity, _, _) in &gpu_parts {
+        if parents
+            .iter_ancestors::<ChildOf>(part_entity)
+            .any(|ancestor| ancestor == entity)
+        {
+            commands.entity(part_entity).remove::<Mesh3d>();
         }
     }
 }

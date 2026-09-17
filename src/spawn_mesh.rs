@@ -9,7 +9,7 @@ use crate::{
     rigs::{RigBundleRes, RigData, RigSpec},
     template::CharacterTemplate,
 };
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
 
@@ -41,6 +41,16 @@ pub enum MeshBuildLod {
 pub struct CharacterPart {
     pub mesh: Handle<MhcloAsset>,
     pub skeleton_lod: usize,
+}
+
+/// Marks an entity as a GPU-pipeline mesh piece: the same proxy mesh as a
+/// [`CharacterPart`], but always built on skeleton LOD 0 and rendered without
+/// `SkinnedMesh` (static bind pose until the GPU pose pipeline drives it).
+/// Place as children of a [`CharacterShape`] entity (e.g. under `GPUMeshes`).
+/// Carries no skeleton LOD: the GPU bake poses a single skeleton.
+#[derive(Component, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct GpuCharacterPart {
+    pub mesh: Handle<MhcloAsset>,
 }
 
 /// The state of a mesh load process for character parts
@@ -385,6 +395,8 @@ pub(crate) fn build_single_mesh_process(
         && let Some(input_mesh) = meshes.get(&cache.mesh)
         && let Some(mesh_verts) = mesh_verts.get(&cache.verts)
     {
+        let input_mesh = input_mesh.clone();
+        let mesh_verts = mesh_verts.clone();
         // Bulletproof ordering: every async dependency must be proven loaded
         // BEFORE advancing state or consuming cached inputs. Advancing first
         // strands the job in BuildSubmitted forever (no mesh, no retry).
@@ -403,10 +415,11 @@ pub(crate) fn build_single_mesh_process(
         let rig_spec = rig_entry.clone();
 
         *load_state = AssetLoadState::BuildSubmitted;
-        cached_raw_meshes.remove(part);
+        // Inputs already cloned above. Keep the shared raw entry: duplicate
+        // jobs (same proxy, different skeleton LOD) share one raw entry, so
+        // removing here strands the other job in `LoadedObj` with no entry
+        // and no retry. Handles are cheap; the entry is reused by later jobs.
 
-        let input_mesh = input_mesh.clone();
-        let mesh_verts = mesh_verts.clone();
         let template = template.clone();
         let mh_morphs = morphs.targets.clone();
 
@@ -584,10 +597,8 @@ fn build_stitched_meshes_process(
                     rig_spec.weights.weights.clone(),
                 )
             });
-
-        parts.iter().for_each(|p| {
-            cached_raw_meshes.remove(&p.part);
-        });
+        // Inputs already cloned above. Raw entries are owned by
+        // `mediators_clean_up`, which drops them once no live job needs them.
 
         let sender = mediator.mesh_building_msg_sender.clone();
         pool.spawn(async move {
@@ -612,19 +623,43 @@ fn build_stitched_meshes_process(
     }
 }
 
-/// Monitors for finished jobs and removes their mediators
-pub(crate) fn mediators_clean_up(mut mediators: ResMut<MhcloMeshBuilder>) {
-    let n = mediators.len();
-    if n > 0 {
-        let mut remove = vec![];
-        for (key, (_, state)) in mediators.iter() {
-            if *state == AssetLoadState::Finished {
-                remove.push(key.clone());
-            }
-        }
-
-        for key in remove {
-            mediators.finish(&key);
+/// Monitors for finished jobs and removes their mediators. Also drops raw OBJ
+/// entries no live job needs anymore: a raw entry is only input to the
+/// `LoadedObj` -> `BuildSubmitted` step, so once no unfinished job references
+/// its proxy it is dead weight (the built meshes live in `Assets<Mesh>` under
+/// `CachedMhcloMeshHandles`). Finished jobs are removed first so a job that
+/// just completed does not pin its own raw entry for another frame.
+pub(crate) fn mediators_clean_up(
+    mut mediators: ResMut<MhcloMeshBuilder>,
+    mut cached_raw_meshes: ResMut<CachedMhcloRawMeshHandles>,
+) {
+    let mut remove = vec![];
+    for (key, (_, state)) in mediators.iter() {
+        if *state == AssetLoadState::Finished {
+            remove.push(key.clone());
         }
     }
+    for key in remove {
+        mediators.finish(&key);
+    }
+    if cached_raw_meshes.is_empty() {
+        return;
+    }
+    let mut live: AHashSet<Handle<MhcloAsset>> = AHashSet::default();
+    for (key, (_, state)) in mediators.iter() {
+        if *state == AssetLoadState::Finished {
+            continue;
+        }
+        match key {
+            LoadAssetMeshJob::Single { part, .. } => {
+                live.insert(part.clone());
+            }
+            LoadAssetMeshJob::Stitched { parts, .. } => {
+                for part in parts.iter().map(|part| &part.part) {
+                    live.insert(part.clone());
+                }
+            }
+        }
+    }
+    cached_raw_meshes.retain(|part, _| live.contains(part));
 }
