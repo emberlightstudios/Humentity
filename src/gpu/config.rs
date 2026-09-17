@@ -10,6 +10,16 @@ pub struct GpuCrowdConfig {
     /// `ceil(duration * sample_rate)` frames, so short clips stay small and
     /// long clips keep time resolution.
     pub sample_rate: f32,
+    /// Blend slots per instance: how many clips each crowd member mixes.
+    /// Clamped to the pose-shader ceiling at bake time.
+    pub blend_slots: usize,
+    /// Clip slots in the bank. Slot 0 is the reserved bindpose fallback, so
+    /// this needs room for bindpose plus every clip you load. Clamped to the
+    /// pose-shader ceiling at bake time.
+    pub max_clips: usize,
+    /// Shape slots per instance: how many template bodies each crowd member
+    /// blends. Clamped to the pose-shader ceiling at bake time.
+    pub max_shapes: usize,
 }
 
 impl Default for GpuCrowdConfig {
@@ -17,7 +27,23 @@ impl Default for GpuCrowdConfig {
         Self {
             instances: 1000,
             sample_rate: 30.0,
+            blend_slots: BLEND_CAP,
+            max_clips: CLIP_CAP,
+            max_shapes: SHAPE_CAP,
         }
+    }
+}
+
+impl GpuCrowdConfig {
+    /// Active sizes clamped to the pose-shader ceilings
+    /// (`blend_slots`, `max_clips`, `max_shapes`). Needs at least 1 blend
+    /// slot and room for bindpose plus one clip.
+    pub(crate) fn normalized(&self) -> (usize, usize, usize) {
+        (
+            self.blend_slots.clamp(1, BLEND_CAP),
+            self.max_clips.clamp(2, CLIP_CAP),
+            self.max_shapes.min(SHAPE_CAP),
+        )
     }
 }
 
@@ -27,35 +53,27 @@ impl Default for GpuCrowdConfig {
 #[derive(Resource, Clone, Copy, Default)]
 pub struct GpuSkeletonLod(pub usize);
 
-/// Maximum number of clips blended per instance in the pose shader.
-pub const MAX_BLEND_CLIPS: usize = 4;
-
-/// Maximum number of clips resident in the global GPU clip bank.
-/// Per-instance blend slots (`MAX_BLEND_CLIPS`) index into this bank, so the
-/// crowd can pick any 4 of up to 64 loaded clips. Must stay in sync with the
-/// hardcoded table sizes in `pose.wgsl`.
-pub const MAX_GPU_CLIPS: usize = 64;
-
-/// Maximum number of template shapes blended per crowd instance in the pose
-/// shader. Per-instance shape weights (`shape_weights` buffer) ride one row
-/// of this width; the mesh's morph-target order and the registered
-/// [`GpuCrowdShapes`] order must agree so weight `i` hits shape slice `i + 1`.
-/// Must stay in sync with the hardcoded loop bound in `pose.wgsl`.
-pub const MAX_GPU_SHAPES: usize = 8;
-
+/// Pose-shader ceilings. These are layout constants, not tuning knobs: they
+/// must stay in sync with the hardcoded table sizes and loop bounds in
+/// `pose.wgsl`. The active sizes live on [`GpuCrowdConfig`] and are clamped
+/// to these ceilings at bake time.
+pub(crate) const BLEND_CAP: usize = 4;
+pub(crate) const CLIP_CAP: usize = 64;
+pub(crate) const SHAPE_CAP: usize = 8;
 
 /// Clip loads/unloads are manual via
 /// [`GpuAnimationBank`](super::bank::GpuAnimationBank) `request_load` /
 /// `request_unload`.
 /// Per-instance blend weights template used once at bake to seed every instance.
 /// Runtime weights are per-instance in [`GpuInstanceAnims`](super::state::GpuInstanceAnims);
-/// drive those to crossfade.
-#[derive(Resource, Clone, Copy)]
-pub struct GpuBlendWeights(pub [f32; MAX_BLEND_CLIPS]);
+/// drive those to crossfade. Only the first `blend_slots` entries are read;
+/// shorter templates pad with zeros.
+#[derive(Resource, Clone, Debug)]
+pub struct GpuBlendWeights(pub Vec<f32>);
 
 impl Default for GpuBlendWeights {
     fn default() -> Self {
-        Self([1.0, 0.0, 0.0, 0.0])
+        Self(vec![1.0, 0.0, 0.0, 0.0])
     }
 }
 
@@ -112,7 +130,7 @@ pub struct GpuShapeSkeleton {
 /// shader's shape-0 slice — the reference translations + `inv_bind` buffer.
 /// Helpers, template lookups, and weight bookkeeping stay game-side; the
 /// crate only owns buffers.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct GpuCrowdShapes {
     /// Registered shapes in upload order. Index + 1 is the shape index
     /// instances select; index 0 is always the reference skeleton.
@@ -120,23 +138,47 @@ pub struct GpuCrowdShapes {
     /// Bumped on every register; the upload system rebuilds GPU buffers when
     /// this moves.
     pub(crate) version: u64,
+    /// Registration budget from [`GpuCrowdConfig::max_shapes`], clamped to the
+    /// pose-shader ceiling. Set once by the plugin; registrations beyond it
+    /// are rejected and read as reference.
+    pub(crate) capacity: usize,
 }
+
+impl Default for GpuCrowdShapes {
+    fn default() -> Self {
+        Self {
+            shapes: Vec::new(),
+            version: 0,
+            capacity: SHAPE_CAP,
+        }
+    }
+}
+
 impl GpuCrowdShapes {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            shapes: Vec::new(),
+            version: 0,
+            capacity: capacity.min(SHAPE_CAP),
+        }
+    }
+
     /// Register a fitted shape skeleton. Returns its slice index (1-based;
     /// 0 is always the reference skeleton). The weight slot addressing it is
     /// the slice index minus one. Duplicate shape names replace the existing
     /// entry in place so re-fits don't grow the buffer. Registrations beyond
-    /// [`MAX_GPU_SHAPES`] are rejected with a warning and read as reference.
+    /// the configured capacity are rejected with a warning and read as reference.
     pub fn register(&mut self, shape: GpuShapeSkeleton) -> u32 {
         if let Some(i) = self.shapes.iter().position(|s| s.shape == shape.shape) {
             self.shapes[i] = shape;
             self.version += 1;
             return (i + 1) as u32;
         }
-        if self.shapes.len() >= MAX_GPU_SHAPES {
+        if self.shapes.len() >= self.capacity {
             bevy::log::warn!(
-                "GPU shapes: '{}' rejected, already holding MAX_GPU_SHAPES ({MAX_GPU_SHAPES})",
+                "GPU shapes: '{}' rejected, already holding {} shape(s)",
                 shape.shape,
+                self.capacity,
             );
             return 0;
         }
@@ -152,12 +194,12 @@ impl GpuCrowdShapes {
     }
 
     /// Number of non-reference shapes registered.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.shapes.len()
     }
 
     /// True when no fitted shapes are registered.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.shapes.is_empty()
     }
 }

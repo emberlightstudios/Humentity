@@ -14,7 +14,7 @@
 
 use ahash::AHashMap;
 use bevy::{
-    animation::{animated_field, AnimationClip, AnimationTargetId},
+    animation::{AnimationClip, AnimationTargetId, animated_field},
     asset::RenderAssetUsages,
     prelude::*,
     render::storage::ShaderBuffer,
@@ -24,8 +24,14 @@ use bevy::{
 use crate::{prelude::*, rigs::RigBundleRes};
 
 use super::{
-    bank::{BIND_POSE_CLIP, BIND_POSE_SLOT, BakedClip, BankSlot, GpuAnimationBank, GpuAnimationReady, GpuBakeJobs, GpuRenderHandles},
-    config::{GpuBlendWeights, GpuCrowdConfig, GpuSkeletonLod, MAX_BLEND_CLIPS, MAX_GPU_CLIPS, MAX_GPU_SHAPES, pose_grid_side},
+    bank::{
+        BIND_POSE_CLIP, BIND_POSE_SLOT, BakedClip, BankSlot, GpuAnimationBank, GpuAnimationReady,
+        GpuBakeJobs, GpuRenderHandles,
+    },
+    config::{
+        BLEND_CAP, CLIP_CAP, GpuBlendWeights, GpuCrowdConfig, GpuSkeletonLod, SHAPE_CAP,
+        pose_grid_side,
+    },
     state::GpuInstanceAnims,
 };
 
@@ -236,7 +242,10 @@ pub(super) fn bake_gpu_animation(
             guard += 1;
         }
         rest_finals.push(
-            fix * model * reference.model_space_bindpose[bones[index]].to_matrix().inverse(),
+            fix * model
+                * reference.model_space_bindpose[bones[index]]
+                    .to_matrix()
+                    .inverse(),
         );
     }
     let mut joints_data = Vec::with_capacity(bones.len() * config.instances);
@@ -246,7 +255,9 @@ pub(super) fn bake_gpu_animation(
 
     let num_bones = bones.len() as u32;
     let instances = config.instances as u32;
-    let mut bank = GpuAnimationBank::new(bones, targets, binds.clone(), config.sample_rate);
+    let (blend_slots, max_clips, max_shapes) = config.normalized();
+    let mut bank =
+        GpuAnimationBank::new(bones, targets, binds.clone(), config.sample_rate, max_clips);
     bank.frames.extend_from_slice(&seed);
     let (offsets, counts, durations, modes) = bank.tables();
 
@@ -272,7 +283,14 @@ pub(super) fn bake_gpu_animation(
     // exactly as before). `upload_shape_buffers` appends registered shapes.
     let reference_translations: Vec<Vec4> = binds
         .iter()
-        .map(|bind| Vec4::new(bind.translation.x, bind.translation.y, bind.translation.z, 0.0))
+        .map(|bind| {
+            Vec4::new(
+                bind.translation.x,
+                bind.translation.y,
+                bind.translation.z,
+                0.0,
+            )
+        })
         .collect();
     let shape_translations_handle = buffers.add(ShaderBuffer::new(
         bytemuck::cast_slice(&reference_translations),
@@ -287,24 +305,35 @@ pub(super) fn bake_gpu_animation(
         RenderAssetUsages::RENDER_WORLD,
     ));
     let uniforms_handle = buffers.add(ShaderBuffer::new(
-        &pose_uniform_bytes(num_bones, instances, offsets, counts, durations, modes, 1),
+        &pose_uniform_bytes(
+            num_bones,
+            instances,
+            offsets.clone(),
+            counts.clone(),
+            durations.clone(),
+            modes.clone(),
+            1,
+        ),
         RenderAssetUsages::RENDER_WORLD,
     ));
-    // Per instance: weights[4] + clocks[4] + bank indices[4].
-    // Slots start at bank 0 with zero weight until the caller wires them via
-    // `set_slot`.
-    let mut instance_floats = Vec::with_capacity(config.instances * MAX_BLEND_CLIPS * 3);
+    // Per instance: blend_slots weights + clocks + bank indices, padded to
+    // the shader's fixed stride. Slots start at bank 0 with zero weight
+    // until the caller wires them via `set_slot`.
+    let mut instance_floats = Vec::with_capacity(config.instances * BLEND_CAP * 3);
     for _ in 0..config.instances {
-        instance_floats.extend_from_slice(&blend_weights.0);
-        instance_floats.extend_from_slice(&[0.0; MAX_BLEND_CLIPS]);
-        instance_floats.extend_from_slice(&[0.0; MAX_BLEND_CLIPS]);
+        let mut seed = vec![0.0; BLEND_CAP];
+        let take = blend_weights.0.len().min(blend_slots);
+        seed[..take].copy_from_slice(&blend_weights.0[..take]);
+        instance_floats.extend_from_slice(&seed);
+        instance_floats.extend_from_slice(&[0.0; BLEND_CAP]);
+        instance_floats.extend_from_slice(&[0.0; BLEND_CAP]);
     }
     let instance_data_handle = buffers.add(ShaderBuffer::new(
         bytemuck::cast_slice(&instance_floats),
         RenderAssetUsages::RENDER_WORLD,
     ));
-    // Per instance: one MAX_GPU_SHAPES weight row (zeros = reference).
-    let shape_weight_floats = vec![0.0f32; config.instances * MAX_GPU_SHAPES];
+    // Per instance: one shape-ceiling weight row (zeros = reference).
+    let shape_weight_floats = vec![0.0f32; config.instances * SHAPE_CAP];
     let shape_weights_handle = buffers.add(ShaderBuffer::new(
         bytemuck::cast_slice(&shape_weight_floats),
         RenderAssetUsages::RENDER_WORLD,
@@ -341,25 +370,30 @@ pub(super) fn bake_gpu_animation(
         durations,
         modes,
     });
+    let mut seed_weights = vec![0.0; blend_slots];
+    seed_weights
+        .iter_mut()
+        .zip(blend_weights.0.iter())
+        .for_each(|(dst, src)| *dst = *src);
     commands.insert_resource(GpuInstanceAnims {
-        weights: vec![blend_weights.0; config.instances],
-        targets: vec![blend_weights.0; config.instances],
-        times: vec![[0.0; MAX_BLEND_CLIPS]; config.instances],
-        rates: vec![[1.0; MAX_BLEND_CLIPS]; config.instances],
-        slots: vec![[0; MAX_BLEND_CLIPS]; config.instances],
-        entries: [0.0; MAX_BLEND_CLIPS],
-        done: vec![[false; MAX_BLEND_CLIPS]; config.instances],
-        shape_weights: vec![[0.0; MAX_GPU_SHAPES]; config.instances],
+        weights: vec![seed_weights.clone(); config.instances],
+        targets: vec![seed_weights; config.instances],
+        times: vec![vec![0.0; blend_slots]; config.instances],
+        rates: vec![vec![1.0; blend_slots]; config.instances],
+        slots: vec![vec![0; blend_slots]; config.instances],
+        entries: vec![0.0; blend_slots],
+        done: vec![vec![false; blend_slots]; config.instances],
+        shape_weights: vec![vec![0.0; max_shapes]; config.instances],
         root_scales: vec![1.0; config.instances],
+        blend_slots,
+        max_clips,
+        max_shapes,
     });
     commands.insert_resource(bank);
     commands.insert_resource(GpuAnimationReady);
     info!(
         "GPU base baked: {} bones, {} instances, skeleton LOD {} @ {:.1} Hz",
-        num_bones,
-        instances,
-        skeleton_lod.0,
-        config.sample_rate,
+        num_bones, instances, skeleton_lod.0, config.sample_rate,
     );
 }
 
@@ -541,10 +575,10 @@ pub(super) fn collect_clip_bakes(
     // the prefix.
     let (offsets, counts, durations, modes) = bank.tables();
     if let Some(handles) = handles.as_mut() {
-        handles.clip_offsets = offsets;
-        handles.clip_frames = counts;
-        handles.durations = durations;
-        handles.modes = modes;
+        handles.clip_offsets = offsets.clone();
+        handles.clip_frames = counts.clone();
+        handles.durations = durations.clone();
+        handles.modes = modes.clone();
         if let Some(mut frames) = buffers.get_mut(&handles.frames) {
             frames.data = Some(bytemuck::cast_slice(&bank.frames).to_vec());
         }
@@ -648,10 +682,10 @@ pub(super) fn upload_shape_buffers(
     // Publish the new shape count so the pose shader can clamp shape indices
     // while a register is still in flight.
     let (offsets, counts, durations, modes) = (
-        handles.clip_offsets,
-        handles.clip_frames,
-        handles.durations,
-        handles.modes,
+        handles.clip_offsets.clone(),
+        handles.clip_frames.clone(),
+        handles.durations.clone(),
+        handles.modes.clone(),
     );
     if let Some(mut uniforms) = buffers.get_mut(&handles.uniforms) {
         uniforms.data = Some(
@@ -677,10 +711,10 @@ pub(super) fn upload_shape_buffers(
 fn pose_uniform_bytes(
     num_bones: u32,
     instances: u32,
-    clip_offsets: [u32; MAX_GPU_CLIPS],
-    clip_frames: [u32; MAX_GPU_CLIPS],
-    durations: [f32; MAX_GPU_CLIPS],
-    modes: [u32; MAX_GPU_CLIPS],
+    clip_offsets: Vec<u32>,
+    clip_frames: Vec<u32>,
+    durations: Vec<f32>,
+    modes: Vec<u32>,
     shape_count: u32,
 ) -> [u8; 1088] {
     let mut words = [0u32; 272];
@@ -688,7 +722,7 @@ fn pose_uniform_bytes(
     words[1] = instances;
     words[2] = pose_grid_side(instances);
     words[3] = shape_count.max(1);
-    for i in 0..MAX_GPU_CLIPS {
+    for i in 0..CLIP_CAP {
         words[4 + i] = clip_offsets[i];
         words[68 + i] = clip_frames[i];
         words[132 + i] = durations[i].to_bits();

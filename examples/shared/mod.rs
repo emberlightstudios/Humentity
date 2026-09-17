@@ -38,7 +38,7 @@ pub fn default_skeleton_lods() -> Vec<BoneMergeConfig> {
 }
 
 /// The single full skeleton every GPU crowd example poses: no bones merged away.
-pub fn gpu_skeleton() -> BoneMergeConfig {
+pub const fn gpu_skeleton() -> BoneMergeConfig {
     BoneMergeConfig::full()
 }
 
@@ -73,6 +73,7 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32, framing: CameraFraming)
         HumentityGpuPlugin {
             instances,
             sample_rate,
+            ..default()
         },
         MaterialPlugin::<CustomCrowdMaterial>::default(),
     ));
@@ -110,10 +111,7 @@ pub fn setup_fps_text(mut commands: Commands) {
 
 /// Updates the shared FPS readout from `Time` delta. Plain `FPS: x` for every
 /// example; per-example mix readouts live in the example itself.
-pub fn update_fps_text(
-    time: Res<Time>,
-    mut query: Query<&mut Text, With<FpsText>>,
-) {
+pub fn update_fps_text(time: Res<Time>, mut query: Query<&mut Text, With<FpsText>>) {
     let fps = 1.0 / time.delta_secs().max(1e-6);
     for mut line in &mut query {
         **line = format!("FPS: {fps:.1}");

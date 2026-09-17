@@ -3,7 +3,7 @@ struct PoseUniforms {
     instance_count: u32,
     grid_side: u32,
     shape_count: u32,
-    // Clip tables sized for MAX_GPU_CLIPS (64). Keep in sync with config.rs.
+    // Clip tables sized to the pose-shader ceiling (64). Keep in sync with config.rs.
     offsets: array<u32, 64>,
     frames: array<u32, 64>,
     durations: array<f32, 64>,
@@ -23,17 +23,18 @@ struct RootBindInfo {
 @group(0) @binding(2) var<storage, read> inv_bind: array<mat4x4f>;
 @group(0) @binding(3) var<storage, read_write> joints: array<mat4x4f>;
 @group(0) @binding(4) var<storage, read> uniforms: PoseUniforms;
-// Per instance: weights[4] + clocks[4] + bank indices[4]
-// (MAX_BLEND_CLIPS = 4).
+// Per instance: BLEND_CAP weights + clocks + bank indices (padded to the
+// ceiling stride; smaller configs zero-pad on upload).
 @group(0) @binding(5) var<storage, read> instance_data: array<f32>;
 // Per-shape local rest translations: shape_count * num_bones vec4s. Slice 0
 // mirrors the reference translations baked into the clip frames.
 @group(0) @binding(6) var<storage, read> shape_translations: array<vec4f>;
 // Per-shape inverse bindposes, same layout as shape_translations.
 @group(0) @binding(7) var<storage, read> shape_inv_binds: array<mat4x4f>;
-// Per-instance shape weights: instance_count * MAX_GPU_SHAPES (8) floats.
-// Slot i blends registered shape i (slice i + 1); same semantics as the
-// entity's morph weights, so hybrids ride the true blended skeleton.
+// Per-instance shape weights: instance_count * SHAPE_CAP (8) floats, padded to
+// the ceiling stride. Slot i blends registered shape i (slice i + 1); same
+// semantics as the entity's morph weights, so hybrids ride the true blended
+// skeleton.
 @group(0) @binding(8) var<storage, read> shape_weights: array<f32>;
 // Per-instance root-bone Y scales: one float per instance, mirroring the CPU
 // `SkeletonRootBone.root_scale` (fitted_root_y / reference_root_y).

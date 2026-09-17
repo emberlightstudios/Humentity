@@ -11,8 +11,10 @@ mod shared;
 
 use bevy::{mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
-use shared::{CameraFraming, CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
 use shared::FpsText;
+use shared::{
+    CameraFraming, CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu,
+};
 
 const WALK: &str = "normal-walk";
 const STRAFE_RIGHT: &str = "normal-walk-strafe-right";
@@ -20,7 +22,7 @@ const INSTANCES: usize = 25_000;
 
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0, CameraFraming::Far);
-    app.insert_resource(GpuBlendWeights([0.5, 0.5, 0.0, 0.0]));
+    app.insert_resource(GpuBlendWeights(vec![0.5, 0.5, 0.0, 0.0]));
     app.add_systems(
         Update,
         (
@@ -139,9 +141,9 @@ fn sweep_blend_weights(time: Res<Time>, anims: Option<ResMut<GpuInstanceAnims>>)
         return;
     };
     let walk = 0.5 + 0.5 * (time.elapsed_secs() * std::f32::consts::TAU / 10.0).sin();
-    let target = [walk, 1.0 - walk, 0.0, 0.0];
-    for t in anims.targets.iter_mut() {
-        *t = target;
+    let strafe = 1.0 - walk;
+    for i in 0..anims.len() {
+        anims.set_target(i, &[walk, strafe]);
     }
 }
 
@@ -181,15 +183,22 @@ fn update_blend_text(
     anims: Option<Res<GpuInstanceAnims>>,
     mut query: Query<&mut Text, With<FpsText>>,
 ) {
-    let Some(mix) = anims.and_then(|a| a.targets.first().copied()) else {
+    let Some(anims) = anims else {
         return;
     };
+    let Some(mix) = anims.targets.first() else {
+        return;
+    };
+    let (walk, strafe) = (
+        mix.first().copied().unwrap_or(0.0),
+        mix.get(1).copied().unwrap_or(0.0),
+    );
     for mut text in &mut query {
         **text = format!(
             "{}  walk {:.0}% / strafe {:.0}%",
             text.as_str(),
-            mix[0] * 100.0,
-            mix[1] * 100.0
+            walk * 100.0,
+            strafe * 100.0
         );
     }
 }

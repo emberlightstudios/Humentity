@@ -21,11 +21,12 @@ mod shapes;
 mod state;
 
 use bake::{bake_gpu_animation, collect_clip_bakes, submit_clip_bakes, upload_shape_buffers};
-pub use bank::{BIND_POSE_CLIP, BIND_POSE_SLOT, GpuAnimationBank, GpuAnimationReady, GpuRenderHandles};
+pub use bank::{
+    BIND_POSE_CLIP, BIND_POSE_SLOT, GpuAnimationBank, GpuAnimationReady, GpuRenderHandles,
+};
 pub use config::{
     GpuBlendWeights, GpuClipMode, GpuCrowdConfig, GpuCrowdShapes, GpuShapeSkeleton, GpuSkeletonLod,
-    MAX_BLEND_CLIPS, MAX_GPU_CLIPS, MAX_GPU_SHAPES, POSE_WORKGROUP_X, POSE_WORKGROUP_Y,
-    POSE_WORKGROUP_Z, pose_grid_side,
+    POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z, pose_grid_side,
 };
 pub use material::{
     ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, CrowdMaterial, GpuCrowdExtension,
@@ -41,8 +42,7 @@ use bevy::{
     pbr::MaterialPlugin,
     prelude::*,
     render::{
-        extract_resource::ExtractResourcePlugin,
-        Render, RenderApp, RenderStartup, RenderSystems,
+        Render, RenderApp, RenderStartup, RenderSystems, extract_resource::ExtractResourcePlugin,
     },
 };
 
@@ -94,13 +94,20 @@ fn vertex(vertex: GpuVertex) -> VertexOutput {
 pub struct HumentityGpuPlugin {
     pub instances: usize,
     pub sample_rate: f32,
+    pub blend_slots: usize,
+    pub max_clips: usize,
+    pub max_shapes: usize,
 }
 
 impl Default for HumentityGpuPlugin {
     fn default() -> Self {
+        let defaults = GpuCrowdConfig::default();
         Self {
-            instances: 1000,
-            sample_rate: 30.0,
+            instances: defaults.instances,
+            sample_rate: defaults.sample_rate,
+            blend_slots: defaults.blend_slots,
+            max_clips: defaults.max_clips,
+            max_shapes: defaults.max_shapes,
         }
     }
 }
@@ -110,25 +117,25 @@ impl Plugin for HumentityGpuPlugin {
         load_internal_asset!(app, POSE_SHADER, "pose.wgsl", Shader::from_wgsl);
         // The default skin shader is composed from the shared snippet so the
         // function stays the single source of truth.
-        let _ = app
-            .world_mut()
-            .resource_mut::<Assets<Shader>>()
-            .insert(
-                CROWD_SKIN_SHADER.id(),
-                Shader::from_wgsl(
-                    format!("{}\n{}", gpu_skin_wgsl(), CROWD_SKIN_ENTRY),
-                    "crowd_skin.wgsl",
-                ),
-            );
+        let _ = app.world_mut().resource_mut::<Assets<Shader>>().insert(
+            CROWD_SKIN_SHADER.id(),
+            Shader::from_wgsl(
+                format!("{}\n{}", gpu_skin_wgsl(), CROWD_SKIN_ENTRY),
+                "crowd_skin.wgsl",
+            ),
+        );
         app.add_plugins(MaterialPlugin::<CrowdMaterial>::default());
         app.add_plugins(ExtractResourcePlugin::<GpuRenderHandles>::default());
         app.insert_resource(GpuCrowdConfig {
             instances: self.instances,
             sample_rate: self.sample_rate,
+            blend_slots: self.blend_slots,
+            max_clips: self.max_clips,
+            max_shapes: self.max_shapes,
         });
         app.init_resource::<GpuBlendWeights>();
         app.init_resource::<GpuSkeletonLod>();
-        app.init_resource::<config::GpuCrowdShapes>();
+        app.insert_resource(config::GpuCrowdShapes::with_capacity(self.max_shapes));
         app.init_resource::<bank::GpuBakeJobs>();
         app.add_message::<GpuOneShotDone>();
         app.add_systems(

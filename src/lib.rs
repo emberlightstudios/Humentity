@@ -43,13 +43,20 @@ pub mod prelude {
         RagdollMobility, get_collider_parent,
     };
     pub use crate::{
-        bone_debug::BoneDebugPlugin,
-        HumentityPlugin,
-        HumentityAssetsReady,
-        NAME_INTERNER,
+        HumentityAssetsReady, HumentityPlugin, NAME_INTERNER,
         animation::{HumentitySkeletonSystemSet, TranslationTracks},
         assets::{StitchedPart, StitchedParts, shape_mesh_from_helpers_mhclo},
         basemesh::{BaseMesh, VertexGroups},
+        bone_debug::BoneDebugPlugin,
+        gpu::{
+            ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, BIND_POSE_CLIP, BIND_POSE_SLOT,
+            CROWD_SKIN_SHADER, CrowdMaterial, GpuAnimationBank, GpuAnimationReady, GpuBlendWeights,
+            GpuClipMode, GpuCrowdConfig, GpuCrowdExtension, GpuCrowdShapes, GpuCrowdUniform,
+            GpuInstanceAnims, GpuOneShotDone, GpuRenderHandles, GpuShapeSkeleton, GpuSkeletonLod,
+            HumentityGpuPlugin, POSE_SHADER, POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z,
+            fit_shape_skeleton, fit_shape_skeleton_from_helpers, gpu_skin_wgsl, make_gpu_mesh,
+            pose_grid_side, specialize_gpu_vertex_layout,
+        },
         helpers::HelperVertexPositions,
         load_and_insert_humentity_assets,
         loaders::{
@@ -64,23 +71,9 @@ pub mod prelude {
             VertexGroupsAsset, VertexGroupsAssetLoader,
         },
         mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_vertex_positions},
-        morphs::{
-            MakeHumanMorphs, MorphError, MorphTargets, adjust_helpers_to_morphs,
-        },
-        gpu::{
-            ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, BIND_POSE_CLIP, BIND_POSE_SLOT,
-            CROWD_SKIN_SHADER, CrowdMaterial, GpuAnimationBank, GpuAnimationReady, GpuBlendWeights,
-            GpuClipMode, GpuCrowdConfig, GpuCrowdExtension, GpuCrowdShapes, GpuCrowdUniform,
-            GpuInstanceAnims, GpuOneShotDone, GpuRenderHandles, GpuShapeSkeleton, GpuSkeletonLod,
-            HumentityGpuPlugin, MAX_BLEND_CLIPS, MAX_GPU_CLIPS, POSE_SHADER, POSE_WORKGROUP_X,
-            POSE_WORKGROUP_Y, POSE_WORKGROUP_Z, fit_shape_skeleton,
-            fit_shape_skeleton_from_helpers, gpu_skin_wgsl, make_gpu_mesh, pose_grid_side,
-            specialize_gpu_vertex_layout,
-        },
-        rigs::{RigData, RigSpec, SkeletonRootBone, SkeletalBone},
-        skeleton_lod::{
-            BoneMergeConfig, MAX_LODS, RigBundle, SkeletonLodConfig, SkeletonLodData,
-        },
+        morphs::{MakeHumanMorphs, MorphError, MorphTargets, adjust_helpers_to_morphs},
+        rigs::{RigData, RigSpec, SkeletalBone, SkeletonRootBone},
+        skeleton_lod::{BoneMergeConfig, MAX_LODS, RigBundle, SkeletonLodConfig, SkeletonLodData},
         spawn_mesh::{
             CachedMhcloMeshHandles, CharacterPart, CharacterShape, LoadAssetMeshJob,
             MhcloMeshBuilder, build_single_mesh_direct,
@@ -223,10 +216,8 @@ impl Plugin for HumentityPlugin {
                     basemesh::extract_basemesh_asset.run_if(resource_exists::<basemesh::BaseMesh>),
                     basemesh::extract_vertex_groups_asset
                         .run_if(resource_exists::<basemesh::VertexGroups>),
-                    morphs::sync_macro_data
-                        .run_if(resource_exists::<morphs::MakeHumanMorphs>),
-                    morphs::sync_composite_data
-                        .run_if(resource_exists::<morphs::MakeHumanMorphs>),
+                    morphs::sync_macro_data.run_if(resource_exists::<morphs::MakeHumanMorphs>),
+                    morphs::sync_composite_data.run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     morphs::sync_loaded_morph_targets
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
                     rigs::sync_and_build_rig_data

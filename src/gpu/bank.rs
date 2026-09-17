@@ -1,8 +1,9 @@
 //! GPU clip bank: manual load/unload registry for baked animation clips.
 //!
-//! The bank owns the global clip registry (up to [`MAX_GPU_CLIPS`] clips).
-//! Per-instance blend slots ([`MAX_BLEND_CLIPS`]) index into the bank, so the
-//! crowd can blend any 4 of the loaded clips. Loads are manual via
+//! The bank owns the global clip registry (up to `max_clips` clips, see
+//! [`GpuCrowdConfig`](super::config::GpuCrowdConfig)). Per-instance blend
+//! slots index into the bank, so the crowd can blend any `blend_slots` of
+//! the loaded clips. Loads are manual via
 //! [`GpuAnimationBank::request_load`]: each request spawns one background bake
 //! task, and the baked frames are appended to the packed `frames` shadow when
 //! ready. Unloads ([`GpuAnimationBank::request_unload`]) splice the clip's
@@ -23,7 +24,7 @@ use bevy::{
 };
 use crossbeam_channel::{Receiver, Sender};
 
-use super::config::{GpuClipMode, MAX_GPU_CLIPS};
+use super::config::{CLIP_CAP, GpuClipMode};
 
 /// Bank slot permanently holding the bindpose fallback clip. Frame 0 of the
 /// shared frames buffer is the bindpose in plain rest-bend shape (the same
@@ -91,9 +92,10 @@ impl GpuAnimationBank {
         targets: Vec<AnimationTargetId>,
         binds: Vec<Transform>,
         sample_rate: f32,
+        capacity: usize,
     ) -> Self {
         let mut slots: Vec<Option<(String, BankSlot)>> =
-            (0..MAX_GPU_CLIPS).map(|_| None).collect();
+            (0..capacity.clamp(2, CLIP_CAP)).map(|_| None).collect();
         slots[BIND_POSE_SLOT] = Some((
             BIND_POSE_CLIP.to_string(),
             BankSlot {
@@ -137,9 +139,7 @@ impl GpuAnimationBank {
         if self.staged.iter().any(|s| s.name == name) {
             return true;
         }
-        if self.pending.iter().any(|p| p.name == name)
-            || self.baking.iter().any(|b| b == &name)
-        {
+        if self.pending.iter().any(|p| p.name == name) || self.baking.iter().any(|b| b == &name) {
             return false;
         }
         if self.slots.iter().skip(1).all(|s| s.is_some()) {
@@ -194,23 +194,22 @@ impl GpuAnimationBank {
     }
 
     pub(crate) fn free_slot(&self) -> Option<usize> {
-        self.slots.iter().enumerate().skip(1).find(|(_, s)| s.is_none()).map(|(i, _)| i)
+        self.slots
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find(|(_, s)| s.is_none())
+            .map(|(i, _)| i)
     }
 
-    /// Uniform tables in shader order (offsets, counts, durations, modes).
-    /// Cleared rows are zero, which reads the frame-0 bindpose clip.
-    pub(crate) fn tables(
-        &self,
-    ) -> (
-        [u32; MAX_GPU_CLIPS],
-        [u32; MAX_GPU_CLIPS],
-        [f32; MAX_GPU_CLIPS],
-        [u32; MAX_GPU_CLIPS],
-    ) {
-        let mut offsets = [0u32; MAX_GPU_CLIPS];
-        let mut counts = [0u32; MAX_GPU_CLIPS];
-        let mut durations = [0.0f32; MAX_GPU_CLIPS];
-        let mut modes = [0u32; MAX_GPU_CLIPS];
+    /// Uniform tables in shader order (offsets, counts, durations, modes),
+    /// zero-padded to the pose-shader ceiling. Cleared rows are zero, which
+    /// reads the frame-0 bindpose clip.
+    pub(crate) fn tables(&self) -> (Vec<u32>, Vec<u32>, Vec<f32>, Vec<u32>) {
+        let mut offsets = vec![0u32; CLIP_CAP];
+        let mut counts = vec![0u32; CLIP_CAP];
+        let mut durations = vec![0.0f32; CLIP_CAP];
+        let mut modes = vec![0u32; CLIP_CAP];
         for (slot, entry) in self.slots.iter().enumerate() {
             if let Some((_, meta)) = entry {
                 offsets[slot] = meta.offset_frames;
@@ -255,9 +254,9 @@ pub struct GpuRenderHandles {
     pub joints: Handle<ShaderBuffer>,
     pub uniforms: Handle<ShaderBuffer>,
     pub instance_data: Handle<ShaderBuffer>,
-    /// Per-instance shape weights: `instance_count * MAX_GPU_SHAPES` floats,
-    /// one row per instance with the same semantics as the entity's morph
-    /// weights (slot `i` blends `GpuCrowdShapes.shapes[i]`).
+    /// Per-instance shape weights: one shape-ceiling row per instance with
+    /// the same semantics as the entity's morph weights (slot `i` blends
+    /// `GpuCrowdShapes.shapes[i]`).
     pub shape_weights: Handle<ShaderBuffer>,
     /// Per-instance root-bone Y scales: `instance_count` floats, mirroring the
     /// CPU `SkeletonRootBone.root_scale` per character.
@@ -267,10 +266,11 @@ pub struct GpuRenderHandles {
     pub num_bones: u32,
     pub instance_count: u32,
     pub shape_count: u32,
-    pub clip_offsets: [u32; MAX_GPU_CLIPS],
-    pub clip_frames: [u32; MAX_GPU_CLIPS],
-    pub durations: [f32; MAX_GPU_CLIPS],
-    pub modes: [u32; MAX_GPU_CLIPS],
+    /// Clip tables in shader order, zero-padded to the pose-shader ceiling.
+    pub clip_offsets: Vec<u32>,
+    pub clip_frames: Vec<u32>,
+    pub durations: Vec<f32>,
+    pub modes: Vec<u32>,
 }
 
 #[derive(Resource)]
