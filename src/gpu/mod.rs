@@ -17,6 +17,7 @@ mod bank;
 mod config;
 mod material;
 mod pipeline;
+mod readback;
 mod shapes;
 mod state;
 
@@ -32,6 +33,7 @@ pub use material::{
     ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, CrowdMaterial, GpuCrowdExtension,
     GpuCrowdUniform, make_gpu_mesh, specialize_gpu_vertex_layout,
 };
+pub use readback::GpuJointsReadback;
 pub use shapes::{fit_shape_skeleton, fit_shape_skeleton_from_helpers};
 pub use state::{GpuInstanceAnims, GpuOneShotDone};
 
@@ -97,6 +99,11 @@ pub struct HumentityGpuPlugin {
     pub blend_slots: usize,
     pub max_clips: usize,
     pub max_shapes: usize,
+    /// When true, the pose `joints` buffer is copied back to the CPU every
+    /// frame into [`GpuJointsReadback`]. Data lands 1-2 frames stale with no
+    /// main-thread stall; leave false unless hitboxes or gameplay queries
+    /// need posed joints.
+    pub readback_joints: bool,
 }
 
 impl Default for HumentityGpuPlugin {
@@ -108,6 +115,7 @@ impl Default for HumentityGpuPlugin {
             blend_slots: defaults.blend_slots,
             max_clips: defaults.max_clips,
             max_shapes: defaults.max_shapes,
+            readback_joints: defaults.readback_joints,
         }
     }
 }
@@ -132,11 +140,13 @@ impl Plugin for HumentityGpuPlugin {
             blend_slots: self.blend_slots,
             max_clips: self.max_clips,
             max_shapes: self.max_shapes,
+            readback_joints: self.readback_joints,
         });
         app.init_resource::<GpuBlendWeights>();
         app.init_resource::<GpuSkeletonLod>();
         app.insert_resource(config::GpuCrowdShapes::with_capacity(self.max_shapes));
         app.init_resource::<bank::GpuBakeJobs>();
+        app.init_resource::<GpuJointsReadback>();
         app.add_message::<GpuOneShotDone>();
         app.add_systems(
             Update,
@@ -146,6 +156,7 @@ impl Plugin for HumentityGpuPlugin {
                 collect_clip_bakes,
                 upload_shape_buffers,
                 state::update_instance_clocks,
+                readback::maintain_joints_readback,
             )
                 .chain(),
         );

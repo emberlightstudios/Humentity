@@ -20,8 +20,12 @@ pub struct GpuCrowdConfig {
     /// Shape slots per instance: how many template bodies each crowd member
     /// blends. Clamped to the pose-shader ceiling at bake time.
     pub max_shapes: usize,
+    /// When true, the pose `joints` buffer is copied back to the CPU every
+    /// frame into [`GpuJointsReadback`](super::readback::GpuJointsReadback).
+    /// Data lands 1-2 frames stale with no main-thread stall; leave false
+    /// unless hitboxes or gameplay queries need posed joints.
+    pub readback_joints: bool,
 }
-
 impl Default for GpuCrowdConfig {
     fn default() -> Self {
         Self {
@@ -30,6 +34,7 @@ impl Default for GpuCrowdConfig {
             blend_slots: BLEND_CAP,
             max_clips: CLIP_CAP,
             max_shapes: SHAPE_CAP,
+            readback_joints: false,
         }
     }
 }
