@@ -85,7 +85,7 @@ fn add_humans(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh_part.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: 0,
+        skeleton_lod: MeshBuildLod::Cpu(0),
     });
 
     // Spawn the character with baby morphs

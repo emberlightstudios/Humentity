@@ -12,9 +12,7 @@ mod shared;
 use bevy::{mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
 use shared::FpsText;
-use shared::{
-    CameraFraming, CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu,
-};
+use shared::{CameraFraming, CustomCrowdMaterial, custom_crowd_material, setup_app_gpu};
 
 const WALK: &str = "normal-walk";
 const STRAFE_RIGHT: &str = "normal-walk-strafe-right";
@@ -61,7 +59,7 @@ fn trigger_crowd_build(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: part.clone(),
         template_handle: template.clone(),
-        skeleton_lod: GPU_SKELETON_LOD,
+        skeleton_lod: MeshBuildLod::Gpu,
     });
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/movement_normal.glb");
     commands.insert_resource(CrowdBuild {
@@ -78,7 +76,7 @@ fn spawn_crowd(
     handles: Option<Res<GpuRenderHandles>>,
     bank: Option<Res<GpuAnimationBank>>,
     cached: Res<CachedMhcloMeshHandles>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    meshes: Res<Assets<Mesh>>,
     mut materials: ResMut<Assets<CustomCrowdMaterial>>,
     mut anims: Option<ResMut<GpuInstanceAnims>>,
     mut spawned: Local<bool>,
@@ -94,18 +92,21 @@ fn spawn_crowd(
     else {
         return;
     };
-    let Some(source_handle) =
-        cached.get(&(build.part.clone(), build.template.clone(), GPU_SKELETON_LOD))
+    // The builder caches the converted GPU mesh under `MeshBuildLod::Gpu`,
+    // so the spawn system reads it directly instead of converting per spawn.
+    let Some(mesh) = cached
+        .get(&(
+            build.part.clone(),
+            build.template.clone(),
+            MeshBuildLod::Gpu,
+        ))
+        .cloned()
     else {
         return;
     };
-    let Some(source) = meshes.get(source_handle) else {
+    if meshes.get(&mesh).is_none() {
         return;
-    };
-    let Some(mesh) = make_gpu_mesh(source) else {
-        return;
-    };
-    let mesh = meshes.add(mesh);
+    }
     let material = custom_crowd_material(&handles, &mut materials);
     if let Some(anims) = anims.as_mut() {
         for index in 0..INSTANCES {

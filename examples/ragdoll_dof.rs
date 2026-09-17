@@ -631,7 +631,7 @@ fn add_human(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: 0,
+        skeleton_lod: MeshBuildLod::Cpu(0),
     });
 
     // The character is offset to a fixed height once its bind-pose vertices are

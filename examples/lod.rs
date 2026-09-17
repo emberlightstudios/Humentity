@@ -70,22 +70,22 @@ fn add_humans(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod0.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: 0,
+        skeleton_lod: MeshBuildLod::Cpu(0),
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod1.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: 0,
+        skeleton_lod: MeshBuildLod::Cpu(0),
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod2.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: 1,
+        skeleton_lod: MeshBuildLod::Cpu(1),
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod3.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: 2,
+        skeleton_lod: MeshBuildLod::Cpu(2),
     });
 
     let mut morphs = MorphTargets::default();

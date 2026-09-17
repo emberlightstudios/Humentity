@@ -76,7 +76,7 @@ fn spawn_character(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: mesh.clone(),
         template_handle: template.clone(),
-        skeleton_lod: 0,
+        skeleton_lod: MeshBuildLod::Cpu(0),
     });
 
     // 2. Spawn the character entity using the template
@@ -114,9 +114,11 @@ fn attach_mesh(
         let Some(skm) = skm else {
             continue;
         };
-        if let Some(handle) =
-            cached_meshes.get(&(part.mesh.clone(), asset.template.clone(), part.skeleton_lod))
-        {
+        if let Some(handle) = cached_meshes.get(&(
+            part.mesh.clone(),
+            asset.template.clone(),
+            MeshBuildLod::Cpu(part.skeleton_lod),
+        )) {
             commands
                 .entity(entity)
                 .insert((Mesh3d(handle.clone()), skm.clone()));

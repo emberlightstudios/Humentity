@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use crate::{
     assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo},
     basemesh::BaseMesh,
+    gpu::{GpuSkeletonLod, make_gpu_mesh},
     loaders::{CharacterShapeAsset, MhcloAsset, ObjVertsAsset, TargetAsset},
     morphs::MakeHumanMorphs,
     rigs::{RigBundleRes, RigData, RigSpec},
@@ -16,6 +17,23 @@ use crossbeam_channel::{Receiver, Sender};
 #[derive(Component, Clone, Debug)]
 #[require(Visibility)]
 pub struct CharacterShape(pub Handle<CharacterShapeAsset>);
+
+/// Which skeleton a cached mesh was built for.
+///
+/// CPU meshes are skinned on the CPU (`SkinnedMesh`) and need one build per
+/// skeleton LOD index. GPU crowd meshes are all posed from the single
+/// skeleton selected by [`GpuSkeletonLod`](crate::gpu::GpuSkeletonLod), so
+/// they share one key. The same low-detail proxy (e.g. `proxy741`) therefore
+/// appears twice in the cache when both paths need it: once as
+/// `Cpu(cpu_lod)` and once as `Gpu`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MeshBuildLod {
+    /// CPU-skinned mesh built for the given skeleton LOD index.
+    Cpu(usize),
+    /// GPU-ready mesh (converted via `make_gpu_mesh`) built for the
+    /// [`GpuSkeletonLod`](crate::gpu::GpuSkeletonLod) skeleton.
+    Gpu,
+}
 
 /// Marks an entity as representing a character mesh piece.
 /// Place as children of a [`CharacterShape`] entity.
@@ -37,7 +55,7 @@ pub enum AssetLoadState {
 
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct CachedMhcloMeshHandles(
-    AHashMap<(Handle<MhcloAsset>, Handle<CharacterTemplate>, usize), Handle<Mesh>>,
+    AHashMap<(Handle<MhcloAsset>, Handle<CharacterTemplate>, MeshBuildLod), Handle<Mesh>>,
 );
 
 pub(crate) struct RawMeshCache {
@@ -58,7 +76,7 @@ pub enum LoadAssetMeshJob {
     Single {
         part: Handle<MhcloAsset>,
         template_handle: Handle<CharacterTemplate>,
-        skeleton_lod: usize,
+        skeleton_lod: MeshBuildLod,
     },
     Stitched {
         parts: StitchedParts,
@@ -77,6 +95,48 @@ impl MhcloMeshBuilder {
     fn finish(&mut self, key: &LoadAssetMeshJob) {
         self.0.remove(key);
     }
+}
+
+/// Request a GPU-ready crowd mesh, converting on demand.
+///
+/// Returns the cached handle when the `Gpu` build already landed. When the
+/// matching `Cpu` build for the GPU skeleton index exists, converts it once
+/// via [`make_gpu_mesh`] and caches it under the `Gpu` key. Otherwise
+/// triggers a background `Gpu` build and returns `None` until it lands.
+pub fn request_gpu_mesh(
+    builder: &mut MhcloMeshBuilder,
+    cached: &mut CachedMhcloMeshHandles,
+    meshes: &mut Assets<Mesh>,
+    part: &Handle<MhcloAsset>,
+    template: &Handle<CharacterTemplate>,
+    gpu_skeleton: &GpuSkeletonLod,
+) -> Option<Handle<Mesh>> {
+    let gpu_key = (part.clone(), template.clone(), MeshBuildLod::Gpu);
+    if let Some(handle) = cached.get(&gpu_key) {
+        return Some(handle.clone());
+    }
+    let cpu_key = (
+        part.clone(),
+        template.clone(),
+        MeshBuildLod::Cpu(gpu_skeleton.0),
+    );
+    if let Some(source_handle) = cached.get(&cpu_key).cloned()
+        && let Some(source) = meshes.get(&source_handle)
+        && let Some(mesh) = make_gpu_mesh(source)
+    {
+        let handle = meshes.add(mesh);
+        cached.insert(gpu_key, handle.clone());
+        return Some(handle);
+    }
+    let job = LoadAssetMeshJob::Single {
+        part: part.clone(),
+        template_handle: template.clone(),
+        skeleton_lod: MeshBuildLod::Gpu,
+    };
+    if !builder.contains_key(&job) {
+        builder.trigger(job);
+    }
+    None
 }
 
 /// A wrapper around crossbeam channels for communicating with the background threads
@@ -115,6 +175,7 @@ pub(crate) fn mesh_build(
     rig_data: Res<RigData>,
     rig_bundle: Res<RigBundleRes>,
     asset_server: Res<AssetServer>,
+    gpu_skeleton: Option<Res<GpuSkeletonLod>>,
     mut cached_meshes: ResMut<CachedMhcloMeshHandles>,
     mut cached_raw_meshes: ResMut<CachedMhcloRawMeshHandles>,
     mut mediators: ResMut<MhcloMeshBuilder>,
@@ -130,6 +191,13 @@ pub(crate) fn mesh_build(
                     continue;
                 };
 
+                // GPU builds run on the same single bone list the pose shader
+                // bakes, selected by `GpuSkeletonLod`. When no GPU plugin is
+                // present the request is a plain full-skeleton build.
+                let build_index = match lod {
+                    MeshBuildLod::Cpu(index) => *index,
+                    MeshBuildLod::Gpu => gpu_skeleton.as_deref().map(|lod| lod.0).unwrap_or(0),
+                };
                 build_single_mesh_process(
                     mediator,
                     load_state,
@@ -145,11 +213,23 @@ pub(crate) fn mesh_build(
                     &rig_bundle,
                     &asset_server,
                     &mut cached_raw_meshes,
-                    *lod,
+                    build_index,
                 );
 
                 for msg in mediator.mesh_building_msg_receiver.try_iter() {
                     let mesh = handle_single_mesh_complete(msg);
+                    let mesh = match lod {
+                        // A GPU entry in the shared cache must be the converted
+                        // mesh (GPU joint attributes, no CPU skin buffer), not
+                        // the skinned source: a reader can trust the variant.
+                        MeshBuildLod::Gpu => {
+                            let Some(mesh) = make_gpu_mesh(&mesh) else {
+                                continue;
+                            };
+                            mesh
+                        }
+                        MeshBuildLod::Cpu(_) => mesh,
+                    };
                     let mesh_handle = meshes.add(mesh);
                     cached_meshes.insert(
                         (part.clone(), template_handle.clone(), *lod),
@@ -192,7 +272,7 @@ pub(crate) fn mesh_build(
                         let lod = parts[i_mesh].lod;
                         let mesh_handle = meshes.add(mesh);
                         cached_meshes.insert(
-                            (handle, template_handle.clone(), lod),
+                            (handle, template_handle.clone(), MeshBuildLod::Cpu(lod)),
                             mesh_handle.clone(),
                         );
                     }

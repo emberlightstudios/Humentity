@@ -15,7 +15,7 @@ use bevy::{
     prelude::*,
 };
 use humentity::prelude::*;
-use shared::{CameraFraming, CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
+use shared::{CameraFraming, CustomCrowdMaterial, custom_crowd_material, setup_app_gpu};
 
 const BABY: &str = "baby";
 const BODYBUILDER: &str = "bodybuilder";
@@ -63,7 +63,7 @@ fn trigger_morph_build(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: part.clone(),
         template_handle: template.clone(),
-        skeleton_lod: GPU_SKELETON_LOD,
+        skeleton_lod: MeshBuildLod::Gpu,
     });
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
     commands.insert_resource(MorphBuild { part, template, clips });
@@ -173,7 +173,7 @@ fn spawn_crowd(
     bank: Option<Res<GpuAnimationBank>>,
     shapes: Res<GpuCrowdShapes>,
     cached: Res<CachedMhcloMeshHandles>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    meshes: Res<Assets<Mesh>>,
     mut materials: ResMut<Assets<CustomCrowdMaterial>>,
     mut anims: Option<ResMut<GpuInstanceAnims>>,
     mut spawned: Local<bool>,
@@ -189,21 +189,24 @@ fn spawn_crowd(
     let Some(idle) = bank.slot_of("Idle-loop") else {
         return;
     };
-    let Some(source_handle) =
-        cached.get(&(build.part.clone(), build.template.clone(), GPU_SKELETON_LOD))
+    // The builder caches the converted GPU mesh under `MeshBuildLod::Gpu`,
+    // so the spawn system reads it directly instead of converting per spawn.
+    let Some(mesh) = cached
+        .get(&(
+            build.part.clone(),
+            build.template.clone(),
+            MeshBuildLod::Gpu,
+        ))
+        .cloned()
     else {
         return;
     };
-    let Some(source) = meshes.get(source_handle) else {
+    let Some(source) = meshes.get(&mesh) else {
         return;
     };
-    let Some(mesh) = make_gpu_mesh(source) else {
-        return;
-    };
-    if !mesh.has_morph_targets() {
+    if !source.has_morph_targets() {
         warn!("gpu_morphs: mesh has no morph targets, weights will do nothing");
     }
-    let mesh = meshes.add(mesh);
     let material = custom_crowd_material(&handles, &mut materials);
     if let Some(anims) = anims.as_mut() {
         for index in 0..INSTANCES {

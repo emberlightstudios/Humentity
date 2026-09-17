@@ -76,7 +76,7 @@ pub mod prelude {
         skeleton_lod::{BoneMergeConfig, MAX_LODS, RigBundle, SkeletonLodConfig, SkeletonLodData},
         spawn_mesh::{
             CachedMhcloMeshHandles, CharacterPart, CharacterShape, LoadAssetMeshJob,
-            MhcloMeshBuilder, build_single_mesh_direct,
+            MeshBuildLod, MhcloMeshBuilder, build_single_mesh_direct, request_gpu_mesh,
         },
         spawn_skeleton::{
             CharacterSkeleton, SkeletonLodDisabled, SkeletonLodState, SkeletonsReady,

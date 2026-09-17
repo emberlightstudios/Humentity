@@ -77,7 +77,7 @@ fn add_humans(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: basemesh_part.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: 0,
+        skeleton_lod: MeshBuildLod::Cpu(0),
     });
 
     // Spawn some characters with different morph values.  They will all share the same mesh handle, but look different!

@@ -230,10 +230,14 @@ fn update_mesh_when_ready(
             continue;
         };
 
-        // After you trigger a mesh build it will be put in this cache
-        if let Some(mesh_handle) =
-            cached_meshes.get(&(part.mesh.clone(), template.clone(), part.skeleton_lod))
-        {
+        // After you trigger a mesh build it will be put in this cache.
+        // CPU lookups always use the `Cpu` variant: `Gpu` entries hold the
+        // converted mesh (GPU joint attributes, no CPU skin buffer).
+        if let Some(mesh_handle) = cached_meshes.get(&(
+            part.mesh.clone(),
+            template.clone(),
+            MeshBuildLod::Cpu(part.skeleton_lod),
+        )) {
             commands.entity(entity).insert((
                 Mesh3d(mesh_handle.clone()),
                 Transform::IDENTITY,
