@@ -2,7 +2,7 @@ use crate::{
     basemesh::VertexGroups,
     helpers::HelperVertexPositions,
     prelude::*,
-    rigs::{BoneTranslationData, RigBundleRes, RigData, SkeletonRootBone},
+    rigs::{RigBundleRes, RigData, SkeletonRootBone},
     skeleton_lod::{MAX_LODS, SkeletonLodConfig, all_children_of},
 };
 use ahash::{AHashMap, AHashSet};
@@ -102,7 +102,7 @@ pub(crate) fn spawn_rig_skeleton(
 #[allow(clippy::type_complexity)]
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
     skinned_meshes: Query<
         &SkinnedMesh,
         (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>),
@@ -138,10 +138,9 @@ pub(crate) fn fit_skeleton_to_shape(
         if helpers.is_empty() {
             continue;
         }
-        let Some(mut shape) = shape_assets.get_mut(&character_shape.0) else {
+        if shape_assets.get(&character_shape.0).is_none() {
             continue;
-        };
-
+        }
         let Some(rig_spec) = rig_data.0.as_ref() else {
             continue;
         };
@@ -214,16 +213,6 @@ pub(crate) fn fit_skeleton_to_shape(
                     *local_transform = new_local;
                 }
             }
-        }
-
-        // Cache per-bone translation data for animation rescaling (computed once per asset).
-        if matches!(shape.bone_translations, BoneTranslationData::None) {
-            let translations = model_space_bindposes
-                .iter()
-                .map(|(&bone, xform)| (bone, xform.translation))
-                .collect();
-            shape.bone_translations = BoneTranslationData::Full(translations);
-            shape.bone_delta_rotations = AHashMap::<&'static str, Quat>::default();
         }
 
         // Compute full inverse bindposes in reference bone order.

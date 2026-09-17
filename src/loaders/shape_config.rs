@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use ahash::AHashMap;
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     mesh::morph::MeshMorphWeights,
@@ -9,7 +8,6 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 
 use crate::morphs::MorphTargets;
-use crate::rigs::BoneTranslationData;
 use crate::template::CharacterTemplate;
 
 /// Defines the shape of a character.  Can be loaded as an asset from `.shape.toml` files,
@@ -20,12 +18,6 @@ pub struct CharacterShapeAsset {
     pub template_morph_targets: MorphTargets,
     #[serde(skip)]
     pub template: Handle<CharacterTemplate>,
-    #[serde(skip)]
-    #[allow(dead_code)]
-    pub(crate) bone_translations: BoneTranslationData,
-    #[serde(skip)]
-    #[allow(dead_code)]
-    pub(crate) bone_delta_rotations: AHashMap<&'static str, Quat>,
 }
 
 impl CharacterShapeAsset {
@@ -48,8 +40,6 @@ impl CharacterShapeAsset {
         Self {
             template,
             template_morph_targets: morphs,
-            bone_translations: BoneTranslationData::None,
-            bone_delta_rotations: AHashMap::<&'static str, Quat>::default(),
         }
     }
 }

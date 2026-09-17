@@ -25,61 +25,6 @@ pub enum TranslationTracks {
     None,
 }
 
-/*
-/// This system (if enabled in the config) will adjust translation tracks in aniamtion clips
-/// in realtime using data cached on the human config.
-#[allow(dead_code)]
-pub(crate) fn rescale_bone_translations(
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
-    templates: Res<Assets<CharacterTemplate>>,
-    humans: Query<(Entity, &CharacterShape), With<SkeletonsReady>>,
-    children: Query<&Children>,
-    names: Query<&Name>,
-    mut transforms: Query<&mut Transform>,
-    rig_data: Res<RigData>,
-) {
-    for (entity, human) in humans {
-        let Some(asset) = shape_assets.get(&human.0) else {
-            continue;
-        };
-        let Some(template) = templates.get(&asset.template) else {
-            continue;
-        };
-        let rig_type = &template.rig;
-        let rig_spec = &rig_data[rig_type];
-        let ref_translations = &rig_spec.reference_rig.local_bindpose;
-        let BoneTranslationData::Full(shape_translations) = &asset.bone_translations else {
-            continue;
-        };
-        let rotation_deltas = &asset.bone_delta_rotations;
-
-        for child in children.iter_descendants(entity) {
-            let Ok(name) = names.get(child) else { continue };
-            let name = name.as_str();
-            let Some(ref_trans) = ref_translations.get(name) else {
-                continue;
-            };
-            let ref_trans = ref_trans.translation.length();
-            if ref_trans < 1e-3 {
-                continue;
-            }
-            let Some(shape_trans) = shape_translations.get(name) else {
-                continue;
-            };
-            let Ok(mut transform) = transforms.get_mut(child) else {
-                continue;
-            };
-            let rot = if let Some(rot) = rotation_deltas.get(name) {
-                rot
-            } else {
-                &Quat::IDENTITY
-            };
-            transform.translation = rot * transform.translation * shape_trans.length() / ref_trans;
-        }
-    }
-}
-*/
-
 pub(crate) fn rescale_root_bone_translation(
     root_info: Query<(&SkeletonRootBone, &ChildOf)>,
     animation_players: Query<&AnimationPlayer>,

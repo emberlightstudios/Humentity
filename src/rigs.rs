@@ -19,15 +19,6 @@ use crate::{
     skeleton_lod::{RigBundle, SkeletonLodConfig, build_lod_data},
 };
 
-#[derive(Clone, Default, Debug)]
-#[allow(dead_code)]
-pub(crate) enum BoneTranslationData {
-    #[default]
-    None,
-    Root(Vec3),
-    Full(AHashMap<&'static str, Vec3>),
-}
-
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 pub struct SkeletalBone;
