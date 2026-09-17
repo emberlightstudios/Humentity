@@ -231,14 +231,21 @@ const SKELETON_LOD_ACTIVATION_BUFFER: f32 = 1.0;
 /// active LOD.
 fn sync_skeleton_lod_to_visibility(
     characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonsReady>>,
-    parts: Query<(&VisibilityRange, &CharacterPart, &ChildOf)>,
+    parts: Query<(Entity, &VisibilityRange, &CharacterPart, &ChildOf)>,
+    parents: Query<&ChildOf>,
     mut commands: Commands,
 ) {
     for (entity, cam_dist, existing) in &characters {
         let mut active = [false; MAX_LODS];
         for (lod, active_lod) in active.iter_mut().enumerate() {
-            *active_lod = parts.iter().any(|(range, cp, child_of)| {
-                child_of.parent() == entity
+            *active_lod = parts.iter().any(|(part_entity, range, cp, _)| {
+                // Parts may sit under intermediate grouping nodes, so match any
+                // descendant of the character, not just direct children.
+                let belongs = part_entity == entity
+                    || parents
+                        .iter_ancestors::<ChildOf>(part_entity)
+                        .any(|ancestor| ancestor == entity);
+                belongs
                     && cp.skeleton_lod == lod
                     && cam_dist.0 >= range.start_margin.start - SKELETON_LOD_ACTIVATION_BUFFER
                     && cam_dist.0 < range.end_margin.end + SKELETON_LOD_ACTIVATION_BUFFER
@@ -257,18 +264,25 @@ fn sync_skeleton_lod_to_visibility(
 /// so this keeps their `SkeletonLodState` in sync with their part's `skeleton_lod`
 /// to disable the bone sub-trees relevant to that LOD in the background.
 fn sync_reference_lod_state(
-    parts: Query<(&CharacterPart, &ChildOf), Without<VisibilityRange>>,
+    parts: Query<(Entity, &CharacterPart, &ChildOf), Without<VisibilityRange>>,
     characters: Query<
         (Entity, Option<&SkeletonLodState>),
         (With<SkeletonsReady>, Without<CameraDistance>),
     >,
+    parents: Query<&ChildOf>,
     mut commands: Commands,
 ) {
     for (entity, existing) in &characters {
         let mut active = [false; MAX_LODS];
         let mut found = false;
-        for (part, child_of) in &parts {
-            if child_of.parent() == entity {
+        for (part_entity, part, _) in &parts {
+            // Parts may sit under intermediate grouping nodes, so match any
+            // descendant of the character, not just direct children.
+            let belongs = part_entity == entity
+                || parents
+                    .iter_ancestors::<ChildOf>(part_entity)
+                    .any(|ancestor| ancestor == entity);
+            if belongs {
                 active[part.skeleton_lod.min(MAX_LODS - 1)] = true;
                 found = true;
             }

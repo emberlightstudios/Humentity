@@ -377,15 +377,21 @@ pub(crate) fn sync_skeleton_lod_subtrees(
 #[allow(clippy::type_complexity)]
 pub(crate) fn setup_part_skinning(
     parts: Query<(Entity, &ChildOf, &CharacterPart), Without<SkinnedMesh>>,
+    parents: Query<&ChildOf>,
     characters: Query<(&CharacterSkeleton, &SkeletonsReady)>,
     rig_bundle: Res<RigBundleRes>,
     rig_data: Res<RigData>,
     mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     mut commands: Commands,
 ) {
-    for (part_entity, parent, part) in &parts {
-        let parent_entity = parent.parent();
-        let Ok((skeleton, _)) = characters.get(parent_entity) else {
+    for (part_entity, _, part) in &parts {
+        // Parts may sit under intermediate grouping nodes (e.g. a "CPU Meshes"
+        // or "GPU Meshes" child), so walk up until the skeleton owner.
+        // `iter_ancestors` yields the direct parent first, so flat parts work too.
+        let skeleton = parents
+            .iter_ancestors::<ChildOf>(part_entity)
+            .find_map(|ancestor| characters.get(ancestor).ok());
+        let Some((skeleton, _)) = skeleton else {
             continue;
         };
         let Some(rig_spec) = rig_data.0.as_ref() else {
@@ -438,6 +444,7 @@ pub(crate) fn on_character_helpers_removed(
     trigger: On<Remove, HelperVertexPositions>,
     characters: Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
     parts: Query<(Entity, &ChildOf, &CharacterPart)>,
+    parents: Query<&ChildOf>,
     mut commands: Commands,
 ) {
     let entity = trigger.entity;
@@ -455,9 +462,13 @@ pub(crate) fn on_character_helpers_removed(
         .remove::<SkeletonsReady>();
 
     // Strip mesh handles from the character's parts so they don't dangle against
-    // the despawned skeleton joints.
-    for (part_entity, parent, _part) in &parts {
-        if parent.parent() == entity {
+    // the despawned skeleton joints. Parts may sit under intermediate grouping
+    // nodes, so match any descendant of the character, not just direct children.
+    for (part_entity, _, _) in &parts {
+        if parents
+            .iter_ancestors::<ChildOf>(part_entity)
+            .any(|ancestor| ancestor == entity)
+        {
             commands
                 .entity(part_entity)
                 .remove::<Mesh3d>()

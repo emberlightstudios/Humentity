@@ -207,6 +207,7 @@ fn update_mesh_when_ready(
         (Entity, &ChildOf, &CharacterPart, Option<&SkinnedMesh>),
         Without<Mesh3d>,
     >,
+    parents: Query<&ChildOf>,
     characters: Query<&CharacterShape>,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     template_overrides: Query<&TemplateOverride>,
@@ -215,9 +216,14 @@ fn update_mesh_when_ready(
     template_assets: Res<Assets<CharacterTemplate>>,
     mut commands: Commands,
 ) {
-    for (entity, parent, part, part_skm) in character_parts.iter() {
-        let parent_entity = parent.parent();
-        let Ok(character_shape) = characters.get(parent_entity) else {
+    for (entity, _, part, part_skm) in character_parts.iter() {
+        // Parts may sit under intermediate grouping nodes (e.g. a "CPU Meshes"
+        // or "GPU Meshes" child), so walk up until the CharacterShape owner.
+        // `iter_ancestors` yields the direct parent first, so flat parts work too.
+        let character_shape = parents
+            .iter_ancestors::<ChildOf>(entity)
+            .find_map(|ancestor| characters.get(ancestor).ok());
+        let Some(character_shape) = character_shape else {
             continue;
         };
         let Some(asset) = shape_assets.get(&character_shape.0) else {
