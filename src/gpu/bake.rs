@@ -25,7 +25,7 @@ use crate::{prelude::*, rigs::RigBundleRes};
 
 use super::{
     bank::{BIND_POSE_CLIP, BIND_POSE_SLOT, BakedClip, BankSlot, GpuAnimationBank, GpuAnimationReady, GpuBakeJobs, GpuRenderHandles},
-    config::{GpuBlendWeights, GpuCrowdConfig, GpuSkeletonLod, MAX_BLEND_CLIPS, MAX_GPU_CLIPS, pose_grid_side},
+    config::{GpuBlendWeights, GpuCrowdConfig, GpuSkeletonLod, MAX_BLEND_CLIPS, MAX_GPU_CLIPS, MAX_GPU_SHAPES, pose_grid_side},
     state::GpuInstanceAnims,
 };
 
@@ -246,7 +246,7 @@ pub(super) fn bake_gpu_animation(
 
     let num_bones = bones.len() as u32;
     let instances = config.instances as u32;
-    let mut bank = GpuAnimationBank::new(bones, targets, binds, config.sample_rate);
+    let mut bank = GpuAnimationBank::new(bones, targets, binds.clone(), config.sample_rate);
     bank.frames.extend_from_slice(&seed);
     let (offsets, counts, durations, modes) = bank.tables();
 
@@ -267,16 +267,32 @@ pub(super) fn bake_gpu_animation(
         bytemuck::cast_slice(&inv_bind),
         RenderAssetUsages::RENDER_WORLD,
     ));
+    // Shape slices: slice 0 is the reference skeleton (translations mirror the
+    // reference locals baked into the clip frames, so shape-0 instances render
+    // exactly as before). `upload_shape_buffers` appends registered shapes.
+    let reference_translations: Vec<Vec4> = binds
+        .iter()
+        .map(|bind| Vec4::new(bind.translation.x, bind.translation.y, bind.translation.z, 0.0))
+        .collect();
+    let shape_translations_handle = buffers.add(ShaderBuffer::new(
+        bytemuck::cast_slice(&reference_translations),
+        RenderAssetUsages::RENDER_WORLD,
+    ));
+    let shape_inv_binds_handle = buffers.add(ShaderBuffer::new(
+        bytemuck::cast_slice(&inv_bind),
+        RenderAssetUsages::RENDER_WORLD,
+    ));
     let joints_handle = buffers.add(ShaderBuffer::new(
         bytemuck::cast_slice(&joints_data),
         RenderAssetUsages::RENDER_WORLD,
     ));
     let uniforms_handle = buffers.add(ShaderBuffer::new(
-        &pose_uniform_bytes(num_bones, instances, offsets, counts, durations, modes),
+        &pose_uniform_bytes(num_bones, instances, offsets, counts, durations, modes, 1),
         RenderAssetUsages::RENDER_WORLD,
     ));
-    // Per instance: weights[4] + clocks[4] + bank indices[4]. Slots start at
-    // bank 0 with zero weight until the caller wires them via `set_slot`.
+    // Per instance: weights[4] + clocks[4] + bank indices[4].
+    // Slots start at bank 0 with zero weight until the caller wires them via
+    // `set_slot`.
     let mut instance_floats = Vec::with_capacity(config.instances * MAX_BLEND_CLIPS * 3);
     for _ in 0..config.instances {
         instance_floats.extend_from_slice(&blend_weights.0);
@@ -287,16 +303,39 @@ pub(super) fn bake_gpu_animation(
         bytemuck::cast_slice(&instance_floats),
         RenderAssetUsages::RENDER_WORLD,
     ));
-
+    // Per instance: one MAX_GPU_SHAPES weight row (zeros = reference).
+    let shape_weight_floats = vec![0.0f32; config.instances * MAX_GPU_SHAPES];
+    let shape_weights_handle = buffers.add(ShaderBuffer::new(
+        bytemuck::cast_slice(&shape_weight_floats),
+        RenderAssetUsages::RENDER_WORLD,
+    ));
+    // Per instance: one root-bone Y scale (1.0 = reference proportions).
+    let root_scale_floats = vec![1.0f32; config.instances];
+    let root_scales_handle = buffers.add(ShaderBuffer::new(
+        bytemuck::cast_slice(&root_scale_floats),
+        RenderAssetUsages::RENDER_WORLD,
+    ));
+    // Reference root bind-pose Y (local == model space: the root has no
+    // parent). The shader measures clip-Y deltas from this.
+    let root_bind_handle = buffers.add(ShaderBuffer::new(
+        bytemuck::cast_slice(&[binds[0].translation.y]),
+        RenderAssetUsages::RENDER_WORLD,
+    ));
     commands.insert_resource(GpuRenderHandles {
         parents: parents_handle,
         frames: frames_handle,
         inv_bind: inv_bind_handle,
+        shape_translations: shape_translations_handle,
+        shape_inv_binds: shape_inv_binds_handle,
         joints: joints_handle,
         uniforms: uniforms_handle,
         instance_data: instance_data_handle,
+        shape_weights: shape_weights_handle,
+        root_scales: root_scales_handle,
+        root_bind: root_bind_handle,
         num_bones,
         instance_count: instances,
+        shape_count: 1,
         clip_offsets: offsets,
         clip_frames: counts,
         durations,
@@ -310,6 +349,8 @@ pub(super) fn bake_gpu_animation(
         slots: vec![[0; MAX_BLEND_CLIPS]; config.instances],
         entries: [0.0; MAX_BLEND_CLIPS],
         done: vec![[false; MAX_BLEND_CLIPS]; config.instances],
+        shape_weights: vec![[0.0; MAX_GPU_SHAPES]; config.instances],
+        root_scales: vec![1.0; config.instances],
     });
     commands.insert_resource(bank);
     commands.insert_resource(GpuAnimationReady);
@@ -516,11 +557,121 @@ pub(super) fn collect_clip_bakes(
                     counts,
                     durations,
                     modes,
+                    handles.shape_count,
                 )
                 .to_vec(),
             );
         }
     }
+}
+
+/// Uploads registered [`GpuCrowdShapes`](super::config::GpuCrowdShapes) to the
+/// shape buffers. Slice 0 is the reference skeleton rebuilt from the bank +
+/// reference rig; slice `i + 1` holds `shapes[i]`. Rebuilds when the registry
+/// version moves (register/re-fit), so population is a game-side `register`
+/// call away. Mismatched lengths are rejected with a warning and the buffers
+/// left alone.
+///
+/// Slice 0 is never read back from `buffer.data`: Bevy 0.19 `take_gpu_data`
+/// empties `ShaderBuffer::data` on upload, so a read-back upload silently
+/// never fires and every non-zero shape reads out of bounds.
+pub(super) fn upload_shape_buffers(
+    bank: Option<Res<GpuAnimationBank>>,
+    shapes: Option<Res<super::config::GpuCrowdShapes>>,
+    rig_data: Option<Res<RigData>>,
+    mut handles: Option<ResMut<GpuRenderHandles>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+    mut uploaded: Local<u64>,
+) {
+    let (Some(bank), Some(shapes), Some(rig_data), Some(handles)) =
+        (bank, shapes, rig_data, handles.as_mut())
+    else {
+        return;
+    };
+    if shapes.version == *uploaded {
+        return;
+    }
+    let num_bones = bank.bones.len();
+    if num_bones == 0 {
+        return;
+    }
+    for shape in shapes.shapes.iter() {
+        if shape.translations.len() != num_bones || shape.inv_binds.len() != num_bones {
+            warn!(
+                "GPU shapes: '{}' has {}/{} bones, expected {num_bones}; skipping upload",
+                shape.shape,
+                shape.translations.len(),
+                shape.inv_binds.len(),
+            );
+            return;
+        }
+    }
+    let Some(rig) = rig_data.0.as_ref() else {
+        return;
+    };
+    let reference = rig.reference_rig();
+    let reference_translations: Vec<Vec4> = bank
+        .binds
+        .iter()
+        .map(|bind| {
+            Vec4::new(
+                bind.translation.x,
+                bind.translation.y,
+                bind.translation.z,
+                0.0,
+            )
+        })
+        .collect();
+    if reference_translations.len() != num_bones {
+        return;
+    }
+    let reference_inv_binds: Vec<Mat4> = bank
+        .bones
+        .iter()
+        .map(|bone| reference.model_space_bindpose[bone].to_matrix().inverse())
+        .collect();
+    let mut translations = Vec::with_capacity((shapes.shapes.len() + 1) * num_bones);
+    let mut inv_binds = Vec::with_capacity((shapes.shapes.len() + 1) * num_bones);
+    translations.extend_from_slice(&reference_translations);
+    inv_binds.extend_from_slice(&reference_inv_binds);
+    for shape in shapes.shapes.iter() {
+        translations.extend_from_slice(&shape.translations);
+        inv_binds.extend_from_slice(&shape.inv_binds);
+    }
+    if let Some(mut buffer) = buffers.get_mut(&handles.shape_translations) {
+        buffer.data = Some(bytemuck::cast_slice(&translations).to_vec());
+    }
+    if let Some(mut buffer) = buffers.get_mut(&handles.shape_inv_binds) {
+        buffer.data = Some(bytemuck::cast_slice(&inv_binds).to_vec());
+    }
+    handles.shape_count = shapes.shapes.len() as u32 + 1;
+    // Publish the new shape count so the pose shader can clamp shape indices
+    // while a register is still in flight.
+    let (offsets, counts, durations, modes) = (
+        handles.clip_offsets,
+        handles.clip_frames,
+        handles.durations,
+        handles.modes,
+    );
+    if let Some(mut uniforms) = buffers.get_mut(&handles.uniforms) {
+        uniforms.data = Some(
+            pose_uniform_bytes(
+                handles.num_bones,
+                handles.instance_count,
+                offsets,
+                counts,
+                durations,
+                modes,
+                handles.shape_count,
+            )
+            .to_vec(),
+        );
+    }
+    *uploaded = shapes.version;
+    info!(
+        "GPU shapes uploaded: {} shape(s) + reference, {num_bones} bones each",
+        shapes.shapes.len(),
+    );
 }
 
 fn pose_uniform_bytes(
@@ -530,12 +681,13 @@ fn pose_uniform_bytes(
     clip_frames: [u32; MAX_GPU_CLIPS],
     durations: [f32; MAX_GPU_CLIPS],
     modes: [u32; MAX_GPU_CLIPS],
+    shape_count: u32,
 ) -> [u8; 1088] {
     let mut words = [0u32; 272];
     words[0] = num_bones;
     words[1] = instances;
     words[2] = pose_grid_side(instances);
-    words[3] = 0;
+    words[3] = shape_count.max(1);
     for i in 0..MAX_GPU_CLIPS {
         words[4 + i] = clip_offsets[i];
         words[68 + i] = clip_frames[i];

@@ -17,18 +17,21 @@ mod bank;
 mod config;
 mod material;
 mod pipeline;
+mod shapes;
 mod state;
 
-use bake::{bake_gpu_animation, collect_clip_bakes, submit_clip_bakes};
+use bake::{bake_gpu_animation, collect_clip_bakes, submit_clip_bakes, upload_shape_buffers};
 pub use bank::{BIND_POSE_CLIP, BIND_POSE_SLOT, GpuAnimationBank, GpuAnimationReady, GpuRenderHandles};
 pub use config::{
-    GpuBlendWeights, GpuClipMode, GpuCrowdConfig, GpuSkeletonLod, MAX_BLEND_CLIPS, MAX_GPU_CLIPS,
-    POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z, pose_grid_side,
+    GpuBlendWeights, GpuClipMode, GpuCrowdConfig, GpuCrowdShapes, GpuShapeSkeleton, GpuSkeletonLod,
+    MAX_BLEND_CLIPS, MAX_GPU_CLIPS, MAX_GPU_SHAPES, POSE_WORKGROUP_X, POSE_WORKGROUP_Y,
+    POSE_WORKGROUP_Z, pose_grid_side,
 };
 pub use material::{
     ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, CrowdMaterial, GpuCrowdExtension,
     GpuCrowdUniform, make_gpu_mesh, specialize_gpu_vertex_layout,
 };
+pub use shapes::{fit_shape_skeleton, fit_shape_skeleton_from_helpers};
 pub use state::{GpuInstanceAnims, GpuOneShotDone};
 
 use std::marker::PhantomData;
@@ -125,6 +128,7 @@ impl Plugin for HumentityGpuPlugin {
         });
         app.init_resource::<GpuBlendWeights>();
         app.init_resource::<GpuSkeletonLod>();
+        app.init_resource::<config::GpuCrowdShapes>();
         app.init_resource::<bank::GpuBakeJobs>();
         app.add_message::<GpuOneShotDone>();
         app.add_systems(
@@ -133,6 +137,7 @@ impl Plugin for HumentityGpuPlugin {
                 bake_gpu_animation,
                 submit_clip_bakes,
                 collect_clip_bakes,
+                upload_shape_buffers,
                 state::update_instance_clocks,
             )
                 .chain(),

@@ -456,6 +456,39 @@ pub(crate) fn get_model_space_skeleton_transforms(
     global_transforms
 }
 
+/// Model-space bindpose with reference rotations restored (CPU fit pass 1).
+///
+/// Positions come from the morphed helpers; every rotation is replaced with the
+/// reference rig's model-space rotation, so retargeted clips (authored for
+/// reference rotations) play correctly on any shape. Shared by the CPU fit
+/// (`fit_skeleton_to_shape`) and the GPU shape fit (`fit_shape_skeleton`).
+pub(crate) fn fitted_model_space_bindposes(
+    helpers: &[Vec3],
+    rig: &RigSpec,
+    vg: &VertexGroups,
+) -> AHashMap<&'static str, Transform> {
+    let mut model_space =
+        get_model_space_skeleton_transforms(&rig.reference_rig.bone_names, helpers, rig, vg);
+    let bone_config = &rig.config;
+    // Pass 1: replace all model-space rotations with reference rig rotations.
+    // This must happen before any local computation so parent lookups are correct.
+    for &bone in &rig.reference_rig.bone_names {
+        if bone_config.bones.contains_key(bone) {
+            let old_global = model_space[bone];
+            let reference_rot = rig.reference_rig.model_space_bindpose[bone].rotation;
+            model_space.insert(
+                bone,
+                Transform {
+                    translation: old_global.translation,
+                    rotation: reference_rot,
+                    scale: old_global.scale,
+                },
+            );
+        }
+    }
+    model_space
+}
+
 #[allow(dead_code)]
 pub(crate) fn get_local_skeleton_transforms(
     bone_order: &Vec<&'static str>,

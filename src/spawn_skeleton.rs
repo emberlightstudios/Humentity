@@ -2,10 +2,7 @@ use crate::{
     basemesh::VertexGroups,
     helpers::HelperVertexPositions,
     prelude::*,
-    rigs::{
-        BoneTranslationData, RigBundleRes, RigData, SkeletonRootBone,
-        get_model_space_skeleton_transforms,
-    },
+    rigs::{BoneTranslationData, RigBundleRes, RigData, SkeletonRootBone},
     skeleton_lod::{MAX_LODS, SkeletonLodConfig, all_children_of},
 };
 use ahash::{AHashMap, AHashSet};
@@ -182,32 +179,10 @@ pub(crate) fn fit_skeleton_to_shape(
             }
         }
 
-        // Re-fit skeleton to mesh shape.
-        let mut model_space_bindposes = get_model_space_skeleton_transforms(
-            &rig_spec.reference_rig.bone_names,
-            helpers,
-            rig_spec,
-            &vg,
-        );
+        // Re-fit skeleton to mesh shape (shared with the GPU shape fit).
+        let model_space_bindposes = crate::rigs::fitted_model_space_bindposes(helpers, rig_spec, &vg);
 
         let bone_config = &rig_spec.config;
-
-        // Pass 1: Replace all model-space rotations with reference rig rotations.
-        // This must happen before any local computation so parent lookups are correct.
-        for &bone in &rig_spec.reference_rig.bone_names {
-            if bone_config.bones.contains_key(bone) {
-                let old_global = model_space_bindposes[bone];
-                let reference_rot = rig_spec.reference_rig.model_space_bindpose[bone].rotation;
-                model_space_bindposes.insert(
-                    bone,
-                    Transform {
-                        translation: old_global.translation,
-                        rotation: reference_rot,
-                        scale: old_global.scale,
-                    },
-                );
-            }
-        }
 
         // Pass 2: Compute local transforms from model-space using the reference rig parent chain.
         let mut local_bone_transforms = AHashMap::default();

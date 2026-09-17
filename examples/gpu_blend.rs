@@ -1,4 +1,4 @@
-//! GPU locomotion blend: 6000 characters blending forward walk with strafe
+//! GPU locomotion blend: 25,000 characters blending forward walk with strafe
 //! right entirely on the GPU.
 //!
 //! The `normal-walk` and `normal-walk-strafe-right` clips from

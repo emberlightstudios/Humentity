@@ -1,4 +1,4 @@
-//! Basic GPU crowd: 8000 characters posed entirely on the GPU.
+//! Basic GPU crowd: many characters posed entirely on the GPU.
 //!
 //! The idle clip is baked once to local bone matrices on the single crowd skeleton. Every
 //! frame a compute shader poses all instances x bones and the joint buffer
@@ -12,7 +12,7 @@ use bevy::{mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
 use shared::{CameraFraming, CustomCrowdMaterial, GPU_SKELETON_LOD, custom_crowd_material, setup_app_gpu};
 
-const INSTANCES: usize = 8_000;
+const INSTANCES: usize = 10_000;
 
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0, CameraFraming::Far);

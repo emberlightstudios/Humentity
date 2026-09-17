@@ -62,7 +62,9 @@ pub(crate) struct BakedClip {
 /// LOD skeleton snapshot the background tasks sample against.
 #[derive(Resource)]
 pub struct GpuAnimationBank {
-    pub(crate) bones: Vec<&'static str>,
+    /// LOD bone order every baked frame follows. Needed game-side to fit
+    /// per-shape skeletons in the same order.
+    pub bones: Vec<&'static str>,
     pub(crate) targets: Vec<AnimationTargetId>,
     pub(crate) binds: Vec<Transform>,
     pub(crate) sample_rate: f32,
@@ -243,11 +245,28 @@ pub struct GpuRenderHandles {
     pub parents: Handle<ShaderBuffer>,
     pub frames: Handle<ShaderBuffer>,
     pub inv_bind: Handle<ShaderBuffer>,
+    /// Per-shape local rest translations: `shape_count * num_bones` `Vec4`s.
+    /// Slice 0 mirrors the reference translations baked into the clip frames;
+    /// slice `i + 1` holds `GpuCrowdShapes.shapes[i]`.
+    pub shape_translations: Handle<ShaderBuffer>,
+    /// Per-shape inverse bindposes: `shape_count * num_bones` `Mat4`s, same
+    /// layout as `shape_translations`.
+    pub shape_inv_binds: Handle<ShaderBuffer>,
     pub joints: Handle<ShaderBuffer>,
     pub uniforms: Handle<ShaderBuffer>,
     pub instance_data: Handle<ShaderBuffer>,
+    /// Per-instance shape weights: `instance_count * MAX_GPU_SHAPES` floats,
+    /// one row per instance with the same semantics as the entity's morph
+    /// weights (slot `i` blends `GpuCrowdShapes.shapes[i]`).
+    pub shape_weights: Handle<ShaderBuffer>,
+    /// Per-instance root-bone Y scales: `instance_count` floats, mirroring the
+    /// CPU `SkeletonRootBone.root_scale` per character.
+    pub root_scales: Handle<ShaderBuffer>,
+    /// Reference root bind-pose Y: one float, the reference rig's root model-space Y.
+    pub root_bind: Handle<ShaderBuffer>,
     pub num_bones: u32,
     pub instance_count: u32,
+    pub shape_count: u32,
     pub clip_offsets: [u32; MAX_GPU_CLIPS],
     pub clip_frames: [u32; MAX_GPU_CLIPS],
     pub durations: [f32; MAX_GPU_CLIPS],

@@ -88,6 +88,56 @@ pub(super) fn init_pose_pipeline(mut commands: Commands, pipeline_cache: Res<Pip
             },
             count: None,
         },
+        BindGroupLayoutEntry {
+            binding: 6,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        BindGroupLayoutEntry {
+            binding: 7,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        BindGroupLayoutEntry {
+            binding: 8,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        BindGroupLayoutEntry {
+            binding: 9,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        BindGroupLayoutEntry {
+            binding: 10,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
     ];
     let layout = BindGroupLayoutDescriptor::new("crowd_pose", &entries);
     let pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
@@ -114,16 +164,26 @@ pub(super) fn prepare_pose_bind_group(
         Some(parents),
         Some(frames),
         Some(inv_bind),
+        Some(shape_translations),
+        Some(shape_inv_binds),
         Some(joints),
         Some(uniforms),
         Some(instance_data),
+        Some(shape_weights),
+        Some(root_scales),
+        Some(root_bind),
     ) = (
         gpu_buffers.get(&handles.parents),
         gpu_buffers.get(&handles.frames),
         gpu_buffers.get(&handles.inv_bind),
+        gpu_buffers.get(&handles.shape_translations),
+        gpu_buffers.get(&handles.shape_inv_binds),
         gpu_buffers.get(&handles.joints),
         gpu_buffers.get(&handles.uniforms),
         gpu_buffers.get(&handles.instance_data),
+        gpu_buffers.get(&handles.shape_weights),
+        gpu_buffers.get(&handles.root_scales),
+        gpu_buffers.get(&handles.root_bind),
     )
     else {
         return;
@@ -139,6 +199,11 @@ pub(super) fn prepare_pose_bind_group(
             joints.buffer.as_entire_buffer_binding(),
             uniforms.buffer.as_entire_buffer_binding(),
             instance_data.buffer.as_entire_buffer_binding(),
+            shape_translations.buffer.as_entire_buffer_binding(),
+            shape_inv_binds.buffer.as_entire_buffer_binding(),
+            shape_weights.buffer.as_entire_buffer_binding(),
+            root_scales.buffer.as_entire_buffer_binding(),
+            root_bind.buffer.as_entire_buffer_binding(),
         )),
     );
     commands.insert_resource(CrowdPoseBindGroup(bind_group));
