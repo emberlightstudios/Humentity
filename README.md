@@ -11,7 +11,7 @@ A Bevy plugin for loading, morphing, rigging, and animating MakeHuman-based 3D h
 - **Skeleton LOD** — each character has one fixed full skeleton; the active LOD set decides which bone sub-trees are disabled (via `SkeletonLodDisabled`) so their `GlobalTransform`s stop propagating
 - **Mesh LOD** — use MakeHuman's lower-poly proxy meshes with Bevy's `VisibilityRange` for distance-based mesh switching
 - **Animation retargeting** — import glTF animation clips and retarget them to arbitrary character shapes
-- **GPU crowd posing** — pose thousands of characters (10,000–25,000 in the examples) with a compute shader: clips bake once, per-instance blend weights drive the mix, and a custom skinning vertex shader does the rest. No per-bone entities, no `AnimationPlayer`, no transform propagation for the crowd
+- **GPU crowd posing** — pose thousands of characters (10,000 in `gpu_crowd`) with a compute shader: clips bake once, per-instance blend weights drive the mix, and a custom skinning vertex shader does the rest. No per-bone entities, no `AnimationPlayer`, no transform propagation for the crowd
 - **GPU morphs** — morph targets keep working through the GPU skinning shader, and per-instance shape weights blend fitted skeletons to match
 - **GPU joints readback** — optional copy of the posed joint buffer back to the CPU for hitboxes and gameplay queries
 - **Stitched meshes** — split a character into multiple mesh pieces (head, body, clothing) with continuous normals across seam cuts
@@ -171,7 +171,7 @@ app.insert_resource(SkeletonLodConfig::new(&[BoneMergeConfig::full()]));
 app.insert_resource(GpuSkeletonLod(0));
 ```
 
-`HumentityGpuPlugin` takes `instances`, `sample_rate` (bake frames per second), `blend_slots` (clips mixed per instance, max 4), `max_clips` (bank size, max 64, slot 0 is always the bindpose fallback), `max_shapes` (bodies blended per instance, max 8), and `readback_joints` (see below). The `gpu_crowd`, `gpu_blend`, and `gpu_morphs` examples share this setup through `examples/shared/mod.rs` (`setup_app_gpu`).
+`HumentityGpuPlugin` takes `instances`, `sample_rate` (bake frames per second), `blend_slots` (clips mixed per instance, max 4), `max_clips` (bank size, max 64, slot 0 is always the bindpose fallback), `max_shapes` (bodies blended per instance, max 8), and `readback_joints` (see below). The `gpu_crowd` and `gpu_morphs` examples share this setup through `examples/shared/mod.rs` (`setup_app_gpu`).
 
 ### Meshes
 
@@ -184,6 +184,8 @@ mesh_builder.trigger(LoadAssetMeshJob::Single {
     skeleton_lod: MeshBuildLod::Gpu,
 });
 ```
+
+Finished builds land in `CachedMhcloMeshHandles`, keyed by `(MhcloAsset, CharacterTemplate, MeshBuildLod)` — the same proxy built for another template, or for CPU vs GPU, is a separate entry. The cache is the handoff between the background builder and your spawn code: trigger the job, then read the handle from the cache each frame until it appears. `request_gpu_mesh` wraps this for the GPU path: it converts the already-built CPU mesh when one exists and only triggers a background `Gpu` build otherwise.
 
 GPU crowd entities are static until the pose pipeline drives them — spawn them with `Mesh3d`, a crowd material, and `MeshTag(index)` and nothing else:
 
@@ -224,7 +226,7 @@ anims.set_slot(i, 1, strafe_slot);
 anims.set_target(i, &[walk_weight, strafe_weight]);
 ```
 
-`set_rate` changes playback speed, `trigger_one_shot` restarts a `OnceHold` clip. `gpu_blend.rs` (25,000 characters mixing walk + strafe on a sine) is the reference for this.
+`set_rate` changes playback speed, `trigger_one_shot` restarts a `OnceHold` clip.
 
 ### Morphs and body shapes
 
@@ -262,7 +264,7 @@ With that said, the pieces:
 - `ragdoll_dof.rs` floats the character and sweeps one joint degree of freedom at a time so you can judge each limit. Use it before touching the joint tables.
 - After a ragdoll ends, fire `commands.trigger(ResetToBindPose(character))` to snap bones back to the fitted bind pose before restarting the clip — otherwise stale ragdoll translations survive under the rotation-only animation.
 - `CharacterScale` is respected: collider shapes are built scaled and joint anchors are resolved in the scaled bone frame.
-- The `physx` feature keeps an alternate backend (`bevy_mod_physx`), but avian3d is the active one. Bones-vs-colliders applies to both.
+- The `physx` feature keeps an alternate backend (`bevy_mod_physx`), but it is most likely broken: it hasn't been maintained and may or may not come back. avian3d is the active backend.
 
 ## Examples
 
@@ -276,13 +278,12 @@ With that said, the pieces:
 | `assets.rs` | Loading body parts, clothing, hair, and accessories |
 | `character_creator.rs` | Real-time mesh modification UI with sliders |
 | `gpu_crowd.rs` | 10,000 GPU-posed characters sharing one mesh/material |
-| `gpu_blend.rs` | 25,000 GPU characters blending walk + strafe per instance |
 | `gpu_morphs.rs` | GPU posing with morph targets + blended shape skeletons |
 | `ragdoll_avian.rs` | Full-body ragdoll with avian3d physics (Space toggles) |
 | `ragdoll_avian_partial.rs` | Partial ragdoll (arms only) with kinematic colliders |
 | `stress_test_ragdoll_avian.rs` | Grid of ragdoll characters with sleep timers |
 | `ragdoll_dof.rs` | One-joint-at-a-time limit tuning rig |
-| `ragdoll_physx.rs` | Ragdoll via the alternate `physx` backend |
+| `ragdoll_physx.rs` | Ragdoll via the alternate `physx` backend (likely broken, unmaintained) |
 
 Run examples with:
 
@@ -291,7 +292,6 @@ cargo run --example lod
 cargo run --example stress_test
 cargo run --example animation
 cargo run --example gpu_crowd
-cargo run --example gpu_blend
 cargo run --example gpu_morphs
 cargo run --example ragdoll_avian --features avian
 cargo run --example ragdoll_dof --features avian
@@ -302,7 +302,7 @@ cargo run --example ragdoll_dof --features avian
 | Feature | Description |
 |---|---|
 | `avian` | Enables ragdoll physics via [avian3d](https://github.com/Jondolf/avian) (active backend) |
-| `physx` | Alternate backend via `bevy_mod_physx` (off by default) |
+| `physx` | Alternate backend via `bevy_mod_physx` (off by default; most likely broken, unmaintained — may or may not come back) |
 | `debug` | Enables Bevy's debug rendering |
 
 ## Custom assets
