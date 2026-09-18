@@ -254,7 +254,7 @@ if let Some(m) = readback.joint(instance, bone) { /* hitbox math */ }
 
 ## Ragdoll physics
 
-> **Status note: ragdolls are the weakest part of this crate right now, and I'm not happy with how they look.** Colliders spawn, joints form, and characters fall over — the plumbing works — but the motion doesn't look good yet. Expect twitch and jitter (the examples run higher-than-default `RagdollDensity` just to calm it down), partial ragdolls fighting their kinematic parents, and stale bone translations when a ragdoll ends that rotation-only clips can't fix (there is a `ResetToBindPose` workaround — see below). If you need good-looking death falls today, budget tuning time: density, damping, mobility, and per-joint overrides, using the `ragdoll_dof` example joint by joint. Improving this is open work.
+> **Status note: ragdolls are the weakest part of this crate right now, and I'm not happy with how they look.** Colliders spawn, joints form, and characters fall over — the plumbing works — but the motion doesn't look good yet. Expect twitch and jitter (the examples run higher-than-default `RagdollDensity` just to calm it down), partial ragdolls fighting their kinematic parents.
 
 With that said, the pieces:
 
