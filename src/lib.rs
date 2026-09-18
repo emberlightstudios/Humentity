@@ -80,7 +80,8 @@ pub mod prelude {
             request_gpu_mesh,
         },
         spawn_skeleton::{
-            CharacterSkeleton, SkeletonLodDisabled, SkeletonLodState, SkeletonsReady,
+            CharacterScale, CharacterSkeleton, ResetToBindPose, SkeletonLodDisabled, SkeletonLodState,
+            SkeletonsReady,
         },
         template::{CharacterMorphShape, CharacterTemplate, TemplateOverride},
     };
@@ -257,6 +258,7 @@ impl Plugin for HumentityPlugin {
                 ),
             )
             .add_observer(spawn_skeleton::on_character_helpers_removed)
+            .add_observer(spawn_skeleton::on_reset_to_bind_pose)
             .add_observer(helpers::tag_empty_helpers)
             .add_systems(
                 Update,

@@ -9,6 +9,7 @@ use crate::{
     helpers::HelperVertexPositions,
     prelude::{CharacterShape, CharacterSkeleton, SkeletonLodDisabled, SkeletonsReady},
     rigs::{RigData, SkeletalBone},
+    spawn_skeleton::CharacterScale,
     NAME_INTERNER,
 };
 use super::*;
@@ -257,6 +258,7 @@ pub(crate) fn spawn_colliders(
             &RagdollDensity,
             Option<&RagdollCollisionLayers>,
             Option<&HelperVertexPositions>,
+            Option<&CharacterScale>,
         ),
         (With<NeedsColliders>, With<SkeletonsReady>),
     >,
@@ -286,6 +288,7 @@ pub(crate) fn spawn_colliders(
         density,
         collision_layers,
         computed_helpers,
+        character_scale,
     ) in characters.iter_mut()
     {
         if char_count >= BATCH_SIZE {
@@ -341,17 +344,24 @@ pub(crate) fn spawn_colliders(
         }
 
         // ── Spawn collider entities (offsets LOD-independent) ──
+        // Uniform scale only: a non-uniform CharacterScale stretches bones in
+        // ways spheres/capsules can't match, so use the x axis.
+        let collider_scale = character_scale.map_or(1.0, |s| s.0.x);
         for &collider in &target_bones {
             let i_collider = collider_index(collider);
-            let (geometry, collider_to_model) =
-                get_collider_geometry(collider, helpers, i_collider, &inv_bindposes_map);
+            let (geometry, collider_to_model) = get_collider_geometry(
+                collider,
+                helpers,
+                i_collider,
+                &inv_bindposes_map,
+                collider_scale,
+            );
 
             let joint_name = collider_bone_map[i_collider];
             let model_to_joint = inv_bindposes_map[joint_name];
             let collider_to_joint = model_to_joint * collider_to_model;
             let joint_to_collider = Transform::from_matrix(collider_to_joint.to_matrix().inverse());
             let bone_entity = colliders.bone_entities.get(&collider).copied();
-
             let collider_entity = commands
                 .spawn((
                     Name::new(
@@ -453,7 +463,6 @@ pub(crate) fn set_ragdoll_state(
             CharacterRagdoll::Partial(bones) => Some(bones.as_slice()),
             _ => None,
         };
-
         // Clear existing joints before any ragdoll transition
         for &joint in &char_colliders.joint_entities {
             commands.entity(joint).despawn();
@@ -549,22 +558,38 @@ pub(crate) fn set_ragdoll_state(
                 // instead pivots at the waist: top-center of the parent
                 // (pelvis) collider. Its local +Y is model-up: midsection
                 // boxes are measured axis-aligned in model space.
-                let child_joint = child_collider * child_offset.collider_to_bone;
+                // Anchors come from bone globals (which carry CharacterScale
+                // via the skeleton root). Collider bodies have no scale, so a
+                // `child_collider * collider_to_bone` product mixes scaled and
+                // unscaled frames — at scale 2 it lands halfway and joints
+                // float apart. Bone globals stay in one scaled frame.
                 let anchor_world = if *bone == ColliderBone::Chest {
                     collider_shapes
                         .get(parent)
                         .ok()
                         .and_then(|shape| shape.shape().as_cuboid())
                         .map(|cuboid| {
+                            // Cuboid half extents are built scaled for the
+                            // character (collider geometry carries the
+                            // CharacterScale), so this stays at the scaled
+                            // waist without extra math.
                             parent_collider.transform_point(Vec3::new(
                                 0.0,
                                 cuboid.half_extents.y,
                                 0.0,
                             ))
                         })
-                        .unwrap_or(child_joint.translation)
+                        .unwrap_or_else(|| {
+                            bones
+                                .get(child_bone)
+                                .map(|world| world.translation())
+                                .unwrap_or(child_collider.translation)
+                        })
                 } else {
-                    child_joint.translation
+                    bones
+                        .get(child_bone)
+                        .map(|world| world.translation())
+                        .unwrap_or(child_collider.translation)
                 };
                 // basis2 aligns the two *body* frames so the as-seated relative
                 // rotation is the rest position (frame1 keeps identity basis).
@@ -722,14 +747,15 @@ fn get_collider_geometry(
     helpers: &[Vec3],
     i_collider: usize,
     inv_bindposes: &AHashMap<&str, Transform>,
+    scale: f32,
 ) -> (Collider, Transform) {
     match collider {
-        ColliderBone::Head => get_head_collider(helpers),
+        ColliderBone::Head => get_head_collider(helpers, scale),
         ColliderBone::Chest | ColliderBone::Pelvis => {
             let bone_name = DEFAULT_RIG_COLLIDER_BONE_NAMES[i_collider];
             let inv_bindpose_rot = inv_bindposes[bone_name].rotation;
             let bind_rot = inv_bindpose_rot.inverse();
-            get_midsection_collider(helpers, collider, bind_rot)
+            get_midsection_collider(helpers, collider, bind_rot, scale)
         }
         ColliderBone::UpperRightArm
         | ColliderBone::UpperLeftArm
@@ -738,17 +764,17 @@ fn get_collider_geometry(
         | ColliderBone::UpperRightLeg
         | ColliderBone::UpperLeftLeg
         | ColliderBone::LowerRightLeg
-        | ColliderBone::LowerLeftLeg => get_limb_collider(helpers, collider),
+        | ColliderBone::LowerLeftLeg => get_limb_collider(helpers, collider, scale),
         ColliderBone::LeftHand
         | ColliderBone::RightHand
         | ColliderBone::LeftFoot
-        | ColliderBone::RightFoot => get_extremity_collider(helpers, collider),
+        | ColliderBone::RightFoot => get_extremity_collider(helpers, collider, scale),
     }
 }
 
-fn get_head_collider(helpers: &[Vec3]) -> (Collider, Transform) {
+fn get_head_collider(helpers: &[Vec3], scale: f32) -> (Collider, Transform) {
     let center = (helpers[HEAD_VERTICES[0]] + helpers[HEAD_VERTICES[1]]) * 0.5;
-    let radius = (helpers[HEAD_VERTICES[0]] - center).length();
+    let radius = (helpers[HEAD_VERTICES[0]] - center).length() * scale;
     (
         Collider::sphere(radius),
         Transform::from_translation(center),
@@ -759,6 +785,7 @@ fn get_midsection_collider(
     helpers: &[Vec3],
     joint: ColliderBone,
     bind_rot: Quat,
+    scale: f32,
 ) -> (Collider, Transform) {
     let ref_verts = match joint {
         ColliderBone::Chest => TORSO_VERTICES,
@@ -785,20 +812,28 @@ fn get_midsection_collider(
     // keeps its measured shape.
     if joint == ColliderBone::Chest {
         (
-            Collider::cuboid(xmax - xmin, zmax - zmin, ymax - ymin),
+            Collider::cuboid(
+                (xmax - xmin) * scale,
+                (zmax - zmin) * scale,
+                (ymax - ymin) * scale,
+            ),
             Transform::from_translation(center).with_rotation(
                 bind_rot * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
             ),
         )
     } else {
         (
-            Collider::cuboid(xmax - xmin, ymax - ymin, zmax - zmin),
+            Collider::cuboid(
+                (xmax - xmin) * scale,
+                (ymax - ymin) * scale,
+                (zmax - zmin) * scale,
+            ),
             Transform::from_translation(center).with_rotation(bind_rot),
         )
     }
 }
 
-fn get_limb_collider(helpers: &[Vec3], joint: ColliderBone) -> (Collider, Transform) {
+fn get_limb_collider(helpers: &[Vec3], joint: ColliderBone, scale: f32) -> (Collider, Transform) {
     let ref_verts = match joint {
         ColliderBone::LowerLeftArm => LOWER_LEFT_ARM_VERTICES,
         ColliderBone::LowerRightArm => LOWER_RIGHT_ARM_VERTICES,
@@ -814,20 +849,20 @@ fn get_limb_collider(helpers: &[Vec3], joint: ColliderBone) -> (Collider, Transf
 
     let p1 = (verts[0] + verts[1]) * 0.5;
     let p2 = (verts[2] + verts[3]) * 0.5;
-    let r = (verts[0] - verts[1]).length() * 0.5;
+    let r = (verts[0] - verts[1]).length() * 0.5 * scale;
     let c = (p1 + p2) * 0.5;
     let dir = (p1 - p2).normalize();
     let up = dir.cross(Vec3::NEG_Z).normalize();
     let fwd = dir.cross(up);
 
     (
-        Collider::capsule(r, (p1 - p2).length()),
+        Collider::capsule(r, (p1 - p2).length() * scale),
         Transform::from_translation(c)
             .with_rotation(Quat::from_mat3(&Mat3::from_cols(fwd, dir, up))),
     )
 }
 
-fn get_extremity_collider(helpers: &[Vec3], joint: ColliderBone) -> (Collider, Transform) {
+fn get_extremity_collider(helpers: &[Vec3], joint: ColliderBone, scale: f32) -> (Collider, Transform) {
     let ref_verts = match joint {
         ColliderBone::LeftHand => LEFT_HAND_VERTICES,
         ColliderBone::RightHand => RIGHT_HAND_VERTICES,
@@ -837,9 +872,9 @@ fn get_extremity_collider(helpers: &[Vec3], joint: ColliderBone) -> (Collider, T
     };
     let verts: Vec<Vec3> = ref_verts.iter().map(|&i| helpers[i]).collect();
 
-    let x = (verts[0] - verts[1]).length();
-    let y = (verts[2] - verts[3]).length();
-    let z = (verts[4] - verts[5]).length();
+    let x = (verts[0] - verts[1]).length() * scale;
+    let y = (verts[2] - verts[3]).length() * scale;
+    let z = (verts[4] - verts[5]).length() * scale;
 
     let center = verts.iter().sum::<Vec3>() / verts.len() as f32;
 

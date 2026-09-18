@@ -30,18 +30,38 @@ pub struct CharacterSkeleton {
     pub model_space_inv_bindposes: Vec<Mat4>,
 }
 
+/// Entity event: snap a character's bones back to the fitted bind pose.
+/// Fire after ragdoll ends (`commands.trigger(ResetToBindPose(character))`):
+/// ragdoll writes both positions and rotations onto the bones, but animation
+/// clips only drive rotations, so stale translations survive and the pose
+/// looks close-but-off. This restores the fitted bind-pose translations and
+/// rotations; the clip then takes over rotations from a clean base.
+#[derive(Event, Debug, Clone, Copy)]
+pub struct ResetToBindPose(pub Entity);
+
 /// Placed on `CharacterShape` once its single skeleton has been fitted.
 #[derive(Component, Debug)]
 pub struct SkeletonsReady;
 
 /// Tracks which skeleton LOD levels are currently active (in use by a shown mesh).
 ///
-/// Placed on the `CharacterShape`. `active[k] == true` means LOD `k` is active.
 /// The reconcile system (`sync_skeleton_lod_subtrees`) disables a bone sub-tree
 /// iff its root is present in **every** active LOD's cumulative remove list.
 #[derive(Component, Debug, Clone, Copy)]
 pub struct SkeletonLodState {
     pub active: [bool; MAX_LODS],
+}
+
+/// Uniform-or-not visual scale for a character. Place on the `CharacterShape`
+/// entity; the skeleton root copies it at spawn (and keeps it across fits),
+/// so bones spread out and the skinned mesh follows. Defaults to 1.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct CharacterScale(pub Vec3);
+
+impl Default for CharacterScale {
+    fn default() -> Self {
+        Self(Vec3::ONE)
+    }
 }
 
 /// Internal marker on a `CharacterShape` that has spawned a skeleton but not yet
@@ -55,30 +75,24 @@ pub(crate) struct FitSkeleton;
 #[derive(Component, Clone, Debug, Default)]
 pub struct SkeletonLodDisabled;
 
+
 /// Spawns the single full skeleton scene as a child of each `CharacterShape`,
 /// and marks the character as needing a fit.
 pub(crate) fn spawn_rig_skeleton(
-    characters: Query<
-        Entity,
-        (
-            Without<SkeletonsReady>,
-            Without<FitSkeleton>,
-            With<CharacterShape>,
-            With<HelperVertexPositions>,
-        ),
-    >,
+    characters: Query<(Entity, Option<&CharacterScale>), (Without<SkeletonsReady>, Without<FitSkeleton>, With<CharacterShape>, With<HelperVertexPositions>)>,
     rig_bundle: Res<RigBundleRes>,
     mut commands: Commands,
 ) {
-    for entity in &characters {
+    for (entity, scale) in &characters {
         let Some(scene) = rig_bundle.scene.clone() else {
             continue;
         };
 
+        let scale = scale.map_or(Vec3::ONE, |s| s.0);
         let skeleton_entity = commands
             .spawn((
                 DynamicWorldRoot::from(scene),
-                Transform::from_rotation(crate::MODEL_ROTATION_FIX),
+                Transform::from_rotation(crate::MODEL_ROTATION_FIX).with_scale(scale),
                 FitSkeleton,
                 Name::new("Skeleton"),
             ))
@@ -116,6 +130,7 @@ pub(crate) fn fit_skeleton_to_shape(
             Option<&AnimationPlayer>,
             Option<&HelperVertexPositions>,
             &mut CharacterSkeleton,
+            Option<&CharacterScale>,
         ),
         (With<FitSkeleton>, Allow<SkeletonLodDisabled>),
     >,
@@ -126,7 +141,7 @@ pub(crate) fn fit_skeleton_to_shape(
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
 ) {
-    for (entity, character_shape, animation_player, computed_helpers, skeleton) in
+    for (entity, character_shape, animation_player, computed_helpers, skeleton, scale) in
         characters.iter_mut()
     {
         let Some(h) = computed_helpers else {
@@ -222,11 +237,12 @@ pub(crate) fn fit_skeleton_to_shape(
             .iter()
             .map(|&bone| model_space_bindposes[bone].to_matrix().inverse())
             .collect();
-
-        // Rotate skeleton to face -Z (model verts face +Z).
+        // Rotate skeleton to face -Z (model verts face +Z), keeping the
+        // CharacterScale copied at spawn.
+        let scale = scale.map_or(Vec3::ONE, |s| s.0);
         commands
             .entity(skeleton.skeleton_entity)
-            .insert(Transform::from_rotation(crate::MODEL_ROTATION_FIX));
+            .insert(Transform::from_rotation(crate::MODEL_ROTATION_FIX).with_scale(scale));
 
         // Compute root bone scale factor for retargeted animation Y correction.
         let root_bone_name = rig_spec.reference_rig.bone_names[0];
@@ -485,6 +501,63 @@ pub(crate) fn on_character_helpers_removed(
             .any(|ancestor| ancestor == entity)
         {
             commands.entity(part_entity).remove::<Mesh3d>();
+        }
+    }
+}
+
+/// Observer for [`ResetToBindPose`]: recompute the fitted bind-pose locals
+/// from the morphed helpers and write them back onto every bone. The fit math
+/// is the same two passes as `fit_skeleton_to_shape` (model-space from
+/// helpers, then parent-relative locals), but skips rebuilding `bone_map` /
+/// inverse bindposes — those don't change after the first fit.
+pub(crate) fn on_reset_to_bind_pose(
+    trigger: On<ResetToBindPose>,
+    characters: Query<&CharacterSkeleton>,
+    helpers_query: Query<&HelperVertexPositions>,
+    mut local_transforms: Query<&mut Transform, (Without<CharacterShape>, Allow<SkeletonLodDisabled>)>,
+    rig_data: Res<RigData>,
+    vg: Res<VertexGroups>,
+) {
+    let character = trigger.event().0;
+    let Ok(skeleton) = characters.get(character) else {
+        return;
+    };
+    let Ok(helpers) = helpers_query.get(character) else {
+        return;
+    };
+    if helpers.0.is_empty() {
+        return;
+    };
+    let Some(rig_spec) = rig_data.0.as_ref() else {
+        return;
+    };
+    let model_space_bindposes =
+        crate::rigs::fitted_model_space_bindposes(&helpers.0, rig_spec, &vg);
+    let bone_config = &rig_spec.config;
+    for &bone in &rig_spec.reference_rig.bone_names {
+        let Some(bone_data) = bone_config.bones.get(bone) else {
+            continue;
+        };
+        let parent_name = if bone_data.parent.is_empty() {
+            ""
+        } else {
+            NAME_INTERNER.intern(&bone_data.parent).leak()
+        };
+        let parent_transform = if parent_name.is_empty() {
+            Transform::IDENTITY
+        } else {
+            model_space_bindposes
+                .get(parent_name)
+                .copied()
+                .unwrap_or(Transform::IDENTITY)
+        };
+        let child_matrix = model_space_bindposes[bone].to_matrix();
+        let parent_matrix = parent_transform.to_matrix();
+        let new_local = Transform::from_matrix(parent_matrix.inverse() * child_matrix);
+        if let Some(&joint) = skeleton.bone_map.get(bone)
+            && let Ok(mut local_transform) = local_transforms.get_mut(joint)
+        {
+            *local_transform = new_local;
         }
     }
 }

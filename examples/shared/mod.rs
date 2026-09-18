@@ -204,7 +204,7 @@ pub fn enable_first_skeleton_on_ready(
 /// Scans for CharacterParts still waiting for a mesh handle from the background threads
 fn update_mesh_when_ready(
     character_parts: Query<
-        (Entity, &ChildOf, &CharacterPart, Option<&SkinnedMesh>),
+        (Entity, &ChildOf, &CharacterPart, Option<&SkinnedMesh>, Option<&Transform>),
         Without<Mesh3d>,
     >,
     parents: Query<&ChildOf>,
@@ -216,7 +216,7 @@ fn update_mesh_when_ready(
     template_assets: Res<Assets<CharacterTemplate>>,
     mut commands: Commands,
 ) {
-    for (entity, _, part, part_skm) in character_parts.iter() {
+    for (entity, _, part, part_skm, xform) in character_parts.iter() {
         // Parts may sit under intermediate grouping nodes (e.g. a "CPU Meshes"
         // or "GPU Meshes" child), so walk up until the CharacterShape owner.
         // `iter_ancestors` yields the direct parent first, so flat parts work too.
@@ -246,7 +246,7 @@ fn update_mesh_when_ready(
         )) {
             commands.entity(entity).insert((
                 Mesh3d(mesh_handle.clone()),
-                Transform::IDENTITY,
+                xform.copied().unwrap_or_default(),
                 skm.clone(),
             ));
             let mesh = meshes.get(mesh_handle).unwrap();

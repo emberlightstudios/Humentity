@@ -12,7 +12,10 @@ const CHARACTER_LAYER: u32 = 1 << 1;
 fn main() {
     let mut app = setup_app();
 
-    app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin))
+    app.add_plugins((
+            PhysicsPlugins::default(),
+            //PhysicsDebugPlugin
+        ))
         .insert_resource(SubstepCount(10))
         .add_systems(Startup, (floor, spawn_ui))
         .add_systems(Update, add_human.run_if(resource_exists::<HumentityAssetsReady>))
@@ -22,6 +25,53 @@ fn main() {
 
 #[derive(Component)]
 struct AnimationController(AnimationNodeIndex);
+
+fn add_human(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut mesh_builder: ResMut<MhcloMeshBuilder>,
+    mut template_assets: ResMut<Assets<CharacterTemplate>>,
+    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut done: Local<bool>,
+) {
+    if *done {
+        return;
+    }
+    *done = true;
+    let template_handle = template_assets.add(CharacterTemplate::new([]));
+
+    let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
+
+    mesh_builder.trigger(LoadAssetMeshJob::Single {
+        part: basemesh.clone(),
+        template_handle: template_handle.clone(),
+        skeleton_lod: MeshBuildLod::Cpu(0),
+    });
+
+    let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
+    commands.insert_resource(RetargetedAnimations { _clips: clips });
+
+    commands.spawn((
+        Transform::from_xyz(0.0, 0.0, 0.0),
+        AnimationPlayer::default(),
+        CharacterShape(shape_assets.add(template_handle)),
+        CharacterScale(Vec3::splat(1.0)),
+        HelperVertexPositions::default(),
+        CharacterRagdoll::None,
+        CharacterColliders::new(None),
+        RagdollCollisionLayers(CollisionLayers::new(
+            RAGDOLL_LAYER,
+            WORLD_LAYER | CHARACTER_LAYER | RAGDOLL_LAYER,
+        )),
+        RagdollMobility(1.0),
+        // Ragdolls tend to twitch without higher density settings in my findings
+        RagdollDensity(10.0),
+        children![(CharacterPart {
+            mesh: basemesh,
+            skeleton_lod: 0
+        },)],
+    ));
+}
 
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
@@ -34,12 +84,13 @@ fn toggle(
         Option<&AnimationController>,
     )>,
     mut collider_data: Query<&mut LinearVelocity>,
+    mut commands: Commands,
 ) {
     if !input.just_pressed(KeyCode::Space) {
         return;
     }
 
-    let Ok((_entity, mut ragdoll, colliders, mut player, controller)) = character.single_mut()
+    let Ok((entity, mut ragdoll, colliders, mut player, controller)) = character.single_mut()
     else {
         return;
     };
@@ -48,9 +99,12 @@ fn toggle(
 
     match &*ragdoll {
         CharacterRagdoll::Full => {
-            // Toggle ragdoll off
+            // Toggle ragdoll off: snap bones back to the fitted bind pose so
+            // stale ragdoll translations don't survive under the rotation-only
+            // clip, then restart the clip.
             *ragdoll = CharacterRagdoll::None;
 
+            commands.trigger(ResetToBindPose(entity));
             player.stop(clip_index);
             player.play(clip_index).repeat();
         }
@@ -147,55 +201,6 @@ fn floor(mut commands: Commands) {
         Restitution::new(0.1),
         RigidBody::Static,
         Transform::IDENTITY,
-    ));
-}
-
-fn add_human(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut mesh_builder: ResMut<MhcloMeshBuilder>,
-    mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
-    mut done: Local<bool>,
-) {
-    if *done {
-        return;
-    }
-    *done = true;
-    let template_handle = template_assets.add(CharacterTemplate::new([]));
-
-    let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
-
-    mesh_builder.trigger(LoadAssetMeshJob::Single {
-        part: basemesh.clone(),
-        template_handle: template_handle.clone(),
-        skeleton_lod: MeshBuildLod::Cpu(0),
-    });
-
-    let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
-    commands.insert_resource(RetargetedAnimations { _clips: clips });
-
-    commands.spawn((
-        Transform::from_xyz(0.0, 0.0, 0.0),
-        AnimationPlayer::default(),
-        CharacterShape(shape_assets.add(template_handle)),
-        HelperVertexPositions::default(),
-        CharacterRagdoll::None,
-        CharacterColliders::new(None),
-        RagdollCollisionLayers(CollisionLayers::new(
-            RAGDOLL_LAYER,
-            WORLD_LAYER | CHARACTER_LAYER | RAGDOLL_LAYER,
-        )),
-        RagdollMobility(1.0),
-        // Ragdolls tend to twitch without higher density settings in my findings
-        RagdollDensity(10.0),
-        RagdollDamping::default(),
-        children![
-            (CharacterPart {
-                mesh: basemesh,
-                skeleton_lod: 0
-            }),
-        ],
     ));
 }
 
