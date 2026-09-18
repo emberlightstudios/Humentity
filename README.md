@@ -8,16 +8,21 @@ A Bevy plugin for loading, morphing, rigging, and animating MakeHuman-based 3D h
 
 - **Template-based morphing** — hundreds of MakeHuman shape keys are baked into a small set of runtime morph targets, preserving GPU instancing and batching across characters
 - **Auto-rigging** — skeletal rigs are built automatically from MakeHuman rig/weight data and fitted to each character's morphed shape
-- **Skeleton LOD** — reduce bone counts at runtime by merging child bone subtrees into their parents, with automatic weight rebinding and inverse bindpose recomputation
+- **Skeleton LOD** — each character has one fixed full skeleton; the active LOD set decides which bone sub-trees are disabled (via `SkeletonLodDisabled`) so their `GlobalTransform`s stop propagating
 - **Mesh LOD** — use MakeHuman's lower-poly proxy meshes with Bevy's `VisibilityRange` for distance-based mesh switching
 - **Animation retargeting** — import glTF animation clips and retarget them to arbitrary character shapes
+- **GPU crowd posing** — pose thousands of characters (10,000–25,000 in the examples) with a compute shader: clips bake once, per-instance blend weights drive the mix, and a custom skinning vertex shader does the rest. No per-bone entities, no `AnimationPlayer`, no transform propagation for the crowd
+- **GPU morphs** — morph targets keep working through the GPU skinning shader, and per-instance shape weights blend fitted skeletons to match
+- **GPU joints readback** — optional copy of the posed joint buffer back to the CPU for hitboxes and gameplay queries
 - **Stitched meshes** — split a character into multiple mesh pieces (head, body, clothing) with continuous normals across seam cuts
-- **Bone sub-tree pruning** — each character has one fixed full skeleton; the active LOD set determines which bone sub-trees are disabled (via `SkeletonLodDisabled`) so their `GlobalTransform`s stop propagating
-- **Ragdoll physics** — optional integration with [avian3d](https://github.com/Jondolf/avian)
+- **Character scale** — `CharacterScale` scales the skeleton root, bones, skinned mesh, and ragdoll colliders together
+- **Ragdoll physics** — optional integration with [avian3d](https://github.com/Jondolf/avian) (experimental — see the note below)
 - **Asset loaders** — native Bevy loaders for `.mhclo`, `.obj`, `.target`, `.macro`, rig configs, and other MakeHuman data formats
 - **Custom assets** — build your own meshes and morph targets in Blender via MPFB
 
 ## Quick start
+
+A single CPU-skinned character:
 
 ```rust
 use bevy::prelude::*;
@@ -26,7 +31,7 @@ use humentity::prelude::*;
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, HumentityPlugin))
-        .insert_resource(SkeletonLodConfig(vec![
+        .insert_resource(SkeletonLodConfig::new(&[
             BoneMergeConfig::full().without_children_of(&["foot.L", "foot.R"]),
         ]))
         .add_systems(Startup, load_assets)
@@ -34,7 +39,7 @@ fn main() {
             Update,
             (
                 attach_mesh,
-                spawn_character.run_if(resource_added::<HumentityAssetsReady>),
+                spawn_character.run_if(resource_exists::<HumentityAssetsReady>),
             ),
         )
         .run();
@@ -129,47 +134,175 @@ fn attach_mesh(
 
 ## How it works
 
-1. **Configure** — Insert a `SkeletonLodConfig` resource with a list of `BoneMergeConfig` entries. Each entry defines one LOD level by specifying which bone subtrees to remove and merge into their parents.
+1. **Configure** — Insert a `SkeletonLodConfig` resource with up to `MAX_LODS` (4) `BoneMergeConfig` entries. Each entry defines one LOD level by naming which bone subtrees to remove and merge into their parents.
 
-2. **Load** — Call `load_and_insert_humentity_assets` to load the MakeHuman basemesh, vertex groups, morph targets, rig config, and reference rig as ECS resources.
+2. **Load** — Call `load_and_insert_humentity_assets` to load the MakeHuman basemesh, vertex groups, morph targets, rig config, and reference rig as ECS resources. Gate the rest on `HumentityAssetsReady`.
 
 3. **Morph** — Create a `CharacterTemplate` with one or more `CharacterMorphShape` entries. Each shape maps named MakeHuman morphs to float weights. The template system bakes hundreds of underlying MakeHuman shape keys into a compact set of morph targets.
 
-4. **Build** — Trigger a `LoadAssetMeshJob` (single or stitched) via the `MhcloMeshBuilder` resource. The job loads OBJ data and morph targets, then spawns a background thread to build the final mesh with the correct bone weights for the requested skeleton LOD level. The result is sent back over a channel and cached in `CachedMhcloMeshHandles`. This is non-blocking — the main thread continues while the mesh is built asynchronously.
+4. **Build** — Trigger a `LoadAssetMeshJob` (single or stitched) via the `MhcloMeshBuilder` resource. The job loads OBJ data and morph targets, then spawns a background thread to build the final mesh with the correct bone weights for the requested LOD. The result is sent back over a channel and cached in `CachedMhcloMeshHandles`. This is non-blocking — the main thread continues while the mesh is built asynchronously. CPU meshes use `MeshBuildLod::Cpu(lod)`; GPU crowd meshes use `MeshBuildLod::Gpu`.
 
-5. **Spawn** — Create a `CharacterShape` entity with `CharacterPart` children. Each `CharacterPart` specifies which mesh handle to use and which skeleton LOD level it targets.
+5. **Spawn** — Create a `CharacterShape` entity with `CharacterPart` children (CPU) or `GpuCharacterPart` children (GPU crowd). CPU parts name their skeleton LOD; GPU parts always build on the single `GpuSkeletonLod` skeleton.
 
-6. **Rig** — The plugin spawns one full skeleton per character, fits its bone transforms to the morphed shape, computes the inverse bindposes, and sets up `SkinnedMesh` on each part over the surviving bone subset for its LOD level.
+6. **Rig** — The plugin spawns one full skeleton per CPU character, fits its bone transforms to the morphed shape, computes the inverse bindposes, and sets up `SkinnedMesh` on each part over the surviving bone subset for its LOD level. `CharacterScale` on the `CharacterShape` scales the skeleton root (bones and skinned mesh follow).
 
 7. **Activate** — Write `SkeletonLodState { active: [...] }` on the character to set the active LOD levels. The reconcile system disables every bone sub-tree removed by all active LODs, so unneeded bones stop propagating transforms.
+
+## GPU characters
+
+Use the CPU path above for a handful of full-fidelity characters. Use the GPU path for crowds: one shared mesh, one shared material, and no skeleton entities at all. Clips are baked once to local bone matrices, a compute shader poses every instance × bone each frame, and the joint buffer feeds the skinning vertex shader. Crowd members are plain entities with a `Transform`, a `Mesh3d`, a material, and a `MeshTag` instance id.
+
+### Setup
+
+Add `HumentityGpuPlugin` next to `HumentityPlugin`, register one full skeleton for the bake, and point `GpuSkeletonLod` at it (it must match the LOD the crowd meshes were built with, or joint indices won't line up):
+
+```rust
+use humentity::prelude::*;
+
+app.add_plugins((
+    HumentityPlugin,
+    HumentityGpuPlugin {
+        instances: 10_000,
+        sample_rate: 30.0,
+        ..default()
+    },
+));
+app.insert_resource(SkeletonLodConfig::new(&[BoneMergeConfig::full()]));
+app.insert_resource(GpuSkeletonLod(0));
+```
+
+`HumentityGpuPlugin` takes `instances`, `sample_rate` (bake frames per second), `blend_slots` (clips mixed per instance, max 4), `max_clips` (bank size, max 64, slot 0 is always the bindpose fallback), `max_shapes` (bodies blended per instance, max 8), and `readback_joints` (see below). The `gpu_crowd`, `gpu_blend`, and `gpu_morphs` examples share this setup through `examples/shared/mod.rs` (`setup_app_gpu`).
+
+### Meshes
+
+Build the crowd mesh with `MeshBuildLod::Gpu`, or convert an already-built CPU mesh with `request_gpu_mesh` / `make_gpu_mesh`. The GPU mesh keeps position, normal, uv, morph targets, and custom `ATTRIBUTE_GPU_JOINT_INDEX` / `ATTRIBUTE_GPU_JOINT_WEIGHT` attributes, but drops Bevy's standard skin attributes so no CPU skin buffer is needed:
+
+```rust
+mesh_builder.trigger(LoadAssetMeshJob::Single {
+    part: part.clone(),
+    template_handle: template.clone(),
+    skeleton_lod: MeshBuildLod::Gpu,
+});
+```
+
+GPU crowd entities are static until the pose pipeline drives them — spawn them with `Mesh3d`, a crowd material, and `MeshTag(index)` and nothing else:
+
+```rust
+commands.spawn((
+    Transform::from_xyz(x, 0.0, z),
+    Mesh3d(mesh.clone()),
+    MeshMaterial3d(material.clone()),
+    MeshTag(index as u32),
+));
+```
+
+### Clips
+
+Clip loads are manual. Queue them on `GpuAnimationBank` once the retargeted asset is loaded, then wait for them to land before wiring blend slots:
+
+```rust
+// Queue (e.g. when the RetargetedAnimationAsset finishes loading):
+bank.request_load("Idle-loop", GpuClipMode::Loop);
+
+// Spawn-gate:
+if bank.is_loaded("Idle-loop") {
+    let idle = bank.slot_of("Idle-loop").unwrap();
+    anims.set_slot(index, 0, idle as u32);
+}
+```
+
+`request_load` spawns one background bake task per clip; `request_unload` packs the buffer back up. `GpuClipMode::Loop` loops, `GpuClipMode::OnceHold` fires `GpuOneShotDone` and holds the last frame. Bank slot 0 is the permanent bindpose fallback — empty rows read rest pose, but you must still drive the slot weight to 0.
+
+### Blending per instance
+
+`GpuInstanceAnims` holds the live state: per-slot weights (eased toward targets each frame), clocks, rates, the blend-slot → bank wiring, shape weights, and root scales:
+
+```rust
+// Point blend slot 0 at walk, slot 1 at strafe, then crossfade:
+anims.set_slot(i, 0, walk_slot);
+anims.set_slot(i, 1, strafe_slot);
+anims.set_target(i, &[walk_weight, strafe_weight]);
+```
+
+`set_rate` changes playback speed, `trigger_one_shot` restarts a `OnceHold` clip. `gpu_blend.rs` (25,000 characters mixing walk + strafe on a sine) is the reference for this.
+
+### Morphs and body shapes
+
+The GPU mesh keeps its morph targets, so per-entity `MeshMorphWeights` work through the GPU vertex shader. Skeletons need the same treatment: fit one `GpuShapeSkeleton` per template shape (`fit_shape_skeleton` / `fit_shape_skeleton_from_helpers`), register it on `GpuCrowdShapes` (slot `i` = `shapes[i]`, slice `i + 1` on the GPU, slice 0 is always reference), and drive matching per-instance weights plus a root-scale correction:
+
+```rust
+shapes.register(fit_shape_skeleton_from_helpers("baby", &helpers, &bank.bones, &rig, &vg));
+anims.set_shape_weights(index, &[bodybuilder_w, baby_w]);
+anims.set_root_scale(index, scale);
+```
+
+`gpu_morphs.rs` (baby / bodybuilder / hybrids sharing one mesh) is the reference. Keep the entity morph-weight order and the shape registration order the same or the skeleton won't match the mesh.
+
+### Joints readback (optional)
+
+Off by default. Set `readback_joints: true` and the plugin copies the posed `joints` buffer to the CPU every frame into `GpuJointsReadback` (row-major `instance * num_bones + bone` matrices, 1–2 frames stale, no main-thread stall). Gameplay reads the resource, never the GPU:
+
+```rust
+if let Some(m) = readback.joint(instance, bone) { /* hitbox math */ }
+```
+
+### Custom crowd materials
+
+`CrowdMaterial` is an `ExtendedMaterial<StandardMaterial, GpuCrowdExtension>`. For your own shading, compose the shared `gpu_skin_wgsl()` snippet with your own `@vertex` entry that calls `gpu_skin_vertex`, and route the joint attributes with `specialize_gpu_vertex_layout` (locations 6/7). The examples do exactly this via `CustomCrowdMaterial` in `examples/shared/mod.rs` + `crowd_vertex.wgsl`.
+
+## Ragdoll physics
+
+> **Status note: ragdolls are the weakest part of this crate right now, and I'm not happy with how they look.** Colliders spawn, joints form, and characters fall over — the plumbing works — but the motion doesn't look good yet. Expect twitch and jitter (the examples run higher-than-default `RagdollDensity` just to calm it down), partial ragdolls fighting their kinematic parents, and stale bone translations when a ragdoll ends that rotation-only clips can't fix (there is a `ResetToBindPose` workaround — see below). If you need good-looking death falls today, budget tuning time: density, damping, mobility, and per-joint overrides, using the `ragdoll_dof` example joint by joint. Improving this is open work.
+
+With that said, the pieces:
+
+- Bones are never physics bodies. Bones carry only `Parent`/`Children` + `Transform`/`GlobalTransform`. Colliders are separate entities with `RigidBody`, linked to bones via `BoneForCollider` and `ColliderOffset`, and `sync_bones_to_ragdoll` writes dynamic collider positions back to the skeleton in `HumentitySkeletonSystemSet`.
+- Flip `CharacterRagdoll` between `None`, `Full`, and `Partial(bones)` to go limp. Kinematic colliders track their bones each `FixedUpdate`; dynamic ones drive them.
+- Tune with `RagdollDensity`, `RagdollDamping`, `RagdollMobility` (0 = locked, 1 = full anatomical range), `RagdollJointLimitOverrides` (per-bone swing/twist or hinge limits), and `RagdollCollisionLayers`. Limits resolve through `default_joint_limit` / `resolve_joint_limit`.
+- `ragdoll_dof.rs` floats the character and sweeps one joint degree of freedom at a time so you can judge each limit. Use it before touching the joint tables.
+- After a ragdoll ends, fire `commands.trigger(ResetToBindPose(character))` to snap bones back to the fitted bind pose before restarting the clip — otherwise stale ragdoll translations survive under the rotation-only animation.
+- `CharacterScale` is respected: collider shapes are built scaled and joint anchors are resolved in the scaled bone frame.
+- The `physx` feature keeps an alternate backend (`bevy_mod_physx`), but avian3d is the active one. Bones-vs-colliders applies to both.
 
 ## Examples
 
 | Example | Description |
 |---|---|
 | `lod.rs` | Distance-based mesh and skeleton LOD with `VisibilityRange` |
-| `stress_test.rs` | Benchmarks 576 animated characters (24x24 grid) |
+| `stress_test.rs` | 576 CPU-animated characters (24x24 grid) |
 | `animation.rs` | Retargeted idle animation on a morphed character |
 | `morphs_and_templates.rs` | Template system and runtime morph targets |
 | `stitched_parts.rs` | Multi-part meshes with continuous normals and per-part morphs |
 | `assets.rs` | Loading body parts, clothing, hair, and accessories |
 | `character_creator.rs` | Real-time mesh modification UI with sliders |
-| `ragdoll_avian.rs` | Full-body ragdoll with avian3d physics |
+| `gpu_crowd.rs` | 10,000 GPU-posed characters sharing one mesh/material |
+| `gpu_blend.rs` | 25,000 GPU characters blending walk + strafe per instance |
+| `gpu_morphs.rs` | GPU posing with morph targets + blended shape skeletons |
+| `ragdoll_avian.rs` | Full-body ragdoll with avian3d physics (Space toggles) |
 | `ragdoll_avian_partial.rs` | Partial ragdoll (arms only) with kinematic colliders |
+| `stress_test_ragdoll_avian.rs` | Grid of ragdoll characters with sleep timers |
+| `ragdoll_dof.rs` | One-joint-at-a-time limit tuning rig |
+| `ragdoll_physx.rs` | Ragdoll via the alternate `physx` backend |
 
 Run examples with:
 
 ```sh
 cargo run --example lod
 cargo run --example stress_test
-cargo run --example animation --features avian
+cargo run --example animation
+cargo run --example gpu_crowd
+cargo run --example gpu_blend
+cargo run --example gpu_morphs
+cargo run --example ragdoll_avian --features avian
+cargo run --example ragdoll_dof --features avian
 ```
 
 ## Feature flags
 
 | Feature | Description |
 |---|---|
-| `avian` | Enables ragdoll physics via [avian3d](https://github.com/Jondolf/avian) |
+| `avian` | Enables ragdoll physics via [avian3d](https://github.com/Jondolf/avian) (active backend) |
+| `physx` | Alternate backend via `bevy_mod_physx` (off by default) |
 | `debug` | Enables Bevy's debug rendering |
 
 ## Custom assets
@@ -188,3 +321,5 @@ app.add_systems(
     my_system.after(HumentitySkeletonSystemSet),
 );
 ```
+
+Joint (re)spawn has its own set: order tooling that seats collider bodies and flips `CharacterRagdoll` before `HumentityRagdollSystemSet`, since joint rest frames are baked from the collider bodies as they stand when the set runs.
