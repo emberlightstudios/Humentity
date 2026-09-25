@@ -36,6 +36,19 @@ impl MaterialExtension for GpuCrowdExtension {
         CROWD_SKIN_SHADER.into()
     }
 
+    // Posed depth/shadow passes are parked until Bevy 0.20. Both the depth
+    // prepass and the shadow depth pass build their pipelines without the
+    // material bind group (empty layout), so a vertex shader reading the
+    // joint buffer (group 3, bindings 100/101) fails validation with
+    // "Binding is missing from the pipeline layout" — the same crash we saw
+    // for shadows, now repeated for `pbr_prepass_pipeline`. The color pass
+    // above keeps working; depth/shadow keep drawing the unposed mesh until
+    // the upstream fix lands. Restore by returning `CROWD_SKIN_SHADER` from
+    // `prepass_vertex_shader` (and the shadow hook, if exposed).
+    // fn prepass_vertex_shader() -> ShaderRef {
+    //     CROWD_SKIN_SHADER.into()
+    // }
+
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
