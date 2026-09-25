@@ -52,15 +52,15 @@ pub struct SkeletonLodState {
     pub active: [bool; MAX_LODS],
 }
 
-/// Uniform-or-not visual scale for a character. Place on the `CharacterShape`
+/// Uniform visual scale for a character. Place on the `CharacterShape`
 /// entity; the skeleton root copies it at spawn (and keeps it across fits),
 /// so bones spread out and the skinned mesh follows. Defaults to 1.
 #[derive(Component, Debug, Clone, Copy)]
-pub struct CharacterScale(pub Vec3);
+pub struct CharacterScale(pub f32);
 
 impl Default for CharacterScale {
     fn default() -> Self {
-        Self(Vec3::ONE)
+        Self(1.0)
     }
 }
 
@@ -88,7 +88,7 @@ pub(crate) fn spawn_rig_skeleton(
             continue;
         };
 
-        let scale = scale.map_or(Vec3::ONE, |s| s.0);
+        let scale = scale.map_or(Vec3::ONE, |s| Vec3::splat(s.0));
         let skeleton_entity = commands
             .spawn((
                 DynamicWorldRoot::from(scene),
@@ -239,7 +239,7 @@ pub(crate) fn fit_skeleton_to_shape(
             .collect();
         // Rotate skeleton to face -Z (model verts face +Z), keeping the
         // CharacterScale copied at spawn.
-        let scale = scale.map_or(Vec3::ONE, |s| s.0);
+        let scale = scale.map_or(Vec3::ONE, |s| Vec3::splat(s.0));
         commands
             .entity(skeleton.skeleton_entity)
             .insert(Transform::from_rotation(crate::MODEL_ROTATION_FIX).with_scale(scale));

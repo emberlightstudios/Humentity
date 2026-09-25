@@ -344,9 +344,7 @@ pub(crate) fn spawn_colliders(
         }
 
         // ── Spawn collider entities (offsets LOD-independent) ──
-        // Uniform scale only: a non-uniform CharacterScale stretches bones in
-        // ways spheres/capsules can't match, so use the x axis.
-        let collider_scale = character_scale.map_or(1.0, |s| s.0.x);
+        let collider_scale = character_scale.map_or(1.0, |s| s.0);
         for &collider in &target_bones {
             let i_collider = collider_index(collider);
             let (geometry, collider_to_model) = get_collider_geometry(

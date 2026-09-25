@@ -55,7 +55,7 @@ fn add_human(
         Transform::from_xyz(0.0, 0.0, 0.0),
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
-        CharacterScale(Vec3::splat(1.0)),
+        CharacterScale(1.0),
         HelperVertexPositions::default(),
         CharacterRagdoll::None,
         CharacterColliders::new(None),
