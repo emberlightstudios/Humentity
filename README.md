@@ -32,7 +32,7 @@ fn main() {
     App::new()
         .add_plugins((DefaultPlugins, HumentityPlugin))
         .insert_resource(SkeletonLodConfig::new(&[
-            BoneMergeConfig::full().without_children_of(&["foot.L", "foot.R"]),
+            BoneMergeConfig::full().merge_default_rig_toes(),
         ]))
         .add_systems(Startup, load_assets)
         .add_systems(
@@ -134,7 +134,7 @@ fn attach_mesh(
 
 ## How it works
 
-1. **Configure** — Insert a `SkeletonLodConfig` resource with up to `MAX_LODS` (4) `BoneMergeConfig` entries. Each entry defines one LOD level by naming which bone subtrees to remove and merge into their parents.
+1. **Configure** — Insert a `SkeletonLodConfig` resource with up to `MAX_LODS` (4) `BoneMergeConfig` entries. Each entry defines one LOD level by naming which bone subtrees to remove and merge into their parents (`without_children_of`), or into one surviving child bone so posing still works through it (`merge_into_kept_bone`, e.g. `merge_default_rig_toes` for the default rig).
 
 2. **Load** — Call `load_and_insert_humentity_assets` to load the MakeHuman basemesh, vertex groups, morph targets, rig config, and reference rig as ECS resources. Gate the rest on `HumentityAssetsReady`.
 

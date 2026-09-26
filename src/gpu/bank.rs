@@ -263,6 +263,11 @@ pub struct GpuRenderHandles {
     pub root_scales: Handle<ShaderBuffer>,
     /// Reference root bind-pose Y: one float, the reference rig's root model-space Y.
     pub root_bind: Handle<ShaderBuffer>,
+    /// Skeleton-root rearward Z shift in reference meters (default rig only,
+    /// zero otherwise): mirrors the CPU skeleton-entity translation so GPU
+    /// crowds sit on the capsule like CPU characters. Published into the pose
+    /// uniforms at bake time.
+    pub root_z_offset: f32,
     pub num_bones: u32,
     pub instance_count: u32,
     pub shape_count: u32,

@@ -3,7 +3,7 @@ use crate::{
     helpers::HelperVertexPositions,
     prelude::*,
     rigs::{RigBundleRes, RigData, SkeletonRootBone},
-    skeleton_lod::{MAX_LODS, SkeletonLodConfig, all_children_of},
+    skeleton_lod::{MAX_LODS, MergeIntoKeptBone, SkeletonLodConfig, all_children_of},
 };
 use ahash::{AHashMap, AHashSet};
 use bevy::{
@@ -76,11 +76,25 @@ pub(crate) struct FitSkeleton;
 pub struct SkeletonLodDisabled;
 
 
+/// Skeleton root transform: face -Z (model verts face +Z), keep
+/// `CharacterScale`, and shift the default rig rearward (see
+/// [`crate::rigs::skeleton_rear_offset_meters`]).
+fn skeleton_root_transform(rig_name: &str, character_scale: Vec3) -> Transform {
+    Transform::from_rotation(crate::MODEL_ROTATION_FIX)
+        .with_scale(character_scale)
+        .with_translation(Vec3::new(
+            0.0,
+            0.0,
+            crate::rigs::skeleton_rear_offset_meters(rig_name) * character_scale.x,
+        ))
+}
+
 /// Spawns the single full skeleton scene as a child of each `CharacterShape`,
 /// and marks the character as needing a fit.
 pub(crate) fn spawn_rig_skeleton(
     characters: Query<(Entity, Option<&CharacterScale>), (Without<SkeletonsReady>, Without<FitSkeleton>, With<CharacterShape>, With<HelperVertexPositions>)>,
     rig_bundle: Res<RigBundleRes>,
+    rig_data: Res<RigData>,
     mut commands: Commands,
 ) {
     for (entity, scale) in &characters {
@@ -89,10 +103,14 @@ pub(crate) fn spawn_rig_skeleton(
         };
 
         let scale = scale.map_or(Vec3::ONE, |s| Vec3::splat(s.0));
+        let rig_name = rig_data
+            .0
+            .as_ref()
+            .map_or("", |rig_spec| rig_spec.reference_rig().rig_name.as_str());
         let skeleton_entity = commands
             .spawn((
                 DynamicWorldRoot::from(scene),
-                Transform::from_rotation(crate::MODEL_ROTATION_FIX).with_scale(scale),
+                skeleton_root_transform(rig_name, scale),
                 FitSkeleton,
                 Name::new("Skeleton"),
             ))
@@ -237,12 +255,16 @@ pub(crate) fn fit_skeleton_to_shape(
             .iter()
             .map(|&bone| model_space_bindposes[bone].to_matrix().inverse())
             .collect();
-        // Rotate skeleton to face -Z (model verts face +Z), keeping the
+        // Rotate skeleton to face -Z (model verts face +Z) and shift the
+        // default rig rearward (see `skeleton_root_transform`), keeping the
         // CharacterScale copied at spawn.
         let scale = scale.map_or(Vec3::ONE, |s| Vec3::splat(s.0));
         commands
             .entity(skeleton.skeleton_entity)
-            .insert(Transform::from_rotation(crate::MODEL_ROTATION_FIX).with_scale(scale));
+            .insert(skeleton_root_transform(
+                &rig_spec.reference_rig().rig_name,
+                scale,
+            ));
 
         // Compute root bone scale factor for retargeted animation Y correction.
         let root_bone_name = rig_spec.reference_rig.bone_names[0];
@@ -294,14 +316,12 @@ pub(crate) fn check_skeletons_ready(
 ///
 /// A bone sub-tree is disabled iff its **anchor** root is present in *every*
 /// active LOD's cumulative remove list (the intersection of active LOD lists).
-/// This is the safe rule during crossfades: only sub-trees removed by *all*
-/// active LODs are disabled; everything else stays enabled.
-///
 /// Only the removed *descendants* of each anchor are disabled — the anchor bone
 /// itself always survives (it is the merge target that the removed bones' weights
-/// are folded into). For example LOD 1 (`without_children_of ["foot.*", "head"]`)
-/// disables the toe and face bones but keeps `foot.*` and `head` enabled so the
-/// skinned mesh does not collapse to the origin.
+/// are folded into). For example LOD 0 (`merge_default_rig_toes`) disables every
+/// toe bone except `toe1-1.*` but keeps `foot.*` and the kept toe enabled so the
+/// skinned mesh does not collapse to the origin. The same holds for a kept-bone
+/// merge: the kept bone itself always stays enabled.
 ///
 /// Only acts when a character's `SkeletonLodState` changes (including fresh
 /// inserts after a respawn), via `Changed<SkeletonLodState>`.
@@ -339,9 +359,16 @@ pub(crate) fn sync_skeleton_lod_subtrees(
             continue;
         }
 
-        // Union (per the intersection rule over anchors) of every removed bone
-        // name: descendants of each anchor that is present in all active LODs.
+        // Union (per the intersection rule) of every removed bone name:
+        // descendants of each anchor present in all active LODs, plus the
+        // descendants (minus the kept bone) of each kept-merge parent present
+        // in all active LODs. A kept merge is void when an anchor on its
+        // parent or any ancestor is also effective: the whole sub-tree, kept
+        // bone included, folds into that anchor instead. This mirrors
+        // `resolve_remove_set`, which the mesh builds use.
         let mut disabled: AHashSet<&'static str> = AHashSet::default();
+        let mut effective_anchors: Vec<&str> = Vec::new();
+        let mut effective_kept_merges: Vec<&MergeIntoKeptBone> = Vec::new();
         for k in 0..config_count {
             if !active[k] {
                 continue;
@@ -350,12 +377,54 @@ pub(crate) fn sync_skeleton_lod_subtrees(
                 let present_in_all = (0..config_count)
                     .filter(|&m| active[m])
                     .all(|m| config.0[m].without_children_of.iter().any(|r| r == anchor));
-                if !present_in_all {
+                if present_in_all
+                    && !effective_anchors
+                        .iter()
+                        .any(|&known_anchor| known_anchor == anchor.as_str())
+                {
+                    effective_anchors.push(anchor);
+                }
+            }
+            for kept_merge in &config.0[k].merge_into_kept_bone {
+                let present_in_all = (0..config_count).filter(|&m| active[m]).all(|m| {
+                    config.0[m]
+                        .merge_into_kept_bone
+                        .iter()
+                        .any(|other_merge| other_merge == kept_merge)
+                });
+                if present_in_all
+                    && !effective_kept_merges
+                        .iter()
+                        .any(|&known_kept_merge| known_kept_merge == kept_merge)
+                {
+                    effective_kept_merges.push(kept_merge);
+                }
+            }
+        }
+        for &anchor in &effective_anchors {
+            for descendant_bone in all_children_of(bone_parents, anchor) {
+                disabled.insert(descendant_bone);
+            }
+        }
+        for &kept_merge in &effective_kept_merges {
+            let parent_bone_name = NAME_INTERNER.intern(&kept_merge.parent_bone_name).leak();
+            let swallowed_by_anchor = effective_anchors.iter().any(|&anchor| {
+                all_children_of(bone_parents, anchor)
+                    .iter()
+                    .any(|&descendant_bone| descendant_bone == parent_bone_name)
+            });
+            if swallowed_by_anchor {
+                continue;
+            }
+            let kept_bone_name = NAME_INTERNER.intern(&kept_merge.kept_bone_name).leak();
+            // A kept merge takes precedence over an anchor on its own parent
+            // (mirrors `resolve_remove_set`): the kept bone stays enabled.
+            disabled.remove(kept_bone_name);
+            for descendant_bone in all_children_of(bone_parents, parent_bone_name) {
+                if descendant_bone == kept_bone_name {
                     continue;
                 }
-                for descendant in all_children_of(bone_parents, anchor) {
-                    disabled.insert(descendant);
-                }
+                disabled.insert(descendant_bone);
             }
         }
 

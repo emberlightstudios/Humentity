@@ -20,6 +20,22 @@ pub struct BoneMergeConfig {
     /// e.g., `["head"]` removes face, `["wrist.L", "wrist.R"]` removes fingers.
     /// Resolved at runtime via `allChildrenOf`.
     pub without_children_of: Vec<String>,
+    /// Merge all descendants of a parent bone into one surviving child bone.
+    /// Unlike `without_children_of` (which folds a whole sub-tree into the
+    /// parent and disables it), the kept bone stays enabled as a child of the
+    /// parent so posing still works through it. Every other descendant of the
+    /// parent — including the kept bone's own children — is removed and has
+    /// its weights folded into the kept bone.
+    #[serde(default)]
+    pub merge_into_kept_bone: Vec<MergeIntoKeptBone>,
+}
+
+/// One `merge_into_kept_bone` entry: keep `kept_bone_name` (a direct child of
+/// `parent_bone_name`) and fold every other descendant of the parent into it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MergeIntoKeptBone {
+    pub parent_bone_name: String,
+    pub kept_bone_name: String,
 }
 
 impl BoneMergeConfig {
@@ -27,6 +43,7 @@ impl BoneMergeConfig {
     pub const fn full() -> Self {
         Self {
             without_children_of: vec![],
+            merge_into_kept_bone: vec![],
         }
     }
 
@@ -35,6 +52,26 @@ impl BoneMergeConfig {
         self.without_children_of
             .extend(bones.iter().map(|s| s.to_string()));
         self
+    }
+
+    /// Merge a sub-tree into one surviving child bone instead of the parent.
+    /// e.g. `merge_into_kept_bone("foot.L", "toe1-1.L")` removes every toe
+    /// bone except `toe1-1.L` and folds their weights into it, keeping a
+    /// single posable toe per foot.
+    pub fn merge_into_kept_bone(mut self, parent_bone_name: &str, kept_bone_name: &str) -> Self {
+        self.merge_into_kept_bone.push(MergeIntoKeptBone {
+            parent_bone_name: parent_bone_name.to_string(),
+            kept_bone_name: kept_bone_name.to_string(),
+        });
+        self
+    }
+
+    /// Default-rig shortcut: merge each foot's toe bones into a single toe
+    /// bone (`toe1-1.L` / `toe1-1.R`) kept as a child of the foot, instead of
+    /// folding the toes into the foot and losing all toe posing.
+    pub fn merge_default_rig_toes(self) -> Self {
+        self.merge_into_kept_bone("foot.L", "toe1-1.L")
+            .merge_into_kept_bone("foot.R", "toe1-1.R")
     }
 }
 
@@ -120,6 +157,12 @@ impl SkeletonLodConfig {
 // ─── Merge Algorithm ──────────────────────────────────────────────────
 
 /// Step 1: Resolve the set of bones to remove and their merge targets.
+///
+/// Anchors resolve first (later anchors overwrite earlier ones for shared
+/// descendants). A kept-bone merge then takes precedence over an anchor on
+/// its own parent, but is void when an anchor on an ancestor already removed
+/// the parent itself (e.g. a `lowerleg02` anchor overrides the toe merge, so
+/// high LODs can still drop the whole foot).
 fn resolve_remove_set(
     bone_parents: &AHashMap<&'static str, String>,
     config: &BoneMergeConfig,
@@ -131,6 +174,25 @@ fn resolve_remove_set(
         let children = all_children_of(bone_parents, anchor);
         for child in children {
             remove_set.insert(child, anchor_leaked);
+        }
+    }
+
+    for kept_merge in &config.merge_into_kept_bone {
+        let parent_bone_leaked = NAME_INTERNER.intern(&kept_merge.parent_bone_name).leak();
+        let kept_bone_leaked = NAME_INTERNER.intern(&kept_merge.kept_bone_name).leak();
+        let descendant_bones = all_children_of(bone_parents, parent_bone_leaked);
+        if !descendant_bones.contains(&kept_bone_leaked) {
+            continue;
+        }
+        if remove_set.contains_key(parent_bone_leaked) {
+            continue;
+        }
+        remove_set.remove(kept_bone_leaked);
+        for descendant_bone in descendant_bones {
+            if descendant_bone == kept_bone_leaked {
+                continue;
+            }
+            remove_set.insert(descendant_bone, kept_bone_leaked);
         }
     }
 
@@ -267,4 +329,102 @@ pub(crate) fn build_lod_data(
     }
 
     lod_data
+}
+
+#[cfg(test)]
+mod kept_bone_merge_tests {
+    use super::*;
+
+    fn foot_test_rig() -> (Vec<&'static str>, ReferenceRigAsset, RigWeightsAsset) {
+        let bone_names: Vec<&'static str> = vec![
+            "foot.L",
+            "toe1-1.L",
+            "toe1-2.L",
+            "toe2-1.L",
+            "toe2-2.L",
+        ];
+        let bone_parents: AHashMap<&'static str, String> = [
+            ("foot.L", "lowerleg02.L".to_string()),
+            ("toe1-1.L", "foot.L".to_string()),
+            ("toe1-2.L", "toe1-1.L".to_string()),
+            ("toe2-1.L", "foot.L".to_string()),
+            ("toe2-2.L", "toe2-1.L".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let local_bindpose: AHashMap<&'static str, Transform> = bone_names
+            .iter()
+            .map(|&toe_bone_name| (toe_bone_name, Transform::IDENTITY))
+            .collect();
+        let reference_rig = ReferenceRigAsset {
+            bone_names: bone_names.clone(),
+            bone_parents,
+            local_bindpose,
+            model_space_bindpose: AHashMap::default(),
+            bone_name_to_index: bone_names
+                .iter()
+                .enumerate()
+                .map(|(toe_bone_index, &toe_bone_name)| (toe_bone_name, toe_bone_index))
+                .collect(),
+            rig_name: "default".to_string(),
+        };
+        let rig_weights_asset = RigWeightsAsset {
+            weights: bone_names
+                .iter()
+                .enumerate()
+                .map(|(toe_bone_index, &toe_bone_name)| {
+                    (
+                        toe_bone_name,
+                        [(1000 + toe_bone_index as u16, 1.0)]
+                            .into_iter()
+                            .collect::<AHashMap<u16, f32>>(),
+                    )
+                })
+                .collect(),
+            rig_name: "default".to_string(),
+        };
+        (bone_names, reference_rig, rig_weights_asset)
+    }
+
+    #[test]
+    fn toe_merge_keeps_one_toe_bone_per_foot() {
+        let (_foot_bone_names, reference_rig, rig_weights_asset) = foot_test_rig();
+        let remove_set = resolve_remove_set(
+            &reference_rig.bone_parents,
+            &BoneMergeConfig::full().merge_default_rig_toes(),
+        );
+        assert_eq!(remove_set.get("toe2-1.L"), Some(&"toe1-1.L"));
+        assert_eq!(remove_set.get("toe2-2.L"), Some(&"toe1-1.L"));
+        assert_eq!(remove_set.get("toe1-2.L"), Some(&"toe1-1.L"));
+        assert!(!remove_set.contains_key("toe1-1.L"));
+        assert!(!remove_set.contains_key("foot.L"));
+        let merged_weights = merge_weights(&rig_weights_asset.weights, &remove_set);
+        assert!(merged_weights.contains_key("toe1-1.L"));
+        assert!(!merged_weights.contains_key("toe2-1.L"));
+        assert!(merged_weights.contains_key("foot.L"));
+    }
+
+    #[test]
+    fn ancestor_anchor_overrides_kept_toe_merge() {
+        let remove_set = resolve_remove_set(
+            &foot_test_rig().1.bone_parents,
+            &BoneMergeConfig::full()
+                .merge_default_rig_toes()
+                .without_children_of(&["lowerleg02.L"]),
+        );
+        assert_eq!(remove_set.get("foot.L"), Some(&"lowerleg02.L"));
+        assert_eq!(remove_set.get("toe1-1.L"), Some(&"lowerleg02.L"));
+        assert_eq!(remove_set.get("toe2-2.L"), Some(&"lowerleg02.L"));
+    }
+
+    #[test]
+    fn toe_merge_missing_kept_toe_bone_falls_back_to_anchors() {
+        let (_foot_bone_names, mut reference_rig, _weights_asset) = foot_test_rig();
+        reference_rig.bone_parents.remove("toe1-1.L");
+        let remove_set = resolve_remove_set(
+            &reference_rig.bone_parents,
+            &BoneMergeConfig::full().merge_default_rig_toes(),
+        );
+        assert!(remove_set.is_empty());
+    }
 }

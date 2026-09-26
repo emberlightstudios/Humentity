@@ -18,12 +18,12 @@ use humentity::prelude::*;
 
 /// Default skeleton LOD configurations.
 ///
-/// LOD 0: Remove toes.
+/// LOD 0: Merge toes into a single toe bone per foot.
 /// LOD 1: Remove face,
 /// LOD 2: Remove hands, fingers, feet
 pub fn default_skeleton_lods() -> Vec<BoneMergeConfig> {
-    // Remove toe bones
-    let lod0 = BoneMergeConfig::full().without_children_of(&["foot.L", "foot.R"]);
+    // Merge toe bones into a single posable toe per foot
+    let lod0 = BoneMergeConfig::full().merge_default_rig_toes();
 
     let lod1 = lod0.clone().without_children_of(&["head"]);
 

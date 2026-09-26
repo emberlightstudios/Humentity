@@ -73,7 +73,9 @@ pub mod prelude {
         mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_vertex_positions},
         morphs::{MakeHumanMorphs, MorphError, MorphTargets, adjust_helpers_to_morphs},
         rigs::{RigData, RigSpec, SkeletalBone, SkeletonRootBone},
-        skeleton_lod::{BoneMergeConfig, MAX_LODS, RigBundle, SkeletonLodConfig, SkeletonLodData},
+        skeleton_lod::{
+            BoneMergeConfig, MAX_LODS, MergeIntoKeptBone, RigBundle, SkeletonLodConfig, SkeletonLodData,
+        },
         spawn_mesh::{
             CachedMhcloMeshHandles, CharacterPart, CharacterShape, GpuCharacterPart,
             LoadAssetMeshJob, MeshBuildLod, MhcloMeshBuilder, build_single_mesh_direct,

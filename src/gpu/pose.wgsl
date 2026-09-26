@@ -8,6 +8,10 @@ struct PoseUniforms {
     frames: array<u32, 64>,
     durations: array<f32, 64>,
     modes: array<u32, 64>,
+    // Skeleton-root rearward Z shift in reference meters (default rig only,
+    // zero otherwise). Baked from the rig name; mirrors the CPU
+    // skeleton-entity translation. Applied post-`fix` in world space.
+    root_z_offset: f32,
 };
 
 // Baked reference bind-pose Y of the root bone, in reference model space.
@@ -214,5 +218,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         vec4f(0.0, 0.0, -1.0, 0.0),
         vec4f(0.0, 0.0, 0.0, 1.0),
     );
-    joints[idx] = fix * model * blended_inv_bind(instance, bone);
+    var joint = fix * model * blended_inv_bind(instance, bone);
+    // Default-rig rearward shift: the CPU applies this as the skeleton-entity
+    // translation (post-`fix` world space), so it adds here and not to a
+    // bone-local translation (which `fix` would flip). Every joint carries
+    // it, exactly like the entity translation propagating to every bone.
+    joint[3] += vec4f(0.0, 0.0, uniforms.root_z_offset, 0.0);
+    joints[idx] = joint;
 }

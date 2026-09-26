@@ -16,7 +16,7 @@ use crate::{
     basemesh::VertexGroups,
     loaders::{MhcloVertexMap, ReferenceRigAsset, RigConfigAsset, RigWeightsAsset},
     prelude::*,
-    skeleton_lod::{RigBundle, SkeletonLodConfig, build_lod_data},
+    skeleton_lod::{RigBundle, SkeletonLodConfig, all_children_of, build_lod_data},
 };
 
 #[derive(Component, Reflect)]
@@ -35,6 +35,24 @@ pub struct SkeletonRootBone {
     pub entity: Entity,
     pub root_scale: f32,
     pub bind_pose_y: f32,
+}
+/// Rearward shift for the default rig's skeleton root, in reference-rig meters.
+/// The default rig's root bone sits at the rear of the pelvis, so without this
+/// fitted characters ride slightly forward of their capsule collider. Scales
+/// with `CharacterScale` on the CPU; the GPU pose shader applies the same shift
+/// from its uniforms (see `pose.wgsl`). Characters face -Z, so rearward is +Z.
+/// Other rigs get no shift.
+pub(crate) const DEFAULT_RIG_REAR_OFFSET_METERS: f32 = 0.05;
+
+/// Skeleton-root rearward shift for a rig: the default-rig shift, or zero for
+/// any other rig. Shared by the CPU skeleton root (`spawn_skeleton`) and the
+/// GPU pose uniforms (`gpu::bake`).
+pub(crate) fn skeleton_rear_offset_meters(rig_name: &str) -> f32 {
+    if rig_name == "default" {
+        DEFAULT_RIG_REAR_OFFSET_METERS
+    } else {
+        0.0
+    }
 }
 
 /// The single rig bundle, populated by `build_rig_scenes`.
@@ -477,7 +495,104 @@ pub(crate) fn fitted_model_space_bindposes(
             );
         }
     }
+    average_default_rig_toe_positions(
+        &rig.reference_rig().rig_name,
+        &rig.reference_rig().bone_parents,
+        &mut model_space,
+    );
     model_space
+}
+
+/// Default-rig special case for the toe merge ([`BoneMergeConfig::merge_default_rig_toes`]):
+/// move each kept toe bone (`toe1-1.L` / `toe1-1.R`) to the average
+/// model-space position of every toe on its foot, so the single replacement
+/// toe sits in the middle of the toes it absorbed instead of on the big toe.
+///
+/// Runs inside [`fitted_model_space_bindposes`], so the CPU fit, the
+/// reset-to-bind-pose observer, and the GPU shape fit all agree. Other rigs
+/// are untouched, and missing bones are skipped without panicking.
+pub(crate) fn average_default_rig_toe_positions(
+    rig_name: &str,
+    bone_parents: &AHashMap<&'static str, String>,
+    model_space: &mut AHashMap<&'static str, Transform>,
+) {
+    if rig_name != "default" {
+        return;
+    }
+    for (foot_bone_name, kept_toe_bone_name) in [("foot.L", "toe1-1.L"), ("foot.R", "toe1-1.R")] {
+        let mut toe_position_sum = Vec3::ZERO;
+        let mut toe_bone_count = 0u32;
+        for descendant_bone in all_children_of(bone_parents, foot_bone_name) {
+            if let Some(descendant_pose) = model_space.get(descendant_bone) {
+                toe_position_sum += descendant_pose.translation;
+                toe_bone_count += 1;
+            }
+        }
+        if toe_bone_count == 0 {
+            continue;
+        }
+        let kept_toe_leaked: &'static str = NAME_INTERNER.intern(kept_toe_bone_name).leak();
+        if let Some(kept_toe_pose) = model_space.get_mut(kept_toe_leaked) {
+            kept_toe_pose.translation = toe_position_sum / toe_bone_count as f32;
+        }
+    }
+}
+
+#[cfg(test)]
+mod default_rig_toe_average_tests {
+    use super::*;
+
+    fn toe_test_pose() -> (
+        AHashMap<&'static str, String>,
+        AHashMap<&'static str, Transform>,
+    ) {
+        let bone_parents: AHashMap<&'static str, String> = [
+            ("foot.L", "lowerleg02.L".to_string()),
+            ("toe1-1.L", "foot.L".to_string()),
+            ("toe1-2.L", "toe1-1.L".to_string()),
+            ("toe2-1.L", "foot.L".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let model_space: AHashMap<&'static str, Transform> = [
+            ("foot.L", Vec3::ZERO),
+            ("toe1-1.L", Vec3::ZERO),
+            ("toe1-2.L", Vec3::new(0.0, 0.0, 2.0)),
+            ("toe2-1.L", Vec3::new(3.0, 0.0, 0.0)),
+        ]
+        .into_iter()
+        .map(|(toe_bone_name, toe_position)| {
+            (toe_bone_name, Transform::from_translation(toe_position))
+        })
+        .collect();
+        (bone_parents, model_space)
+    }
+
+    #[test]
+    fn kept_toe_moves_to_average_toe_position() {
+        let (bone_parents, mut model_space) = toe_test_pose();
+        average_default_rig_toe_positions("default", &bone_parents, &mut model_space);
+        let kept_toe_translation = model_space["toe1-1.L"].translation;
+        assert!(
+            (kept_toe_translation - Vec3::new(1.0, 0.0, 2.0 / 3.0)).length() < 1e-6,
+            "kept toe must sit at the toe centroid, got {kept_toe_translation:?}"
+        );
+    }
+
+    #[test]
+    fn other_rigs_keep_original_toe_positions() {
+        let (bone_parents, mut model_space) = toe_test_pose();
+        average_default_rig_toe_positions("mixamo", &bone_parents, &mut model_space);
+        assert_eq!(model_space["toe1-1.L"].translation, Vec3::ZERO);
+    }
+
+    #[test]
+    fn missing_toe_bones_skip_without_panic() {
+        let (bone_parents, _) = toe_test_pose();
+        let mut model_space: AHashMap<&'static str, Transform> = AHashMap::default();
+        average_default_rig_toe_positions("default", &bone_parents, &mut model_space);
+        assert!(model_space.is_empty());
+    }
 }
 
 #[allow(dead_code)]

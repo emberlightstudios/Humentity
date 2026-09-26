@@ -21,7 +21,7 @@ use bevy::{
     tasks::AsyncComputeTaskPool,
 };
 
-use crate::{prelude::*, rigs::RigBundleRes};
+use crate::{prelude::*, rigs::{RigBundleRes, skeleton_rear_offset_meters}};
 
 use super::{
     bank::{
@@ -304,6 +304,9 @@ pub(super) fn bake_gpu_animation(
         bytemuck::cast_slice(&joints_data),
         RenderAssetUsages::RENDER_WORLD,
     ));
+    // Skeleton-root rearward Z shift (default rig only): published into the
+    // pose uniforms so the GPU crowd sits on the capsule like CPU characters.
+    let root_z_offset = skeleton_rear_offset_meters(&reference.rig_name);
     let uniforms_handle = buffers.add(ShaderBuffer::new(
         &pose_uniform_bytes(
             num_bones,
@@ -313,6 +316,7 @@ pub(super) fn bake_gpu_animation(
             durations.clone(),
             modes.clone(),
             1,
+            root_z_offset,
         ),
         RenderAssetUsages::RENDER_WORLD,
     ));
@@ -362,6 +366,7 @@ pub(super) fn bake_gpu_animation(
         shape_weights: shape_weights_handle,
         root_scales: root_scales_handle,
         root_bind: root_bind_handle,
+        root_z_offset,
         num_bones,
         instance_count: instances,
         shape_count: 1,
@@ -592,6 +597,7 @@ pub(super) fn collect_clip_bakes(
                     durations,
                     modes,
                     handles.shape_count,
+                    handles.root_z_offset,
                 )
                 .to_vec(),
             );
@@ -697,6 +703,7 @@ pub(super) fn upload_shape_buffers(
                 durations,
                 modes,
                 handles.shape_count,
+                handles.root_z_offset,
             )
             .to_vec(),
         );
@@ -708,6 +715,9 @@ pub(super) fn upload_shape_buffers(
     );
 }
 
+/// Packs the pose-shader uniforms: sizes, then the clip tables padded to the
+/// shader ceilings, then the skeleton-root rearward Z shift (appended after
+/// the tables so every existing uniform offset stays put).
 fn pose_uniform_bytes(
     num_bones: u32,
     instances: u32,
@@ -716,12 +726,16 @@ fn pose_uniform_bytes(
     durations: Vec<f32>,
     modes: Vec<u32>,
     shape_count: u32,
+    root_z_offset: f32,
 ) -> [u8; 1088] {
     let mut words = [0u32; 272];
     words[0] = num_bones;
     words[1] = instances;
     words[2] = pose_grid_side(instances);
     words[3] = shape_count.max(1);
+    // Words 4..260 are the clip tables (4 x CLIP_CAP); word 260 carries the
+    // skeleton-root rearward Z shift, every later word stays reserved zero.
+    words[260] = root_z_offset.to_bits();
     for i in 0..CLIP_CAP {
         words[4 + i] = clip_offsets[i];
         words[68 + i] = clip_frames[i];
