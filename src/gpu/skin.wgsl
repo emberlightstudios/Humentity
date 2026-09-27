@@ -68,6 +68,9 @@ fn gpu_skin_vertex(
     out.position = position_world_to_clip(out.world_position.xyz);
     let skinned_normal = (skin_matrix * vec4<f32>(morphed_normal, 0.0)).xyz;
     out.world_normal = mesh_functions::mesh_normal_local_to_world(skinned_normal, instance_index);
+#ifdef VERTEX_UVS_A
+    out.uv = uv;
+#endif
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     out.instance_index = instance_index;
 #endif
