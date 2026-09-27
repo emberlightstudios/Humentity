@@ -57,7 +57,6 @@ fn add_humans(
         BABY,
         morph_targets,
     )]));
-    info!("GLB scene loaded");
 
     // Spawn the raw GLB animation scene for comparison, includes basemesh+helpers
     let clip_handle =
@@ -108,12 +107,17 @@ fn add_humans(
         )],
     ));
 
-    // Load the retargeted animation clip. TranslationTracks::Root is the default,
-    // which keeps the root bone translation from the clip. The root bone Y is
-    // automatically scaled by SkeletonRootBone to compensate for different human proportions.
+    // Load the retargeted animation clip with full translation tracks. Every
+    // bone's clip translation is rescaled to the fitted shape per frame by
+    // `rescale_full_bone_translations` (root Y by `SkeletonRootBone`).
     // Since this loads via gltf we have to pass the type explicitly.
     // The clips are loaded on the RetargetedAnimationAsset as a hashmap.
-    let _clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
+    let _clips = asset_server
+        .load_builder()
+        .with_settings(|retargeted_animation_settings: &mut RetargetedAnimationSettings| {
+            retargeted_animation_settings.translation_tracks = TranslationTracks::Full;
+        })
+        .load("animation/idle.glb");
     commands.insert_resource(RetargetedAnimations { _clips });
 
     info!("Baby created");
