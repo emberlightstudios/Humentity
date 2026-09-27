@@ -8,16 +8,14 @@
 
 mod shared;
 
-use bevy::{mesh::MeshTag, prelude::*};
+use bevy::{camera::visibility::VisibilityRange, mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
 use shared::{CameraFraming, CustomCrowdMaterial, custom_crowd_material, setup_app_gpu};
 
 // This type of crowd rendering is largely gpu bound and poly count matters enormously here.
 // You may get a few thousand basemesh instances at acceptable framerates, but if you really
-// want to crank up the crowd size you should use lower poly meshes like we do here.
-// VisibilityRange itself becomes a huge bottleneck at this scale, so I don't even know if you
-// should bother with trying to lod until we get task/mesh shaders
-const INSTANCES: usize = 110_000;
+// want to crank up the crowd size you will need to use lower poly meshes like we do here.
+const INSTANCES: usize = 70_000;
 
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0, CameraFraming::Far);
@@ -34,7 +32,7 @@ fn main() {
 
 #[derive(Resource)]
 struct CrowdBuild {
-    part: Handle<MhcloAsset>,
+    lod_parts: [Handle<MhcloAsset>; 4],
     template: Handle<CharacterTemplate>,
     clips: Handle<RetargetedAnimationAsset>,
 }
@@ -50,15 +48,22 @@ fn trigger_crowd_build(
         "neutral",
         MorphTargets::default(),
     )]));
-    let part = asset_server.load::<MhcloAsset>("proxymeshes/proxy741/proxy741.proxy");
-    mesh_builder.trigger(LoadAssetMeshJob::Single {
-        part: part.clone(),
-        template_handle: template.clone(),
-        skeleton_lod: MeshBuildLod::Gpu,
-    });
+    let lod_part_handles = [
+        asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy"),
+        asset_server.load::<MhcloAsset>("proxymeshes/proxy4817/proxy4817.proxy"),
+        asset_server.load::<MhcloAsset>("proxymeshes/proxy1605/proxy1605.proxy"),
+        asset_server.load::<MhcloAsset>("proxymeshes/proxy741/proxy741.proxy"),
+    ];
+    for lod_part_handle in &lod_part_handles {
+        mesh_builder.trigger(LoadAssetMeshJob::Single {
+            part: lod_part_handle.clone(),
+            template_handle: template.clone(),
+            skeleton_lod: MeshBuildLod::Gpu,
+        });
+    }
     let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
     commands.insert_resource(CrowdBuild {
-        part,
+        lod_parts: lod_part_handles,
         template,
         clips,
     });
@@ -104,6 +109,7 @@ fn spawn_crowd(
     cached: Res<CachedMhcloMeshHandles>,
     meshes: Res<Assets<Mesh>>,
     mut materials: ResMut<Assets<CustomCrowdMaterial>>,
+    asset_server: Res<AssetServer>,
     mut anims: Option<ResMut<GpuInstanceAnims>>,
     mut spawned: Local<bool>,
 ) {
@@ -117,22 +123,31 @@ fn spawn_crowd(
     let Some(idle) = bank.slot_of("Idle-loop") else {
         return;
     };
-    // The builder caches the converted GPU mesh under `MeshBuildLod::Gpu`,
-    // so the spawn system reads it directly instead of converting per spawn.
-    let Some(mesh) = cached
-        .get(&(
-            build.part.clone(),
-            build.template.clone(),
-            MeshBuildLod::Gpu,
-        ))
-        .cloned()
-    else {
-        return;
-    };
-    if meshes.get(&mesh).is_none() {
-        return;
+    // The builder caches each converted GPU mesh under `MeshBuildLod::Gpu`,
+    // so the spawn system reads them directly instead of converting per spawn.
+    let mut lod_mesh_handles = Vec::with_capacity(4);
+    for lod_part in &build.lod_parts {
+        let Some(lod_mesh_handle) = cached
+            .get(&(
+                lod_part.clone(),
+                build.template.clone(),
+                MeshBuildLod::Gpu,
+            ))
+            .cloned()
+        else {
+            return;
+        };
+        if meshes.get(&lod_mesh_handle).is_none() {
+            return;
+        }
+        lod_mesh_handles.push(lod_mesh_handle);
     }
-    let material = custom_crowd_material(&handles, &mut materials);
+    let crowd_material_handle = custom_crowd_material(&handles, &mut materials);
+    let skin_albedo_texture: Handle<Image> =
+        asset_server.load("skin_textures/albedo/young_caucasian_female.png");
+    if let Some(mut crowd_material) = materials.get_mut(&crowd_material_handle) {
+        crowd_material.base.base_color_texture = Some(skin_albedo_texture);
+    }
     if let Some(anims) = anims.as_mut() {
         for index in 0..INSTANCES {
             anims.set_slot(index, 0, idle as u32);
@@ -146,18 +161,44 @@ fn spawn_crowd(
     for index in 0..count {
         let row = index / side;
         let col = index % side;
-        commands.spawn((
-            Name::new(format!("GpuChar {index}")),
-            Transform::from_xyz(
-                col as f32 * spacing - offset,
-                0.0,
-                row as f32 * spacing - offset + 8.0,
-            ),
-            Mesh3d(mesh.clone()),
-            MeshMaterial3d(material.clone()),
-            MeshTag(index as u32),
-        ));
+        let crowd_transform = Transform::from_xyz(
+            col as f32 * spacing - offset,
+            0.0,
+            row as f32 * spacing - offset + 8.0,
+        );
+        for (lod_level, lod_mesh_handle) in lod_mesh_handles.iter().enumerate() {
+            let lod_visibility = match lod_level {
+                0 => VisibilityRange {
+                    start_margin: 0.0..0.0,
+                    end_margin: 2.0..3.0,
+                    use_aabb: false,
+                },
+                1 => VisibilityRange {
+                    start_margin: 2.0..3.0,
+                    end_margin: 7.0..8.0,
+                    use_aabb: false,
+                },
+                2 => VisibilityRange {
+                    start_margin: 7.0..8.0,
+                    end_margin: 14.0..15.0,
+                    use_aabb: false,
+                },
+                _ => VisibilityRange {
+                    start_margin: 14.0..15.0,
+                    end_margin: 20.0..200.0,
+                    use_aabb: false,
+                },
+            };
+            commands.spawn((
+                Name::new(format!("GpuChar {index} lod{lod_level}")),
+                crowd_transform,
+                Mesh3d(lod_mesh_handle.clone()),
+                MeshMaterial3d(crowd_material_handle.clone()),
+                MeshTag(index as u32),
+                lod_visibility,
+            ));
+        }
     }
-    info!("spawned {count} GPU-posed characters sharing one mesh and one material");
+    info!("spawned {count} GPU-posed characters x 4 LODs sharing one material");
 }
 

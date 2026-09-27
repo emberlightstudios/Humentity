@@ -7,11 +7,9 @@ use shared::setup_app;
 
 // On my machine I can accomodate this many animated characters while staying near 60fps.
 // This is an slight improvement after implementing skeleton lod as transform propagation
-// was one of the bottlenecks with the default skeleton and all its face bones.
-// 30*30 = 1089 characters
-//
-// This is with all characters being posed on the cpu, and all character meshes being given 
-// VisibilityRange components.  VisibilityRange is probably the biggest bottleneck in this setup.
+// seens to have been one of the bottlenecks with the default skeleton and all its face bones.
+// 30*30 = 1089 characters.  This is with all characters being posed on the cpu, standard bevy animation.
+// For really big crowd we have to pose them in a compute shader.  See the gpu examples.
 //
 // Your results will vary depending on hardware, mesh poly count, lod transitions, vsync, etc.
 const N: usize = 33;
