@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 use bevy::{
     asset::AssetPlugin,
+    dev_tools::fps_overlay::FpsOverlayPlugin,
+    window::{PresentMode, Window, WindowPlugin},
     input::mouse::MouseMotion,
     mesh::{MeshVertexBufferLayoutRef, morph::MeshMorphWeights, skinning::SkinnedMesh},
     pbr::{
@@ -65,10 +67,19 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32, framing: CameraFraming)
         .into_owned();
     let mut app = App::new();
     app.add_plugins((
-        DefaultPlugins.set(AssetPlugin {
-            file_path: asset_dir,
-            ..default()
-        }),
+        DefaultPlugins
+            .set(AssetPlugin {
+                file_path: asset_dir,
+                ..default()
+            })
+            // No vsync so FPS reads true frame cost, not the display refresh.
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    present_mode: PresentMode::Immediate,
+                    ..default()
+                }),
+                ..default()
+            }),
         HumentityPlugin,
         HumentityGpuPlugin {
             instances,
@@ -80,42 +91,10 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32, framing: CameraFraming)
     app.insert_resource(SkeletonLodConfig::new(&[gpu_skeleton()]));
     app.insert_resource(GpuSkeletonLod(GPU_SKELETON_LOD));
     app.insert_resource(framing);
-    app.add_systems(Startup, (load_core_assets, setup_fps_text, setup_env));
-    app.add_systems(Update, (update_fps_text, cam_controls));
+    app.add_plugins(FpsOverlayPlugin::default());
+    app.add_systems(Startup, (load_core_assets, setup_env));
+    app.add_systems(Update, cam_controls);
     app
-}
-
-/// Marker for the shared FPS readout.
-#[derive(Component)]
-pub struct FpsText;
-
-/// Spawns the shared FPS readout (top-right).
-pub fn setup_fps_text(mut commands: Commands) {
-    commands.spawn((
-        FpsText,
-        Text::new("FPS: --"),
-        TextLayout::justify(Justify::Right),
-        TextFont {
-            font_size: FontSize::Px(30.0),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(5.0),
-            right: Val::Px(5.0),
-            ..default()
-        },
-    ));
-}
-
-/// Updates the shared FPS readout from `Time` delta. Plain `FPS: x` for every
-/// example; per-example mix readouts live in the example itself.
-pub fn update_fps_text(time: Res<Time>, mut query: Query<&mut Text, With<FpsText>>) {
-    let fps = 1.0 / time.delta_secs().max(1e-6);
-    for mut line in &mut query {
-        **line = format!("FPS: {fps:.1}");
-    }
 }
 
 /// Core humentity assets every GPU crowd example needs, loaded from the
@@ -146,13 +125,23 @@ pub fn setup_app() -> App {
         .to_string_lossy()
         .into_owned();
     app.add_plugins((
-        DefaultPlugins.set(AssetPlugin {
-            file_path: asset_dir,
-            ..default()
-        }),
+        DefaultPlugins
+            .set(AssetPlugin {
+                file_path: asset_dir,
+                ..default()
+            })
+            // No vsync so FPS reads true frame cost, not the display refresh.
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    present_mode: PresentMode::Immediate,
+                    ..default()
+                }),
+                ..default()
+            }),
         HumentityPlugin,
     ))
     .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
+    .add_plugins(FpsOverlayPlugin::default())
     .insert_resource(SkeletonLodConfig::new(&default_skeleton_lods()))
     .insert_resource(CameraFraming::Close)
     .add_systems(Startup, load_assets)

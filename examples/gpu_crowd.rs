@@ -12,7 +12,12 @@ use bevy::{mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
 use shared::{CameraFraming, CustomCrowdMaterial, custom_crowd_material, setup_app_gpu};
 
-const INSTANCES: usize = 10_000;
+// This type of crowd rendering is largely gpu bound and poly count matters enormously here.
+// You may get a few thousand basemesh instances at acceptable framerates, but if you really
+// want to crank up the crowd size you should use lower poly meshes like we do here.
+// VisibilityRange itself becomes a huge bottleneck at this scale, so I don't even know if you
+// should bother with trying to lod until we get task/mesh shaders
+const INSTANCES: usize = 110_000;
 
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0, CameraFraming::Far);

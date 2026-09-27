@@ -17,9 +17,6 @@ const CHARACTER_LAYER: u32 = 1 << 1;
 struct CameraDistance(f32);
 
 #[derive(Component)]
-struct FpsText;
-
-#[derive(Component)]
 struct AnimCtrl(AnimationNodeIndex);
 
 #[derive(Resource)]
@@ -52,7 +49,6 @@ fn main() {
             start_clip,
             toggle,
             sleep_ragdoll,
-            update_fps_text,
         ),
     )
     .run();
@@ -70,22 +66,6 @@ fn physics_floor(mut commands: Commands) {
 
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
-        FpsText,
-        Text::new("FPS: --"),
-        TextLayout::justify(Justify::Right),
-        TextFont {
-            font_size: FontSize::Px(30.0),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(5.0),
-            right: Val::Px(5.0),
-            ..default()
-        },
-    ));
-    commands.spawn((
         Text::new("SPACE: toggle ragdoll on all characters"),
         TextLayout::justify(Justify::Right),
         TextFont::from_font_size(24.0),
@@ -97,20 +77,6 @@ fn spawn_ui(mut commands: Commands) {
             ..default()
         },
     ));
-}
-
-fn update_fps_text(
-    time: Res<Time>,
-    characters: Query<Entity, With<CharacterShape>>,
-    mut query: Query<&mut Text, With<FpsText>>,
-) {
-    let fps = 1.0 / time.delta_secs().max(1e-6);
-
-    let count = characters.iter().count();
-
-    for mut text in &mut query {
-        **text = format!("FPS: {fps:.1}  Characters: {count}");
-    }
 }
 
 fn add_humans(

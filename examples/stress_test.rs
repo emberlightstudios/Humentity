@@ -6,16 +6,18 @@ use humentity::prelude::*;
 use shared::setup_app;
 
 // On my machine I can accomodate this many animated characters while staying near 60fps.
-// This is an improvement after implementing skeleton lod as I think transform propagation
-// was one of the biggest bottlenecks.
-// 30*30 = 900 characters
-const N: usize = 30;
+// This is an slight improvement after implementing skeleton lod as transform propagation
+// was one of the bottlenecks with the default skeleton and all its face bones.
+// 30*30 = 1089 characters
+//
+// This is with all characters being posed on the cpu, and all character meshes being given 
+// VisibilityRange components.  VisibilityRange is probably the biggest bottleneck in this setup.
+//
+// Your results will vary depending on hardware, mesh poly count, lod transitions, vsync, etc.
+const N: usize = 33;
 
 #[derive(Component, Debug, Default)]
 struct CameraDistance(f32);
-
-#[derive(Component)]
-struct FpsText;
 
 #[derive(Resource)]
 struct RetargetedAnims {
@@ -26,50 +28,15 @@ fn main() {
     let mut app = setup_app();
 
     app.add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
-        .add_systems(Startup, setup_fps_text)
         .add_systems(
             Update,
             (
                 update_camera_distance,
                 sync_skeleton_lod_to_visibility,
                 play_idle_animation.run_if(resource_added::<RetargetedAnims>),
-                update_fps_text,
             ),
         )
         .run();
-}
-
-fn setup_fps_text(mut commands: Commands) {
-    commands.spawn((
-        FpsText,
-        Text::new("FPS: --"),
-        TextLayout::justify(Justify::Right),
-        TextFont {
-            font_size: FontSize::Px(30.0),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(5.0),
-            right: Val::Px(5.0),
-            ..default()
-        },
-    ));
-}
-
-fn update_fps_text(
-    time: Res<Time>,
-    characters: Query<Entity, With<CharacterShape>>,
-    mut query: Query<&mut Text, With<FpsText>>,
-) {
-    let fps = 1.0 / time.delta_secs().max(1e-6);
-
-    let count = characters.iter().count();
-
-    for mut text in &mut query {
-        **text = format!("FPS: {fps:.1}  Characters: {count}");
-    }
 }
 
 fn add_humans(
@@ -190,7 +157,7 @@ fn add_humans(
                         MeshMaterial3d(white.clone()),
                         VisibilityRange {
                             start_margin: 14.0..15.0,
-                            end_margin: 20.0..30.0,
+                            end_margin: 20.0..200.0,
                             use_aabb: false,
                         }
                     )
