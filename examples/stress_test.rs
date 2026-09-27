@@ -6,12 +6,16 @@ use humentity::prelude::*;
 use shared::setup_app;
 
 // On my machine I can accomodate this many animated characters while staying near 60fps.
-// This is an slight improvement after implementing skeleton lod as transform propagation
-// seens to have been one of the bottlenecks with the default skeleton and all its face bones.
-// 30*30 = 1089 characters.  This is with all characters being posed on the cpu, standard bevy animation.
+// 33*33 = 1089 characters.  This is with all characters being posed on the cpu, standard bevy animation.
 // For really big crowd we have to pose them in a compute shader.  See the gpu examples.
 //
+// This is a decent improvement after implementing skeleton lod as transform propagation
+// seens to have been one of the bottlenecks with the default skeleton and all its face bones.
+// Without skeleton lod I get about 45fps, so it's something like a 33% improvement in framerate,
+// at the cost of a bit of added compolexity in managing skeletons.
+//
 // Your results will vary depending on hardware, mesh poly count, lod transitions, vsync, etc.
+//
 const N: usize = 33;
 
 #[derive(Component, Debug, Default)]
@@ -30,7 +34,7 @@ fn main() {
             Update,
             (
                 update_camera_distance,
-                sync_skeleton_lod_to_visibility,
+                //sync_skeleton_lod_to_visibility,
                 play_idle_animation.run_if(resource_added::<RetargetedAnims>),
             ),
         )
@@ -74,12 +78,12 @@ fn add_humans(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod2.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: MeshBuildLod::Cpu(1),
+        skeleton_lod: MeshBuildLod::Cpu(0),
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod3.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: MeshBuildLod::Cpu(2),
+        skeleton_lod: MeshBuildLod::Cpu(0),
     });
 
     let mut morphs = MorphTargets::default();
@@ -136,7 +140,7 @@ fn add_humans(
                     (
                         CharacterPart {
                             mesh: lod2.clone(),
-                            skeleton_lod: 1
+                            skeleton_lod: 0
                         },
                         Name::new("proxy1605"),
                         MeshMaterial3d(white.clone()),
@@ -149,7 +153,7 @@ fn add_humans(
                     (
                         CharacterPart {
                             mesh: lod3.clone(),
-                            skeleton_lod: 2
+                            skeleton_lod: 0
                         },
                         Name::new("proxy741"),
                         MeshMaterial3d(white.clone()),

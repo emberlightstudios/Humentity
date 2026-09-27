@@ -15,7 +15,7 @@ use shared::{CameraFraming, CustomCrowdMaterial, custom_crowd_material, setup_ap
 // This type of crowd rendering is largely gpu bound and poly count matters enormously here.
 // You may get a few thousand basemesh instances at acceptable framerates, but if you really
 // want to crank up the crowd size you will need to use lower poly meshes like we do here.
-const INSTANCES: usize = 70_000;
+const INSTANCES: usize = 80_000;
 
 fn main() {
     let mut app = setup_app_gpu(INSTANCES, 30.0, CameraFraming::Far);
