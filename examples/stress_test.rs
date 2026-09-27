@@ -6,7 +6,7 @@ use humentity::prelude::*;
 use shared::setup_app;
 
 // On my machine I can accomodate this many animated characters while staying near 60fps.
-// 33*33 = 1089 characters.  This is with all characters being posed on the cpu, standard bevy animation.
+// 32*32 = 1024 characters.  This is with all characters being posed on the cpu, standard bevy animation.
 // For really big crowd we have to pose them in a compute shader.  See the gpu examples.
 //
 // This is a decent improvement after implementing skeleton lod as transform propagation
@@ -16,7 +16,7 @@ use shared::setup_app;
 //
 // Your results will vary depending on hardware, mesh poly count, lod transitions, vsync, etc.
 //
-const N: usize = 33;
+const N: usize = 32;
 
 #[derive(Component, Debug, Default)]
 struct CameraDistance(f32);
@@ -34,7 +34,7 @@ fn main() {
             Update,
             (
                 update_camera_distance,
-                //sync_skeleton_lod_to_visibility,
+                sync_skeleton_lod_to_visibility,
                 play_idle_animation.run_if(resource_added::<RetargetedAnims>),
             ),
         )
@@ -78,12 +78,12 @@ fn add_humans(
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod2.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: MeshBuildLod::Cpu(0),
+        skeleton_lod: MeshBuildLod::Cpu(1),
     });
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: lod3.clone(),
         template_handle: template_handle.clone(),
-        skeleton_lod: MeshBuildLod::Cpu(0),
+        skeleton_lod: MeshBuildLod::Cpu(2),
     });
 
     let mut morphs = MorphTargets::default();
@@ -91,7 +91,12 @@ fn add_humans(
 
     let white = materials.add(StandardMaterial::from_color(Color::WHITE));
 
-    let _clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
+    let _clips = asset_server
+        .load_builder()
+        .with_settings(|retargeted_animation_settings: &mut RetargetedAnimationSettings| {
+            retargeted_animation_settings.translation_tracks = TranslationTracks::Full;
+        })
+        .load("animation/idle.glb");
     commands.insert_resource(RetargetedAnims { _clips });
 
     let half = N as f32 / 2.0;
@@ -140,7 +145,7 @@ fn add_humans(
                     (
                         CharacterPart {
                             mesh: lod2.clone(),
-                            skeleton_lod: 0
+                            skeleton_lod: 1
                         },
                         Name::new("proxy1605"),
                         MeshMaterial3d(white.clone()),
@@ -153,7 +158,7 @@ fn add_humans(
                     (
                         CharacterPart {
                             mesh: lod3.clone(),
-                            skeleton_lod: 0
+                            skeleton_lod: 2
                         },
                         Name::new("proxy741"),
                         MeshMaterial3d(white.clone()),
