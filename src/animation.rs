@@ -1,4 +1,9 @@
-use crate::{rigs::SkeletonRootBone, NAME_INTERNER};
+use crate::{
+    NAME_INTERNER,
+    rigs::SkeletonRootBone,
+    spawn_mesh::CharacterShape,
+    spawn_skeleton::{CharacterSkeleton, SkeletonLodDisabled},
+};
 use ahash::{AHashMap, AHashSet};
 use bevy::{
     animation::{animated_field, AnimationTargetId},
@@ -9,8 +14,9 @@ use gltf::Skin;
 use serde::{Deserialize, Serialize};
 
 /// humentity's PostUpdate bone-authoritative pass that runs after Bevy's
-/// `AnimationSystems` and before `TransformSystems::Propagate`. It covers both
-/// animation post-processing (`rescale_root_bone_translation`) and ragdoll
+/// `AnimationSystems` and before `TransformSystems::Propagate`. It covers
+/// animation post-processing (`rescale_root_bone_translation` for the root,
+/// `rescale_full_bone_translations` for `Full` non-root tracks) and ragdoll
 /// bone→skeleton sync (`sync_bones_to_ragdoll`). Add your own systems with
 /// `.after(HumentitySkeletonSystemSet)` to run after this pass.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -19,9 +25,17 @@ pub struct HumentitySkeletonSystemSet;
 /// Which translation tracks should be kept on animation clips
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
 pub enum TranslationTracks {
+    /// Keep only the root bone translation (default). The root Y is rescaled
+    /// per character by `rescale_root_bone_translation`, and XZ is zeroed
+    /// because locomotion comes from gameplay movement.
     #[default]
     Root,
-    //Full,
+    /// Keep every bone's translation tracks. Each character caches a per-bone
+    /// length ratio plus a direction adjustment at fit time, applied per frame
+    /// by `rescale_full_bone_translations` (root excluded, owned by the root
+    /// system above).
+    Full,
+    /// Drop all translation tracks; clips drive rotations (and scales) only.
     None,
 }
 
@@ -46,6 +60,75 @@ pub(crate) fn rescale_root_bone_translation(
         }
         t.translation.x = 0.;
         t.translation.z = 0.;
+    }
+}
+
+/// Cached per-bone correction that retargets a reference-proportioned clip
+/// translation onto the fitted shape. Computed once per fit in
+/// `fit_skeleton_to_shape`; applied per frame by
+/// `rescale_full_bone_translations`.
+#[derive(Clone, Copy, Debug)]
+pub struct BoneTranslationCorrection {
+    /// Bone entity in the character's fixed skeleton.
+    pub bone_entity: Entity,
+    /// Fitted bind-pose local translation. Bones still sitting at rest are
+    /// skipped per frame (deadzone), which keeps `Root`/`None` clips a no-op.
+    pub fitted_rest_translation: Vec3,
+    /// Fitted local length / reference local length.
+    pub translation_length_ratio: f32,
+    /// Re-aligns the clip translation direction from the reference bone
+    /// direction to the fitted shape's direction, expressed in parent space.
+    pub translation_direction_adjust: Quat,
+}
+
+/// Post-process for [`TranslationTracks::Full`] clips: rescales every non-root
+/// bone's clip translation to the fitted shape.
+///
+/// Clips are authored on the reference rig, so their translation tracks are
+/// reference-proportioned. The cached [`BoneTranslationCorrection`] rescales
+/// them per bone after Bevy's `AnimationSystems` run.
+///
+/// Only bones the clip actually drives differ from their fitted rest, so bones
+/// at rest are skipped via deadzone. The root bone is excluded entirely:
+/// locomotion comes from gameplay movement, and
+/// `rescale_root_bone_translation` owns it.
+pub(crate) fn rescale_full_bone_translations(
+    characters: Query<(&CharacterSkeleton, Option<&AnimationPlayer>)>,
+    mut bone_transforms: Query<
+        &mut Transform,
+        (Without<CharacterShape>, Allow<SkeletonLodDisabled>),
+    >,
+) {
+    for (character_skeleton, character_animation_player) in &characters {
+        if character_skeleton.translation_corrections.is_empty() {
+            continue;
+        }
+        let Some(active_animation_player) = character_animation_player else {
+            continue;
+        };
+        if active_animation_player
+            .playing_animations()
+            .next()
+            .is_none()
+        {
+            continue;
+        }
+        for translation_correction in &character_skeleton.translation_corrections {
+            let Ok(mut bone_transform) =
+                bone_transforms.get_mut(translation_correction.bone_entity)
+            else {
+                continue;
+            };
+            let animated_translation = bone_transform.translation;
+            let rest_offset =
+                animated_translation - translation_correction.fitted_rest_translation;
+            if rest_offset.length_squared() <= 1e-6 {
+                continue;
+            }
+            bone_transform.translation = translation_correction.translation_direction_adjust
+                * animated_translation
+                * translation_correction.translation_length_ratio;
+        }
     }
 }
 

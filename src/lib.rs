@@ -44,7 +44,7 @@ pub mod prelude {
     };
     pub use crate::{
         HumentityAssetsReady, HumentityPlugin, NAME_INTERNER,
-        animation::{HumentitySkeletonSystemSet, TranslationTracks},
+        animation::{BoneTranslationCorrection, HumentitySkeletonSystemSet, TranslationTracks},
         assets::{StitchedPart, StitchedParts, shape_mesh_from_helpers_mhclo},
         basemesh::{BaseMesh, VertexGroups},
         bone_debug::BoneDebugPlugin,
@@ -272,6 +272,9 @@ impl Plugin for HumentityPlugin {
                 PostUpdate,
                 (
                     animation::rescale_root_bone_translation
+                        .in_set(animation::HumentitySkeletonSystemSet)
+                        .after(bevy::app::AnimationSystems),
+                    animation::rescale_full_bone_translations
                         .in_set(animation::HumentitySkeletonSystemSet)
                         .after(bevy::app::AnimationSystems),
                     spawn_skeleton::sync_skeleton_lod_subtrees,

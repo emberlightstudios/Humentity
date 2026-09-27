@@ -1,4 +1,5 @@
 use crate::{
+    animation::BoneTranslationCorrection,
     basemesh::VertexGroups,
     helpers::HelperVertexPositions,
     prelude::*,
@@ -28,6 +29,9 @@ pub struct CharacterSkeleton {
     pub bone_map: AHashMap<&'static str, Entity>,
     /// Full inverse bindposes, in reference bone order.
     pub model_space_inv_bindposes: Vec<Mat4>,
+    /// Per-bone translation corrections for [`TranslationTracks::Full`](crate::animation::TranslationTracks)
+    /// clips, cached at fit time. Empty until the first successful fit.
+    pub translation_corrections: Vec<BoneTranslationCorrection>,
 }
 
 /// Entity event: snap a character's bones back to the fitted bind pose.
@@ -122,6 +126,7 @@ pub(crate) fn spawn_rig_skeleton(
                 skeleton_entity,
                 bone_map: AHashMap::default(),
                 model_space_inv_bindposes: Vec::new(),
+                translation_corrections: Vec::new(),
             },
             FitSkeleton,
         ));
@@ -247,6 +252,79 @@ pub(crate) fn fit_skeleton_to_shape(
                 }
             }
         }
+        // Cache per-bone translation corrections for `TranslationTracks::Full`
+        // clips (applied by `rescale_full_bone_translations`). Always computed:
+        // one-time cost per fit, and harmless for `Root`/`None` clips whose
+        // non-root bones sit at rest (skipped per frame via deadzone).
+        let reference_rig = rig_spec.reference_rig();
+        let mut translation_corrections = Vec::new();
+        for &bone_name in &reference_rig.bone_names {
+            let Some(bone_config_entry) = bone_config.bones.get(bone_name) else {
+                continue;
+            };
+            if bone_config_entry.parent.is_empty() {
+                continue; // Root bone owned by `rescale_root_bone_translation`.
+            }
+            let Some(&bone_entity) = bone_entities.get(bone_name) else {
+                continue;
+            };
+            let Some(fitted_local) = local_bone_transforms.get(bone_name) else {
+                continue;
+            };
+            let Some(reference_local) = reference_rig.local_bindpose.get(bone_name) else {
+                continue;
+            };
+            let reference_rest_length = reference_local.translation.length();
+            if reference_rest_length < 1e-3 {
+                continue;
+            }
+            let fitted_rest_translation = fitted_local.translation;
+            let translation_length_ratio =
+                fitted_rest_translation.length() / reference_rest_length;
+            let parent_name: &'static str =
+                NAME_INTERNER.intern(&bone_config_entry.parent).leak();
+            let translation_direction_adjust = match (
+                reference_rig.model_space_bindpose.get(bone_name),
+                reference_rig.model_space_bindpose.get(parent_name),
+                model_space_bindposes.get(bone_name),
+                model_space_bindposes.get(parent_name),
+            ) {
+                (
+                    Some(reference_bone),
+                    Some(reference_parent),
+                    Some(fitted_bone),
+                    Some(fitted_parent),
+                ) => {
+                    let reference_segment =
+                        reference_bone.translation - reference_parent.translation;
+                    let fitted_segment =
+                        fitted_bone.translation - fitted_parent.translation;
+                    if reference_segment.length_squared() < 1e-12
+                        || fitted_segment.length_squared() < 1e-12
+                    {
+                        Quat::IDENTITY
+                    } else {
+                        let model_space_delta = Quat::from_rotation_arc(
+                            reference_segment.normalize(),
+                            fitted_segment.normalize(),
+                        );
+                        let fitted_parent_rotation = fitted_parent.rotation;
+                        (fitted_parent_rotation.inverse()
+                            * model_space_delta
+                            * fitted_parent_rotation)
+                            .normalize()
+                    }
+                }
+                _ => Quat::IDENTITY,
+            };
+            translation_corrections.push(BoneTranslationCorrection {
+                bone_entity,
+                fitted_rest_translation,
+                translation_length_ratio,
+                translation_direction_adjust,
+            });
+        }
+
 
         // Compute full inverse bindposes in reference bone order.
         let model_space_inv_bindposes: Vec<Mat4> = rig_spec
@@ -286,6 +364,7 @@ pub(crate) fn fit_skeleton_to_shape(
             skeleton_entity: skeleton.skeleton_entity,
             bone_map: bone_entities,
             model_space_inv_bindposes,
+            translation_corrections,
         });
         commands
             .entity(skeleton.skeleton_entity)
