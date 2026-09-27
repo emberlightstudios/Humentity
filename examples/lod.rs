@@ -231,25 +231,25 @@ const SKELETON_LOD_ACTIVATION_BUFFER: f32 = 1.0;
 /// active LOD.
 fn sync_skeleton_lod_to_visibility(
     characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonsReady>>,
-    parts: Query<(Entity, &VisibilityRange, &CharacterPart, &ChildOf)>,
-    parents: Query<&ChildOf>,
+    parts: Query<(&VisibilityRange, &CharacterPart)>,
+    descendants: Query<&Children>,
     mut commands: Commands,
 ) {
     for (entity, cam_dist, existing) in &characters {
         let mut active = [false; MAX_LODS];
-        for (lod, active_lod) in active.iter_mut().enumerate() {
-            *active_lod = parts.iter().any(|(part_entity, range, cp, _)| {
-                // Parts may sit under intermediate grouping nodes, so match any
-                // descendant of the character, not just direct children.
-                let belongs = part_entity == entity
-                    || parents
-                        .iter_ancestors::<ChildOf>(part_entity)
-                        .any(|ancestor| ancestor == entity);
-                belongs
-                    && cp.skeleton_lod == lod
-                    && cam_dist.0 >= range.start_margin.start - SKELETON_LOD_ACTIVATION_BUFFER
-                    && cam_dist.0 < range.end_margin.end + SKELETON_LOD_ACTIVATION_BUFFER
-            });
+        // Descend from each character to its own parts only (grouping nodes
+        // included via descendants). Same result as scanning every part in
+        // the scene, without the N*M cost.
+        for descendant in descendants.iter_descendants(entity) {
+            let Ok((range, part)) = parts.get(descendant) else {
+                continue;
+            };
+            if part.skeleton_lod < MAX_LODS
+                && cam_dist.0 >= range.start_margin.start - SKELETON_LOD_ACTIVATION_BUFFER
+                && cam_dist.0 < range.end_margin.end + SKELETON_LOD_ACTIVATION_BUFFER
+            {
+                active[part.skeleton_lod] = true;
+            }
         }
 
         let changed = existing.is_none_or(|s| s.active != active);
@@ -264,28 +264,23 @@ fn sync_skeleton_lod_to_visibility(
 /// so this keeps their `SkeletonLodState` in sync with their part's `skeleton_lod`
 /// to disable the bone sub-trees relevant to that LOD in the background.
 fn sync_reference_lod_state(
-    parts: Query<(Entity, &CharacterPart, &ChildOf), Without<VisibilityRange>>,
+    parts: Query<&CharacterPart, Without<VisibilityRange>>,
     characters: Query<
         (Entity, Option<&SkeletonLodState>),
         (With<SkeletonsReady>, Without<CameraDistance>),
     >,
-    parents: Query<&ChildOf>,
+    descendants: Query<&Children>,
     mut commands: Commands,
 ) {
     for (entity, existing) in &characters {
         let mut active = [false; MAX_LODS];
         let mut found = false;
-        for (part_entity, part, _) in &parts {
-            // Parts may sit under intermediate grouping nodes, so match any
-            // descendant of the character, not just direct children.
-            let belongs = part_entity == entity
-                || parents
-                    .iter_ancestors::<ChildOf>(part_entity)
-                    .any(|ancestor| ancestor == entity);
-            if belongs {
-                active[part.skeleton_lod.min(MAX_LODS - 1)] = true;
-                found = true;
-            }
+        for descendant in descendants.iter_descendants(entity) {
+            let Ok(part) = parts.get(descendant) else {
+                continue;
+            };
+            active[part.skeleton_lod.min(MAX_LODS - 1)] = true;
+            found = true;
         }
         if !found {
             continue;

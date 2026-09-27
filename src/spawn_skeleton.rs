@@ -528,9 +528,9 @@ pub(crate) fn setup_part_skinning(
 pub(crate) fn on_character_helpers_removed(
     trigger: On<Remove, HelperVertexPositions>,
     characters: Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
-    parts: Query<(Entity, &ChildOf, &CharacterPart)>,
-    gpu_parts: Query<(Entity, &ChildOf, &GpuCharacterPart)>,
-    parents: Query<&ChildOf>,
+    parts: Query<Entity, With<CharacterPart>>,
+    gpu_parts: Query<Entity, With<GpuCharacterPart>>,
+    descendants: Query<&Children>,
     mut commands: Commands,
 ) {
     let entity = trigger.entity;
@@ -546,30 +546,22 @@ pub(crate) fn on_character_helpers_removed(
         .remove::<CharacterSkeleton>()
         .remove::<SkeletonLodState>()
         .remove::<SkeletonsReady>();
-
     // Strip mesh handles from the character's parts so they don't dangle against
-    // the despawned skeleton joints. Parts may sit under intermediate grouping
-    // nodes, so match any descendant of the character, not just direct children.
-    for (part_entity, _, _) in &parts {
-        if parents
-            .iter_ancestors::<ChildOf>(part_entity)
-            .any(|ancestor| ancestor == entity)
-        {
+    // the despawned skeleton joints. Descend from the character to its own
+    // parts (grouping nodes included) instead of scanning every part in the
+    // scene and testing belonging upward.
+    for descendant in descendants.iter_descendants(entity) {
+        if parts.get(descendant).is_ok() {
             commands
-                .entity(part_entity)
+                .entity(descendant)
                 .remove::<Mesh3d>()
                 .remove::<SkinnedMesh>()
                 .remove::<MeshMorphWeights>();
         }
-    }
-    // GPU parts hold static meshes with no skinning, but still drop the handle
-    // so a refit re-attaches a fresh one.
-    for (part_entity, _, _) in &gpu_parts {
-        if parents
-            .iter_ancestors::<ChildOf>(part_entity)
-            .any(|ancestor| ancestor == entity)
-        {
-            commands.entity(part_entity).remove::<Mesh3d>();
+        // GPU parts hold static meshes with no skinning, but still drop the
+        // handle so a refit re-attaches a fresh one.
+        if gpu_parts.get(descendant).is_ok() {
+            commands.entity(descendant).remove::<Mesh3d>();
         }
     }
 }

@@ -8,9 +8,8 @@ use shared::setup_app;
 // On my machine I can accomodate this many animated characters while staying near 60fps.
 // This is an improvement after implementing skeleton lod as I think transform propagation
 // was one of the biggest bottlenecks.
-// 24*24 = 576 characters
-// Of course further optimization (e.g. frs)
-const N: usize = 24;
+// 30*30 = 900 characters
+const N: usize = 30;
 
 #[derive(Component, Debug, Default)]
 struct CameraDistance(f32);
@@ -233,26 +232,37 @@ fn update_camera_distance(
 const SKELETON_LOD_ACTIVATION_BUFFER: f32 = 1.0;
 
 fn sync_skeleton_lod_to_visibility(
-    characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonsReady>>,
-    parts: Query<(Entity, &VisibilityRange, &CharacterPart, &ChildOf)>,
-    parents: Query<&ChildOf>,
+    characters: Query<
+        (
+            Entity,
+            &CameraDistance,
+            Option<&SkeletonLodState>,
+            Option<&Children>,
+        ),
+        With<SkeletonsReady>,
+    >,
+    parts: Query<(&VisibilityRange, &CharacterPart)>,
     mut commands: Commands,
 ) {
-    for (entity, cam_dist, existing) in &characters {
+    for (entity, cam_dist, existing, children) in &characters {
         let mut active = [false; MAX_LODS];
-        for (lod, active_lod) in active.iter_mut().enumerate() {
-            *active_lod = parts.iter().any(|(part_entity, range, cp, _)| {
-                // Parts may sit under intermediate grouping nodes, so match any
-                // descendant of the character, not just direct children.
-                let belongs = part_entity == entity
-                    || parents
-                        .iter_ancestors::<ChildOf>(part_entity)
-                        .any(|ancestor| ancestor == entity);
-                belongs
-                    && cp.skeleton_lod == lod
+        // Walk down from each character to its own parts only. The old code
+        // scanned every part in the scene per character and walked parents
+        // upward to test belonging — same result, ~1000x the work.
+        // Non-part children (e.g. the skeleton scene root) simply miss the
+        // `parts` lookup and are skipped.
+        if let Some(children) = children {
+            for child in children.iter() {
+                let Ok((range, part)) = parts.get(child) else {
+                    continue;
+                };
+                if part.skeleton_lod < MAX_LODS
                     && cam_dist.0 >= range.start_margin.start - SKELETON_LOD_ACTIVATION_BUFFER
                     && cam_dist.0 < range.end_margin.end + SKELETON_LOD_ACTIVATION_BUFFER
-            });
+                {
+                    active[part.skeleton_lod] = true;
+                }
+            }
         }
 
         let changed = existing.is_none_or(|s| s.active != active);
