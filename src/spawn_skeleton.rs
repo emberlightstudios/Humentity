@@ -29,8 +29,9 @@ pub struct CharacterSkeleton {
     pub bone_map: AHashMap<&'static str, Entity>,
     /// Full inverse bindposes, in reference bone order.
     pub model_space_inv_bindposes: Vec<Mat4>,
-    /// Per-bone translation corrections for [`TranslationTracks::Full`](crate::animation::TranslationTracks)
-    /// clips, cached at fit time. Empty until the first successful fit.
+    /// Per-bone translation corrections, cached at fit time. Consumed per frame
+    /// by `rescale_full_bone_translations` when the `dynamic_translation_tracks`
+    /// plugin flag is on. Empty until the first successful fit.
     pub translation_corrections: Vec<BoneTranslationCorrection>,
 }
 
@@ -252,10 +253,10 @@ pub(crate) fn fit_skeleton_to_shape(
                 }
             }
         }
-        // Cache per-bone translation corrections for `TranslationTracks::Full`
-        // clips (applied by `rescale_full_bone_translations`). Always computed:
-        // one-time cost per fit, and harmless for `Root`/`None` clips whose
-        // non-root bones sit at rest (skipped per frame via deadzone).
+        // Cache per-bone translation corrections (applied by
+        // `rescale_full_bone_translations` when the
+        // `dynamic_translation_tracks` plugin flag is on). Always computed:
+        // one-time cost per fit, and harmless when the system is off.
         let reference_rig = rig_spec.reference_rig();
         let mut translation_corrections = Vec::new();
         for &bone_name in &reference_rig.bone_names {

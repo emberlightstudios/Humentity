@@ -5,7 +5,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::animation::{TranslationTracks, get_animation_clips_from_bytes};
+use crate::animation::get_animation_clips_from_bytes;
 
 #[derive(Asset, TypePath, Clone)]
 pub struct RetargetedAnimationAsset {
@@ -13,9 +13,7 @@ pub struct RetargetedAnimationAsset {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TypePath)]
-pub struct RetargetedAnimationSettings {
-    pub translation_tracks: TranslationTracks,
-}
+pub struct RetargetedAnimationSettings;
 
 #[derive(Default, TypePath)]
 pub struct RetargetedAnimationAssetLoader;
@@ -28,12 +26,12 @@ impl AssetLoader for RetargetedAnimationAssetLoader {
     async fn load(
         &self,
         reader: &mut dyn Reader,
-        settings: &Self::Settings,
+        _settings: &Self::Settings,
         load_context: &mut LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let clips = get_animation_clips_from_bytes(&bytes, settings.translation_tracks)
+        let clips = get_animation_clips_from_bytes(&bytes)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
         let mut clip_handles = AHashMap::default();

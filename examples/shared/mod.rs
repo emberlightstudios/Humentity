@@ -80,7 +80,7 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32, framing: CameraFraming)
                 }),
                 ..default()
             }),
-        HumentityPlugin,
+        HumentityPlugin::default(),
         HumentityGpuPlugin {
             instances,
             sample_rate,
@@ -115,6 +115,10 @@ fn load_core_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
 }
 
 pub fn setup_app() -> App {
+    setup_app_with_dynamic_tracks(false)
+}
+
+pub fn setup_app_with_dynamic_tracks(dynamic_translation_tracks: bool) -> App {
     // I moved target.json and macro.macro to the root of the assets folder because when trying to load
     // the target folders, the asset server tried to load them there also.
 
@@ -138,7 +142,9 @@ pub fn setup_app() -> App {
                 }),
                 ..default()
             }),
-        HumentityPlugin,
+        HumentityPlugin {
+            dynamic_translation_tracks,
+        },
     ))
     .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
     .add_plugins(FpsOverlayPlugin::default())

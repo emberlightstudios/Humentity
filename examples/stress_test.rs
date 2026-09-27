@@ -3,7 +3,7 @@
 mod shared;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
-use shared::setup_app;
+use shared::setup_app_with_dynamic_tracks;
 
 // On my machine I can accomodate this many animated characters while staying near 60fps.
 // 32*32 = 1024 characters.  This is with all characters being posed on the cpu, standard bevy animation.
@@ -27,7 +27,7 @@ struct RetargetedAnims {
 }
 
 fn main() {
-    let mut app = setup_app();
+    let mut app = setup_app_with_dynamic_tracks(true);
 
     app.add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
         .add_systems(
@@ -91,12 +91,7 @@ fn add_humans(
 
     let white = materials.add(StandardMaterial::from_color(Color::WHITE));
 
-    let _clips = asset_server
-        .load_builder()
-        .with_settings(|retargeted_animation_settings: &mut RetargetedAnimationSettings| {
-            retargeted_animation_settings.translation_tracks = TranslationTracks::Full;
-        })
-        .load("animation/idle.glb");
+    let _clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
     commands.insert_resource(RetargetedAnims { _clips });
 
     let half = N as f32 / 2.0;

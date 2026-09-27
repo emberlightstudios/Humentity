@@ -11,7 +11,6 @@ use bevy::{
     prelude::*,
 };
 use gltf::Skin;
-use serde::{Deserialize, Serialize};
 
 /// humentity's PostUpdate bone-authoritative pass that runs after Bevy's
 /// `AnimationSystems` and before `TransformSystems::Propagate`. It covers
@@ -22,22 +21,13 @@ use serde::{Deserialize, Serialize};
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HumentitySkeletonSystemSet;
 
-/// Which translation tracks should be kept on animation clips
-#[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
-pub enum TranslationTracks {
-    /// Keep only the root bone translation (default). The root Y is rescaled
-    /// per character by `rescale_root_bone_translation`, and XZ is zeroed
-    /// because locomotion comes from gameplay movement.
-    #[default]
-    Root,
-    /// Keep every bone's translation tracks. Each character caches a per-bone
-    /// length ratio plus a direction adjustment at fit time, applied per frame
-    /// by `rescale_full_bone_translations` (root excluded, owned by the root
-    /// system above).
-    Full,
-    /// Drop all translation tracks; clips drive rotations (and scales) only.
-    None,
-}
+/// Marker for the translation-track workflow. Clips always keep every bone's
+/// translation tracks; non-root tracks are rescaled per frame by
+/// `rescale_full_bone_translations` only when the `dynamic_translation_tracks`
+/// plugin flag is on. The root bone is always handled by
+/// `rescale_root_bone_translation`.
+#[derive(Copy, Clone, Debug)]
+pub struct TranslationTracks;
 
 pub(crate) fn rescale_root_bone_translation(
     root_info: Query<(&SkeletonRootBone, &ChildOf)>,
@@ -72,7 +62,8 @@ pub struct BoneTranslationCorrection {
     /// Bone entity in the character's fixed skeleton.
     pub bone_entity: Entity,
     /// Fitted bind-pose local translation. Bones still sitting at rest are
-    /// skipped per frame (deadzone), which keeps `Root`/`None` clips a no-op.
+    /// skipped per frame (deadzone), so bones the clip leaves at rest cost a
+    /// single cheap check and no rescale.
     pub fitted_rest_translation: Vec3,
     /// Fitted local length / reference local length.
     pub translation_length_ratio: f32,
@@ -81,8 +72,9 @@ pub struct BoneTranslationCorrection {
     pub translation_direction_adjust: Quat,
 }
 
-/// Post-process for [`TranslationTracks::Full`] clips: rescales every non-root
-/// bone's clip translation to the fitted shape.
+/// Post-process for non-root translation tracks: rescales every non-root
+/// bone's clip translation to the fitted shape. Runs only when the
+/// `dynamic_translation_tracks` plugin flag is on.
 ///
 /// Clips are authored on the reference rig, so their translation tracks are
 /// reference-proportioned. The cached [`BoneTranslationCorrection`] rescales
@@ -134,7 +126,6 @@ pub(crate) fn rescale_full_bone_translations(
 
 pub(crate) fn get_animation_clips_from_bytes(
     bytes: &[u8],
-    translation_tracks: TranslationTracks,
 ) -> Result<AHashMap<&'static str, AnimationClip>, BevyError> {
     let (document, buffers, _) = gltf::import_slice(bytes)?;
     if document.skins().len() > 1 {
@@ -216,15 +207,12 @@ pub(crate) fn get_animation_clips_from_bytes(
 
             match target_property {
                 gltf::animation::Property::Translation => {
-                    if matches!(translation_tracks, TranslationTracks::None) {
-                        continue;
-                    };
-                    if matches!(translation_tracks, TranslationTracks::Root)
-                        && target_name.as_str() != root.name().unwrap()
-                    {
-                        continue;
-                    };
-
+                    // Translation tracks are always kept. Whether they are
+                    // rescaled per frame depends on the
+                    // `dynamic_translation_tracks` plugin flag
+                    // (`rescale_full_bone_translations`); without it the root
+                    // system still handles the root bone. The extra curves cost
+                    // ~nothing at load; the system is the real cost.
                     clip.add_curve_to_target(
                         target_id,
                         AnimatableCurve::new(

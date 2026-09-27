@@ -16,12 +16,12 @@ use std::f32::consts::PI;
 
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 use humentity::prelude::*;
-use shared::setup_app;
+use shared::setup_app_with_dynamic_tracks;
 
 const BABY: &str = "baby";
 
 fn main() {
-    let mut app = setup_app();
+    let mut app = setup_app_with_dynamic_tracks(true);
 
     app.add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
         .add_systems(Update, (play_graph, add_graph))
@@ -107,17 +107,12 @@ fn add_humans(
         )],
     ));
 
-    // Load the retargeted animation clip with full translation tracks. Every
-    // bone's clip translation is rescaled to the fitted shape per frame by
-    // `rescale_full_bone_translations` (root Y by `SkeletonRootBone`).
-    // Since this loads via gltf we have to pass the type explicitly.
-    // The clips are loaded on the RetargetedAnimationAsset as a hashmap.
-    let _clips = asset_server
-        .load_builder()
-        .with_settings(|retargeted_animation_settings: &mut RetargetedAnimationSettings| {
-            retargeted_animation_settings.translation_tracks = TranslationTracks::Full;
-        })
-        .load("animation/idle.glb");
+    // Clips always keep every bone's translation track. With
+    // `dynamic_translation_tracks` on, non-root tracks are rescaled to the
+    // fitted shape per frame by `rescale_full_bone_translations` (root Y by
+    // `SkeletonRootBone`). The clips are loaded on the
+    // RetargetedAnimationAsset as a hashmap.
+    let _clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
     commands.insert_resource(RetargetedAnimations { _clips });
 
     info!("Baby created");

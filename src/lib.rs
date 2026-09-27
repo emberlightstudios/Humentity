@@ -168,7 +168,16 @@ fn check_humentity_assets_ready(
 pub(crate) const MODEL_ROTATION_FIX: Quat = Quat::from_xyzw(0., 1., 0., 0.);
 
 /// The plugin struct
-pub struct HumentityPlugin;
+#[derive(Default)]
+pub struct HumentityPlugin {
+    /// Enable per-frame rescaling of non-root translation tracks
+    /// (`rescale_full_bone_translations`) for arbitrarily shaped characters.
+    /// Clips always keep their translation tracks; this flag controls whether
+    /// the correction system runs. Off by default (zero cost). Enable it when
+    /// characters play clips with significant non-root bone translations.
+    /// A future bake pipeline will cover fixed archetype shapes without it.
+    pub dynamic_translation_tracks: bool,
+}
 
 impl Plugin for HumentityPlugin {
     fn build(&self, app: &mut App) {
@@ -274,13 +283,19 @@ impl Plugin for HumentityPlugin {
                     animation::rescale_root_bone_translation
                         .in_set(animation::HumentitySkeletonSystemSet)
                         .after(bevy::app::AnimationSystems),
-                    animation::rescale_full_bone_translations
-                        .in_set(animation::HumentitySkeletonSystemSet)
-                        .after(bevy::app::AnimationSystems),
                     spawn_skeleton::sync_skeleton_lod_subtrees,
                 )
                     .before(TransformSystems::Propagate),
             );
+        if self.dynamic_translation_tracks {
+            app.add_systems(
+                PostUpdate,
+                animation::rescale_full_bone_translations
+                    .in_set(animation::HumentitySkeletonSystemSet)
+                    .after(bevy::app::AnimationSystems)
+                    .before(TransformSystems::Propagate),
+            );
+        }
 
         #[cfg(feature = "avian")]
         {

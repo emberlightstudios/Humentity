@@ -30,7 +30,7 @@ use humentity::prelude::*;
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, HumentityPlugin))
+        .add_plugins((DefaultPlugins, HumentityPlugin::default()))
         .insert_resource(SkeletonLodConfig::new(&[
             BoneMergeConfig::full().merge_default_rig_toes(),
         ]))
@@ -160,7 +160,7 @@ Add `HumentityGpuPlugin` next to `HumentityPlugin`, register one full skeleton f
 use humentity::prelude::*;
 
 app.add_plugins((
-    HumentityPlugin,
+    HumentityPlugin::default(),
     HumentityGpuPlugin {
         instances: 10_000,
         sample_rate: 30.0,
