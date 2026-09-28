@@ -71,9 +71,6 @@ pub struct CharacterColliders {
     /// Joint entity → the collider bone it constrains. Used to live-apply
     /// [`RagdollJointLimitOverrides`] without respawning joints.
     pub(crate) joint_bone: AHashMap<Entity, ColliderBone>,
-    /// Canonical local-space bone transforms computed from the collider positions
-    /// during active ragdoll, written back to the single skeleton's bones.
-    pub(crate) bone_transforms: [Transform; COLLIDERS.len()],
 }
 
 impl CharacterColliders {
@@ -84,7 +81,6 @@ impl CharacterColliders {
             bone_entities: AHashMap::default(),
             joint_entities: Vec::new(),
             joint_bone: AHashMap::default(),
-            bone_transforms: [Transform::IDENTITY; COLLIDERS.len()],
         }
     }
 }
@@ -667,7 +663,7 @@ pub(crate) fn sync_bones_to_ragdoll(
     >,
     global_transforms: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
 ) {
-    for (ragdoll, mut char_colliders) in characters.iter_mut() {
+    for (ragdoll, char_colliders) in characters.iter_mut() {
         if matches!(ragdoll, CharacterRagdoll::None) {
             continue;
         }
@@ -680,7 +676,7 @@ pub(crate) fn sync_bones_to_ragdoll(
         // Write each collider's position back to its single skeleton bone as a
         // local (parent-relative) transform, lerping for smoothness.
         let mut applied_joint_world = AHashMap::<Entity, Transform>::default();
-        for (i_collider, &bone_type) in COLLIDERS.iter().enumerate() {
+        for &bone_type in COLLIDERS.iter() {
             if let Some(bones) = partial_bones
                 && !bones.contains(&bone_type)
             {
@@ -721,7 +717,6 @@ pub(crate) fn sync_bones_to_ragdoll(
                 }
             };
 
-            char_colliders.bone_transforms[i_collider] = local;
             applied_joint_world.insert(bone_entity, joint_to_world);
 
             // Write directly to the single skeleton's bone, lerping for smoothness.
