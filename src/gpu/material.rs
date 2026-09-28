@@ -113,7 +113,14 @@ pub fn make_gpu_mesh(source: &Mesh) -> Option<Mesh> {
     let uvs = source.attribute(Mesh::ATTRIBUTE_UV_0)?.clone();
     let joint_index = source.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)?.clone();
     let joint_weight = source.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)?.clone();
-    let mut mesh = Mesh::new(source.primitive_topology(), RenderAssetUsages::RENDER_WORLD);
+    // Examples read the converted mesh back on the CPU (`has_morph_targets` in
+    // `gpu_morphs::spawn_crowd` runs after render extraction), so keep the
+    // data in the main world. `RENDER_WORLD` alone extracts the attributes
+    // away and that read panics.
+    let mut mesh = Mesh::new(
+        source.primitive_topology(),
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
