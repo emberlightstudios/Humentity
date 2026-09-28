@@ -97,7 +97,11 @@ impl CharacterTemplate {
 }
 
 /// Resolves macro morph sliders (e.g. "muscle") into direct morph targets
-/// whenever a new CharacterTemplate asset is added.
+/// whenever a new CharacterTemplate asset is added. Templates must only be
+/// created after `HumentityAssetsReady`: macro/composite data has to be loaded
+/// before resolution can succeed, and an unresolvable shape is a hard error,
+/// not a silent skip — downstream helpers and mesh builds would retry forever
+/// on macro names that are not real targets.
 pub(crate) fn resolve_template_morphs(
     mut events: MessageReader<AssetEvent<CharacterTemplate>>,
     morphs: Res<MakeHumanMorphs>,
@@ -111,9 +115,9 @@ pub(crate) fn resolve_template_morphs(
             continue;
         };
         for shape in template.shapes.iter_mut() {
-            if let Ok(resolved) = morphs.compute_target_weights(&shape.morphs) {
-                shape.morphs = resolved;
-            }
+            shape.morphs = morphs
+                .compute_target_weights(&shape.morphs)
+                .expect("CharacterTemplate created before morph data was ready: gate template creation on HumentityAssetsReady");
         }
     }
 }

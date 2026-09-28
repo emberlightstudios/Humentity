@@ -132,7 +132,7 @@ impl MakeHumanMorphs {
         morph_targets: &MorphTargets,
     ) -> Result<MorphTargets, MorphError> {
         let targets = self.targets.read().map_err(|_| MorphError::LockPoisoned)?;
-        if targets.keys().all(|&t| morph_targets.contains_key(t)) {
+        if morph_targets.keys().all(|&t| targets.contains_key(t)) {
             return Ok(morph_targets.clone());
         }
 
@@ -157,10 +157,6 @@ impl MakeHumanMorphs {
 
         if composites.is_empty() {
             return Err(MorphError::CompositeNotLoaded);
-        }
-
-        if morph_targets.keys().all(|&t| targets.contains_key(t)) {
-            return Ok(morph_targets.clone());
         }
 
         let mut morph_targets = morph_targets.clone();
