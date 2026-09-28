@@ -231,12 +231,15 @@ fn update_mesh_when_ready(
             continue;
         };
 
-        // After you trigger a mesh build it will be put in this cache.
-        // CPU lookups always use the `Cpu` variant: `Gpu` entries hold the
-        // converted mesh (GPU joint attributes, no CPU skin buffer).
+        // Stitched parts may carry a TemplateOverride: the builder caches under
+        // the effective template, so the lookup must use it too.
+        let effective_template = template_overrides
+            .get(entity)
+            .ok()
+            .map_or_else(|| template.clone(), |override_template| override_template.0.clone());
         if let Some(mesh_handle) = cached_meshes.get(&(
             part.mesh.clone(),
-            template.clone(),
+            effective_template.clone(),
             MeshBuildLod::Cpu(part.skeleton_lod),
         )) {
             commands.entity(entity).insert((
@@ -246,10 +249,7 @@ fn update_mesh_when_ready(
             ));
             let mesh = meshes.get(mesh_handle).unwrap();
             if mesh.has_morph_targets() {
-                let active_template = template_overrides
-                    .get(entity)
-                    .ok()
-                    .map_or_else(|| template.clone(), |o| o.0.clone());
+                let active_template = effective_template.clone();
                 if let Some(template_data) = template_assets.get(&active_template) {
                     let morph_weights = template_data
                         .shapes

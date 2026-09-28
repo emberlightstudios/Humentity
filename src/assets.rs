@@ -9,7 +9,7 @@ use crate::{
     rigs::{set_asset_rig_arrays, RigSpec},
     template::TemplateOverride,
 };
-use ahash::{AHashMap, AHashSet};
+use ahash::AHashMap;
 use bevy::mesh::morph::MorphAttributes;
 use bevy::{asset::RenderAssetUsages, prelude::*};
 use std::sync::{Arc, RwLock};
@@ -193,44 +193,33 @@ pub(crate) fn build_final_meshes_mhclo(
         );
     }
 
-    let shapes: AHashSet<_> = templates
-        .iter()
-        .flat_map(|p| &p.shapes)
-        .map(|s| s.name)
-        .collect();
-
-    let mut shape_meshes = AHashMap::default();
-    for &shape in shapes.iter() {
-        let mut meshes = vec![];
-        for (i_mesh, mesh) in input_meshes.iter().enumerate() {
-            let template = &templates[i_mesh];
-            let mut matched = false;
-            for mesh_shape in template.shapes.iter() {
-                if shape == mesh_shape.name {
-                    let helpers =
-                        adjust_helpers_to_morphs(&mesh_shape.morphs, &mh_morphs, &basemesh)
-                            .unwrap_or_else(|e| panic!("{}", e));
-                    meshes.push(Some(shape_mesh_from_helpers_mhclo(
-                        mesh,
-                        &mhclos[i_mesh],
-                        &helpers,
-                        &mhid_lookup[i_mesh],
-                        &vertex_map[i_mesh],
-                    )));
-                    matched = true;
-                }
-            }
-            if !matched {
-                meshes.push(None);
-            }
+    // Key by (mesh index, shape name): two templates may define the same shape
+    // name with different morph maps, and each mesh needs its own fitted
+    // variant. A bare shape-name key would share the first-built entry across
+    // templates and meshes with different geometry.
+    let mut shape_meshes: AHashMap<(usize, &'static str), Option<Mesh>> = AHashMap::default();
+    for (i_mesh, mesh) in input_meshes.iter().enumerate() {
+        let template = &templates[i_mesh];
+        let mut mesh_shapes = vec![];
+        for mesh_shape in template.shapes.iter() {
+            let helpers = adjust_helpers_to_morphs(&mesh_shape.morphs, &mh_morphs, &basemesh)
+                .unwrap_or_else(|e| panic!("{}", e));
+            mesh_shapes.push(Some(shape_mesh_from_helpers_mhclo(
+                mesh,
+                &mhclos[i_mesh],
+                &helpers,
+                &mhid_lookup[i_mesh],
+                &vertex_map[i_mesh],
+            )));
         }
-
-        let mut tmp_mesh_vec = meshes
+        let mut tmp_mesh_vec = mesh_shapes
             .iter_mut()
             .filter_map(|m| m.as_mut())
             .collect::<Vec<_>>();
         fix_normals_multiple(&mut tmp_mesh_vec);
-        shape_meshes.insert(shape, meshes);
+        for (mesh_shape, fitted) in template.shapes.iter().zip(mesh_shapes.into_iter()) {
+            shape_meshes.insert((i_mesh, mesh_shape.name), fitted);
+        }
     }
 
     let mut morph_names = vec![];
@@ -247,7 +236,7 @@ pub(crate) fn build_final_meshes_mhclo(
             let mut morph_attrs = vec![];
 
             for shape in template.shapes.iter() {
-                let Some(shape_mesh) = &shape_meshes[shape.name][i_mesh] else {
+                let Some(Some(shape_mesh)) = shape_meshes.get(&(i_mesh, shape.name)) else {
                     continue;
                 };
                 let mut morph = Vec::<MorphAttributes>::new();
@@ -272,7 +261,9 @@ pub(crate) fn build_final_meshes_mhclo(
                 morph_attrs.into_iter().flatten().collect();
             input_meshes[i_mesh].set_morph_targets(morph_attributes);
         } else if template.shapes.len() == 1 {
-            let Some(shape_mesh) = &shape_meshes[template.shapes[0].name][i_mesh] else {
+            let Some(Some(shape_mesh)) =
+                shape_meshes.get(&(i_mesh, template.shapes[0].name))
+            else {
                 continue;
             };
             input_meshes[i_mesh] = shape_mesh.clone();

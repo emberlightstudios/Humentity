@@ -280,9 +280,23 @@ pub(crate) fn mesh_build(
                     for (i_mesh, mesh) in new_meshes.into_iter().enumerate() {
                         let handle = parts[i_mesh].part.clone();
                         let lod = parts[i_mesh].lod;
+                        // Key by the part's effective template (override wins):
+                        // two parents sharing one part with different overrides
+                        // build different meshes and must not share a cache entry.
+                        let effective_template = parts[i_mesh]
+                            .template_override
+                            .as_ref()
+                            .map_or(template_handle, |override_template| {
+                                &override_template.0
+                            })
+                            .clone();
                         let mesh_handle = meshes.add(mesh);
                         cached_meshes.insert(
-                            (handle, template_handle.clone(), MeshBuildLod::Cpu(lod)),
+                            (
+                                handle,
+                                effective_template,
+                                MeshBuildLod::Cpu(lod),
+                            ),
                             mesh_handle.clone(),
                         );
                     }
