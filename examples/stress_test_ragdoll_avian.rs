@@ -45,7 +45,7 @@ fn main() {
         (
             update_camera_distance,
             sync_skeleton_lod_to_visibility,
-            setup_graph.run_if(resource_added::<RotationOnlyAnims>),
+            setup_graph,
             start_clip,
             toggle,
             sleep_ragdoll,
@@ -144,6 +144,7 @@ fn add_humans(
                     template_handle.clone(),
                     morphs.clone(),
                 ))),
+                HelperVertexPositions::default(),
                 RootOnlyRetargeting,
                 InheritedVisibility::default(),
                 CameraDistance::default(),

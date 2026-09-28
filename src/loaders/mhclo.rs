@@ -94,26 +94,26 @@ impl AssetLoader for MhcloAssetLoader {
             match section {
                 FileSection::Header => match key {
                     "name" => {
-                        let value = parts.collect::<Vec<_>>().join(" ");
-                        if !value.is_empty() {
+                        let name_text = parts.collect::<Vec<_>>().join(" ");
+                        if !name_text.is_empty() {
                             name = line.strip_prefix("name ").unwrap().to_string();
                         }
                     }
                     "obj_file" => {
-                        if let Some(value) = parts.next()
+                        if let Some(obj_token) = parts.next()
                             && let Ok(path) = load_context
                                 .path()
                                 .parent()
                                 .expect("Failed to get folder")
-                                .resolve_str(value)
+                                .resolve_str(obj_token)
                         {
                             obj_file = path;
                         }
                     }
                     "tag" => {
-                        let value = parts.collect::<Vec<_>>().join(" ");
-                        if !value.is_empty() {
-                            tags.push(value);
+                        let tag_text = parts.collect::<Vec<_>>().join(" ");
+                        if !tag_text.is_empty() {
+                            tags.push(tag_text);
                         }
                     }
                     "x_scale" => {
@@ -153,8 +153,8 @@ impl AssetLoader for MhcloAssetLoader {
                         }
                     }
                     "z_depth" => {
-                        if let Some(value) = parts.next()
-                            && let Ok(parsed) = value.parse::<i8>()
+                        if let Some(depth_token) = parts.next()
+                            && let Ok(parsed) = depth_token.parse::<i8>()
                         {
                             z_depth = parsed;
                         }
@@ -162,19 +162,19 @@ impl AssetLoader for MhcloAssetLoader {
                     _ => {}
                 },
                 FileSection::Vertices => {
-                    let values = line.split_whitespace().collect::<Vec<_>>();
-                    if values.is_empty() || values[0] == "material" {
+                    let vert_tokens = line.split_whitespace().collect::<Vec<_>>();
+                    if vert_tokens.is_empty() || vert_tokens[0] == "material" {
                         continue;
                     }
 
-                    if values.len() == 1 {
-                        if let Ok(vertex) = values[0].parse::<u16>() {
+                    if vert_tokens.len() == 1 {
+                        if let Ok(vertex) = vert_tokens[0].parse::<u16>() {
                             helper_map.push(MhcloVertexMap::SingleVertex(vertex));
                         }
                         continue;
                     }
 
-                    if values.len() == 9
+                    if vert_tokens.len() == 9
                         && let (
                             Ok(v0),
                             Ok(v1),
@@ -186,15 +186,15 @@ impl AssetLoader for MhcloAssetLoader {
                             Ok(oy),
                             Ok(oz),
                         ) = (
-                            values[0].parse::<u16>(),
-                            values[1].parse::<u16>(),
-                            values[2].parse::<u16>(),
-                            values[3].parse::<f32>(),
-                            values[4].parse::<f32>(),
-                            values[5].parse::<f32>(),
-                            values[6].parse::<f32>(),
-                            values[7].parse::<f32>(),
-                            values[8].parse::<f32>(),
+                            vert_tokens[0].parse::<u16>(),
+                            vert_tokens[1].parse::<u16>(),
+                            vert_tokens[2].parse::<u16>(),
+                            vert_tokens[3].parse::<f32>(),
+                            vert_tokens[4].parse::<f32>(),
+                            vert_tokens[5].parse::<f32>(),
+                            vert_tokens[6].parse::<f32>(),
+                            vert_tokens[7].parse::<f32>(),
+                            vert_tokens[8].parse::<f32>(),
                         )
                     {
                         let mut helper_weights = [w0, w1, w2];
@@ -212,33 +212,33 @@ impl AssetLoader for MhcloAssetLoader {
                     }
                 }
                 FileSection::DeleteVertices => {
-                    let values = line.split_whitespace().collect::<Vec<_>>();
-                    let mut start: Option<u16> = None;
+                    let delete_tokens = line.split_whitespace().collect::<Vec<_>>();
+                    let mut range_start: Option<u16> = None;
                     let mut grouping = false;
 
-                    for value in values {
+                    for delete_token in delete_tokens {
                         if grouping {
-                            if let Some(s) = start
-                                && let Ok(end) = value.parse::<u16>()
+                            if let Some(range_begin) = range_start
+                                && let Ok(range_end) = delete_token.parse::<u16>()
                             {
-                                for idx in s..=end {
+                                for idx in range_begin..=range_end {
                                     delete_verts.insert(idx);
                                 }
                             }
-                            start = None;
+                            range_start = None;
                             grouping = false;
-                        } else if value != "-" {
-                            if let Some(s) = start {
-                                delete_verts.insert(s);
+                        } else if delete_token != "-" {
+                            if let Some(pending_vert) = range_start {
+                                delete_verts.insert(pending_vert);
                             }
-                            start = value.parse::<u16>().ok();
+                            range_start = delete_token.parse::<u16>().ok();
                         } else {
                             grouping = true;
                         }
                     }
 
-                    if let Some(s) = start {
-                        delete_verts.insert(s);
+                    if let Some(pending_vert) = range_start {
+                        delete_verts.insert(pending_vert);
                     }
                 }
             }

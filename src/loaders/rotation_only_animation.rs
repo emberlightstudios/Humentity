@@ -555,18 +555,23 @@ fn compute_global_transform(
     Ok(())
 }
 
-/// Builds a map of joint name -> full path (from root to that joint)
+/// Builds a map of joint name -> full path (from rig root to that joint).
+/// MPFB exports a single-root armature under `Human.rig`: paths are prefixed
+/// with `Human.rig` (the rig object) followed by the joint chain, matching the
+/// spawned skeleton and the GPU joint paths (both hardcoded to `Human.rig`).
+/// Single-root is enforced in `find_root_joints` (0 or 2+ roots panic).
 pub fn build_joint_paths(root: &gltf::Node) -> AHashMap<Name, Vec<Name>> {
     let mut paths = AHashMap::default();
     let mut current_path = vec!["Human.rig".to_string()];
     collect_paths_recursive(root, &mut current_path, &mut paths);
     paths
         .into_iter()
-        .map(|(k, v)| {
+        .map(|(joint_key, joint_chain)| {
             (
-                Name::new(NAME_INTERNER.intern(&k).leak()),
-                v.into_iter()
-                    .map(|n| Name::new(NAME_INTERNER.intern(&n).leak()))
+                Name::new(NAME_INTERNER.intern(&joint_key).leak()),
+                joint_chain
+                    .into_iter()
+                    .map(|chain_name| Name::new(NAME_INTERNER.intern(&chain_name).leak()))
                     .collect::<Vec<_>>(),
             )
         })
@@ -584,7 +589,10 @@ fn collect_paths_recursive(
             node.index()
         )
     }).to_string();
-    // Store a clone of the current path for this node
+    // Store this node's full path (root through itself), then recurse so
+    // children extend it. Matches Bevy's glTF loader path construction:
+    // every AnimationTargetId names the rig root plus each joint below it.
+    current_path.push(name.clone());
     paths.insert(name, current_path.clone());
     // Recurse into children
     for child in node.children() {
@@ -592,10 +600,10 @@ fn collect_paths_recursive(
     }
     current_path.pop();
 }
-
-/// Return the root joint node for a skin (there can be multiple; the last
-/// unparented joint wins). Shared by the root-only import and the bake loader
-/// so both agree on which bone owns the root.
+/// Return the root joint node for a skin. MPFB exports a single-root armature:
+/// exactly one joint must not appear as another joint's child, or clips would
+/// target a different root than the spawned skeleton. Shared by the root-only
+/// import and the bake loader so both agree on which bone owns the root.
 pub(crate) fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
     // Collect joints and their indices
     let joints: Vec<gltf::Node> = skin.joints().collect();
@@ -609,12 +617,22 @@ pub(crate) fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
             }
         }
     }
-    // Roots are joints that were never seen as children
-    joints.into_iter().rfind(|j| !seen_as_child.contains(&j.index())).unwrap_or_else(|| {
+    let mut unparented = joints
+        .into_iter()
+        .filter(|joint| !seen_as_child.contains(&joint.index()));
+    let Some(root_joint) = unparented.next() else {
         panic!(
             "clip glTF skin has {} joint(s) but none is unparented: at least one joint must not appear as another joint's child (check the armature hierarchy in Blender)",
             joint_indices.len(),
-        )
-    })
+        );
+    };
+    if let Some(second_root) = unparented.next() {
+        panic!(
+            "clip glTF skin has multiple root joints ('{}' and '{}'): the MPFB armature is single-root (check the armature in Blender)",
+            root_joint.name().unwrap_or("#?"),
+            second_root.name().unwrap_or("#?"),
+        );
+    }
+    root_joint
 }
 

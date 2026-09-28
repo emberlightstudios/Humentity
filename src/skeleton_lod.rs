@@ -339,6 +339,23 @@ pub(crate) fn build_lod_data(
     weights: &Arc<RigWeightsAsset>,
     configs: &[BoneMergeConfig],
 ) -> Vec<SkeletonLodData> {
+    // `merge_default_rig_toes` names default-rig toe bones (`toe1-1.L/R` under
+    // `foot.L/R`). On any other rig those names are wrong — fail loudly instead
+    // of silently merging whatever happens to match.
+    let uses_default_toe_merge = configs.iter().any(|merge_config| {
+        merge_config.merge_into_kept_bone.iter().any(|kept_merge| {
+            (kept_merge.parent_bone_name == "foot.L"
+                && kept_merge.kept_bone_name == "toe1-1.L")
+                || (kept_merge.parent_bone_name == "foot.R"
+                    && kept_merge.kept_bone_name == "toe1-1.R")
+        })
+    });
+    if uses_default_toe_merge && reference_rig.rig_name != "default" {
+        panic!(
+            "merge_default_rig_toes is default-rig only (toe1-1.L/R under foot.L/R), but rig is '{}': use merge_into_kept_bone with this rig's own toe bones (check the armature in Blender)",
+            reference_rig.rig_name,
+        );
+    }
     let mut lod_data = Vec::with_capacity(configs.len());
 
     for config in configs {

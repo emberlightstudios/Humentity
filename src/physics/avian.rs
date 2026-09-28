@@ -33,7 +33,7 @@ pub enum CharacterRagdoll {
     /// Only the listed bones are made dynamic; all others stay kinematic.
     ///
     /// ## Warning: kinematic colliders whose corresponding skeleton bone is a child
-    ///     of a bone whose cooresponding collider is dynamic
+    /// of a bone whose corresponding collider is dynamic
     ///
     /// If a kinematic collider's corresponding skeletal bone is a descendant of a
     /// dynamically controlled bone in the skeleton hierarchy, then directly setting

@@ -3,7 +3,7 @@ use crate::{
     basemesh::VertexGroups,
     helpers::HelperVertexPositions,
     prelude::*,
-    rigs::{RigBundleRes, RigData, SkeletonRootBone},
+    rigs::{BuiltRigs, RigBundleRes, RigData, SkeletonRootBone},
     skeleton_lod::{MAX_LODS, MergeIntoKeptBone, SkeletonLodConfig, all_children_of},
 };
 use ahash::{AHashMap, AHashSet};
@@ -356,6 +356,32 @@ pub(crate) fn check_skeletons_ready(
     }
 }
 
+/// Panics if `SkeletonLodConfig` is added, mutated, or replaced after the rig build.
+///
+/// `SkeletonLodConfig` is upload-once: insert it before the rig build and never
+/// touch it afterwards. Mesh weights are baked from the build-time config, so a
+/// new config would silently disagree with every built mesh.
+///
+/// Runs every frame on purpose: the reconcile below only fires on
+/// `Changed<SkeletonLodState>`, so a config swap with no state change would
+/// otherwise never be observed. Unconditional runs keep the change ticks fresh,
+/// so the pre-build insert reads as unchanged once `BuiltRigs` exists — only a
+/// post-build insert, replace, or mutate panics (`is_changed` covers added).
+pub(crate) fn enforce_skeleton_lod_config_frozen(
+    lod_config: Option<Res<SkeletonLodConfig>>,
+    built_rigs: Option<Res<BuiltRigs>>,
+) {
+    let Some(config) = lod_config else {
+        return;
+    };
+    if built_rigs.is_none() {
+        return;
+    }
+    if config.is_changed() {
+        panic!("SkeletonLodConfig changed after the rig build: upload it once before the build and never mutate or replace it (mesh weights are baked from the build-time config)");
+    }
+}
+
 /// Reconciles the enabled/disabled bone sub-trees against the active LOD set.
 ///
 /// A bone sub-tree is disabled iff its **anchor** root is present in *every*
@@ -366,6 +392,10 @@ pub(crate) fn check_skeletons_ready(
 /// toe bone except `toe1-1.*` but keeps `foot.*` and the kept toe enabled so the
 /// skinned mesh does not collapse to the origin. The same holds for a kept-bone
 /// merge: the kept bone itself always stays enabled.
+///
+/// If *no* LOD is active (no mesh in range needs joints), every bone in
+/// `bone_map` — anchors included — is disabled, parking the whole skeleton
+/// until a mesh comes back into range.
 ///
 /// Only acts when a character's `SkeletonLodState` changes (including fresh
 /// inserts after a respawn), via `Changed<SkeletonLodState>`.
@@ -398,9 +428,19 @@ pub(crate) fn sync_skeleton_lod_subtrees(
 
     for (_entity, state, skeleton) in &characters {
         let active = state.active;
+        for (level, &level_active) in active.iter().enumerate() {
+            if level_active && level >= config_count {
+                panic!("SkeletonLodState activates LOD {level} but SkeletonLodConfig only built {config_count} LOD levels: upload the full config before the rig build (mesh weights and bone disables are baked from it)");
+            }
+        }
 
+        // No LOD active means no mesh in range needs joints: park the whole
+        // skeleton by disabling every bone, anchors included. The
+        // anchor-intersection loops below yield nothing over zero actives, so
+        // this explicit branch owns the all-false case.
+        let mut disabled: AHashSet<&'static str> = AHashSet::default();
         if !active.iter().any(|&a| a) {
-            continue;
+            disabled.extend(skeleton.bone_map.keys().copied());
         }
 
         // Union (per the intersection rule) of every removed bone name:
@@ -410,7 +450,6 @@ pub(crate) fn sync_skeleton_lod_subtrees(
         // parent or any ancestor is also effective: the whole sub-tree, kept
         // bone included, folds into that anchor instead. This mirrors
         // `resolve_remove_set`, which the mesh builds use.
-        let mut disabled: AHashSet<&'static str> = AHashSet::default();
         let mut effective_anchors: Vec<&str> = Vec::new();
         let mut effective_kept_merges: Vec<&MergeIntoKeptBone> = Vec::new();
         for k in 0..config_count {
@@ -529,9 +568,10 @@ pub(crate) fn setup_part_skinning(
         let Some(lod_data) = rig_bundle.bundle.as_ref().map(|b| &b.lod_data) else {
             continue;
         };
-
-        let idx = part.skeleton_lod.min(lod_data.len().saturating_sub(1));
-        let bone_names = &lod_data[idx].bone_names;
+        let Some(variant) = lod_data.get(part.skeleton_lod) else {
+            panic!("CharacterPart asks for skeleton LOD {} but the rig build only produced {} levels: upload the full SkeletonLodConfig before the build (mesh weights and bone disables are baked from it)", part.skeleton_lod, lod_data.len());
+        };
+        let bone_names = &variant.bone_names;
 
         // Map surviving bone names to entities and their inverse-bindpose subset.
         let mut joints = Vec::with_capacity(bone_names.len());

@@ -23,6 +23,8 @@ struct CameraDistance(f32);
 struct RotationOnlyAnims {
     _clips: Handle<RotationOnlyAnimationAsset>,
 }
+#[derive(Component)]
+struct AnimCtrl(AnimationNodeIndex);
 
 fn main() {
     let mut app = setup_app();
@@ -35,7 +37,8 @@ fn main() {
                 update_camera_distance,
                 sync_skeleton_lod_to_visibility,
                 sync_reference_lod_state,
-                play_idle_animation.run_if(resource_added::<RotationOnlyAnims>),
+                setup_graph,
+                start_clip,
             ),
         )
         .run();
@@ -105,6 +108,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
+        HelperVertexPositions::default(),
         RootOnlyRetargeting,
         InheritedVisibility::default(),
         CameraDistance::default(),
@@ -291,14 +295,11 @@ fn sync_reference_lod_state(
     }
 }
 
-fn play_idle_animation(
-    clips: Res<Assets<RotationOnlyAnimationAsset>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut characters: Query<
-        (Entity, &mut AnimationPlayer),
-        (Without<AnimationGraphHandle>, With<CharacterShape>),
-    >,
+fn setup_graph(
     mut commands: Commands,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    clips: Res<Assets<RotationOnlyAnimationAsset>>,
+    characters: Query<Entity, (With<AnimationPlayer>, Without<AnimationGraphHandle>, With<CharacterShape>)>,
 ) {
     let Some((_id, clips_map)) = clips.iter().next() else {
         return;
@@ -306,11 +307,17 @@ fn play_idle_animation(
     let Some(clip_handle) = clips_map.clips.get("Idle-loop") else {
         return;
     };
-    for (entity, mut player) in &mut characters {
+    for entity in &characters {
         let (graph, index) = AnimationGraph::from_clip(clip_handle.clone());
         commands
             .entity(entity)
-            .insert(AnimationGraphHandle(graphs.add(graph)));
-        player.play(index).repeat();
+            .insert((AnimCtrl(index), AnimationGraphHandle(graphs.add(graph))));
     }
 }
+
+fn start_clip(mut characters: Query<(&mut AnimationPlayer, &AnimCtrl), Added<AnimCtrl>>) {
+    for (mut player, ctrl) in &mut characters {
+        player.play(ctrl.0).repeat();
+    }
+}
+

@@ -105,13 +105,20 @@ fn spawn_character(
 /// Once the skeleton is fitted and the mesh build is complete, insert Mesh3d on each part.
 fn attach_mesh(
     parts: Query<(Entity, &ChildOf, &CharacterPart, Option<&SkinnedMesh>), Without<Mesh3d>>,
+    parents: Query<&ChildOf>,
     characters: Query<&CharacterShape>,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
+    template_assets: Res<Assets<CharacterTemplate>>,
+    meshes: Res<Assets<Mesh>>,
     cached_meshes: Res<CachedMhcloMeshHandles>,
     mut commands: Commands,
 ) {
-    for (entity, parent, part, skm) in &parts {
-        let Ok(shape) = characters.get(parent.parent()) else {
+    for (entity, _, part, skm) in &parts {
+        // Parts may sit under grouping nodes, so walk up to the CharacterShape owner.
+        let Some(shape) = parents
+            .iter_ancestors::<ChildOf>(entity)
+            .find_map(|ancestor| characters.get(ancestor).ok())
+        else {
             continue;
         };
         let Some(asset) = shape_assets.get(&shape.0) else {
@@ -128,6 +135,15 @@ fn attach_mesh(
             commands
                 .entity(entity)
                 .insert((Mesh3d(handle.clone()), skm.clone()));
+            // Morph targets hold the shape; weights select it. Without this a
+            // single-shape mesh renders as base, not the template shape.
+            if meshes
+                .get(handle)
+                .is_some_and(|mesh| mesh.has_morph_targets())
+                && let Some(weights) = asset.get_morph_weights_component(&template_assets)
+            {
+                commands.entity(entity).insert(weights);
+            }
         }
     }
 }
@@ -135,7 +151,7 @@ fn attach_mesh(
 
 ## How it works
 
-1. **Configure** — Insert a `SkeletonLodConfig` resource with up to `MAX_LODS` (4) `BoneMergeConfig` entries. Each entry defines one LOD level by naming which bone subtrees to remove and merge into their parents (`without_children_of`), or into one surviving child bone so posing still works through it (`merge_into_kept_bone`, e.g. `merge_default_rig_toes` for the default rig).
+1. **Configure** — Insert a `SkeletonLodConfig` resource with up to `MAX_LODS` (4) `BoneMergeConfig` entries. Each entry defines one LOD level by naming which bone subtrees to remove and merge into their parents (`without_children_of`), or into one surviving child bone so posing still works through it (`merge_into_kept_bone`, e.g. `merge_default_rig_toes` for the default rig). Upload once before the rig build and never change it afterwards — a post-build change panics, because mesh weights are baked from the build-time config. Every `CharacterPart.skeleton_lod`, `MeshBuildLod::Cpu(lod)`, and `SkeletonLodState` level must name a built LOD; out-of-range indices panic instead of silently clamping.
 
 2. **Load** — Call `load_and_insert_humentity_assets` to load the MakeHuman basemesh, vertex groups, morph targets, rig config, and reference rig as ECS resources. Gate the rest on `HumentityAssetsReady`.
 
@@ -147,7 +163,7 @@ fn attach_mesh(
 
 6. **Rig** — The plugin spawns one full skeleton per CPU character, fits its bone transforms to the morphed shape, computes the inverse bindposes, and sets up `SkinnedMesh` on each part over the surviving bone subset for its LOD level. `CharacterScale` on the `CharacterShape` scales the skeleton root (bones and skinned mesh follow).
 
-7. **Activate** — Write `SkeletonLodState { active: [...] }` on the character to set the active LOD levels. The reconcile system disables every bone sub-tree removed by all active LODs, so unneeded bones stop propagating transforms.
+7. **Activate** — Write `SkeletonLodState { active: [...] }` on the character to set the active LOD levels. The reconcile system disables every bone sub-tree removed by all active LODs, so unneeded bones stop propagating transforms. If no LOD is active (no mesh in range), the whole skeleton parks — every bone disables until a mesh comes back into range.
 
 ## GPU characters
 

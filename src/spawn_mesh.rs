@@ -316,7 +316,7 @@ pub(crate) fn handle_single_mesh_complete(msg: MeshConstructedMsg) -> Mesh {
     } = msg;
     let mut mesh = final_meshes.into_iter().next().unwrap();
 
-    if templates[0].shapes.len() > 1 {
+    if !templates[0].shapes.is_empty() {
         let morph_names = morph_names.into_iter().next().unwrap();
         mesh = mesh.with_morph_target_names(morph_names);
     }
@@ -359,10 +359,10 @@ pub(crate) fn handle_stitched_mesh_complete(msg: MeshConstructedMsg) -> Vec<Mesh
 
     for (i_mesh, (mesh, names)) in final_meshes.into_iter().zip(morph_names).enumerate() {
         let template = &templates[i_mesh];
-        let mesh = if template.shapes.len() > 1 {
-            mesh.with_morph_target_names(names)
-        } else {
+        let mesh = if template.shapes.is_empty() {
             mesh
+        } else {
+            mesh.with_morph_target_names(names)
         };
         meshes.push(mesh);
     }
@@ -441,8 +441,9 @@ pub(crate) fn build_single_mesh_process(
             .bundle
             .as_ref()
             .map(|bundle| {
-                let idx = lod.min(bundle.lod_data.len().saturating_sub(1));
-                let variant = &bundle.lod_data[idx];
+                let Some(variant) = bundle.lod_data.get(lod) else {
+                    panic!("mesh build asks for skeleton LOD {lod} but the rig build only produced {} levels: upload the full SkeletonLodConfig before the build (mesh weights are baked from it)", bundle.lod_data.len());
+                };
                 (variant.bone_names.clone(), variant.merged_weights.clone())
             })
             .unwrap_or_else(|| {
@@ -601,8 +602,9 @@ fn build_stitched_meshes_process(
             .bundle
             .as_ref()
             .map(|bundle| {
-                let idx = lod.min(bundle.lod_data.len().saturating_sub(1));
-                let variant = &bundle.lod_data[idx];
+                let Some(variant) = bundle.lod_data.get(lod) else {
+                    panic!("stitched mesh build asks for skeleton LOD {lod} but the rig build only produced {} levels: upload the full SkeletonLodConfig before the build (mesh weights are baked from it)", bundle.lod_data.len());
+                };
                 (variant.bone_names.clone(), variant.merged_weights.clone())
             })
             .unwrap_or_else(|| {

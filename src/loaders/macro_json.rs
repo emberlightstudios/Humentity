@@ -12,7 +12,7 @@ use crate::NAME_INTERNER;
 pub struct MacroDataAsset {
     /// Raw macro data
     pub macrotargets: AHashMap<&'static str, MacroBounds>,
-    /// Convenience fied mapping macro names to the morph names they affect
+    /// Convenience field mapping macro names to the morph names they affect
     pub morph_map: AHashMap<&'static str, Vec<&'static str>>,
 }
 

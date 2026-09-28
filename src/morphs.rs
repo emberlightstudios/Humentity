@@ -164,14 +164,14 @@ impl MakeHumanMorphs {
         // --- 1️⃣ Normalize race sliders ---
         let mut total_race: f32 = 0.;
         for race in macros.morph_map["race"].iter() {
-            if let Some(value) = morph_targets.0.get(race) {
-                total_race += value;
+            if let Some(race_weight) = morph_targets.0.get(race) {
+                total_race += race_weight;
             }
         }
         if total_race > 0. {
             for race in macros.morph_map["race"].iter() {
-                let value = morph_targets.0.entry(race).or_default();
-                *value /= total_race;
+                let race_slot = morph_targets.0.entry(race).or_default();
+                *race_slot /= total_race;
             }
         } else {
             morph_targets.insert("caucasian", 1.0);

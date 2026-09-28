@@ -169,12 +169,12 @@ pub fn generate_vertex_map(mh_vertices: &[Vec3], vertices: &[Vec3]) -> AHashMap<
     let mut vertex_map = AHashMap::<u16, Vec<u16>>::default();
     let mut matched = AHashSet::<usize>::default();
 
-    for (i, mh_vertex) in mh_vertices.iter().enumerate() {
-        let vec = vertex_map.entry(i as u16).or_insert(vec![]);
-        for (j, vtx) in vertices.iter().enumerate() {
-            if vtx == mh_vertex {
-                matched.insert(j);
-                vec.push(j as u16);
+    for (mh_index, mh_vertex) in mh_vertices.iter().enumerate() {
+        let bevy_ids = vertex_map.entry(mh_index as u16).or_insert(vec![]);
+        for (bevy_index, bevy_vertex) in vertices.iter().enumerate() {
+            if bevy_vertex == mh_vertex {
+                matched.insert(bevy_index);
+                bevy_ids.push(bevy_index as u16);
             }
         }
     }
@@ -197,13 +197,13 @@ pub fn generate_mhid_lookup(map: &AHashMap<u16, Vec<u16>>) -> Vec<u16> {
         .copied()
         .unwrap_or(0);
 
-    let mut lkup: Vec<u16> = vec![0; max_vert as usize + 1];
-    for (&mhv, verts) in map.iter() {
-        for &vert in verts.iter() {
-            lkup[vert as usize] = mhv;
+    let mut mhid_lookup: Vec<u16> = vec![0; max_vert as usize + 1];
+    for (&mh_id, bevy_ids) in map.iter() {
+        for &bevy_id in bevy_ids.iter() {
+            mhid_lookup[bevy_id as usize] = mh_id;
         }
     }
-    lkup
+    mhid_lookup
 }
 
 /// Paints per-vertex joint indices + weights for one LOD bone order: aggregates

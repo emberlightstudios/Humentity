@@ -29,7 +29,7 @@ use crate::{
 /// your own observer on the same trigger to clean up additional per-character data that
 /// humentity can't know about generically, such as material handles:
 ///
-/// ```
+/// ```ignore
 /// app.add_observer(
 ///     |trigger: On<Remove, humentity::prelude::HelperVertexPositions>,
 ///      mut commands: Commands| {
@@ -93,11 +93,11 @@ fn compute_helpers_from_data(
 ) -> Result<Vec<Vec3>, crate::morphs::MorphError> {
     let mut mh_morph_values = MorphTargets::default();
     for shape in template_shapes.iter() {
-        let Some(weight) = morph_values.get(shape.name) else {
+        let Some(shape_weight) = morph_values.get(shape.name) else {
             continue;
         };
-        for (&k, v) in shape.morphs.iter() {
-            *mh_morph_values.entry(k).or_insert(0.) += *v * weight;
+        for (&morph_key, morph_weight) in shape.morphs.iter() {
+            *mh_morph_values.entry(morph_key).or_insert(0.) += *morph_weight * shape_weight;
         }
     }
     adjust_helpers_with_targets(&mh_morph_values, targets, basemesh_vertices)

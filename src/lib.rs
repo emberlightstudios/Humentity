@@ -231,6 +231,7 @@ impl Plugin for HumentityPlugin {
                 (
                     check_humentity_assets_ready
                         .run_if(not(resource_exists::<HumentityAssetsReady>)),
+                    spawn_skeleton::enforce_skeleton_lod_config_frozen.after(rigs::build_rig_scenes),
                     basemesh::extract_basemesh_asset.run_if(resource_exists::<basemesh::BaseMesh>),
                     basemesh::extract_vertex_groups_asset
                         .run_if(resource_exists::<basemesh::VertexGroups>),

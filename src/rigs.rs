@@ -291,21 +291,36 @@ pub(crate) fn build_skeleton_scene(
         }
     }
 
-    // Attach root(s) to rig entity
-    for &name in bone_order.iter() {
-        let is_root = ref_bone_parents
-            .get(name)
-            .map(|p| p == &"Human.rig".to_string())
-            .unwrap_or(false);
-        if is_root {
-            let &root_bone = bone_entities.get(&name).unwrap_or_else(|| {
-                panic!(
-                    "reference rig root bone '{name}' was never spawned: bone_order and spawned entities diverged (check the reference rig GLB joint list)"
-                )
-            });
-            scene_world.entity_mut(rig_entity).add_child(root_bone);
-        }
+    // Attach the single root to the rig entity. MPFB exports exactly one bone
+    // under `Human.rig`: 0 means the rig name is wrong, 2+ means the armature
+    // is not single-root. Either way attaching silently would desync clip
+    // TargetIds from skeleton joints.
+    let mut rig_root_children = bone_order
+        .iter()
+        .filter(|bone_name| {
+            ref_bone_parents
+                .get(*bone_name)
+                .is_some_and(|rig_parent_name| rig_parent_name == "Human.rig")
+        })
+        .peekable();
+    let Some(&root_bone_name) = rig_root_children.next() else {
+        panic!(
+            "reference rig '{}' has no bone parented to 'Human.rig': the MPFB rig is single-root under Human.rig (check the reference rig GLB joint list)",
+            reference_rig.rig_name,
+        );
+    };
+    if let Some(&second_root_name) = rig_root_children.next() {
+        panic!(
+            "reference rig '{}' has multiple bones parented to 'Human.rig' ('{root_bone_name}' and '{second_root_name}'): the MPFB rig is single-root (check the reference rig GLB joint list)",
+            reference_rig.rig_name,
+        );
     }
+    let &root_bone = bone_entities.get(&root_bone_name).unwrap_or_else(|| {
+        panic!(
+            "reference rig root bone '{root_bone_name}' was never spawned: bone_order and spawned entities diverged (check the reference rig GLB joint list)"
+        )
+    });
+    scene_world.entity_mut(rig_entity).add_child(root_bone);
 
     let (global_transforms, local_transforms) = {
         let local = ref_local_bindpose.clone();
