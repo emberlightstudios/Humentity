@@ -69,7 +69,8 @@ pub mod prelude {
             CompositeTargetsAsset, MacroBoundString, MacroBounds, MacroDataAsset,
             MacroDataAssetLoader, MhcloAsset, MhcloAssetLoader, ObjVertsAsset, ObjVertsAssetLoader,
             ObjVertsSettings, OppositesAsset, ReferenceRigAsset, ReferenceRigAssetLoader,
-            RetargetedAnimationAsset, RetargetedAnimationAssetLoader, RetargetedAnimationSettings,
+            RotationOnlyAnimationAsset, RotationOnlyAnimationAssetLoader,
+            RotationOnlyAnimationSettings,
             RigConfigAsset, RigConfigAssetLoader, RigWeightsAsset, RigWeightsAssetLoader,
             ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader, ShapeBakedAnimationSettings,
             ShapeBakeRequest, TargetAsset, TargetAssetLoader, TargetDelta, TargetManifestAssetLoader,
@@ -211,8 +212,8 @@ impl Plugin for HumentityPlugin {
             .register_asset_loader(MacroDataAssetLoader)
             .init_asset::<CompositeTargetsAsset>()
             .register_asset_loader(TargetManifestAssetLoader)
-            .init_asset::<RetargetedAnimationAsset>()
-            .register_asset_loader(RetargetedAnimationAssetLoader)
+            .init_asset::<RotationOnlyAnimationAsset>()
+            .register_asset_loader(RotationOnlyAnimationAssetLoader)
             .init_asset::<ShapeBakedAnimationAsset>()
             .register_asset_loader(ShapeBakedAnimationAssetLoader)
             .init_asset::<RigWeightsAsset>()

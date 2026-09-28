@@ -3,7 +3,7 @@ mod macro_json;
 mod mhclo;
 mod obj_verts;
 mod reference_rig;
-mod retargeted_animation;
+mod rotation_only_animation;
 mod rig_config;
 mod rig_weights;
 mod shape_config;
@@ -21,8 +21,8 @@ pub use obj_verts::{
     VertexGroupsAssetLoader,
 };
 pub use reference_rig::{ReferenceRigAsset, ReferenceRigAssetLoader};
-pub use retargeted_animation::{
-    RetargetedAnimationAsset, RetargetedAnimationAssetLoader, RetargetedAnimationSettings,
+pub use rotation_only_animation::{
+    RotationOnlyAnimationAsset, RotationOnlyAnimationAssetLoader, RotationOnlyAnimationSettings,
     ShapeBakeRequest, ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader,
     ShapeBakedAnimationSettings, bake_shape_clips_from_bytes,
 };

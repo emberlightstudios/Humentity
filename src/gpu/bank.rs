@@ -53,7 +53,7 @@ pub(crate) struct PendingGpuAnimationClip {
 
 /// A bake request carrying its clip directly (Bevy's native `AnimationClip`
 /// with every translation track intact), instead of resolving `name` through
-/// a [`RetargetedAnimationAsset`](crate::loaders::RetargetedAnimationAsset)
+/// a [`RotationOnlyAnimationAsset`](crate::loaders::RotationOnlyAnimationAsset)
 /// (whose root-only loader drops non-root translations at import). This is
 /// the GPU dynamic path: full tracks in, per-shape retarget in the pose
 /// shader, no per-clip variant.

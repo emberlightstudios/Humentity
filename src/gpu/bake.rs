@@ -424,7 +424,7 @@ pub(super) fn bake_gpu_animation(
 pub(super) fn submit_clip_bakes(
     bank: Option<ResMut<GpuAnimationBank>>,
     jobs: Res<GpuBakeJobs>,
-    retargeted: Res<Assets<RetargetedAnimationAsset>>,
+    rotation_only: Res<Assets<RotationOnlyAnimationAsset>>,
     clips: Res<Assets<AnimationClip>>,
 ) {
     let Some(mut bank) = bank else {
@@ -475,7 +475,7 @@ pub(super) fn submit_clip_bakes(
             bank.pending.remove(i);
             continue;
         }
-        let Some(map) = retargeted
+        let Some(map) = rotation_only
             .iter()
             .find_map(|(_id, map)| map.clips.contains_key(req.name.as_str()).then_some(map))
         else {

@@ -20,8 +20,8 @@ const SHAPE_NAME: &str = "bigboobs";
 struct CameraDistance(f32);
 
 #[derive(Resource)]
-struct RetargetedAnims {
-    _clips: Handle<RetargetedAnimationAsset>,
+struct RotationOnlyAnims {
+    _clips: Handle<RotationOnlyAnimationAsset>,
 }
 
 fn main() {
@@ -35,7 +35,7 @@ fn main() {
                 update_camera_distance,
                 sync_skeleton_lod_to_visibility,
                 sync_reference_lod_state,
-                play_idle_animation.run_if(resource_added::<RetargetedAnims>),
+                play_idle_animation.run_if(resource_added::<RotationOnlyAnims>),
             ),
         )
         .run();
@@ -94,8 +94,8 @@ fn add_humans(
     let white = materials.add(StandardMaterial::from_color(Color::WHITE));
     let black = materials.add(StandardMaterial::from_color(Color::BLACK));
 
-    let _clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
-    commands.insert_resource(RetargetedAnims { _clips });
+    let _clips = asset_server.load::<RotationOnlyAnimationAsset>("animation/idle.glb");
+    commands.insert_resource(RotationOnlyAnims { _clips });
 
     // LOD character with all proxy meshes as children, each with a VisibilityRange
     commands.spawn((
@@ -292,7 +292,7 @@ fn sync_reference_lod_state(
 }
 
 fn play_idle_animation(
-    clips: Res<Assets<RetargetedAnimationAsset>>,
+    clips: Res<Assets<RotationOnlyAnimationAsset>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut characters: Query<
         (Entity, &mut AnimationPlayer),

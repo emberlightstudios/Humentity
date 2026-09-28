@@ -7,7 +7,7 @@
 //! each character decides which system (if any) runs for it:
 //!
 //! 1) Left — `root-only`, the old loader path. The custom
-//!    [`RetargetedAnimationAssetLoader`] keeps rotation + scale on every bone
+//!    [`RotationOnlyAnimationAssetLoader`] keeps rotation + scale on every bone
 //!    but translation tracks on the root bone only; non-root translations are
 //!    dropped at import. [`RootOnlyRetargeting`] on the character runs only
 //!    `rescale_root_bone_translation` (root Y rescale + XZ zero). Cheapest per
@@ -78,8 +78,8 @@ fn main() {
 // any) runs for it. `baked_shape` remembers the baked baby's shape so the
 // corrections can be derived on a later frame once morphs are ready.
 #[derive(Resource, Default)]
-struct RetargetedAnimations {
-    root_only_clips: Option<Handle<RetargetedAnimationAsset>>,
+struct ShowcaseAnimations {
+    root_only_clips: Option<Handle<RotationOnlyAnimationAsset>>,
     dynamic_clip: Option<Handle<AnimationClip>>,
     baked_clips: Option<Handle<ShapeBakedAnimationAsset>>,
     baked_shape: Option<Handle<CharacterShapeAsset>>,
@@ -104,11 +104,11 @@ fn add_humans(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut templates: ResMut<Assets<CharacterTemplate>>,
     mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
-    animations: Option<ResMut<RetargetedAnimations>>,
+    animations: Option<ResMut<ShowcaseAnimations>>,
     mut done: Local<bool>,
 ) {
     let Some(mut animations) = animations else {
-        commands.insert_resource(RetargetedAnimations::default());
+        commands.insert_resource(ShowcaseAnimations::default());
         return;
     };
     if *done {
@@ -222,7 +222,7 @@ fn add_humans(
     // import (zero runtime, one asset per shape).
     if animations.root_only_clips.is_none() {
         animations.root_only_clips =
-            Some(asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb"));
+            Some(asset_server.load::<RotationOnlyAnimationAsset>("animation/idle.glb"));
     }
     if animations.dynamic_clip.is_none() {
         animations.dynamic_clip =
@@ -247,7 +247,7 @@ fn load_baked_clip(
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     rig_data: Option<Res<RigData>>,
     vertex_groups: Option<Res<VertexGroups>>,
-    animations: Option<ResMut<RetargetedAnimations>>,
+    animations: Option<ResMut<ShowcaseAnimations>>,
 ) {
     let Some(mut animations) = animations else {
         return;
@@ -310,10 +310,10 @@ fn on_gltf_scene_ready(
 fn add_graph(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
+    rotation_only_clips: Res<Assets<RotationOnlyAnimationAsset>>,
     baked_clips: Res<Assets<ShapeBakedAnimationAsset>>,
     clips: Res<Assets<AnimationClip>>,
-    animations: Option<Res<RetargetedAnimations>>,
+    animations: Option<Res<ShowcaseAnimations>>,
     mut character_player: Query<
         (Entity, &mut AnimationPlayer, &ShowcaseBaby),
         Without<AnimationGraphHandle>,
@@ -331,7 +331,7 @@ fn add_graph(
                 let Some(handle) = animations.root_only_clips.as_ref() else {
                     continue;
                 };
-                let Some(clips_map) = retargeted_clips.get(handle) else {
+                let Some(clips_map) = rotation_only_clips.get(handle) else {
                     continue;
                 };
                 let Some(root_clip) = clips_map.clips.get("Idle-loop") else {

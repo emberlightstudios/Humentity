@@ -20,8 +20,8 @@ struct CameraDistance(f32);
 struct AnimCtrl(AnimationNodeIndex);
 
 #[derive(Resource)]
-struct RetargetedAnims {
-    _clips: Handle<RetargetedAnimationAsset>,
+struct RotationOnlyAnims {
+    _clips: Handle<RotationOnlyAnimationAsset>,
 }
 
 #[derive(Component)]
@@ -45,7 +45,7 @@ fn main() {
         (
             update_camera_distance,
             sync_skeleton_lod_to_visibility,
-            setup_graph.run_if(resource_added::<RetargetedAnims>),
+            setup_graph.run_if(resource_added::<RotationOnlyAnims>),
             start_clip,
             toggle,
             sleep_ragdoll,
@@ -129,8 +129,8 @@ fn add_humans(
 
     let white = materials.add(StandardMaterial::from_color(Color::WHITE));
 
-    let _clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
-    commands.insert_resource(RetargetedAnims { _clips });
+    let _clips = asset_server.load::<RotationOnlyAnimationAsset>("animation/idle.glb");
+    commands.insert_resource(RotationOnlyAnims { _clips });
 
     let half = N as f32 / 2.0;
     for row in 0..N {
@@ -280,10 +280,10 @@ fn sync_skeleton_lod_to_visibility(
 fn setup_graph(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
+    rotation_only_clips: Res<Assets<RotationOnlyAnimationAsset>>,
     mut character_player: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
 ) {
-    let Some((_id, clips_map)) = retargeted_clips.iter().next() else {
+    let Some((_id, clips_map)) = rotation_only_clips.iter().next() else {
         return;
     };
     let Some(clip_handle) = clips_map.clips.get("Idle-loop") else {

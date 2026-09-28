@@ -127,8 +127,8 @@ fn add_human(
         skeleton_lod: MeshBuildLod::Cpu(0),
     });
 
-    let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
-    commands.insert_resource(RetargetedAnimations { _clips: clips });
+    let clips = asset_server.load::<RotationOnlyAnimationAsset>("animation/idle.glb");
+    commands.insert_resource(RotationOnlyAnimations { _clips: clips });
 
     commands.spawn((
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.))
@@ -167,14 +167,14 @@ fn add_human(
 }
 
 #[derive(Resource)]
-struct RetargetedAnimations {
-    _clips: Handle<RetargetedAnimationAsset>,
+struct RotationOnlyAnimations {
+    _clips: Handle<RotationOnlyAnimationAsset>,
 }
 
 fn setup_graph(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
+    rotation_only_clips: Res<Assets<RotationOnlyAnimationAsset>>,
     mut character_player: Query<Entity, (With<AnimationPlayer>, Without<AnimationGraphHandle>)>,
     skeleton_bones: Query<
         (&Name, &AnimationTargetId),
@@ -184,7 +184,7 @@ fn setup_graph(
     let Ok(entity) = character_player.single_mut() else {
         return;
     };
-    let Some((_id, clips_map)) = retargeted_clips.iter().next() else {
+    let Some((_id, clips_map)) = rotation_only_clips.iter().next() else {
         return;
     };
     let clip_handle = clips_map.clips.get("Idle-loop").unwrap();

@@ -17,19 +17,19 @@ use crate::{
 /// [`RootOnlyRetargeting`](crate::animation::RootOnlyRetargeting) on the
 /// character so the root fix runs (its only runtime cost).
 #[derive(Asset, TypePath, Clone)]
-pub struct RetargetedAnimationAsset {
+pub struct RotationOnlyAnimationAsset {
     pub clips: AHashMap<&'static str, Handle<AnimationClip>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TypePath)]
-pub struct RetargetedAnimationSettings;
+pub struct RotationOnlyAnimationSettings;
 
 #[derive(Default, TypePath)]
-pub struct RetargetedAnimationAssetLoader;
+pub struct RotationOnlyAnimationAssetLoader;
 
-impl AssetLoader for RetargetedAnimationAssetLoader {
-    type Asset = RetargetedAnimationAsset;
-    type Settings = RetargetedAnimationSettings;
+impl AssetLoader for RotationOnlyAnimationAssetLoader {
+    type Asset = RotationOnlyAnimationAsset;
+    type Settings = RotationOnlyAnimationSettings;
     type Error = std::io::Error;
 
     async fn load(
@@ -53,7 +53,7 @@ impl AssetLoader for RetargetedAnimationAssetLoader {
             clip_handles.insert(name, handle);
         }
 
-        Ok(RetargetedAnimationAsset {
+        Ok(RotationOnlyAnimationAsset {
             clips: clip_handles,
         })
     }

@@ -31,7 +31,7 @@ pub struct HumentitySkeletonSystemSet;
 ///
 /// - [`RootOnlyRetargeting`]: clips carry root translation only (rotation +
 ///   root Y bob). Load clips with the root-only loader
-///   ([`crate::loaders::RetargetedAnimationAsset`]); only
+///   ([`crate::loaders::RotationOnlyAnimationAsset`]); only
 ///   `rescale_root_bone_translation` runs. Cheapest per frame, correct for
 ///   rotation-driven clips like locomotion, but non-root bone translations
 ///   are dropped at import and lost.
