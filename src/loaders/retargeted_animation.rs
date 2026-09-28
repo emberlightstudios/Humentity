@@ -60,58 +60,49 @@ impl AssetLoader for RetargetedAnimationAssetLoader {
 }
 
 /// Shape-baked clips: every translation track (root + bones) is rewritten to
-/// one shape at import, so no retarget system runs and no marker is needed.
-/// Exact for that shape, wrong for any other. Bake once per shape with
-/// [`shape_baked_corrections_for_shape`](crate::animation::shape_baked_corrections_for_shape)
-/// (or a code path that feeds [`ShapeBakedAnimationSettings`]), passing the
-/// result as loader settings via `load_builder().with_settings(...)`.
+/// each listed shape at import, so no retarget system runs and no marker is
+/// needed. Exact for those shapes, wrong for any other. List every shape up
+/// front with [`shape_baked_corrections_for_shape`](crate::animation::shape_baked_corrections_for_shape)
+/// results passed as loader settings via `load_builder().with_settings(...)`.
 /// Root is owned here: XZ is zeroed and Y offsets are rescaled from the
 /// fitted bind pose. Never put a retarget marker on characters playing baked
 /// clips, or the root scale applies twice.
 ///
-/// Labels carry the shape name (`{clip}.{shape_suffix}`, legacy `{clip}.baked`
-/// when the suffix is empty): baking the same file for two shapes must not
-/// share clip IDs, or the second bake silently replaces the first. One file
-/// still yields one settings variant through the loader (Bevy dedups the outer
-/// load by path), so prefer [`bake_shape_clips_from_bytes`] + `Assets::add`
-/// when several shapes share a file: each `add` mints a fresh UUID and no
-/// server dedup can hand shape #2 the shape #1 bake. Same settings always
-/// produce same bytes: do not load one file twice with identical settings.
+/// One file yields one outer asset holding every shape's clips (`{clip}.{suffix}`
+/// labels, legacy `{clip}.baked` when the suffix is empty), so loading the same
+/// file once serves all shapes with no outer path-dedup collision. Adding a
+/// shape later means reloading the file with the longer list.
 #[derive(Asset, TypePath, Clone)]
 pub struct ShapeBakedAnimationAsset {
     pub clips: AHashMap<&'static str, Handle<AnimationClip>>,
 }
 
+/// One shape's entry in a multi-shape bake: clips land under
+/// `{clip}.{shape_suffix}` labels (`{clip}.baked` when empty).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ShapeBakeRequest {
+    pub shape_suffix: String,
+    pub shape_corrections: ShapeBakedCorrections,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TypePath)]
 pub struct ShapeBakedAnimationSettings {
-    /// Fitted corrections for the target shape. Always `Some`: build with
-    /// [`shape_baked_corrections_for_shape`](crate::animation::shape_baked_corrections_for_shape)
-    /// and pass via `load_builder().with_settings(...)`. The loader fails
-    /// when this is `None` — `Default` (required by Bevy's `Settings`) is an
-    /// explicit missing value, never silent identity: empty corrections
-    /// would flatten root Y to 0 and drop every bone track.
+    /// Every shape to bake in this load. Empty fails the load: `Default`
+    /// (required by Bevy's `Settings`) is an explicit missing value, never
+    /// silent identity — with no corrections the loader would flatten root Y
+    /// to 0 and drop every bone track.
     #[serde(default)]
-    pub shape_corrections: Option<ShapeBakedCorrections>,
-    /// Shape suffix for clip labels (`{clip}.{shape_suffix}`). Empty keeps
-    /// the legacy `{clip}.baked` label; pass e.g. `"baby"` so the baby bake
-    /// (`Idle-loop.baby`) never collides with an adult bake of the same file.
-    #[serde(default)]
-    pub shape_suffix: String,
+    pub shape_bakes: Vec<ShapeBakeRequest>,
 }
 
 #[derive(Default, TypePath)]
 pub struct ShapeBakedAnimationAssetLoader;
 
 /// Bake every clip in raw glTF `bytes` to `shape_corrections`, returning
-/// plain clips keyed by clip name. Pure function: same bytes + same
-/// corrections always produce same curves. This is the exact body the loader
-/// runs (same joint mapping via `find_root_joints` + `build_joint_paths`,
-/// same root XZ-zero/Y-rescale, same per-bone ratio/direction math) — the
-/// loader only adds labeled-asset handles on top.
-///
-/// Prefer this + `Assets::<AnimationClip>::add` when several shapes share one
-/// file: each `add` mints a fresh UUID, so shape #2 can never receive shape
-/// #1's bake through the asset server's outer path dedup.
+/// plain clips keyed by clip name. Shared helper the loader runs per listed
+/// shape (same joint mapping via `find_root_joints` + `build_joint_paths`,
+/// same root XZ-zero/Y-rescale, same per-bone ratio/direction math); also
+/// usable directly for one-off code bakes with `Assets::add`.
 pub fn bake_shape_clips_from_bytes(
     bytes: &[u8],
     shape_corrections: &ShapeBakedCorrections,
@@ -322,38 +313,70 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let Some(shape_corrections) = settings.shape_corrections.as_ref() else {
+        if settings.shape_bakes.is_empty() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "ShapeBakedAnimationSettings.shape_corrections is None: build corrections with shape_baked_corrections_for_shape and pass them via load_builder().with_settings(...), or bake in code with bake_shape_clips_from_bytes",
+                "ShapeBakedAnimationSettings.shape_bakes is empty: list every shape with its corrections from shape_baked_corrections_for_shape via load_builder().with_settings(...)",
             ));
         };
-        let baked_clips = bake_shape_clips_from_bytes(&bytes, shape_corrections)?;
+        // Parse once, bake once per listed shape: one outer load serves all
+        // shapes, so the asset server never dedups a second shape onto the
+        // first shape's bake.
+        let invalid =
+            |message: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
+        let (document, buffers, _) =
+            gltf::import_slice(&bytes).map_err(|err| invalid(&err.to_string()))?;
+        if document.skins().len() > 1 {
+            return Err(invalid("More than one skin present in file"));
+        }
+        let Some(skin) = document.skins().next() else {
+            return Err(invalid("No skins available"));
+        };
+        let root_node = crate::animation::find_root_joints(&skin);
+        let joint_targets = crate::animation::build_joint_paths(&root_node);
+        let root_bone_name: &str = root_node.name().unwrap_or("");
         let mut clip_handles = AHashMap::default();
-        for (clip_name, clip) in baked_clips {
-            // Bevy IDs a labeled sub-asset from file path plus label only, so
-            // filing under the plain clip name would share an ID with the
-            // root-only loader's clip from this file and overwrite it (this
-            // happened: the root-only baby played baked curves, got fixed
-            // twice, and sank to the floor). The suffix keeps per-shape bakes
-            // apart: baby (`Idle-loop.baby`) never collides with an adult
-            // bake of the same file. The map key stays the clip name. Note
-            // this only separates labels within one outer load — loading the
-            // same file twice with different settings still dedups to the
-            // first outer asset, so prefer `bake_shape_clips_from_bytes` +
-            // `Assets::add` when several shapes share a file.
-            let suffix = if settings.shape_suffix.is_empty() {
-                "baked".to_string()
-            } else {
-                settings.shape_suffix.clone()
-            };
-            let baked_label: &'static str =
-                NAME_INTERNER.intern(&format!("{clip_name}.{suffix}")).leak();
-            let handle = load_context.add_loaded_labeled_asset(
-                baked_label,
-                LoadedAsset::new_with_dependencies(clip),
-            );
-            clip_handles.insert(clip_name, handle);
+        for bake in &settings.shape_bakes {
+            let shape_corrections = &bake.shape_corrections;
+            let bone_corrections: AHashMap<&str, &BakedBoneCorrection> = shape_corrections
+                .baked_bone_corrections
+                .iter()
+                .map(|correction| (correction.bone_name.as_str(), correction))
+                .collect();
+            let baked_clips = bake_shape_clips_from_document(
+                &document,
+                &buffers,
+                &joint_targets,
+                root_bone_name,
+                shape_corrections,
+                &bone_corrections,
+            )?;
+            for (clip_name, clip) in baked_clips {
+                // Bevy IDs a labeled sub-asset from file path plus label only,
+                // so filing under the plain clip name would share an ID with
+                // the root-only loader's clip from this file and overwrite it
+                // (this happened: the root-only baby played baked curves, got
+                // fixed twice, and sank to the floor). The suffix keeps shapes
+                // apart within this one load: `Idle-loop.baby` vs
+                // `Idle-loop.adult`. Map keys stay `(clip, suffix)` so every
+                // shape's clips are reachable from the single outer asset.
+                let suffix = if bake.shape_suffix.is_empty() {
+                    "baked".to_string()
+                } else {
+                    bake.shape_suffix.clone()
+                };
+                let map_key: &'static str = NAME_INTERNER
+                    .intern(&format!("{clip_name}.{suffix}"))
+                    .leak();
+                let baked_label: &'static str = NAME_INTERNER
+                    .intern(&format!("{clip_name}.{suffix}"))
+                    .leak();
+                let handle = load_context.add_loaded_labeled_asset(
+                    baked_label,
+                    LoadedAsset::new_with_dependencies(clip),
+                );
+                clip_handles.insert(map_key, handle);
+            }
         }
 
         Ok(ShapeBakedAnimationAsset {

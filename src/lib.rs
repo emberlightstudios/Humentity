@@ -72,7 +72,7 @@ pub mod prelude {
             RetargetedAnimationAsset, RetargetedAnimationAssetLoader, RetargetedAnimationSettings,
             RigConfigAsset, RigConfigAssetLoader, RigWeightsAsset, RigWeightsAssetLoader,
             ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader, ShapeBakedAnimationSettings,
-            TargetAsset, TargetAssetLoader, TargetDelta, TargetManifestAssetLoader,
+            ShapeBakeRequest, TargetAsset, TargetAssetLoader, TargetDelta, TargetManifestAssetLoader,
             VertexGroupsAsset, VertexGroupsAssetLoader, bake_shape_clips_from_bytes,
         },
         mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_vertex_positions},
