@@ -41,9 +41,9 @@
 //!
 //! A raw GLB scene spawns behind as the unretargeted reference. The baked baby
 //! needs the shape's corrections before its clip can load: this example
-//! derives them from `CharacterShapeAsset` + `CharacterTemplate` + `BaseMesh`
-//! + `MakeHumanMorphs` + `RigData` + `VertexGroups`, retrying until the core
-//! assets are ready.
+//! derives them from `CharacterShapeAsset` + `CharacterTemplate` (baked deltas)
+//! + `BaseMesh` + `RigData` + `VertexGroups`, retrying until the core assets
+//! are ready and the template deltas are baked.
 //!
 //! Important notes:
 //!  - AnimationTargetId matching requires you to leave the base object name as its
@@ -76,7 +76,7 @@ fn main() {
 // Hold handle refs to keep the clip assets alive. One entry per path: each
 // baby plays a different clip asset, and its marker decides which fixup (if
 // any) runs for it. `baked_shape` remembers the baked baby's shape so the
-// corrections can be derived on a later frame once morphs are ready.
+// corrections can be derived on a later frame once template deltas are baked.
 #[derive(Resource, Default)]
 struct ShowcaseAnimations {
     rot_only_clips: Option<Handle<RotationOnlyAnimationAsset>>,
@@ -234,7 +234,7 @@ fn add_humans(
     info!("Babies created");
 }
 
-/// Derives the baked baby's corrections once morphs are ready, then loads the
+/// Derives the baked baby's corrections once template deltas are baked, then loads the
 /// clip with those settings in a single multi-shape loader pass. One outer
 /// load holds every shape's clips under `{clip}.{suffix}` labels, so a second
 /// shape never dedups onto the first shape's bake. Retries until every input
@@ -242,7 +242,6 @@ fn add_humans(
 fn load_baked_clip(
     asset_server: Res<AssetServer>,
     basemesh_vertices: Option<Res<BaseMesh>>,
-    morph_assets: Option<Res<MakeHumanMorphs>>,
     templates: Res<Assets<CharacterTemplate>>,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     rig_data: Option<Res<RigData>>,
@@ -258,8 +257,8 @@ fn load_baked_clip(
     let Some(baked_shape_handle) = animations.baked_shape.clone() else {
         return;
     };
-    let (Some(basemesh_vertices), Some(morph_assets), Some(rig_data), Some(vertex_groups)) =
-        (basemesh_vertices, morph_assets, rig_data, vertex_groups)
+    let (Some(basemesh_vertices), Some(rig_data), Some(vertex_groups)) =
+        (basemesh_vertices, rig_data, vertex_groups)
     else {
         return;
     };
@@ -273,7 +272,6 @@ fn load_baked_clip(
         &shape_asset,
         &templates,
         &basemesh_vertices,
-        &morph_assets,
         rig_spec,
         &vertex_groups,
     ) else {

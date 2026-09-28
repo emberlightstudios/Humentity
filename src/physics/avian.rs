@@ -7,7 +7,7 @@ use bevy::{
 use bevy::ecs::intern::Internable;
 use crate::{
     helpers::HelperVertexPositions,
-    prelude::{CharacterShape, CharacterSkeleton, SkeletonLodDisabled, SkeletonsReady},
+    prelude::{CharacterShape, CharacterShapeAsset, CharacterSkeleton, SkeletonLodDisabled, SkeletonsReady},
     rigs::{RigData, SkeletalBone},
     spawn_skeleton::CharacterScale,
     NAME_INTERNER,
@@ -258,6 +258,9 @@ pub(crate) fn spawn_colliders(
         ),
         (With<NeedsColliders>, With<SkeletonsReady>),
     >,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<crate::template::CharacterTemplate>>,
+    basemesh: Res<crate::basemesh::BaseMesh>,
     rig_data: Res<RigData>,
     container: Option<Res<CharacterPhysicsContainer>>,
 ) {
@@ -278,12 +281,12 @@ pub(crate) fn spawn_colliders(
     let mut char_count = 0;
     for (
         character_entity,
-        _character_shape,
+        character_shape,
         skeleton,
         mut colliders,
         density,
         collision_layers,
-        computed_helpers,
+        helpers_marker,
         character_scale,
     ) in characters.iter_mut()
     {
@@ -295,10 +298,23 @@ pub(crate) fn spawn_colliders(
         };
         let density = density.0;
 
-        let Some(h) = computed_helpers else {
+        if helpers_marker.is_none() {
+            continue;
+        }
+        let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
-        let helpers = &h.0;
+        let Some(template) = templates.get(&shape_asset.template) else {
+            continue;
+        };
+        if basemesh.vertices.is_empty()
+            || template.shapes.iter().any(|shape| shape.helper_deltas.is_none())
+        {
+            continue;
+        }
+        let blended_helpers =
+            template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
+        let helpers = &blended_helpers;
 
         let Some(rig_spec) = rig_data.0.as_ref() else {
             continue;

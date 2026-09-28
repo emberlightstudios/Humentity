@@ -148,13 +148,12 @@ fn fit_shape_skeletons(
         }
     }
     for shape in template.shapes.iter() {
-        let helpers = template
-            .get_helpers(
-                &single_shape_weights(shape.name),
-                &base_mesh.vertices,
-                &morphs,
-            )
-            .expect("template shape helpers resolve once targets are ready");
+        if shape.helper_deltas.is_none() {
+            return;
+        }
+    }
+    for shape in template.shapes.iter() {
+        let helpers = template.blend_helpers(&single_shape_weights(shape.name), &base_mesh.vertices);
         let fitted =
             fit_shape_skeleton_from_helpers(shape.name, &helpers, &bank.bones, rig, &vertex_groups);
         shapes.register(fitted);

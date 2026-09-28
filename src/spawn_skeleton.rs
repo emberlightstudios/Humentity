@@ -142,6 +142,8 @@ pub(crate) fn spawn_rig_skeleton(
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<CharacterTemplate>>,
+    basemesh: Res<BaseMesh>,
     skinned_meshes: Query<
         &SkinnedMesh,
         (Without<Mesh3d>, With<ChildOf>, Allow<SkeletonLodDisabled>),
@@ -166,21 +168,30 @@ pub(crate) fn fit_skeleton_to_shape(
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
 ) {
-    for (entity, character_shape, animation_player, computed_helpers, skeleton, scale) in
+    for (entity, character_shape, animation_player, helpers_marker, skeleton, scale) in
         characters.iter_mut()
     {
-        let Some(h) = computed_helpers else {
+        if helpers_marker.is_none() {
+            continue;
+        }
+        let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
-        let helpers = &h.0;
-        // Wait for the background helper computation before fitting; FitSkeleton is
-        // only removed on a successful fit, so this retries until helpers are ready.
-        if helpers.is_empty() {
+        let Some(template) = templates.get(&shape_asset.template) else {
+            continue;
+        };
+        if basemesh.vertices.is_empty() {
             continue;
         }
-        if shape_assets.get(&character_shape.0).is_none() {
+        // All shapes must carry baked deltas before blending; the template
+        // bake retries until they do, so this waits for it.
+        if template.shapes.iter().any(|shape| shape.helper_deltas.is_none()) {
             continue;
         }
+        // Blend this character's morphed helpers on demand: base plus each
+        // shape's baked delta times the character's weight. Cheap (~13k
+        // verts), synchronous, no per-character background task or cache.
+        let helpers = template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
         let Some(rig_spec) = rig_data.0.as_ref() else {
             continue;
         };
@@ -219,7 +230,7 @@ pub(crate) fn fit_skeleton_to_shape(
         }
 
         // Re-fit skeleton to mesh shape (shared with the GPU shape fit).
-        let model_space_bindposes = crate::rigs::fitted_model_space_bindposes(helpers, rig_spec, &vg);
+        let model_space_bindposes = crate::rigs::fitted_model_space_bindposes(&helpers, rig_spec, &vg);
 
         let bone_config = &rig_spec.config;
 
@@ -603,7 +614,7 @@ pub(crate) fn setup_part_skinning(
 }
 
 /// Observer that strips a character's skeleton and mesh state when its `HelperVertexPositions`
-/// are removed (e.g. the character went off-screen and gave up its per-vertex data).
+/// marker is removed (e.g. teardown or re-fit).
 ///
 /// Physics/ragdoll cleanup is handled separately by the avian observer on the same
 /// trigger. Users can register their own `On<Remove, HelperVertexPositions>` observers to clean up
@@ -657,27 +668,36 @@ pub(crate) fn on_character_helpers_removed(
 /// inverse bindposes — those don't change after the first fit.
 pub(crate) fn on_reset_to_bind_pose(
     trigger: On<ResetToBindPose>,
-    characters: Query<&CharacterSkeleton>,
-    helpers_query: Query<&HelperVertexPositions>,
+    characters: Query<(&CharacterShape, &CharacterSkeleton, &HelperVertexPositions)>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<CharacterTemplate>>,
+    basemesh: Res<BaseMesh>,
     mut local_transforms: Query<&mut Transform, (Without<CharacterShape>, Allow<SkeletonLodDisabled>)>,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
 ) {
     let character = trigger.event().0;
-    let Ok(skeleton) = characters.get(character) else {
+    let Ok((character_shape, skeleton, _)) = characters.get(character) else {
         return;
     };
-    let Ok(helpers) = helpers_query.get(character) else {
+    let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
         return;
     };
-    if helpers.0.is_empty() {
+    let Some(template) = templates.get(&shape_asset.template) else {
         return;
     };
+    if basemesh.vertices.is_empty()
+        || template.shapes.iter().any(|shape| shape.helper_deltas.is_none())
+    {
+        return;
+    };
+    let blended_helpers =
+        template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
     let Some(rig_spec) = rig_data.0.as_ref() else {
         return;
     };
     let model_space_bindposes =
-        crate::rigs::fitted_model_space_bindposes(&helpers.0, rig_spec, &vg);
+        crate::rigs::fitted_model_space_bindposes(&blended_helpers, rig_spec, &vg);
     let bone_config = &rig_spec.config;
     for &bone in &rig_spec.reference_rig.bone_names {
         let Some(bone_data) = bone_config.bones.get(bone) else {

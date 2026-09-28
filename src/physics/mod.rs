@@ -1,4 +1,4 @@
-// These are used conditionally by the `avian` and `physx` feature-gated submodules.
+// Shared constants used by the `avian` feature-gated submodule.
 #![allow(dead_code)]
 
 use bevy::prelude::*;
@@ -168,5 +168,3 @@ impl Default for RagdollMobility {
 
 #[cfg(feature = "avian")]
 pub mod avian;
-#[cfg(feature = "physx")]
-pub mod physx;

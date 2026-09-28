@@ -2,7 +2,7 @@ use crate::{
     NAME_INTERNER,
     basemesh::{BaseMesh, VertexGroups},
     loaders::{BoneJsonConfig, CharacterShapeAsset, ReferenceRigAsset},
-    morphs::{MakeHumanMorphs, MorphError},
+    morphs::MorphError,
     rigs::{RigSpec, SkeletonRootBone, fitted_model_space_bindposes},
     spawn_mesh::CharacterShape,
     spawn_skeleton::{CharacterSkeleton, SkeletonLodDisabled},
@@ -136,18 +136,18 @@ pub fn shape_baked_corrections_for_shape(
     shape_asset: &CharacterShapeAsset,
     templates: &Assets<CharacterTemplate>,
     basemesh_vertices: &BaseMesh,
-    morphs: &MakeHumanMorphs,
     rig_spec: &RigSpec,
     vertex_groups: &VertexGroups,
 ) -> Result<ShapeBakedCorrections, MorphError> {
     let template = templates
         .get(&shape_asset.template)
         .ok_or(MorphError::TargetNotFound("template missing for shape"))?;
-    let helpers = template.get_helpers(
-        &shape_asset.template_morph_targets,
-        basemesh_vertices,
-        morphs,
-    )?;
+    if basemesh_vertices.vertices.is_empty()
+        || template.shapes.iter().any(|shape| shape.helper_deltas.is_none())
+    {
+        return Err(MorphError::TargetNotFound("template deltas not baked yet"));
+    }
+    let helpers = template.blend_helpers(&shape_asset.template_morph_targets, &basemesh_vertices.vertices);
     let fitted_model_space = fitted_model_space_bindposes(&helpers, rig_spec, vertex_groups);
     let reference_rig = rig_spec.reference_rig();
     Ok(shape_corrections_from_model_space(

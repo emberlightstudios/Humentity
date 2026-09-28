@@ -282,8 +282,7 @@ With that said, the pieces:
 - Tune with `RagdollDensity`, `RagdollDamping`, `RagdollMobility` (0 = locked, 1 = full anatomical range), `RagdollJointLimitOverrides` (per-bone swing/twist or hinge limits), and `RagdollCollisionLayers`. Limits resolve through `default_joint_limit` / `resolve_joint_limit`.
 - `ragdoll_dof.rs` floats the character and sweeps one joint degree of freedom at a time so you can judge each limit. Use it before touching the joint tables.
 - After a ragdoll ends, fire `commands.trigger(ResetToBindPose(character))` to snap bones back to the fitted bind pose before restarting the clip — otherwise stale ragdoll transforms survive under the animation.
-- `CharacterScale` is respected: collider shapes are built scaled and joint anchors are resolved in the scaled bone frame.
-- The `physx` feature keeps an alternate backend (`bevy_mod_physx`), but it is most likely broken: it hasn't been maintained and may or may not come back. avian3d is the active backend.
+- `CharacterScale` is respected: collider shapes are built scaled and joint anchors are resolved in the scaled bone frame. avian3d is the physics backend.
 
 ## Examples
 
@@ -302,7 +301,6 @@ With that said, the pieces:
 | `ragdoll_avian_partial.rs` | Partial ragdoll (arms only) with kinematic colliders |
 | `stress_test_ragdoll_avian.rs` | Grid of ragdoll characters with sleep timers |
 | `ragdoll_dof.rs` | One-joint-at-a-time limit tuning rig |
-| `ragdoll_physx.rs` | Ragdoll via the alternate `physx` backend (likely broken, unmaintained) |
 
 Run examples with:
 
@@ -323,7 +321,6 @@ cargo run --example ragdoll_dof --features avian
 | Feature | Description |
 |---|---|
 | `avian` | Enables ragdoll physics via [avian3d](https://github.com/Jondolf/avian) (active backend) |
-| `physx` | Alternate backend via `bevy_mod_physx` (off by default; most likely broken, unmaintained — may or may not come back) |
 | `debug` | Enables Bevy's debug rendering |
 
 ## Custom assets

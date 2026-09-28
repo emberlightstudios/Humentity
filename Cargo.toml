@@ -17,16 +17,10 @@ toml = ">=1.1.2"
 thiserror = ">=2.0.18"
 avian3d = { optional = true, version = "0.7.0" }
 
-bevy_mod_physx = { optional = true, path = "../bevy_mod_physx" }
-
 [dev-dependencies]
 bevy = { version = "0.19.0", features = ["bevy_feathers", "bevy_dev_tools"] }
 bevy-inspector-egui = "0.37.0"
 bevy_egui = "0.40.0"
-
-[[example]]
-name = "ragdoll_physx"
-required-features = ["physx"]
 
 [[example]]
 name = "ragdoll_avian"
@@ -48,7 +42,6 @@ required-features = ["avian"]
 default = []
 debug = ["bevy/debug"]
 avian = ["dep:avian3d"]
-physx = ["dep:bevy_mod_physx"]
 
 [lints.clippy]
 all = "deny"

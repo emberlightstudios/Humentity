@@ -181,18 +181,33 @@ fn main() {
 }
 
 /// Offsets the character by its bind-pose lowest vertex height so it sits at a
-/// fixed, known height (y = 0 at the feet). The bind-pose vertices become
-/// available asynchronously, so we wait for them. Idempotent: it just re-asserts
-/// the (constant) transform once the vertices are known.
+/// fixed, known height (y = 0 at the feet). Blends the morphed helpers on
+/// demand from the template's baked deltas once they land. Idempotent: it
+/// just re-asserts the (constant) transform once the vertices are known.
 fn ground_character(
     mut commands: Commands,
-    characters: Query<(Entity, &HelperVertexPositions), With<CharacterShape>>,
+    characters: Query<(Entity, &CharacterShape, &HelperVertexPositions), With<CharacterShape>>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    templates: Res<Assets<CharacterTemplate>>,
+    basemesh: Res<BaseMesh>,
 ) {
-    for (entity, helpers) in &characters {
-        if helpers.0.is_empty() {
+    for (entity, character_shape, _) in &characters {
+        let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
+            continue;
+        };
+        let Some(template) = templates.get(&shape_asset.template) else {
+            continue;
+        };
+        if basemesh.vertices.is_empty()
+            || template.shapes.iter().any(|shape| shape.helper_deltas.is_none())
+        {
             continue;
         }
-        let min_y = helpers.0.iter().map(|v| v.y).fold(f32::INFINITY, f32::min);
+        let blended_helpers = template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
+        if blended_helpers.is_empty() {
+            continue;
+        }
+        let min_y = blended_helpers.iter().map(|v| v.y).fold(f32::INFINITY, f32::min);
         // +0.05 clearance above y = 0.
         let y = -min_y + 0.05;
         commands

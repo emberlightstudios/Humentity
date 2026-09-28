@@ -1,16 +1,28 @@
-use crate::{morphs::adjust_helpers_to_morphs, prelude::*};
+use ahash::AHashMap;
+use crate::prelude::*;
 use bevy::{ecs::intern::Internable, prelude::*};
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use serde::{Deserializer, Serializer};
 
-/// In order to dynamically reshape humans at runtime, we can define a CharacterArchetype which is a mesh
-/// cached from a given set of MorphTargets.  Archetypes are added as new distinct shapekeys to the base
-/// mesh, and the rest of the makehuman shapekeys are removed.  Use this for distinct faces or body types.
-/// You can also blend between them, since they are just shapekeys.
+/// One blendable body/face shape in a [`CharacterTemplate`].
+///
+/// Weights are free: the game decides the convention. The usual split is
+/// macro shapes (baby, bodybuilder) with weights summing to 1, plus feature
+/// shapes (long nose, big ears) with independent 0..1 weights added on top,
+/// e.g. 50% baby + 50% bodybuilder + 100% nose + 100% ears. humentity never
+/// normalizes; any auto-normalize for macro groups lives in game code, not here.
+///
+/// Each shape's morphed-body delta (`helper_deltas`) is baked once on the
+/// template and shared by every character. Per-character blends compute
+/// `base + Σ weight × delta` on demand, so no 150KB helper vec is duplicated
+/// per character. Deltas are sparse: a nose shape only touches nose verts.
+/// `None` means not yet baked (morph targets not loaded); the bake fills it,
+/// then characters blend from it.
 #[derive(Clone, Debug)]
 pub struct CharacterMorphShape {
     pub name: &'static str,
     pub morphs: MorphTargets,
+    pub helper_deltas: Option<Vec<TargetDelta>>,
 }
 
 impl CharacterMorphShape {
@@ -18,6 +30,7 @@ impl CharacterMorphShape {
         Self {
             name: NAME_INTERNER.intern(name.as_ref()).leak(),
             morphs,
+            helper_deltas: None,
         }
     }
 }
@@ -54,6 +67,7 @@ impl<'de> Deserialize<'de> for CharacterMorphShape {
         Ok(CharacterMorphShape {
             name,
             morphs: tmp.morphs,
+            helper_deltas: None,
         })
     }
 }
@@ -76,25 +90,67 @@ impl CharacterTemplate {
         }
     }
 
-    pub fn get_helpers(
+
+    /// Blend per-character helpers from baked template deltas.
+    ///
+    /// `base + Σ weight × delta`: macro shapes blend with weights summing to
+    /// 1, feature shapes add on top with independent weights. Missing weights
+    /// read as 0. Shapes with `None` deltas are skipped (not yet baked).
+    pub fn blend_helpers(
         &self,
         morph_values: &MorphTargets,
         basemesh_vertices: &[Vec3],
-        mh_morphs: &MakeHumanMorphs,
-    ) -> Result<Vec<Vec3>, crate::morphs::MorphError> {
-        let mut mh_morph_values = MorphTargets::default();
+    ) -> Vec<Vec3> {
+        let mut helpers = basemesh_vertices.to_vec();
         for shape in self.shapes.iter() {
-            let Some(weight) = morph_values.get(shape.name) else {
+            let shape_weight = morph_values.get(shape.name).copied().unwrap_or(0.0);
+            if shape_weight == 0.0 {
+                continue;
+            }
+            let Some(deltas) = shape.helper_deltas.as_ref() else {
                 continue;
             };
-            for (&k, v) in shape.morphs.iter() {
-                let entry = mh_morph_values.entry(k).or_insert(0.);
-                *entry += *v * weight;
+            for delta in deltas.iter() {
+                helpers[delta.vertex as usize] += delta.offset * shape_weight;
             }
         }
-        adjust_helpers_to_morphs(&mh_morph_values, &mh_morphs.targets, basemesh_vertices)
+        helpers
     }
 }
+
+/// Bake one shape's sparse morphed-body delta from resolved morph targets.
+///
+/// Runs once per template shape after [`resolve_template_morphs`] (morphs are
+/// direct targets by then). The delta is `morphed − base`: zero everywhere the
+/// shape doesn't touch, so a nose shape only carries nose verts.
+fn bake_shape_deltas(
+    shape_morphs: &MorphTargets,
+    targets: &AHashMap<&'static str, TargetAsset>,
+    basemesh_vert_count: usize,
+) -> Vec<TargetDelta> {
+    use crate::loaders::TargetDelta as ShapeDelta;
+    let mut accumulated: AHashMap<u16, Vec3> = AHashMap::default();
+    for (&target_name, &target_weight) in shape_morphs.iter() {
+        let Some(target) = targets.get(target_name) else {
+            panic!(
+                "template shape references morph target '{target_name}' with no loaded target: gate template creation on HumentityAssetsReady"
+            );
+        };
+        for delta in target.deltas.iter() {
+            debug_assert!(
+                (delta.vertex as usize) < basemesh_vert_count,
+                "morph target '{target_name}' vertex {} out of range for {basemesh_vert_count} basemesh verts",
+                delta.vertex,
+            );
+            *accumulated.entry(delta.vertex).or_insert(Vec3::ZERO) += delta.offset * target_weight;
+        }
+    }
+    accumulated
+        .into_iter()
+        .map(|(vert_index, vert_offset)| ShapeDelta { vertex: vert_index, offset: vert_offset })
+        .collect()
+}
+
 
 /// Resolves macro morph sliders (e.g. "muscle") into direct morph targets
 /// whenever a new CharacterTemplate asset is added. Templates must only be
@@ -118,6 +174,35 @@ pub(crate) fn resolve_template_morphs(
             shape.morphs = morphs
                 .compute_target_weights(&shape.morphs)
                 .expect("CharacterTemplate created before morph data was ready: gate template creation on HumentityAssetsReady");
+        }
+        // Delta baking lives in `bake_template_deltas` (guarded by
+        // `has_targets_for_shapes` + basemesh readiness). Baking here would
+        // panic on templates added before the targets folder finishes loading.
+    }
+}
+
+/// Retries template delta bakes for templates whose basemesh wasn't loaded at
+/// resolve time. Runs until every shape on every template carries deltas.
+pub(crate) fn bake_template_deltas(
+    morphs: Res<MakeHumanMorphs>,
+    basemesh: Res<crate::basemesh::BaseMesh>,
+    asset_server: Res<AssetServer>,
+    mut templates: ResMut<Assets<CharacterTemplate>>,
+) {
+    if basemesh.vertices.is_empty() || !morphs.is_ready(&asset_server) {
+        return;
+    }
+    let vert_count = basemesh.vertices.len();
+    let Ok(targets) = morphs.targets.read() else {
+        return;
+    };
+    for (_, template) in templates.iter_mut() {
+        for shape in template.shapes.iter_mut() {
+            if shape.helper_deltas.is_none()
+                && morphs.has_targets_for_shapes(std::slice::from_ref(shape))
+            {
+                shape.helper_deltas = Some(bake_shape_deltas(&shape.morphs, &targets, vert_count));
+            }
         }
     }
 }

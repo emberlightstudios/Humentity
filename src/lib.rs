@@ -26,17 +26,10 @@ pub static NAME_INTERNER: Interner<str> = Interner::new();
 
 pub mod prelude {
     #[cfg(feature = "avian")]
-    pub use crate::physics::avian::RagdollCollisionLayers;
-    #[cfg(all(feature = "avian", not(feature = "physx")))]
     pub use crate::physics::avian::{
         BoneForCollider, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
-        ColliderOffset, DisablePhysics, RagdollJointLimit, RagdollJointLimitOverrides,
-        default_joint_limit, resolve_joint_limit,
-    };
-    #[cfg(all(feature = "physx", not(feature = "avian")))]
-    pub use crate::physics::physx::{
-        ColliderForCharacter, ColliderList, ColliderType, HitboxCollider, HurtboxCollider,
-        PhysxCharacterColliders, RagdollCollider, RagdollColliderFilter,
+        ColliderOffset, DisablePhysics, RagdollCollisionLayers, RagdollJointLimit,
+        RagdollJointLimitOverrides, default_joint_limit, resolve_joint_limit,
     };
     pub use crate::physics::{
         COLLIDERS, ColliderBone, HumentityRagdollSystemSet, RagdollDamping, RagdollDensity,
@@ -191,7 +184,6 @@ impl Plugin for HumentityPlugin {
         app.insert_resource(spawn_mesh::MhcloMeshBuilder::default())
             .insert_resource(spawn_mesh::CachedMhcloMeshHandles::default())
             .insert_resource(spawn_mesh::CachedMhcloRawMeshHandles::default())
-            .insert_resource(helpers::HelperComputeJobs::default())
             .insert_resource(rigs::RigData::new())
             .insert_resource(rigs::RigBundleRes::default());
 
@@ -247,17 +239,13 @@ impl Plugin for HumentityPlugin {
                         .run_if(not(resource_exists::<BuiltRigs>)),
                     (
                         (
-                            helpers::submit_helper_computations,
-                            helpers::collect_helper_computations,
+                            template::bake_template_deltas,
                             spawn_skeleton::spawn_rig_skeleton,
                             spawn_skeleton::fit_skeleton_to_shape,
                             spawn_skeleton::check_skeletons_ready,
                             spawn_skeleton::setup_part_skinning,
                         )
                             .chain()
-                            // Helpers snapshot basemesh vertices at dispatch and the
-                            // retry marker is consumed, so dispatch must also wait
-                            // for every core asset like the mesh does.
                             .run_if(resource_exists::<HumentityAssetsReady>),
                         // No mesh may construct until every core asset is proven
                         // loaded. Resource existence alone races async loads and
@@ -276,7 +264,6 @@ impl Plugin for HumentityPlugin {
             )
             .add_observer(spawn_skeleton::on_character_helpers_removed)
             .add_observer(spawn_skeleton::on_reset_to_bind_pose)
-            .add_observer(helpers::tag_empty_helpers)
             .add_systems(
                 Update,
                 template::resolve_template_morphs
@@ -332,48 +319,6 @@ impl Plugin for HumentityPlugin {
                 )
                 .add_observer(physics::avian::on_character_helpers_removed)
                 .add_observer(physics::avian::on_disable_physics);
-        }
-
-        #[cfg(all(feature = "physx", not(feature = "avian")))]
-        {
-            use bevy::app::AnimationSystems;
-            use bevy_mod_physx::prelude::Physics;
-
-            app.add_systems(
-                Startup,
-                physics::physx::create_collider_physics_material.run_if(resource_exists::<Physics>),
-            )
-            .add_systems(
-                Update,
-                (
-                    physics::physx::auto_add_ragdoll_colliders
-                        .after(spawn_skeleton::check_skeletons_ready),
-                    physics::physx::spawn_kinematic_colliders::<HitboxCollider>
-                        .run_if(resource_exists::<physics::physx::ColliderMaterial>)
-                        .run_if(resource_exists::<Physics>)
-                        .run_if(resource_exists::<RigData>),
-                    physics::physx::spawn_kinematic_colliders::<HurtboxCollider>
-                        .run_if(resource_exists::<physics::physx::ColliderMaterial>)
-                        .run_if(resource_exists::<Physics>)
-                        .run_if(resource_exists::<RigData>),
-                    physics::physx::spawn_ragdoll_colliders
-                        .run_if(resource_exists::<physics::physx::ColliderMaterial>)
-                        .run_if(resource_exists::<Physics>)
-                        .run_if(resource_exists::<RigData>),
-                    physics::physx::sync_colliders::<HitboxCollider>,
-                    physics::physx::sync_colliders::<HurtboxCollider>,
-                    physics::physx::on_colliders_changed::<HitboxCollider>,
-                    physics::physx::on_colliders_changed::<HurtboxCollider>,
-                    physics::physx::on_colliders_changed::<RagdollCollider>,
-                ),
-            )
-            .add_systems(
-                PostUpdate,
-                physics::physx::sync_skeleton_to_ragdoll.after(AnimationSystems),
-            )
-            .add_observer(physics::physx::mark_entity_needs_colliders::<HitboxCollider>)
-            .add_observer(physics::physx::mark_entity_needs_colliders::<HurtboxCollider>)
-            .add_observer(physics::physx::mark_entity_needs_colliders::<RagdollCollider>);
         }
     }
 }
