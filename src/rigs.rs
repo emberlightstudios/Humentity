@@ -35,7 +35,11 @@ pub struct SkeletonRootBone {
     pub entity: Entity,
     pub root_scale: f32,
     pub bind_pose_y: f32,
+    /// Reference-rig root Y the clip was authored against. Offsets are
+    /// measured from here, then scaled onto the fitted bind pose.
+    pub reference_bind_pose_y: f32,
 }
+
 /// Rearward shift for the default rig's skeleton root, in reference-rig meters.
 /// The default rig's root bone sits at the rear of the pelvis, so without this
 /// fitted characters ride slightly forward of their capsule collider. Scales

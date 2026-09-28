@@ -30,7 +30,7 @@ use humentity::prelude::*;
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, HumentityPlugin::default()))
+        .add_plugins((DefaultPlugins, HumentityPlugin))
         .insert_resource(SkeletonLodConfig::new(&[
             BoneMergeConfig::full().merge_default_rig_toes(),
         ]))
@@ -92,6 +92,7 @@ fn spawn_character(
 
     commands.spawn((
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template, weights))),
+        RootOnlyRetargeting,
         InheritedVisibility::default(),
         children![(
             CharacterPart { mesh, skeleton_lod: 0 },
@@ -160,7 +161,7 @@ Add `HumentityGpuPlugin` next to `HumentityPlugin`, register one full skeleton f
 use humentity::prelude::*;
 
 app.add_plugins((
-    HumentityPlugin::default(),
+    HumentityPlugin,
     HumentityGpuPlugin {
         instances: 10_000,
         sample_rate: 30.0,
@@ -309,9 +310,27 @@ cargo run --example ragdoll_dof --features avian
 
 Custom meshes, morph targets, and rig data can be authored in Blender using [MPFB](https://github.com/makehumancommunity/makehuman-plugin-for-blender) and exported as `.mhclo`/`.obj` files with `.target` shape keys. The crate's native asset loaders handle these formats automatically.
 
+## Animation retargeting markers
+
+Retargeting is per character. Put a marker on the `CharacterShape` entity;
+both systems are always registered but each runs only for its marker, so
+mixed styles work side by side:
+
+- `RootOnlyRetargeting`: custom loader keeps root translation only; only the
+  root fix runs. Cheapest, right for rotation-driven clips, drops
+  bone-translation motion at import.
+- `DynamicRetargeting`: Bevy's built-in clip loader, full per-frame rescale
+  of root + bones. Any clip on any shape, highest runtime cost.
+- No marker: shape-baked clips via `ShapeBakedAnimationAssetLoader` (bake
+  with `shape_baked_corrections_for_shape` passed as loader settings). Zero
+  runtime, one asset per shape. Never add a marker to baked characters or
+  the root scale applies twice.
+
+`animation.rs` spawns three babies side by side, one per path.
+
 ## Animation and ragdoll bone sync
 
-The `HumentitySkeletonSystemSet` system set runs in `PostUpdate` after Bevy's `AnimationSystems` and before `TransformSystems::Propagate`. The built-in `rescale_root_bone_translation` system (corrects root bone Y translation for different human proportions) and `sync_bones_to_ragdoll` (writes ragdoll collider positions back to the skeleton) both run in this set.
+The `HumentitySkeletonSystemSet` system set runs in `PostUpdate` after Bevy's `AnimationSystems` and before `TransformSystems::Propagate`. The marker systems above plus `sync_bones_to_ragdoll` (writes ragdoll collider positions back to the skeleton) run in this set.
 
 To run your own systems after this pass, order them relative to this set:
 

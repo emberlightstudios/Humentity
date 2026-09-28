@@ -1,62 +1,100 @@
 use crate::{
     NAME_INTERNER,
-    rigs::SkeletonRootBone,
+    basemesh::{BaseMesh, VertexGroups},
+    loaders::{BoneJsonConfig, CharacterShapeAsset, ReferenceRigAsset},
+    morphs::{MakeHumanMorphs, MorphError},
+    rigs::{RigSpec, SkeletonRootBone, fitted_model_space_bindposes},
     spawn_mesh::CharacterShape,
     spawn_skeleton::{CharacterSkeleton, SkeletonLodDisabled},
+    template::CharacterTemplate,
 };
 use ahash::{AHashMap, AHashSet};
 use bevy::{
-    animation::{animated_field, AnimationTargetId},
+    animation::{AnimationTargetId, animated_field},
     ecs::intern::Internable,
     prelude::*,
 };
 use gltf::Skin;
+use serde::{Deserialize, Serialize};
 
 /// humentity's PostUpdate bone-authoritative pass that runs after Bevy's
 /// `AnimationSystems` and before `TransformSystems::Propagate`. It covers
-/// animation post-processing (`rescale_root_bone_translation` for the root,
-/// `rescale_full_bone_translations` for `Full` non-root tracks) and ragdoll
+/// animation post-processing for the marker on each character, plus ragdoll
 /// bone→skeleton sync (`sync_bones_to_ragdoll`). Add your own systems with
 /// `.after(HumentitySkeletonSystemSet)` to run after this pass.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HumentitySkeletonSystemSet;
 
-/// Marker for the translation-track workflow. Clips always keep every bone's
-/// translation tracks; non-root tracks are rescaled per frame by
-/// `rescale_full_bone_translations` only when the `dynamic_translation_tracks`
-/// plugin flag is on. The root bone is always handled by
-/// `rescale_root_bone_translation`.
-#[derive(Copy, Clone, Debug)]
-pub struct TranslationTracks;
+/// Per-character retargeting markers. Put one on the `CharacterShape` entity
+/// alongside `CharacterShape`; the matching system runs only for characters
+/// that carry it, so different characters can mix styles freely:
+///
+/// - [`RootOnlyRetargeting`]: clips carry root translation only (rotation +
+///   root Y bob). Load clips with the root-only loader
+///   ([`crate::loaders::RetargetedAnimationAsset`]); only
+///   `rescale_root_bone_translation` runs. Cheapest per frame, correct for
+///   rotation-driven clips like locomotion, but non-root bone translations
+///   are dropped at import and lost.
+/// - [`DynamicRetargeting`]: clips keep every translation track. Load clips
+///   with Bevy's built-in glTF clip loader (no custom loader);
+///   `rescale_dynamic_retargeting` rescales root and all bones per frame from
+///   the fit cache. Any clip on any shape, at the cost of a per-frame pass.
+///
+/// Shape-baked clips ([`crate::loaders::ShapeBakedAnimationAssetLoader`]) need
+/// no marker and no system: root and bones are rewritten into the curves at
+/// import, so the character animates normally. Never put a marker on a
+/// character playing baked clips, or the root scale applies twice.
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RootOnlyRetargeting;
 
+/// Full per-frame retarget marker: root + every bone, any clip, any shape.
+/// See the marker docs on [`RootOnlyRetargeting`] for the three-way comparison.
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DynamicRetargeting;
+
+/// Root-only post-process: rescales root Y to the fitted shape and zeroes
+/// root XZ (locomotion comes from gameplay movement). Runs only for
+/// characters carrying [`RootOnlyRetargeting`].
 pub(crate) fn rescale_root_bone_translation(
     root_info: Query<(&SkeletonRootBone, &ChildOf)>,
+    marked_characters: Query<Entity, With<RootOnlyRetargeting>>,
     animation_players: Query<&AnimationPlayer>,
     mut transforms: Query<&mut Transform>,
 ) {
     for (info, child_of) in &root_info {
+        if marked_characters.get(child_of.parent()).is_err() {
+            continue;
+        }
         let Ok(player) = animation_players.get(child_of.parent()) else {
             continue;
         };
         if player.playing_animations().next().is_none() {
             continue;
         }
-        let Ok(mut t) = transforms.get_mut(info.entity) else {
+        let Ok(mut root_transform) = transforms.get_mut(info.entity) else {
             continue;
         };
-        let delta = t.translation.y - info.bind_pose_y;
-        if delta.abs() > 1e-3 {
-            t.translation.y *= info.root_scale;
+        // Offset math: measure from the reference bind the clip was authored
+        // against, scale the offset, re-anchor on the fitted bind. Scaling the
+        // raw value (`y *= scale`) double-scales: the clip already starts at
+        // reference height, so the product lands near the ground for babies.
+        let root_offset_y = root_transform.translation.y - info.reference_bind_pose_y;
+        if root_offset_y.abs() > 1e-3 {
+            root_transform.translation.y = info.bind_pose_y + root_offset_y * info.root_scale;
+        } else {
+            root_transform.translation.y = info.bind_pose_y;
         }
-        t.translation.x = 0.;
-        t.translation.z = 0.;
+        root_transform.translation.x = 0.;
+        root_transform.translation.z = 0.;
     }
 }
 
 /// Cached per-bone correction that retargets a reference-proportioned clip
 /// translation onto the fitted shape. Computed once per fit in
-/// `fit_skeleton_to_shape`; applied per frame by
-/// `rescale_full_bone_translations`.
+/// `fit_skeleton_to_shape`; consumed per frame by
+/// `rescale_dynamic_retargeting` and at import by the shape-bake loader.
+/// Root has no entity entry here: both dynamic and baked paths own the root
+/// separately, so the root scale never applies twice.
 #[derive(Clone, Copy, Debug)]
 pub struct BoneTranslationCorrection {
     /// Bone entity in the character's fixed skeleton.
@@ -72,29 +110,185 @@ pub struct BoneTranslationCorrection {
     pub translation_direction_adjust: Quat,
 }
 
-/// Post-process for non-root translation tracks: rescales every non-root
-/// bone's clip translation to the fitted shape. Runs only when the
-/// `dynamic_translation_tracks` plugin flag is on.
+/// Serializable per-bone correction baked into clip curves at import by the
+/// shape-bake loader. Same math as [`BoneTranslationCorrection`], keyed by
+/// bone name instead of entity (entities don't exist at import time).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BakedBoneCorrection {
+    /// Bone name in the reference rig.
+    pub bone_name: String,
+    /// Fitted local length / reference local length.
+    pub translation_length_ratio: f32,
+    /// Re-aligns the clip translation direction from the reference bone
+    /// direction to the fitted shape's direction, expressed in parent space.
+    pub translation_direction_adjust: Quat,
+    /// Fitted rest translation; used by the bake to skip rest poses.
+    pub fitted_rest_translation: Vec3,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ShapeBakedCorrections {
+    /// Root Y scale: fitted root height / reference root height.
+    pub baked_root_scale: f32,
+    /// Fitted root Y; baked curves store fitted-space positions.
+    pub baked_bind_pose_y: f32,
+    /// Reference root Y; offsets are measured from here, then scaled.
+    pub reference_bind_pose_y: f32,
+    /// Per-bone corrections for every non-root bone. Root is excluded: the
+    /// bake owns the root separately via `baked_root_scale`, so the root
+    /// scale never applies twice.
+    pub baked_bone_corrections: Vec<BakedBoneCorrection>,
+}
+pub fn shape_baked_corrections_for_shape(
+    shape_asset: &CharacterShapeAsset,
+    templates: &Assets<CharacterTemplate>,
+    basemesh_vertices: &BaseMesh,
+    morphs: &MakeHumanMorphs,
+    rig_spec: &RigSpec,
+    vertex_groups: &VertexGroups,
+) -> Result<ShapeBakedCorrections, MorphError> {
+    let template = templates
+        .get(&shape_asset.template)
+        .ok_or(MorphError::TargetNotFound("template missing for shape"))?;
+    let helpers = template.get_helpers(
+        &shape_asset.template_morph_targets,
+        basemesh_vertices,
+        morphs,
+    )?;
+    let fitted_model_space = fitted_model_space_bindposes(&helpers, rig_spec, vertex_groups);
+    let reference_rig = rig_spec.reference_rig();
+    Ok(shape_corrections_from_model_space(
+        reference_rig,
+        &rig_spec.config.bones,
+        &fitted_model_space,
+    ))
+}
+
+pub(crate) fn shape_corrections_from_model_space(
+    reference_rig: &ReferenceRigAsset,
+    bone_config: &AHashMap<&'static str, BoneJsonConfig>,
+    fitted_model_space: &AHashMap<&'static str, Transform>,
+) -> ShapeBakedCorrections {
+    let root_bone_name = reference_rig.bone_names.first().copied().unwrap_or("");
+    let reference_root_y = reference_rig.model_space_bindpose[root_bone_name]
+        .translation
+        .y;
+    let fitted_root_y = fitted_model_space
+        .get(root_bone_name)
+        .map_or(1.0, |root_pose| root_pose.translation.y);
+    let baked_root_scale = if reference_root_y.abs() > 1e-6 {
+        fitted_root_y / reference_root_y
+    } else {
+        1.0
+    };
+    let mut baked_bone_corrections = Vec::new();
+    for &bone_name in &reference_rig.bone_names {
+        let Some(bone_config_entry) = bone_config.get(bone_name) else {
+            continue;
+        };
+        if bone_config_entry.parent.is_empty() {
+            continue;
+        }
+        let Some(reference_local) = reference_rig.local_bindpose.get(bone_name) else {
+            continue;
+        };
+        if reference_local.translation.length() < 1e-3 {
+            continue;
+        }
+        let fitted_local = local_from_model_space(
+            bone_name,
+            &bone_config_entry.parent,
+            fitted_model_space,
+        );
+        let Some(fitted_local) = fitted_local else {
+            continue;
+        };
+        let translation_length_ratio =
+            fitted_local.translation.length() / reference_local.translation.length();
+        let parent_name: &'static str = NAME_INTERNER.intern(&bone_config_entry.parent).leak();
+        let translation_direction_adjust = parent_space_direction_fix(
+            reference_rig,
+            fitted_model_space,
+            bone_name,
+            parent_name,
+        );
+        baked_bone_corrections.push(BakedBoneCorrection {
+            bone_name: bone_name.to_string(),
+            translation_length_ratio,
+            translation_direction_adjust,
+            fitted_rest_translation: fitted_local.translation,
+        });
+    }
+    ShapeBakedCorrections {
+        baked_root_scale,
+        baked_bind_pose_y: fitted_root_y,
+        reference_bind_pose_y: reference_root_y,
+        baked_bone_corrections,
+    }
+}
+
+pub(crate) fn local_from_model_space(
+    bone_name: &'static str,
+    parent_name: &str,
+    fitted_model_space: &AHashMap<&'static str, Transform>,
+) -> Option<Transform> {
+    let child_matrix = fitted_model_space.get(bone_name)?.to_matrix();
+    let parent_matrix = if parent_name.is_empty() {
+        Mat4::IDENTITY
+    } else {
+        let leaked_parent: &'static str = NAME_INTERNER.intern(parent_name).leak();
+        fitted_model_space.get(leaked_parent)?.to_matrix()
+    };
+    Some(Transform::from_matrix(parent_matrix.inverse() * child_matrix))
+}
+
+pub(crate) fn parent_space_direction_fix(
+    reference_rig: &ReferenceRigAsset,
+    fitted_model_space: &AHashMap<&'static str, Transform>,
+    bone_name: &'static str,
+    parent_name: &'static str,
+) -> Quat {
+    let (Some(reference_bone), Some(reference_parent), Some(fitted_bone), Some(fitted_parent)) = (
+        reference_rig.model_space_bindpose.get(bone_name),
+        reference_rig.model_space_bindpose.get(parent_name),
+        fitted_model_space.get(bone_name),
+        fitted_model_space.get(parent_name),
+    ) else {
+        return Quat::IDENTITY;
+    };
+    let reference_segment = reference_bone.translation - reference_parent.translation;
+    let fitted_segment = fitted_bone.translation - fitted_parent.translation;
+    if reference_segment.length_squared() < 1e-12 || fitted_segment.length_squared() < 1e-12 {
+        return Quat::IDENTITY;
+    }
+    let model_space_delta = Quat::from_rotation_arc(
+        reference_segment.normalize(),
+        fitted_segment.normalize(),
+    );
+    (fitted_parent.rotation.inverse() * model_space_delta * fitted_parent.rotation).normalize()
+}
+
+/// Full per-frame retarget: owns the root (Y rescale + XZ zero, the same math
+/// the root-only system does) and every non-root bone (length ratio +
+/// direction fix from the fit cache). Runs only for characters carrying
+/// [`DynamicRetargeting`]. Clips keep every translation track and are loaded
+/// with Bevy's built-in glTF clip loader; nothing happens at import.
 ///
 /// Clips are authored on the reference rig, so their translation tracks are
-/// reference-proportioned. The cached [`BoneTranslationCorrection`] rescales
-/// them per bone after Bevy's `AnimationSystems` run.
-///
-/// Only bones the clip actually drives differ from their fitted rest, so bones
-/// at rest are skipped via deadzone. The root bone is excluded entirely:
-/// locomotion comes from gameplay movement, and
-/// `rescale_root_bone_translation` owns it.
-pub(crate) fn rescale_full_bone_translations(
-    characters: Query<(&CharacterSkeleton, Option<&AnimationPlayer>)>,
+/// reference-proportioned. Only bones the clip actually drives differ from
+/// their fitted rest, so bones at rest are skipped via deadzone.
+pub(crate) fn rescale_dynamic_retargeting(
+    characters: Query<
+        (&CharacterSkeleton, Option<&AnimationPlayer>),
+        With<DynamicRetargeting>,
+    >,
+    root_bones: Query<&SkeletonRootBone>,
     mut bone_transforms: Query<
         &mut Transform,
         (Without<CharacterShape>, Allow<SkeletonLodDisabled>),
     >,
 ) {
     for (character_skeleton, character_animation_player) in &characters {
-        if character_skeleton.translation_corrections.is_empty() {
-            continue;
-        }
         let Some(active_animation_player) = character_animation_player else {
             continue;
         };
@@ -104,6 +298,24 @@ pub(crate) fn rescale_full_bone_translations(
             .is_none()
         {
             continue;
+        }
+        if character_skeleton.translation_corrections.is_empty() {
+            continue;
+        }
+        // Root is owned here, not by the root-only system: same offset math,
+        // so the root scale never applies twice.
+        if let Ok(root_info) = root_bones.get(character_skeleton.skeleton_entity)
+            && let Ok(mut root_transform) = bone_transforms.get_mut(root_info.entity)
+        {
+            let root_offset_y = root_transform.translation.y - root_info.reference_bind_pose_y;
+            if root_offset_y.abs() > 1e-3 {
+                root_transform.translation.y =
+                    root_info.bind_pose_y + root_offset_y * root_info.root_scale;
+            } else {
+                root_transform.translation.y = root_info.bind_pose_y;
+            }
+            root_transform.translation.x = 0.;
+            root_transform.translation.z = 0.;
         }
         for translation_correction in &character_skeleton.translation_corrections {
             let Ok(mut bone_transform) =
@@ -124,6 +336,11 @@ pub(crate) fn rescale_full_bone_translations(
     }
 }
 
+/// Root-only clip import: keeps rotation and scale tracks on every bone, but
+/// translation tracks on the root bone only. Non-root translations are dropped
+/// at import, so the only runtime cost is the root fix on characters carrying
+/// [`RootOnlyRetargeting`]. Rotation-driven clips (locomotion, idle) look
+/// right; clips whose motion lives in bone translations lose it.
 pub(crate) fn get_animation_clips_from_bytes(
     bytes: &[u8],
 ) -> Result<AHashMap<&'static str, AnimationClip>, BevyError> {
@@ -157,6 +374,10 @@ pub(crate) fn get_animation_clips_from_bytes(
         &mut global_transforms,
         Transform::IDENTITY,
     )?;
+    let root_bone_name = root
+        .name()
+        .map(|root_name| NAME_INTERNER.intern(root_name).leak())
+        .unwrap_or("");
 
     let joint_targets = build_joint_paths(root);
 
@@ -207,12 +428,13 @@ pub(crate) fn get_animation_clips_from_bytes(
 
             match target_property {
                 gltf::animation::Property::Translation => {
-                    // Translation tracks are always kept. Whether they are
-                    // rescaled per frame depends on the
-                    // `dynamic_translation_tracks` plugin flag
-                    // (`rescale_full_bone_translations`); without it the root
-                    // system still handles the root bone. The extra curves cost
-                    // ~nothing at load; the system is the real cost.
+                    // Root only: non-root translations are dropped at import.
+                    // Cheaper curves and nothing to fix at runtime, but any
+                    // bone-translation motion is gone for good.
+                    let animated_bone_name: &str = target_name.as_str();
+                    if animated_bone_name != root_bone_name {
+                        continue;
+                    }
                     clip.add_curve_to_target(
                         target_id,
                         AnimatableCurve::new(
@@ -324,8 +546,10 @@ fn collect_paths_recursive(
     current_path.pop();
 }
 
-/// Return all root joint nodes for a skin (there can be multiple).
-fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
+/// Return the root joint node for a skin (there can be multiple; the last
+/// unparented joint wins). Shared by the root-only import and the bake loader
+/// so both agree on which bone owns the root.
+pub(crate) fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
     // Collect joints and their indices
     let joints: Vec<gltf::Node> = skin.joints().collect();
     let joint_indices: AHashSet<usize> = joints.iter().map(|n| n.index()).collect();

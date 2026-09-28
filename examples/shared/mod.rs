@@ -2,9 +2,8 @@
 use bevy::{
     asset::AssetPlugin,
     dev_tools::fps_overlay::FpsOverlayPlugin,
-    window::{PresentMode, Window, WindowPlugin},
     input::mouse::MouseMotion,
-    mesh::{MeshVertexBufferLayoutRef, morph::MeshMorphWeights, skinning::SkinnedMesh},
+    mesh::{morph::MeshMorphWeights, skinning::SkinnedMesh, MeshVertexBufferLayoutRef},
     pbr::{
         ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
         MaterialPlugin,
@@ -12,11 +11,12 @@ use bevy::{
     prelude::*,
     render::{render_resource::*, storage::ShaderBuffer},
     shader::ShaderRef,
+    window::{PresentMode, Window, WindowPlugin},
 };
 use bevy_egui::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use humentity::HumentityPlugin;
 use humentity::prelude::*;
+use humentity::HumentityPlugin;
 
 /// Default skeleton LOD configurations.
 ///
@@ -115,10 +115,6 @@ fn load_core_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
 }
 
 pub fn setup_app() -> App {
-    setup_app_with_dynamic_tracks(false)
-}
-
-pub fn setup_app_with_dynamic_tracks(dynamic_translation_tracks: bool) -> App {
     // I moved target.json and macro.macro to the root of the assets folder because when trying to load
     // the target folders, the asset server tried to load them there also.
 
@@ -142,9 +138,7 @@ pub fn setup_app_with_dynamic_tracks(dynamic_translation_tracks: bool) -> App {
                 }),
                 ..default()
             }),
-        HumentityPlugin {
-            dynamic_translation_tracks,
-        },
+        HumentityPlugin,
     ))
     .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
     .add_plugins(FpsOverlayPlugin::default())
@@ -199,7 +193,13 @@ pub fn enable_first_skeleton_on_ready(
 /// Scans for CharacterParts still waiting for a mesh handle from the background threads
 fn update_mesh_when_ready(
     character_parts: Query<
-        (Entity, &ChildOf, &CharacterPart, Option<&SkinnedMesh>, Option<&Transform>),
+        (
+            Entity,
+            &ChildOf,
+            &CharacterPart,
+            Option<&SkinnedMesh>,
+            Option<&Transform>,
+        ),
         Without<Mesh3d>,
     >,
     parents: Query<&ChildOf>,

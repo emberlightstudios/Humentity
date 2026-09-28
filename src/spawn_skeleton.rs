@@ -30,8 +30,9 @@ pub struct CharacterSkeleton {
     /// Full inverse bindposes, in reference bone order.
     pub model_space_inv_bindposes: Vec<Mat4>,
     /// Per-bone translation corrections, cached at fit time. Consumed per frame
-    /// by `rescale_full_bone_translations` when the `dynamic_translation_tracks`
-    /// plugin flag is on. Empty until the first successful fit.
+    /// by `rescale_dynamic_retargeting` (characters with `DynamicRetargeting`)
+    /// and at import by the shape-bake loader. Always computed (one-time cost
+    /// per fit); `RootOnly` and unmarked characters simply never read it.
     pub translation_corrections: Vec<BoneTranslationCorrection>,
 }
 
@@ -253,10 +254,9 @@ pub(crate) fn fit_skeleton_to_shape(
                 }
             }
         }
-        // Cache per-bone translation corrections (applied by
-        // `rescale_full_bone_translations` when the
-        // `dynamic_translation_tracks` plugin flag is on). Always computed:
-        // one-time cost per fit, and harmless when the system is off.
+        // Cache per-bone translation corrections for `DynamicRetargeting`
+        // (per frame) and the shape bake (at import). Always computed:
+        // one-time cost per fit; others never read it.
         let reference_rig = rig_spec.reference_rig();
         let mut translation_corrections = Vec::new();
         for &bone_name in &reference_rig.bone_names {
@@ -373,6 +373,7 @@ pub(crate) fn fit_skeleton_to_shape(
                 entity: root_bone_entity,
                 root_scale,
                 bind_pose_y: fitted_root_y,
+                reference_bind_pose_y: reference_root_y,
             });
         // `FitSkeleton` lives on the CharacterShape (the query filter), so remove
         // it there. This is what allows `check_skeletons_ready` to fire.

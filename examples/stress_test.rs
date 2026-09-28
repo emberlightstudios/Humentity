@@ -3,7 +3,7 @@
 mod shared;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
 use humentity::prelude::*;
-use shared::setup_app_with_dynamic_tracks;
+use shared::setup_app;
 
 // On my machine I can accomodate this many animated characters while staying near 60fps.
 // 32*32 = 1024 characters.  This is with all characters being posed on the cpu, standard bevy animation.
@@ -27,7 +27,7 @@ struct RetargetedAnims {
 }
 
 fn main() {
-    let mut app = setup_app_with_dynamic_tracks(true);
+    let mut app = setup_app();
 
     app.add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
         .add_systems(
@@ -106,7 +106,7 @@ fn add_humans(
                     template_handle.clone(),
                     morphs.clone(),
                 ))),
-                HelperVertexPositions::default(),
+                RootOnlyRetargeting,
                 InheritedVisibility::default(),
                 CameraDistance::default(),
                 AnimationPlayer::default(),

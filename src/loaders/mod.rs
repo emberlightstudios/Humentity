@@ -23,6 +23,7 @@ pub use obj_verts::{
 pub use reference_rig::{ReferenceRigAsset, ReferenceRigAssetLoader};
 pub use retargeted_animation::{
     RetargetedAnimationAsset, RetargetedAnimationAssetLoader, RetargetedAnimationSettings,
+    ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader, ShapeBakedAnimationSettings,
 };
 pub use rig_config::{BoneJsonConfig, BoneTransformSpec, RigConfigAsset, RigConfigAssetLoader};
 pub use rig_weights::{RigWeightsAsset, RigWeightsAssetLoader};

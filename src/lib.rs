@@ -44,7 +44,11 @@ pub mod prelude {
     };
     pub use crate::{
         HumentityAssetsReady, HumentityPlugin, NAME_INTERNER,
-        animation::{BoneTranslationCorrection, HumentitySkeletonSystemSet, TranslationTracks},
+        animation::{
+            BakedBoneCorrection, BoneTranslationCorrection, DynamicRetargeting,
+            HumentitySkeletonSystemSet, RootOnlyRetargeting, ShapeBakedCorrections,
+            shape_baked_corrections_for_shape,
+        },
         assets::{StitchedPart, StitchedParts, shape_mesh_from_helpers_mhclo},
         basemesh::{BaseMesh, VertexGroups},
         bone_debug::BoneDebugPlugin,
@@ -67,6 +71,7 @@ pub mod prelude {
             ObjVertsSettings, OppositesAsset, ReferenceRigAsset, ReferenceRigAssetLoader,
             RetargetedAnimationAsset, RetargetedAnimationAssetLoader, RetargetedAnimationSettings,
             RigConfigAsset, RigConfigAssetLoader, RigWeightsAsset, RigWeightsAssetLoader,
+            ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader, ShapeBakedAnimationSettings,
             TargetAsset, TargetAssetLoader, TargetDelta, TargetManifestAssetLoader,
             VertexGroupsAsset, VertexGroupsAssetLoader,
         },
@@ -167,17 +172,14 @@ fn check_humentity_assets_ready(
 /// Model verts are facing Z instead of NEG_Z, so forward() faces the wrong direction.
 pub(crate) const MODEL_ROTATION_FIX: Quat = Quat::from_xyzw(0., 1., 0., 0.);
 
-/// The plugin struct
+/// The plugin struct. Retargeting is per character: put
+/// [`RootOnlyRetargeting`](crate::animation::RootOnlyRetargeting) or
+/// [`DynamicRetargeting`](crate::animation::DynamicRetargeting) on the
+/// `CharacterShape` entity; both systems are always registered but each runs
+/// only for characters carrying its marker. Shape-baked clips need no marker
+/// and no system.
 #[derive(Default)]
-pub struct HumentityPlugin {
-    /// Enable per-frame rescaling of non-root translation tracks
-    /// (`rescale_full_bone_translations`) for arbitrarily shaped characters.
-    /// Clips always keep their translation tracks; this flag controls whether
-    /// the correction system runs. Off by default (zero cost). Enable it when
-    /// characters play clips with significant non-root bone translations.
-    /// A future bake pipeline will cover fixed archetype shapes without it.
-    pub dynamic_translation_tracks: bool,
-}
+pub struct HumentityPlugin;
 
 impl Plugin for HumentityPlugin {
     fn build(&self, app: &mut App) {
@@ -211,6 +213,8 @@ impl Plugin for HumentityPlugin {
             .register_asset_loader(TargetManifestAssetLoader)
             .init_asset::<RetargetedAnimationAsset>()
             .register_asset_loader(RetargetedAnimationAssetLoader)
+            .init_asset::<ShapeBakedAnimationAsset>()
+            .register_asset_loader(ShapeBakedAnimationAssetLoader)
             .init_asset::<RigWeightsAsset>()
             .register_asset_loader(RigWeightsAssetLoader)
             .init_asset::<RigConfigAsset>()
@@ -283,19 +287,19 @@ impl Plugin for HumentityPlugin {
                     animation::rescale_root_bone_translation
                         .in_set(animation::HumentitySkeletonSystemSet)
                         .after(bevy::app::AnimationSystems),
-                    spawn_skeleton::sync_skeleton_lod_subtrees,
+                    animation::rescale_dynamic_retargeting
+                        .in_set(animation::HumentitySkeletonSystemSet)
+                        .after(bevy::app::AnimationSystems),
+                    spawn_skeleton::sync_skeleton_lod_subtrees
+                        .in_set(animation::HumentitySkeletonSystemSet)
+                        .after(bevy::app::AnimationSystems),
                 )
                     .before(TransformSystems::Propagate),
             );
-        if self.dynamic_translation_tracks {
-            app.add_systems(
-                PostUpdate,
-                animation::rescale_full_bone_translations
-                    .in_set(animation::HumentitySkeletonSystemSet)
-                    .after(bevy::app::AnimationSystems)
-                    .before(TransformSystems::Propagate),
-            );
-        }
+        // Both retarget systems are always registered; each filters by its
+        // marker (`RootOnlyRetargeting` owns just the root, `DynamicRetargeting`
+        // owns root + all bones together), so unmarked characters cost nothing
+        // and mixed styles work side by side. Baked clips need no marker.
 
         #[cfg(feature = "avian")]
         {
