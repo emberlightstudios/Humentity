@@ -6,16 +6,16 @@
 //! somewhere. Each baby fixes them in a different place, and the marker on
 //! each character decides which system (if any) runs for it:
 //!
-//! 1) Left — `root-only`, the old loader path. The custom
+//! 1) Right — `rotation-only`, the old loader path. The custom
 //!    [`RotationOnlyAnimationAssetLoader`] keeps rotation + scale on every bone
 //!    but translation tracks on the root bone only; non-root translations are
 //!    dropped at import. [`RootOnlyRetargeting`] on the character runs only
-//!    `rescale_root_bone_translation` (root Y rescale + XZ zero). Cheapest per
-//!    frame and correct for rotation-driven clips like locomotion and idle.
+//!    `rescale_root_bone_translation` (root Y rescale + XZ zero). Cheap per
+//!    frame and mostly correct as anatomical joints are rotation driven.
 //!    Drawback: any motion that lives in bone translations (hips sway,
 //!    stretchy/animated-length bones) is gone for good — the curves no longer
-//!    exist.  You may notice slight skating with the reference clip due to hip
-//!    sway being removed from the clip.
+//!    exist.  You may notice slight skating due to hip sway being removed
+//!    from the clip.  Slight sacrifice of animation fidelity.
 //!
 //! 2) Middle — `dynamic`, the new live path. No custom loader: Bevy's built-in
 //!    glTF clip loader keeps every track untouched, and
@@ -26,7 +26,7 @@
 //!    per-frame pass over every corrected bone on every animated character —
 //!    the most expensive of the three, about 20% fps drop in my stress tests.
 //!
-//! 3) Right — `baked`, the new import-time path. No marker, no system: the
+//! 3) Left — `baked`, the new import-time path. No marker, no system: the
 //!    [`ShapeBakedAnimationAssetLoader`] rewrites every translation track
 //!    (root XZ zero + Y rescale, plus the same per-bone ratio/direction math
 //!    as dynamic) into the curves once per listed shape. Zero per-frame cost
@@ -79,7 +79,7 @@ fn main() {
 // corrections can be derived on a later frame once morphs are ready.
 #[derive(Resource, Default)]
 struct ShowcaseAnimations {
-    root_only_clips: Option<Handle<RotationOnlyAnimationAsset>>,
+    rot_only_clips: Option<Handle<RotationOnlyAnimationAsset>>,
     dynamic_clip: Option<Handle<AnimationClip>>,
     baked_clips: Option<Handle<ShapeBakedAnimationAsset>>,
     baked_shape: Option<Handle<CharacterShapeAsset>>,
@@ -92,7 +92,7 @@ struct AnimationIndex(AnimationNodeIndex);
 /// this so each baby plays its own clip asset with its own marker-driven fixup.
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum ShowcaseBaby {
-    RootOnly,
+    RotationOnly,
     Dynamic,
     Baked,
 }
@@ -153,7 +153,7 @@ fn add_humans(
     // root only, middle owns root + bones, right owns nothing (baked).
     let mut baby_morphs = MorphTargets::default();
     baby_morphs.insert(BABY, 1.);
-    let root_only_shape = shape_assets.add(CharacterShapeAsset::new(
+    let rot_only_shape = shape_assets.add(CharacterShapeAsset::new(
         template_handle.clone(),
         baby_morphs.clone(),
     ));
@@ -165,12 +165,12 @@ fn add_humans(
         shape_assets.add(CharacterShapeAsset::new(template_handle, baby_morphs));
     commands.spawn((
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
-        Name::new("RootOnly"),
+        Name::new("RotationOnly"),
         InheritedVisibility::default(),
         AnimationPlayer::default(),
-        CharacterShape(root_only_shape),
+        CharacterShape(rot_only_shape),
         RootOnlyRetargeting,
-        ShowcaseBaby::RootOnly,
+        ShowcaseBaby::RotationOnly,
         HelperVertexPositions::default(),
         children![(
             Name::new("Mesh"),
@@ -220,8 +220,8 @@ fn add_humans(
     // (any clip, any shape, per-frame cost). The baked load below retries
     // until morphs are ready; it rewrites every track to this baby shape at
     // import (zero runtime, one asset per shape).
-    if animations.root_only_clips.is_none() {
-        animations.root_only_clips =
+    if animations.rot_only_clips.is_none() {
+        animations.rot_only_clips =
             Some(asset_server.load::<RotationOnlyAnimationAsset>("animation/idle.glb"));
     }
     if animations.dynamic_clip.is_none() {
@@ -290,6 +290,7 @@ fn load_baked_clip(
         .load("animation/idle.glb");
     animations.baked_clips = Some(baked_clips);
 }
+
 fn on_gltf_scene_ready(
     trigger: On<WorldInstanceReady>,
     q: Query<(&AnimationIndex, &AnimationGraphHandle)>,
@@ -327,8 +328,8 @@ fn add_graph(
     // multi-shape load), dynamic is a plain Bevy clip handle.
     for (entity, mut player, baby) in &mut character_player {
         let clip_handle = match baby {
-            ShowcaseBaby::RootOnly => {
-                let Some(handle) = animations.root_only_clips.as_ref() else {
+            ShowcaseBaby::RotationOnly => {
+                let Some(handle) = animations.rot_only_clips.as_ref() else {
                     continue;
                 };
                 let Some(clips_map) = rotation_only_clips.get(handle) else {
