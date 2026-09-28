@@ -90,6 +90,8 @@ impl AssetLoader for VertexGroupsAssetLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["json"]
+        // No extension: see TargetManifestAssetLoader — JSON is claimed by four
+        // loaders, so typed loads are required.
+        &[]
     }
 }
