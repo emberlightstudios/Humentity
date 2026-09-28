@@ -235,32 +235,23 @@ fn add_humans(
     info!("Babies created");
 }
 
-/// Reads the raw glTF bytes once via the asset reader, so the bake below can
-/// run per shape in code. Retries every frame until the source is readable.
-fn read_baked_bytes(
-    asset_server: Res<AssetServer>,
-    animations: Option<ResMut<RetargetedAnimations>>,
-) {
+/// Reads the raw glTF bytes once with a plain filesystem read (example-only:
+/// the manifest-dir assets path matches `setup_app`), so the bake below can
+/// run per shape in code.
+fn read_baked_bytes(animations: Option<ResMut<RetargetedAnimations>>) {
     let Some(mut animations) = animations else {
         return;
     };
     if animations.baked_bytes.is_some() {
         return;
     }
-    let reader = asset_server
-        .get_source(bevy::asset::io::AssetSourceId::Default)
-        .expect("default asset source exists")
-        .reader();
-    let path = std::path::Path::new("animation/idle.glb");
-    let bytes = bevy::tasks::block_on(async {
-        let mut file = reader.read(path).await.ok()?;
-        let mut bytes = Vec::new();
-        bevy::asset::io::Reader::read_to_end(&mut file, &mut bytes)
-            .await
-            .ok()?;
-        Some(bytes)
-    });
-    animations.baked_bytes = bytes;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join("animation")
+        .join("idle.glb");
+    if let Ok(bytes) = std::fs::read(path) {
+        animations.baked_bytes = Some(bytes);
+    }
 }
 
 /// Derives the baked baby's corrections once morphs are ready, then bakes its
@@ -283,20 +274,24 @@ fn bake_baked_clip(
     if animations.baked_clip.is_some() {
         return;
     }
-    let (Some(bytes), Some(baked_shape_handle)) =
-        (animations.baked_bytes.clone(), animations.baked_shape.clone())
-    else {
+    let Some(baked_shape_handle) = animations.baked_shape.clone() else {
+        return;
+    };
+    let Some(bytes) = std::mem::take(&mut animations.baked_bytes) else {
         return;
     };
     let (Some(basemesh_vertices), Some(morph_assets), Some(rig_data), Some(vertex_groups)) =
         (basemesh_vertices, morph_assets, rig_data, vertex_groups)
     else {
+        animations.baked_bytes = Some(bytes);
         return;
     };
     let Some(shape_asset) = shape_assets.get(&baked_shape_handle).cloned() else {
+        animations.baked_bytes = Some(bytes);
         return;
     };
     let Some(rig_spec) = rig_data.0.as_ref() else {
+        animations.baked_bytes = Some(bytes);
         return;
     };
     let Ok(corrections) = shape_baked_corrections_for_shape(
@@ -307,13 +302,16 @@ fn bake_baked_clip(
         rig_spec,
         &vertex_groups,
     ) else {
+        animations.baked_bytes = Some(bytes);
         return;
     };
     let Ok(mut baked) = bake_shape_clips_from_bytes(&bytes, &corrections) else {
+        animations.baked_bytes = Some(bytes);
         return;
     };
     let Some(clip) = baked.remove("Idle-loop") else {
         warn!("baked baby: Idle-loop missing from baked clips");
+        animations.baked_bytes = Some(bytes);
         return;
     };
     let handle = clips.add(clip);
@@ -392,7 +390,6 @@ fn add_graph(
                 if clips.get(baked).is_none() {
                     continue;
                 }
-                info!("baked baby playing clip id {:?}", baked.id());
                 baked.clone()
             }
         };
