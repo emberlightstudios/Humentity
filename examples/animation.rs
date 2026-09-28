@@ -68,7 +68,7 @@ fn main() {
         Update,
         add_humans.run_if(resource_exists::<HumentityAssetsReady>),
     )
-    .add_systems(Update, (load_baked_clip, play_graph, add_graph))
+    .add_systems(Update, (read_baked_bytes, bake_baked_clip, play_graph, add_graph))
     .run();
 }
 
@@ -80,8 +80,10 @@ fn main() {
 struct RetargetedAnimations {
     root_only_clips: Option<Handle<RetargetedAnimationAsset>>,
     dynamic_clip: Option<Handle<AnimationClip>>,
-    baked_clips: Option<Handle<ShapeBakedAnimationAsset>>,
+    baked_clip: Option<Handle<AnimationClip>>,
     baked_shape: Option<Handle<CharacterShapeAsset>>,
+    baked_bytes: Option<Vec<u8>>,
+    baked_logged: bool,
 }
 
 #[derive(Component, Clone)]
@@ -233,28 +235,57 @@ fn add_humans(
     info!("Babies created");
 }
 
-/// Derives the baked baby's corrections once morphs are ready, then loads its
-/// clip with those settings. Retries every frame until every input exists.
-fn load_baked_clip(
+/// Reads the raw glTF bytes once via the asset reader, so the bake below can
+/// run per shape in code. Retries every frame until the source is readable.
+fn read_baked_bytes(
     asset_server: Res<AssetServer>,
-    basemesh_vertices: Option<Res<BaseMesh>>,
-    morph_assets: Option<Res<MakeHumanMorphs>>,
-    templates: Res<Assets<CharacterTemplate>>,
-    mut shape_param: ParamSet<(
-        ResMut<Assets<CharacterShapeAsset>>,
-        Res<Assets<CharacterShapeAsset>>,
-    )>,
-    rig_data: Option<Res<RigData>>,
-    vertex_groups: Option<Res<VertexGroups>>,
     animations: Option<ResMut<RetargetedAnimations>>,
 ) {
     let Some(mut animations) = animations else {
         return;
     };
-    if animations.baked_clips.is_some() {
+    if animations.baked_bytes.is_some() {
         return;
     }
-    let Some(baked_shape_handle) = animations.baked_shape.clone() else {
+    let reader = asset_server
+        .get_source(bevy::asset::io::AssetSourceId::Default)
+        .expect("default asset source exists")
+        .reader();
+    let path = std::path::Path::new("animation/idle.glb");
+    let bytes = bevy::tasks::block_on(async {
+        let mut file = reader.read(path).await.ok()?;
+        let mut bytes = Vec::new();
+        bevy::asset::io::Reader::read_to_end(&mut file, &mut bytes)
+            .await
+            .ok()?;
+        Some(bytes)
+    });
+    animations.baked_bytes = bytes;
+}
+
+/// Derives the baked baby's corrections once morphs are ready, then bakes its
+/// clip in code and inserts it with `Assets::add`. Each `add` mints a fresh
+/// UUID, so a second shape baking the same file can never receive this bake
+/// through the asset server's outer path dedup. Retries until every input exists.
+fn bake_baked_clip(
+    basemesh_vertices: Option<Res<BaseMesh>>,
+    morph_assets: Option<Res<MakeHumanMorphs>>,
+    templates: Res<Assets<CharacterTemplate>>,
+    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    rig_data: Option<Res<RigData>>,
+    vertex_groups: Option<Res<VertexGroups>>,
+    animations: Option<ResMut<RetargetedAnimations>>,
+    mut clips: ResMut<Assets<AnimationClip>>,
+) {
+    let Some(mut animations) = animations else {
+        return;
+    };
+    if animations.baked_clip.is_some() {
+        return;
+    }
+    let (Some(bytes), Some(baked_shape_handle)) =
+        (animations.baked_bytes.clone(), animations.baked_shape.clone())
+    else {
         return;
     };
     let (Some(basemesh_vertices), Some(morph_assets), Some(rig_data), Some(vertex_groups)) =
@@ -262,8 +293,7 @@ fn load_baked_clip(
     else {
         return;
     };
-    let shape_asset = shape_param.p1().get(&baked_shape_handle).cloned();
-    let Some(shape_asset) = shape_asset else {
+    let Some(shape_asset) = shape_assets.get(&baked_shape_handle).cloned() else {
         return;
     };
     let Some(rig_spec) = rig_data.0.as_ref() else {
@@ -279,14 +309,23 @@ fn load_baked_clip(
     ) else {
         return;
     };
-    let baked_clips = asset_server
-        .load_builder()
-        .with_settings(move |settings: &mut ShapeBakedAnimationSettings| {
-            settings.shape_corrections = Some(corrections.clone());
-            settings.shape_suffix = BABY.to_string();
-        })
-        .load("animation/idle.glb");
-    animations.baked_clips = Some(baked_clips);
+    let Ok(mut baked) = bake_shape_clips_from_bytes(&bytes, &corrections) else {
+        return;
+    };
+    let Some(clip) = baked.remove("Idle-loop") else {
+        warn!("baked baby: Idle-loop missing from baked clips");
+        return;
+    };
+    let handle = clips.add(clip);
+    if !animations.baked_logged {
+        info!(
+            "baked baby clip id {:?} from {} byte(s) of animation/idle.glb",
+            handle.id(),
+            bytes.len(),
+        );
+        animations.baked_logged = true;
+    }
+    animations.baked_clip = Some(handle);
 }
 
 fn on_gltf_scene_ready(
@@ -310,7 +349,6 @@ fn add_graph(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     retargeted_clips: Res<Assets<RetargetedAnimationAsset>>,
-    baked_clips: Res<Assets<ShapeBakedAnimationAsset>>,
     clips: Res<Assets<AnimationClip>>,
     animations: Option<Res<RetargetedAnimations>>,
     mut character_player: Query<
@@ -321,8 +359,9 @@ fn add_graph(
     let Some(animations) = animations else {
         return;
     };
-    // Each baby plays its own clip asset: root-only and baked come from their
-    // custom asset maps, dynamic is a plain Bevy clip handle.
+    // Each baby plays its own clip asset: root-only comes from its custom
+    // asset map, dynamic and baked are plain Bevy clip handles (the baked one
+    // was baked in code and `add`ed, so its UUID is unique per shape).
     for (entity, mut player, baby) in &mut character_player {
         let clip_handle = match baby {
             ShowcaseBaby::RootOnly => {
@@ -347,16 +386,14 @@ fn add_graph(
                 dynamic.clone()
             }
             ShowcaseBaby::Baked => {
-                let Some(handle) = animations.baked_clips.as_ref() else {
+                let Some(baked) = animations.baked_clip.as_ref() else {
                     continue;
                 };
-                let Some(clips_map) = baked_clips.get(handle) else {
+                if clips.get(baked).is_none() {
                     continue;
-                };
-                let Some(baked_clip) = clips_map.clips.get("Idle-loop") else {
-                    continue;
-                };
-                baked_clip.clone()
+                }
+                info!("baked baby playing clip id {:?}", baked.id());
+                baked.clone()
             }
         };
         let (graph, index) = AnimationGraph::from_clip(clip_handle);
