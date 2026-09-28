@@ -182,7 +182,9 @@ fn add_humans(
                 template_handle.clone(),
                 morphs.clone(),
             ))),
+            RootOnlyRetargeting,
             InheritedVisibility::default(),
+            AnimationPlayer::default(),
             children![(
                 CharacterPart {
                     mesh: proxy,
