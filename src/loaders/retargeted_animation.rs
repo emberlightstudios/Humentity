@@ -99,10 +99,10 @@ pub struct ShapeBakedAnimationSettings {
 pub struct ShapeBakedAnimationAssetLoader;
 
 /// Bake every clip in raw glTF `bytes` to `shape_corrections`, returning
-/// plain clips keyed by clip name. Shared helper the loader runs per listed
-/// shape (same joint mapping via `find_root_joints` + `build_joint_paths`,
-/// same root XZ-zero/Y-rescale, same per-bone ratio/direction math); also
-/// usable directly for one-off code bakes with `Assets::add`.
+/// plain clips keyed by clip name. Single-shape helper for one-off code bakes
+/// with `Assets::add`; the loader parses once and runs
+/// `bake_shape_clips_from_document` per listed shape instead, so multi-shape
+/// loads go through settings rather than repeated calls here.
 pub fn bake_shape_clips_from_bytes(
     bytes: &[u8],
     shape_corrections: &ShapeBakedCorrections,
@@ -365,17 +365,14 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
                 } else {
                     bake.shape_suffix.clone()
                 };
-                let map_key: &'static str = NAME_INTERNER
-                    .intern(&format!("{clip_name}.{suffix}"))
-                    .leak();
-                let baked_label: &'static str = NAME_INTERNER
+                let label: &'static str = NAME_INTERNER
                     .intern(&format!("{clip_name}.{suffix}"))
                     .leak();
                 let handle = load_context.add_loaded_labeled_asset(
-                    baked_label,
+                    label,
                     LoadedAsset::new_with_dependencies(clip),
                 );
-                clip_handles.insert(map_key, handle);
+                clip_handles.insert(label, handle);
             }
         }
 
