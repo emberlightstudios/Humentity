@@ -68,6 +68,15 @@ impl AssetLoader for RetargetedAnimationAssetLoader {
 /// Root is owned here: XZ is zeroed and Y offsets are rescaled from the
 /// fitted bind pose. Never put a retarget marker on characters playing baked
 /// clips, or the root scale applies twice.
+///
+/// Labels carry the shape name (`{clip}.{shape_suffix}`, legacy `{clip}.baked`
+/// when the suffix is empty): baking the same file for two shapes must not
+/// share clip IDs, or the second bake silently replaces the first. Note the
+/// top-level asset ID is still the file path, so one file yields one settings
+/// variant through the loader — bake each shape from its own file copy, or
+/// bake in code and insert the clips into `Assets<AnimationClip>` directly.
+/// Same settings always produce same bytes: do not load one file twice with
+/// identical settings.
 #[derive(Asset, TypePath, Clone)]
 pub struct ShapeBakedAnimationAsset {
     pub clips: AHashMap<&'static str, Handle<AnimationClip>>,
@@ -75,10 +84,19 @@ pub struct ShapeBakedAnimationAsset {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TypePath)]
 pub struct ShapeBakedAnimationSettings {
-    /// Fitted corrections for the target shape. Empty means identity: curves
-    /// pass through with only root XZ zeroed.
+    /// Fitted corrections for the target shape. Always `Some`: build with
+    /// [`shape_baked_corrections_for_shape`](crate::animation::shape_baked_corrections_for_shape)
+    /// and pass via `load_builder().with_settings(...)`. The loader fails
+    /// when this is `None` — `Default` (required by Bevy's `Settings`) is an
+    /// explicit missing value, never silent identity: empty corrections
+    /// would flatten root Y to 0 and drop every bone track.
     #[serde(default)]
-    pub shape_corrections: ShapeBakedCorrections,
+    pub shape_corrections: Option<ShapeBakedCorrections>,
+    /// Shape suffix for clip labels (`{clip}.{shape_suffix}`). Empty keeps
+    /// the legacy `{clip}.baked` label; pass e.g. `"baby"` so the baby bake
+    /// (`Idle-loop.baby`) never collides with an adult bake of the same file.
+    #[serde(default)]
+    pub shape_suffix: String,
 }
 
 #[derive(Default, TypePath)]
@@ -111,13 +129,18 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
                 "No skins available",
             ));
         };
-
         let root_node = crate::animation::find_root_joints(&skin);
         let joint_targets = crate::animation::build_joint_paths(&root_node);
         let root_bone_name: &str = root_node.name().unwrap_or("");
 
-        let bone_corrections: AHashMap<&str, &BakedBoneCorrection> = settings
-            .shape_corrections
+        let Some(shape_corrections) = settings.shape_corrections.as_ref() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "ShapeBakedAnimationSettings.shape_corrections is None: build corrections with shape_baked_corrections_for_shape and pass them via load_builder().with_settings(...)",
+            ));
+        };
+
+        let bone_corrections: AHashMap<&str, &BakedBoneCorrection> = shape_corrections
             .baked_bone_corrections
             .iter()
             .map(|correction| (correction.bone_name.as_str(), correction))
@@ -178,13 +201,9 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
                 match target_property {
                     gltf::animation::Property::Translation => {
                         if animated_bone_name == root_bone_name {
-                            let baked_root_scale =
-                                settings.shape_corrections.baked_root_scale;
-                            let baked_bind_y =
-                                settings.shape_corrections.baked_bind_pose_y;
-                            let reference_bind_y = settings
-                                .shape_corrections
-                                .reference_bind_pose_y;
+                            let baked_root_scale = shape_corrections.baked_root_scale;
+                            let baked_bind_y = shape_corrections.baked_bind_pose_y;
+                            let reference_bind_y = shape_corrections.reference_bind_pose_y;
                             let baked = times.into_iter().zip(
                                 floats.chunks(floats_per_element).map(move |chunk| {
                                     let reference_translation =
@@ -277,9 +296,16 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
             // filing under the plain clip name would share an ID with the
             // root-only loader's clip from this file and overwrite it (this
             // happened: the root-only baby played baked curves, got fixed
-            // twice, and sank to the floor). The map key stays the clip name.
+            // twice, and sank to the floor). The suffix keeps per-shape bakes
+            // apart: baby (`Idle-loop.baby`) never collides with an adult
+            // bake of the same file. The map key stays the clip name.
+            let suffix = if settings.shape_suffix.is_empty() {
+                "baked".to_string()
+            } else {
+                settings.shape_suffix.clone()
+            };
             let baked_label: &'static str =
-                NAME_INTERNER.intern(&format!("{clip_name}.baked")).leak();
+                NAME_INTERNER.intern(&format!("{clip_name}.{suffix}")).leak();
             let handle = load_context.add_loaded_labeled_asset(
                 baked_label,
                 LoadedAsset::new_with_dependencies(clip),

@@ -17,10 +17,10 @@ use bevy::{ecs::intern::Internable, prelude::*};
 
 use super::config::GpuShapeSkeleton;
 use crate::{
-    animation::{local_from_model_space, parent_space_direction_fix},
-    basemesh::VertexGroups,
-    rigs::{fitted_model_space_bindposes, RigSpec},
     NAME_INTERNER,
+    animation::bone_translation_correction,
+    basemesh::VertexGroups,
+    rigs::{RigSpec, fitted_model_space_bindposes},
 };
 
 /// Fit one template shape's morphed body to a GPU shape skeleton.
@@ -122,10 +122,11 @@ pub fn fit_shape_skeleton(
     }
 }
 
-/// Length ratio + parent-space direction fix for one bone, mirroring the CPU
-/// `fit_skeleton_to_shape` correction cache. Returns identity (1.0,
-/// [`Quat::IDENTITY`]) for the root, zero-length bones, and anything without
-/// reference data, so the pose shader passes those offsets through untouched.
+/// Length ratio + parent-space direction fix for one bone, via the shared
+/// [`bone_translation_correction`](crate::animation::bone_translation_correction)
+/// helper. Returns identity (1.0, [`Quat::IDENTITY`]) for the root,
+/// zero-length bones, and anything without reference data, so the pose shader
+/// passes those offsets through untouched.
 fn dynamic_correction_for_bone(
     bone_name: &'static str,
     fitted_model_space: &AHashMap<&'static str, Transform>,
@@ -138,22 +139,13 @@ fn dynamic_correction_for_bone(
     if bone_config_entry.parent.is_empty() {
         return (1.0, Quat::IDENTITY);
     }
-    let Some(reference_local) = reference_rig.local_bindpose.get(bone_name) else {
-        return (1.0, Quat::IDENTITY);
-    };
-    if reference_local.translation.length() < 1e-3 {
-        return (1.0, Quat::IDENTITY);
-    }
-    let Some(fitted_local) =
-        local_from_model_space(bone_name, &bone_config_entry.parent, fitted_model_space)
-    else {
-        return (1.0, Quat::IDENTITY);
-    };
-    let length_ratio = fitted_local.translation.length() / reference_local.translation.length();
-    let parent_name: &'static str = NAME_INTERNER.intern(&bone_config_entry.parent).leak();
-    let direction_fix =
-        parent_space_direction_fix(reference_rig, fitted_model_space, bone_name, parent_name);
-    (length_ratio, direction_fix)
+    bone_translation_correction(
+        reference_rig,
+        &bone_config_entry.parent,
+        bone_name,
+        fitted_model_space,
+    )
+    .unwrap_or((1.0, Quat::IDENTITY))
 }
 /// Convenience wrapper: fit directly from morphed helper verts (same inputs
 /// as the CPU fit: helpers + rig + vertex groups).

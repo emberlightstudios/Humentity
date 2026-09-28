@@ -99,11 +99,8 @@ pub(crate) fn rescale_root_bone_translation(
 pub struct BoneTranslationCorrection {
     /// Bone entity in the character's fixed skeleton.
     pub bone_entity: Entity,
-    /// Fitted bind-pose local translation. Bones still sitting at rest are
-    /// skipped per frame (deadzone), so bones the clip leaves at rest cost a
-    /// single cheap check and no rescale.
-    pub fitted_rest_translation: Vec3,
-    /// Fitted local length / reference local length.
+    /// Fitted local length / reference local length (1.0 when the reference
+    /// local is near zero: no scale to derive, pass through).
     pub translation_length_ratio: f32,
     /// Re-aligns the clip translation direction from the reference bone
     /// direction to the fitted shape's direction, expressed in parent space.
@@ -113,17 +110,18 @@ pub struct BoneTranslationCorrection {
 /// Serializable per-bone correction baked into clip curves at import by the
 /// shape-bake loader. Same math as [`BoneTranslationCorrection`], keyed by
 /// bone name instead of entity (entities don't exist at import time).
+/// Every non-root bone gets an entry, including zero-length reference bones
+/// (identity: ratio 1.0, no direction fix, track passes through untouched).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BakedBoneCorrection {
     /// Bone name in the reference rig.
     pub bone_name: String,
-    /// Fitted local length / reference local length.
+    /// Fitted local length / reference local length (1.0 for zero-length
+    /// reference bones: pass through, never divide by zero).
     pub translation_length_ratio: f32,
     /// Re-aligns the clip translation direction from the reference bone
     /// direction to the fitted shape's direction, expressed in parent space.
     pub translation_direction_adjust: Quat,
-    /// Fitted rest translation; used by the bake to skip rest poses.
-    pub fitted_rest_translation: Vec3,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -163,6 +161,34 @@ pub fn shape_baked_corrections_for_shape(
         &fitted_model_space,
     ))
 }
+/// Length ratio + parent-space direction fix for one bone, shared by the CPU
+/// fit cache, the shape bake, and the GPU shape fit. Returns `None` when the
+/// bone is unknown (no reference local or no fitted local): callers skip
+/// those. Near-zero reference length yields identity instead of dividing by
+/// zero, so zero-length bones retarget as pass-through and every known bone
+/// gets an entry — bake, dynamic, and GPU never diverge on short bones.
+pub(crate) fn bone_translation_correction(
+    reference_rig: &ReferenceRigAsset,
+    parent_name: &str,
+    bone_name: &'static str,
+    fitted_model_space: &AHashMap<&'static str, Transform>,
+) -> Option<(f32, Quat)> {
+    let reference_local = reference_rig.local_bindpose.get(bone_name)?;
+    let fitted_local = local_from_model_space(bone_name, parent_name, fitted_model_space)?;
+    let reference_length = reference_local.translation.length();
+    if reference_length < 1e-3 {
+        return Some((1.0, Quat::IDENTITY));
+    }
+    let translation_length_ratio = fitted_local.translation.length() / reference_length;
+    let leaked_parent: &'static str = NAME_INTERNER.intern(parent_name).leak();
+    let translation_direction_adjust = parent_space_direction_fix(
+        reference_rig,
+        fitted_model_space,
+        bone_name,
+        leaked_parent,
+    );
+    Some((translation_length_ratio, translation_direction_adjust))
+}
 
 pub(crate) fn shape_corrections_from_model_space(
     reference_rig: &ReferenceRigAsset,
@@ -189,34 +215,20 @@ pub(crate) fn shape_corrections_from_model_space(
         if bone_config_entry.parent.is_empty() {
             continue;
         }
-        let Some(reference_local) = reference_rig.local_bindpose.get(bone_name) else {
+        let Some((translation_length_ratio, translation_direction_adjust)) =
+            bone_translation_correction(
+                reference_rig,
+                &bone_config_entry.parent,
+                bone_name,
+                fitted_model_space,
+            )
+        else {
             continue;
         };
-        if reference_local.translation.length() < 1e-3 {
-            continue;
-        }
-        let fitted_local = local_from_model_space(
-            bone_name,
-            &bone_config_entry.parent,
-            fitted_model_space,
-        );
-        let Some(fitted_local) = fitted_local else {
-            continue;
-        };
-        let translation_length_ratio =
-            fitted_local.translation.length() / reference_local.translation.length();
-        let parent_name: &'static str = NAME_INTERNER.intern(&bone_config_entry.parent).leak();
-        let translation_direction_adjust = parent_space_direction_fix(
-            reference_rig,
-            fitted_model_space,
-            bone_name,
-            parent_name,
-        );
         baked_bone_corrections.push(BakedBoneCorrection {
             bone_name: bone_name.to_string(),
             translation_length_ratio,
             translation_direction_adjust,
-            fitted_rest_translation: fitted_local.translation,
         });
     }
     ShapeBakedCorrections {
@@ -274,9 +286,10 @@ pub(crate) fn parent_space_direction_fix(
 /// [`DynamicRetargeting`]. Clips keep every translation track and are loaded
 /// with Bevy's built-in glTF clip loader; nothing happens at import.
 ///
-/// Clips are authored on the reference rig, so their translation tracks are
-/// reference-proportioned. Only bones the clip actually drives differ from
-/// their fitted rest, so bones at rest are skipped via deadzone.
+/// Clips are authored on the reference rig, so every translation track is
+/// reference-proportioned. Every corrected bone is rescaled unconditionally,
+/// the same math the shape bake applies at import, so baked and dynamic
+/// agree on all bones and there is no rest detection to diverge.
 pub(crate) fn rescale_dynamic_retargeting(
     characters: Query<
         (&CharacterSkeleton, Option<&AnimationPlayer>),
@@ -323,14 +336,8 @@ pub(crate) fn rescale_dynamic_retargeting(
             else {
                 continue;
             };
-            let animated_translation = bone_transform.translation;
-            let rest_offset =
-                animated_translation - translation_correction.fitted_rest_translation;
-            if rest_offset.length_squared() <= 1e-6 {
-                continue;
-            }
             bone_transform.translation = translation_correction.translation_direction_adjust
-                * animated_translation
+                * bone_transform.translation
                 * translation_correction.translation_length_ratio;
         }
     }

@@ -256,7 +256,10 @@ pub(crate) fn fit_skeleton_to_shape(
         }
         // Cache per-bone translation corrections for `DynamicRetargeting`
         // (per frame) and the shape bake (at import). Always computed:
-        // one-time cost per fit; others never read it.
+        // one-time cost per fit; others never read it. Every known bone gets
+        // an entry via the shared `bone_translation_correction` helper
+        // (zero-length reference bones are identity), so bake, dynamic, and
+        // GPU agree on short bones.
         let reference_rig = rig_spec.reference_rig();
         let mut translation_corrections = Vec::new();
         for &bone_name in &reference_rig.bone_names {
@@ -269,58 +272,18 @@ pub(crate) fn fit_skeleton_to_shape(
             let Some(&bone_entity) = bone_entities.get(bone_name) else {
                 continue;
             };
-            let Some(fitted_local) = local_bone_transforms.get(bone_name) else {
+            let Some((translation_length_ratio, translation_direction_adjust)) =
+                crate::animation::bone_translation_correction(
+                    reference_rig,
+                    &bone_config_entry.parent,
+                    bone_name,
+                    &model_space_bindposes,
+                )
+            else {
                 continue;
-            };
-            let Some(reference_local) = reference_rig.local_bindpose.get(bone_name) else {
-                continue;
-            };
-            let reference_rest_length = reference_local.translation.length();
-            if reference_rest_length < 1e-3 {
-                continue;
-            }
-            let fitted_rest_translation = fitted_local.translation;
-            let translation_length_ratio =
-                fitted_rest_translation.length() / reference_rest_length;
-            let parent_name: &'static str =
-                NAME_INTERNER.intern(&bone_config_entry.parent).leak();
-            let translation_direction_adjust = match (
-                reference_rig.model_space_bindpose.get(bone_name),
-                reference_rig.model_space_bindpose.get(parent_name),
-                model_space_bindposes.get(bone_name),
-                model_space_bindposes.get(parent_name),
-            ) {
-                (
-                    Some(reference_bone),
-                    Some(reference_parent),
-                    Some(fitted_bone),
-                    Some(fitted_parent),
-                ) => {
-                    let reference_segment =
-                        reference_bone.translation - reference_parent.translation;
-                    let fitted_segment =
-                        fitted_bone.translation - fitted_parent.translation;
-                    if reference_segment.length_squared() < 1e-12
-                        || fitted_segment.length_squared() < 1e-12
-                    {
-                        Quat::IDENTITY
-                    } else {
-                        let model_space_delta = Quat::from_rotation_arc(
-                            reference_segment.normalize(),
-                            fitted_segment.normalize(),
-                        );
-                        let fitted_parent_rotation = fitted_parent.rotation;
-                        (fitted_parent_rotation.inverse()
-                            * model_space_delta
-                            * fitted_parent_rotation)
-                            .normalize()
-                    }
-                }
-                _ => Quat::IDENTITY,
             };
             translation_corrections.push(BoneTranslationCorrection {
                 bone_entity,
-                fitted_rest_translation,
                 translation_length_ratio,
                 translation_direction_adjust,
             });

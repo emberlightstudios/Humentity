@@ -282,7 +282,8 @@ fn load_baked_clip(
     let baked_clips = asset_server
         .load_builder()
         .with_settings(move |settings: &mut ShapeBakedAnimationSettings| {
-            settings.shape_corrections = corrections.clone();
+            settings.shape_corrections = Some(corrections.clone());
+            settings.shape_suffix = BABY.to_string();
         })
         .load("animation/idle.glb");
     animations.baked_clips = Some(baked_clips);
