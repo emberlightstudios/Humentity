@@ -278,7 +278,11 @@ pub(crate) fn build_skeleton_scene(
 
     // Wire up parent-child relationships.
     for &name in bone_order.iter() {
-        let &child = bone_entities.get(&name).unwrap();
+        let &child = bone_entities.get(&name).unwrap_or_else(|| {
+            panic!(
+                "reference rig bone '{name}' was never spawned: bone_order and spawned entities diverged (check skeletons/default.glb joint list)"
+            )
+        });
         let parent_name = ref_bone_parents.get(name).cloned().unwrap_or_default();
         if !parent_name.is_empty()
             && let Some(&parent) = bone_entities.get(NAME_INTERNER.intern(&parent_name).leak())
@@ -294,9 +298,12 @@ pub(crate) fn build_skeleton_scene(
             .map(|p| p == &"Human.rig".to_string())
             .unwrap_or(false);
         if is_root {
-            scene_world
-                .entity_mut(rig_entity)
-                .add_child(bone_entities[&name]);
+            let &root_bone = bone_entities.get(&name).unwrap_or_else(|| {
+                panic!(
+                    "reference rig root bone '{name}' was never spawned: bone_order and spawned entities diverged (check skeletons/default.glb joint list)"
+                )
+            });
+            scene_world.entity_mut(rig_entity).add_child(root_bone);
         }
     }
 
@@ -530,24 +537,42 @@ pub(crate) fn get_bone_transform(
 }
 
 fn get_bone_position(bone: &BoneTransformSpec, vg: &VertexGroups, helpers: &[Vec3]) -> Vec3 {
-    let v1: u16;
-    let v2: u16;
     if bone.strategy == "MEAN" {
-        v1 = bone.vertex_indices.as_ref().unwrap()[0];
-        v2 = bone.vertex_indices.as_ref().unwrap()[1];
+        let indices = bone.vertex_indices.as_ref().unwrap_or_else(|| {
+            panic!(
+                "rig JSON bone uses MEAN strategy but has no vertex_indices: each MEAN bone needs exactly 2 helper vertex ids (check rigs/rig.default.json)"
+            )
+        });
+        let (v1, v2) = (indices[0], indices[1]);
         (helpers[v2 as usize] + helpers[v1 as usize]) / 2.
     } else if bone.strategy == "CUBE" {
-        let joint = bone.cube_name.as_ref().unwrap();
-        v1 = vg.get(joint).unwrap()[0][0] as u16;
-        v2 = vg.get(joint).unwrap()[0][1] as u16;
+        let joint = bone.cube_name.as_ref().unwrap_or_else(|| {
+            panic!(
+                "rig JSON bone uses CUBE strategy but has no cube_name: each CUBE bone must name a vertex group (check rigs/rig.default.json)"
+            )
+        });
+        let group = vg.get(joint).unwrap_or_else(|| {
+            panic!(
+                "rig JSON CUBE bone names vertex group '{joint}' which is missing from basemesh_vertex_groups.json"
+            )
+        });
+        let (v1, v2) = (group[0][0] as u16, group[0][1] as u16);
         let mut pos = Vec3::ZERO;
         for v in v1..v2 + 1 {
             pos += helpers[v as usize];
         }
         pos / (v2 - v1 + 1) as f32
     } else if bone.strategy == "VERTEX" {
-        helpers[bone.vertex_index.unwrap() as usize]
+        let index = bone.vertex_index.unwrap_or_else(|| {
+            panic!(
+                "rig JSON bone uses VERTEX strategy but has no vertex_index: each VERTEX bone needs one helper vertex id (check rigs/rig.default.json)"
+            )
+        });
+        helpers[index as usize]
     } else {
-        unimplemented!("Unrecognized bone strategy {}", bone.strategy)
+        unimplemented!(
+            "rig JSON bone has unrecognized strategy '{}': expected MEAN, CUBE, or VERTEX (check rigs/rig.default.json)",
+            bone.strategy
+        )
     }
 }

@@ -450,9 +450,20 @@ pub(crate) fn get_animation_clips_from_bytes(
             let target = channel.target();
             let target_property = target.property();
             let target_node = target.node();
-            let target_name = target_node.name().expect("Failed to match node name");
+            let target_name = target_node.name().unwrap_or_else(|| {
+                panic!(
+                    "clip channel targets glTF node #{} with no name: every animated node must be named after its joint (check the armature in Blender)",
+                    target_node.index()
+                )
+            });
             let target_name = Name::new(NAME_INTERNER.intern(target_name).leak());
-            let target_id = AnimationTargetId::from_names(joint_targets[&target_name].iter());
+            let Some(joint_path) = joint_targets.get(&target_name) else {
+                panic!(
+                    "clip channel targets joint '{}' which is not under the skin root: clips must be authored on the reference rig hierarchy (remove extra armatures from the glTF)",
+                    target_name.as_str(),
+                )
+            };
+            let target_id = AnimationTargetId::from_names(joint_path.iter());
             let start = output_view.offset() + output_accessor.offset();
             let floats_per_element = match target_property {
                 gltf::animation::Property::Translation | gltf::animation::Property::Scale => 3,
@@ -567,8 +578,12 @@ fn collect_paths_recursive(
     current_path: &mut Vec<String>,
     paths: &mut AHashMap<String, Vec<String>>,
 ) {
-    let name = node.name().unwrap().to_string();
-    current_path.push(name.clone());
+    let name = node.name().unwrap_or_else(|| {
+        panic!(
+            "clip glTF node #{} has no name: every joint targeted by an animation channel must be named (check the armature in Blender)",
+            node.index()
+        )
+    }).to_string();
     // Store a clone of the current path for this node
     paths.insert(name, current_path.clone());
     // Recurse into children
@@ -595,9 +610,11 @@ pub(crate) fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
         }
     }
     // Roots are joints that were never seen as children
-    joints
-        .into_iter()
-        .rfind(|j| !seen_as_child.contains(&j.index()))
-        .expect("Unable to find root node")
+    joints.into_iter().rfind(|j| !seen_as_child.contains(&j.index())).unwrap_or_else(|| {
+        panic!(
+            "clip glTF skin has {} joint(s) but none is unparented: at least one joint must not appear as another joint's child (check the armature hierarchy in Blender)",
+            joint_indices.len(),
+        )
+    })
 }
 

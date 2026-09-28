@@ -91,10 +91,12 @@ pub fn shape_mesh_from_helpers_mhclo(
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, get_uv_coords(mesh))
-    .with_inserted_indices(mesh.indices().unwrap().clone())
+    .with_inserted_indices(mesh.indices().unwrap_or_else(|| {
+        panic!("proxy OBJ has no index buffer: humentity meshes must be indexed triangle lists (check the .obj file)")
+    }).clone())
     .with_computed_area_weighted_normals()
     .with_generated_tangents()
-    .expect("Failed to generate tangents?");
+    .expect("tangent generation failed on the morphed proxy mesh: degenerate triangles after morphing (check extreme morph weights)");
     fix_normals(&mut mesh, bevy_vertex_map);
     mesh
 }
@@ -120,7 +122,7 @@ pub(crate) fn build_final_mesh_mhclo(
     let mut meshes = vec![];
     for shape in template.shapes.iter() {
         let helpers = adjust_helpers_to_morphs(&shape.morphs, &mh_morphs, &basemesh)
-            .unwrap_or_else(|e| panic!("{}", e));
+            .unwrap_or_else(|e| panic!("mesh build for template shape '{}': {e} (check the shape's morph names against target.json and the manifest)", shape.name));
         let mesh =
             shape_mesh_from_helpers_mhclo(&input_mesh, mhclo, &helpers, &mhid_lookup, &vertex_map);
         meshes.push(mesh);
@@ -207,7 +209,7 @@ pub(crate) fn build_final_meshes_mhclo(
         let mut mesh_shapes = vec![];
         for mesh_shape in template.shapes.iter() {
             let helpers = adjust_helpers_to_morphs(&mesh_shape.morphs, &mh_morphs, &basemesh)
-                .unwrap_or_else(|e| panic!("{}", e));
+                .unwrap_or_else(|e| panic!("stitched mesh {i_mesh} shape '{}': {e} (check the shape's morph names against target.json and the manifest)", mesh_shape.name));
             mesh_shapes.push(Some(shape_mesh_from_helpers_mhclo(
                 mesh,
                 &mhclos[i_mesh],
