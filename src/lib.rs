@@ -267,9 +267,12 @@ impl Plugin for HumentityPlugin {
             .add_observer(spawn_skeleton::on_reset_to_bind_pose)
             .add_systems(
                 Update,
-                template::resolve_template_morphs
-                    .before(spawn_mesh::mesh_build)
-                    .run_if(resource_exists::<morphs::MakeHumanMorphs>),
+                (
+                    template::resolve_template_morphs
+                        .before(spawn_mesh::mesh_build)
+                        .run_if(resource_exists::<morphs::MakeHumanMorphs>),
+                    template::enforce_template_frozen.after(template::resolve_template_morphs),
+                ),
             )
             .add_systems(
                 PostUpdate,

@@ -18,6 +18,10 @@ use serde::{Deserializer, Serializer};
 /// per character. Deltas are sparse: a nose shape only touches nose verts.
 /// `None` means not yet baked (morph targets not loaded); the bake fills it,
 /// then characters blend from it.
+///
+/// Build-once part: never push new shapes into a template or edit `morphs`
+/// after the template is added to the asset store. Make a new template
+/// instead; runtime edits serve stale cached meshes with no error.
 #[derive(Clone, Debug)]
 pub struct CharacterMorphShape {
     pub name: &'static str,
@@ -74,6 +78,12 @@ impl<'de> Deserialize<'de> for CharacterMorphShape {
 
 /// A collection of base shapes and animation properties.  The shapes will be baked into a
 /// new Mesh as morph targets. Loadable from `.toml` files via [`CharacterTemplateAssetLoader`].
+///
+/// Build-once: create the template fully, add it to the asset store, then never
+/// mutate it. Mesh builds are cached by template handle and delta bakes only
+/// fill empty slots, so pushing/clearing `shapes` (or editing a shape's
+/// `morphs`) after meshes exist serves stale cached meshes with no error.
+/// A variant is a new template, not an edit of an existing one.
 #[derive(Asset, TypePath, Default, Serialize, Deserialize, Clone, Debug)]
 pub struct CharacterTemplate {
     /// Set by the asset loader from the file stem. Empty for code-constructed templates.
@@ -167,7 +177,10 @@ pub(crate) fn resolve_template_morphs(
         let (AssetEvent::Added { id } | AssetEvent::LoadedWithDependencies { id }) = event else {
             continue;
         };
-        let Some(mut template) = templates.get_mut(*id) else {
+        // Untracked: the template is still under construction, and the
+        // `Modified` event this would otherwise emit must not trip the
+        // build-once freeze below.
+        let Some(template) = templates.get_mut_untracked(*id) else {
             continue;
         };
         for shape in template.shapes.iter_mut() {
@@ -178,6 +191,22 @@ pub(crate) fn resolve_template_morphs(
         // Delta baking lives in `bake_template_deltas` (guarded by
         // `has_targets_for_shapes` + basemesh readiness). Baking here would
         // panic on templates added before the targets folder finishes loading.
+    }
+}
+
+/// Panics if a `CharacterTemplate` is modified after upload.
+///
+/// Templates are build-once: mesh builds are cached by template handle and
+/// delta bakes only fill empty slots, so a runtime edit would silently serve
+/// stale meshes. Internal init writes use `get_mut_untracked` precisely so
+/// they never emit `Modified` — only an external edit trips this.
+pub(crate) fn enforce_template_frozen(mut events: MessageReader<AssetEvent<CharacterTemplate>>) {
+    for event in events.read() {
+        if matches!(event, AssetEvent::Modified { .. }) {
+            panic!(
+                "CharacterTemplate modified after upload: templates are build-once, create a new template instead of editing one in the asset store"
+            );
+        }
     }
 }
 
@@ -196,7 +225,25 @@ pub(crate) fn bake_template_deltas(
     let Ok(targets) = morphs.targets.read() else {
         return;
     };
-    for (_, template) in templates.iter_mut() {
+    // Two-phase: `iter_mut` would emit `Modified` per template and trip the
+    // build-once freeze, and there is no untracked iterator — so collect ids
+    // under a shared borrow, then write via `get_mut_untracked`.
+    let pending: Vec<_> = templates.ids().collect();
+    for id in pending {
+        let needs_bake = templates
+            .get(id)
+            .is_some_and(|template| {
+                template.shapes.iter().any(|shape| {
+                    shape.helper_deltas.is_none()
+                        && morphs.has_targets_for_shapes(std::slice::from_ref(shape))
+                })
+            });
+        if !needs_bake {
+            continue;
+        }
+        let Some(template) = templates.get_mut_untracked(id) else {
+            continue;
+        };
         for shape in template.shapes.iter_mut() {
             if shape.helper_deltas.is_none()
                 && morphs.has_targets_for_shapes(std::slice::from_ref(shape))

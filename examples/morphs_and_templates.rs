@@ -12,10 +12,15 @@
 //! allows you to bake an arbitrary set of makehuman morph weights down to a
 //! single morph target in bevy. In order to make variable humans we can define
 //! a few basic human archetypes, and perhaps a set of distinct faces that we can
-//! use to blend between at runtime.  This allows us to dramatically reduce the
+//! use to blend between at runtime. This allows us to dramatically reduce the
 //! number of morph targets while still allowing at least some runtime mesh
 //! customization, and keeping instancing/batching intact, since each template
 //! is still the same mesh handle (assuming they all use the same material also).
+//!
+//! Templates are build-once: create them fully, add them to the asset store,
+//! then never push new shapes or edit a shape's morphs at runtime. A variant
+//! is a new template, not an edit — runtime edits serve stale cached meshes
+//! with no error.
 
 mod shared;
 
