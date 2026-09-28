@@ -3,16 +3,20 @@ use crate::{
     mesh_ops::{
         fix_normals, fix_normals_multiple, generate_mhid_lookup, generate_vertex_map,
         get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents,
+        set_asset_rig_arrays,
     },
     morphs::adjust_helpers_to_morphs,
     prelude::*,
-    rigs::{set_asset_rig_arrays, RigSpec},
-    template::TemplateOverride,
+    rigs::RigSpec,
 };
 use ahash::AHashMap;
 use bevy::mesh::morph::MorphAttributes;
 use bevy::{asset::RenderAssetUsages, prelude::*};
 use std::sync::{Arc, RwLock};
+
+/// Overrides the template shapes for a part
+#[derive(Component, Deref, Clone, Eq, PartialEq, Hash, Debug)]
+pub struct TemplateOverride(pub Handle<CharacterTemplate>);
 
 /// Collection of parts that should be stitched together.  This will
 /// spawn siblings for each part then despawn this entity.

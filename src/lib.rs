@@ -49,7 +49,7 @@ pub mod prelude {
             HumentitySkeletonSystemSet, RootOnlyRetargeting, ShapeBakedCorrections,
             shape_baked_corrections_for_shape,
         },
-        assets::{StitchedPart, StitchedParts, shape_mesh_from_helpers_mhclo},
+        assets::{StitchedPart, StitchedParts, TemplateOverride, shape_mesh_from_helpers_mhclo},
         basemesh::{BaseMesh, VertexGroups},
         bone_debug::BoneDebugPlugin,
         gpu::{
@@ -91,7 +91,7 @@ pub mod prelude {
             CharacterScale, CharacterSkeleton, ResetToBindPose, SkeletonLodDisabled, SkeletonLodState,
             SkeletonsReady,
         },
-        template::{CharacterMorphShape, CharacterTemplate, TemplateOverride},
+        template::{CharacterMorphShape, CharacterTemplate},
     };
 }
 

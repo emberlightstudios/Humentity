@@ -1,6 +1,8 @@
 use ahash::{AHashMap, AHashSet};
 use bevy::{mesh::VertexAttributeValues, prelude::*};
 
+use crate::loaders::MhcloVertexMap;
+
 pub fn get_vertex_positions(mesh: &Mesh) -> Vec<Vec3> {
     let Some(VertexAttributeValues::Float32x3(verts)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
     else {
@@ -198,4 +200,102 @@ pub fn generate_mhid_lookup(map: &AHashMap<u16, Vec<u16>>) -> Vec<u16> {
         }
     }
     lkup
+}
+
+/// Paints per-vertex joint indices + weights for one LOD bone order: aggregates
+/// helper-vertex skin weights through the proxy map, keeps the top 4 per
+/// vertex, and writes Bevy's standard skin attributes. Mesh painting, not rig
+/// data — lives here with the other mesh builders.
+pub(crate) fn set_asset_rig_arrays(
+    mesh: &mut Mesh,
+    mhid_lookup: &[u16],
+    helper_map: &[MhcloVertexMap],
+    bone_names: &[&'static str],
+    rig_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
+) {
+    let vertex_count = mhid_lookup.len();
+    // Final fixed-size output arrays
+    let mut indices: Vec<[u16; 4]> = vec![[0; 4]; vertex_count];
+    let mut weights: Vec<[f32; 4]> = vec![[0.0; 4]; vertex_count];
+    // Cache per mhid so duplicates are consistent and O(n)
+    let mut mhid_cache: AHashMap<u16, ([u16; 4], [f32; 4])> = AHashMap::default();
+    for (vert, &mhid) in mhid_lookup.iter().enumerate() {
+        // If we've already computed this mhid, reuse it
+        if let Some(&(cached_indices, cached_weights)) = mhid_cache.get(&mhid) {
+            indices[vert] = cached_indices;
+            weights[vert] = cached_weights;
+            continue;
+        }
+        let helper = &helper_map[mhid as usize];
+        // Aggregate bone weights deterministically
+        let mut aggregate: AHashMap<u16, f32> = AHashMap::default();
+        for (bone_index, &bone_name) in bone_names.iter().enumerate() {
+            let Some(bone_weights) = rig_weights.get(bone_name) else {
+                continue;
+            };
+            match helper {
+                MhcloVertexMap::SingleVertex(v) => {
+                    if let Some(&helper_wt) = bone_weights.get(v)
+                        && helper_wt > 0.0
+                    {
+                        *aggregate.entry(bone_index as u16).or_insert(0.0) += helper_wt;
+                    }
+                }
+                MhcloVertexMap::Triangle {
+                    helper_verts,
+                    helper_weights,
+                    ..
+                } => {
+                    for (i, mh_id) in helper_verts.iter().enumerate() {
+                        if let Some(&helper_wt) = bone_weights.get(mh_id)
+                            && helper_wt > 0.0
+                        {
+                            *aggregate.entry(bone_index as u16).or_insert(0.0) +=
+                                helper_wt * helper_weights[i];
+                        }
+                    }
+                }
+            }
+        }
+        // Convert to vec and sort deterministically
+        let mut pairs: Vec<(u16, f32)> = aggregate.into_iter().collect();
+        pairs.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1).unwrap().then_with(|| a.0.cmp(&b.0)) // tie-break by bone index
+        });
+        // Take top 4
+        pairs.truncate(4);
+        // If empty, just leave zeros
+        if pairs.is_empty() {
+            continue;
+        }
+        // Pad to 4 entries if needed
+        while pairs.len() < 4 {
+            pairs.push(pairs[0]);
+        }
+        let mut raw_indices = [0u16; 4];
+        let mut raw_weights = [0.0f32; 4];
+        for i in 0..4 {
+            raw_indices[i] = pairs[i].0;
+            raw_weights[i] = pairs[i].1;
+        }
+        // Normalize weights
+        let sum: f32 = raw_weights.iter().sum();
+        if sum > 0.0 {
+            for w in &mut raw_weights {
+                *w /= sum;
+            }
+        }
+        indices[vert] = raw_indices;
+        weights[vert] = raw_weights;
+        // Store in cache for duplicate mhids
+        mhid_cache.insert(mhid, (raw_indices, raw_weights));
+    }
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_JOINT_INDEX,
+        VertexAttributeValues::Uint16x4(indices),
+    );
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_JOINT_WEIGHT,
+        VertexAttributeValues::Float32x4(weights),
+    );
 }

@@ -122,6 +122,3 @@ pub(crate) fn resolve_template_morphs(
     }
 }
 
-/// Overrides the template shapes for a part
-#[derive(Component, Deref, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct TemplateOverride(pub Handle<CharacterTemplate>);

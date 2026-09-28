@@ -100,6 +100,43 @@ pub fn all_children_of(
     result
 }
 
+/// Default-rig special case for the toe merge ([`BoneMergeConfig::merge_default_rig_toes`]):
+/// move each kept toe bone (`toe1-1.L` / `toe1-1.R`) to the average
+/// model-space position of every toe on its foot, so the single replacement
+/// toe sits in the middle of the toes it absorbed instead of on the big toe.
+/// Co-located with the merge config it compensates: the LOD merge folds toe
+/// weights into the kept toe, and this recenters that toe on the absorbed mass.
+///
+/// Runs inside `fitted_model_space_bindposes`, so the CPU fit, the
+/// reset-to-bind-pose observer, and the GPU shape fit all agree. Other rigs
+/// are untouched, and missing bones are skipped without panicking.
+pub(crate) fn average_default_rig_toe_positions(
+    rig_name: &str,
+    bone_parents: &AHashMap<&'static str, String>,
+    model_space: &mut AHashMap<&'static str, Transform>,
+) {
+    if rig_name != "default" {
+        return;
+    }
+    for (foot_bone_name, kept_toe_bone_name) in [("foot.L", "toe1-1.L"), ("foot.R", "toe1-1.R")] {
+        let mut toe_position_sum = Vec3::ZERO;
+        let mut toe_bone_count = 0u32;
+        for descendant_bone in all_children_of(bone_parents, foot_bone_name) {
+            if let Some(descendant_pose) = model_space.get(descendant_bone) {
+                toe_position_sum += descendant_pose.translation;
+                toe_bone_count += 1;
+            }
+        }
+        if toe_bone_count == 0 {
+            continue;
+        }
+        let kept_toe_leaked: &'static str = NAME_INTERNER.intern(kept_toe_bone_name).leak();
+        if let Some(kept_toe_pose) = model_space.get_mut(kept_toe_leaked) {
+            kept_toe_pose.translation = toe_position_sum / toe_bone_count as f32;
+        }
+    }
+}
+
 /// Per-LOD merge data for a rig. Consumed by mesh building (weight painting)
 /// and by part skinning. It deliberately does NOT carry any skeleton scene or
 /// bindpose data: a character uses a single fixed skeleton, so LOD is expressed
