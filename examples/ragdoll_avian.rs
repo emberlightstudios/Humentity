@@ -56,7 +56,6 @@ fn add_human(
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
         RootOnlyRetargeting,
-        HelperVertexPositions::default(),
         CharacterRagdoll::None,
         CharacterColliders::new(None),
         RagdollCollisionLayers(CollisionLayers::new(

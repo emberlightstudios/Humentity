@@ -171,7 +171,6 @@ fn add_humans(
         CharacterShape(rot_only_shape),
         RootOnlyRetargeting,
         ShowcaseBaby::RotationOnly,
-        HelperVertexPositions::default(),
         children![(
             Name::new("Mesh"),
             CharacterPart {
@@ -188,7 +187,6 @@ fn add_humans(
         CharacterShape(dynamic_shape),
         DynamicRetargeting,
         ShowcaseBaby::Dynamic,
-        HelperVertexPositions::default(),
         children![(
             Name::new("Mesh"),
             CharacterPart {
@@ -205,7 +203,6 @@ fn add_humans(
         AnimationPlayer::default(),
         CharacterShape(baked_shape_handle.clone()),
         ShowcaseBaby::Baked,
-        HelperVertexPositions::default(),
         children![(
             Name::new("Mesh"),
             CharacterPart {

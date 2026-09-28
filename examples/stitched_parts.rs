@@ -74,7 +74,6 @@ fn add_humans(
         Name::new("Stitched"),
         Transform::from_translation(Vec3::new(0., 0., -1.)),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(body_template_handle, morphs))),
-        HelperVertexPositions::default(),
         InheritedVisibility::default(),
         children![
             (

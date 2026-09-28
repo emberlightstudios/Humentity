@@ -1,7 +1,7 @@
 use crate::{
     animation::BoneTranslationCorrection,
     basemesh::VertexGroups,
-    helpers::HelperVertexPositions,
+    helpers::{RefitCharacter, TeardownCharacter},
     prelude::*,
     rigs::{BuiltRigs, RigBundleRes, RigData, SkeletonRootBone},
     skeleton_lod::{MAX_LODS, MergeIntoKeptBone, SkeletonLodConfig, all_children_of},
@@ -98,7 +98,7 @@ fn skeleton_root_transform(rig_name: &str, character_scale: Vec3) -> Transform {
 /// Spawns the single full skeleton scene as a child of each `CharacterShape`,
 /// and marks the character as needing a fit.
 pub(crate) fn spawn_rig_skeleton(
-    characters: Query<(Entity, Option<&CharacterScale>), (Without<SkeletonsReady>, Without<FitSkeleton>, With<CharacterShape>, With<HelperVertexPositions>)>,
+    characters: Query<(Entity, Option<&CharacterScale>), (Without<SkeletonsReady>, Without<FitSkeleton>, With<CharacterShape>)>,
     rig_bundle: Res<RigBundleRes>,
     rig_data: Res<RigData>,
     mut commands: Commands,
@@ -155,7 +155,6 @@ pub(crate) fn fit_skeleton_to_shape(
             Entity,
             &CharacterShape,
             Option<&AnimationPlayer>,
-            Option<&HelperVertexPositions>,
             &mut CharacterSkeleton,
             Option<&CharacterScale>,
         ),
@@ -168,12 +167,9 @@ pub(crate) fn fit_skeleton_to_shape(
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
 ) {
-    for (entity, character_shape, animation_player, helpers_marker, skeleton, scale) in
+    for (entity, character_shape, animation_player, skeleton, scale) in
         characters.iter_mut()
     {
-        if helpers_marker.is_none() {
-            continue;
-        }
         let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
@@ -613,27 +609,53 @@ pub(crate) fn setup_part_skinning(
     }
 }
 
-/// Observer that strips a character's skeleton and mesh state when its `HelperVertexPositions`
-/// marker is removed (e.g. teardown or re-fit).
+/// Observer that strips a character's skeleton and mesh state on
+/// [`TeardownCharacter`] or [`RefitCharacter`] (e.g. retire or re-fit after
+/// morph changes).
 ///
-/// Physics/ragdoll cleanup is handled separately by the avian observer on the same
-/// trigger. Users can register their own `On<Remove, HelperVertexPositions>` observers to clean up
-/// additional per-character data that humentity can't know about generically, such as
+/// Physics/ragdoll cleanup is handled separately by the avian observer on the
+/// same trigger. Users can observe the same events to clean up additional
+/// per-character data that humentity can't know about generically, such as
 /// material handles.
-pub(crate) fn on_character_helpers_removed(
-    trigger: On<Remove, HelperVertexPositions>,
+pub(crate) fn on_teardown_character(
+    trigger: On<TeardownCharacter>,
     characters: Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
     parts: Query<Entity, With<CharacterPart>>,
     gpu_parts: Query<Entity, With<GpuCharacterPart>>,
     descendants: Query<&Children>,
     mut commands: Commands,
 ) {
-    let entity = trigger.entity;
-    if characters.get(entity).is_err() {
-        return;
-    }
+    teardown_character_state(trigger.event().0, &characters, &parts, &gpu_parts, &descendants, &mut commands);
+}
 
-    if let Ok(Some(skeleton)) = characters.get(entity) {
+/// Observer for [`RefitCharacter`]: same teardown as [`TeardownCharacter`],
+/// plus re-inserts `FitSkeleton` so the spawn/fit chain rebuilds the
+/// character from current morph weights on the next frames.
+pub(crate) fn on_refit_character(
+    trigger: On<RefitCharacter>,
+    characters: Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
+    parts: Query<Entity, With<CharacterPart>>,
+    gpu_parts: Query<Entity, With<GpuCharacterPart>>,
+    descendants: Query<&Children>,
+    mut commands: Commands,
+) {
+    let entity = trigger.event().0;
+    teardown_character_state(entity, &characters, &parts, &gpu_parts, &descendants, &mut commands);
+    commands.entity(entity).insert(FitSkeleton);
+}
+
+fn teardown_character_state(
+    entity: Entity,
+    characters: &Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
+    parts: &Query<Entity, With<CharacterPart>>,
+    gpu_parts: &Query<Entity, With<GpuCharacterPart>>,
+    descendants: &Query<&Children>,
+    commands: &mut Commands,
+) {
+    let Ok(skeleton) = characters.get(entity) else {
+        return;
+    };
+    if let Some(skeleton) = skeleton {
         commands.entity(skeleton.skeleton_entity).despawn();
     }
     commands
@@ -668,7 +690,7 @@ pub(crate) fn on_character_helpers_removed(
 /// inverse bindposes — those don't change after the first fit.
 pub(crate) fn on_reset_to_bind_pose(
     trigger: On<ResetToBindPose>,
-    characters: Query<(&CharacterShape, &CharacterSkeleton, &HelperVertexPositions)>,
+    characters: Query<(&CharacterShape, &CharacterSkeleton)>,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
     basemesh: Res<BaseMesh>,
@@ -677,7 +699,7 @@ pub(crate) fn on_reset_to_bind_pose(
     vg: Res<VertexGroups>,
 ) {
     let character = trigger.event().0;
-    let Ok((character_shape, skeleton, _)) = characters.get(character) else {
+    let Ok((character_shape, skeleton)) = characters.get(character) else {
         return;
     };
     let Some(shape_asset) = shape_assets.get(&character_shape.0) else {

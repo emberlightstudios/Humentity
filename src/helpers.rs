@@ -1,33 +1,26 @@
 use bevy::prelude::*;
 
-/// Lifecycle marker for per-character morph state. Place on a `CharacterShape` entity.
-///
-/// Per-shape morphed-body deltas live on the shared [`CharacterTemplate`](crate::template::CharacterTemplate)
-/// (baked once per template, sparse: a nose shape only touches nose verts).
-/// Skeleton fitting, collider spawning, and bind-pose reset blend
-/// `base + Σ weight × delta` on demand from those deltas plus the character's
-/// own weights — no 150KB helper vec is stored per character, and no
-/// background task runs per character.
-///
-/// Weights are free: the game decides the convention. The usual split is macro
-/// shapes (baby, bodybuilder) with weights summing to 1, plus feature shapes
-/// (long nose, big ears) with independent 0..1 weights added on top.
-/// humentity never normalizes; any auto-normalize lives in game code, not here.
-///
-/// Removing this component tears the character's render/physics state back down to a
-/// bare state blob: the skeleton, `CharacterSkeleton`/`SkeletonsReady`, per-part mesh
-/// handles, and (avian) colliders, joints, `NeedsColliders` are all cleaned up.
-/// humentity registers an `On<Remove, HelperVertexPositions>` observer for this. Register
-/// your own observer on the same trigger to clean up additional per-character data that
-/// humentity can't know about generically, such as material handles:
+/// Entity event: tear a character's render/physics state back down to a bare
+/// state blob. Fire to retire a character (`commands.trigger(TeardownCharacter(character))`):
+/// the skeleton, `CharacterSkeleton`/`SkeletonsReady`, per-part mesh handles,
+/// and (avian) colliders, joints, `NeedsColliders` are all cleaned up.
+/// humentity observes this event for teardown. Observe the same event to clean
+/// up additional per-character data that humentity can't know about
+/// generically, such as material handles:
 ///
 /// ```ignore
 /// app.add_observer(
-///     |trigger: On<Remove, humentity::prelude::HelperVertexPositions>,
-///      mut commands: Commands| {
+///     |trigger: On<TeardownCharacter>| {
 ///         // e.g. commands.entity(trigger.entity()).remove::<MeshMaterial3d>()
 ///     },
 /// );
 /// ```
-#[derive(Component, Debug, Clone, Copy, Default)]
-pub struct HelperVertexPositions;
+#[derive(EntityEvent, Debug, Clone, Copy)]
+pub struct TeardownCharacter(pub Entity);
+
+/// Entity event: strip a fitted character back to bare state so the next fit
+/// pass rebuilds it from current morph weights (e.g. after morph changes).
+/// Same teardown as [`TeardownCharacter`], plus re-inserts `FitSkeleton` so
+/// `spawn_rig_skeleton`/`fit_skeleton_to_shape` refit on the next frames.
+#[derive(EntityEvent, Debug, Clone, Copy)]
+pub struct RefitCharacter(pub Entity);

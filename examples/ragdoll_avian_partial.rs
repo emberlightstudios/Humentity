@@ -135,7 +135,6 @@ fn add_human(
             .with_translation(Vec3::new(1., 0., 0.)),
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
-        HelperVertexPositions::default(),
         RootOnlyRetargeting,
         CharacterRagdoll::None,
         CharacterColliders::new(Some(vec![

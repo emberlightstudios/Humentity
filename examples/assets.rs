@@ -108,7 +108,6 @@ fn add_human(
         Name::new("Character"),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         CharacterShape(shape_handle),
-        HelperVertexPositions::default(),
         InheritedVisibility::default(),
         children![
             (

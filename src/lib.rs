@@ -54,7 +54,7 @@ pub mod prelude {
             POSE_WORKGROUP_Z, fit_shape_skeleton, fit_shape_skeleton_from_helpers, gpu_skin_wgsl,
             make_gpu_mesh, pose_grid_side, specialize_gpu_vertex_layout,
         },
-        helpers::HelperVertexPositions,
+        helpers::{RefitCharacter, TeardownCharacter},
         load_and_insert_humentity_assets,
         loaders::{
             BoneJsonConfig, BoneTransformSpec, CategoryMorphsAsset, CharacterShapeAsset,
@@ -262,7 +262,8 @@ impl Plugin for HumentityPlugin {
                         .run_if(resource_exists::<rigs::RigData>),
                 ),
             )
-            .add_observer(spawn_skeleton::on_character_helpers_removed)
+            .add_observer(spawn_skeleton::on_teardown_character)
+            .add_observer(spawn_skeleton::on_refit_character)
             .add_observer(spawn_skeleton::on_reset_to_bind_pose)
             .add_systems(
                 Update,
@@ -317,7 +318,8 @@ impl Plugin for HumentityPlugin {
                         .after(AnimationSystems)
                         .before(TransformSystems::Propagate),
                 )
-                .add_observer(physics::avian::on_character_helpers_removed)
+                .add_observer(physics::avian::on_teardown_character)
+                .add_observer(physics::avian::on_refit_character)
                 .add_observer(physics::avian::on_disable_physics);
         }
     }

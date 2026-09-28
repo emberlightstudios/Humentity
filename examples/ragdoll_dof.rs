@@ -186,12 +186,12 @@ fn main() {
 /// just re-asserts the (constant) transform once the vertices are known.
 fn ground_character(
     mut commands: Commands,
-    characters: Query<(Entity, &CharacterShape, &HelperVertexPositions), With<CharacterShape>>,
+    characters: Query<(Entity, &CharacterShape)>,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
     basemesh: Res<BaseMesh>,
 ) {
-    for (entity, character_shape, _) in &characters {
+    for (entity, character_shape) in &characters {
         let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
@@ -654,7 +654,6 @@ fn add_human(
     commands.spawn((
         Transform::IDENTITY,
         CharacterShape(shape_assets.add(template_handle)),
-        HelperVertexPositions::default(),
         CharacterRagdoll::None,
         CharacterColliders::new(None),
         RagdollJointLimitOverrides::default(),

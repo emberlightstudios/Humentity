@@ -89,7 +89,6 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(template_handle.clone())),
-        HelperVertexPositions::default(),
         children![
             (CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -110,7 +109,6 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        HelperVertexPositions::default(),
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -131,7 +129,6 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        HelperVertexPositions::default(),
         children![(
             Name::new("mesh"),
             CharacterPart {
@@ -153,7 +150,6 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
-        HelperVertexPositions::default(),
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -173,7 +169,6 @@ fn add_humans(
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
-        HelperVertexPositions::default(),
         children![(
             CharacterPart {
                 mesh: basemesh_part,

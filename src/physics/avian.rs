@@ -6,7 +6,7 @@ use bevy::{
 };
 use bevy::ecs::intern::Internable;
 use crate::{
-    helpers::HelperVertexPositions,
+    helpers::{RefitCharacter, TeardownCharacter},
     prelude::{CharacterShape, CharacterShapeAsset, CharacterSkeleton, SkeletonLodDisabled, SkeletonsReady},
     rigs::{RigData, SkeletalBone},
     spawn_skeleton::CharacterScale,
@@ -253,7 +253,6 @@ pub(crate) fn spawn_colliders(
             &mut CharacterColliders,
             &RagdollDensity,
             Option<&RagdollCollisionLayers>,
-            Option<&HelperVertexPositions>,
             Option<&CharacterScale>,
         ),
         (With<NeedsColliders>, With<SkeletonsReady>),
@@ -286,7 +285,6 @@ pub(crate) fn spawn_colliders(
         mut colliders,
         density,
         collision_layers,
-        helpers_marker,
         character_scale,
     ) in characters.iter_mut()
     {
@@ -298,9 +296,6 @@ pub(crate) fn spawn_colliders(
         };
         let density = density.0;
 
-        if helpers_marker.is_none() {
-            continue;
-        }
         let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
@@ -1011,23 +1006,44 @@ pub(crate) fn on_disable_physics(
     }
 }
 
-/// Observer: when a character's `HelperVertexPositions` are removed, tear down
-/// all humentity-owned physics state so only a bare state blob remains. This pairs
-/// with the skeleton/mesh cleanup in `spawn_skeleton::on_character_helpers_removed`.
+/// Observer: on [`TeardownCharacter`] or [`RefitCharacter`], tear down all
+/// humentity-owned physics state so only a bare state blob remains. This pairs
+/// with the skeleton/mesh cleanup in `spawn_skeleton`.
 ///
 /// Despawns every avian collider and joint (tracked via the bevy_relationships
 /// lists) and removes `CharacterColliders` and `NeedsColliders` from the character
 /// root. User-config components (`CharacterRagdoll`, `RagdollDensity`,
 /// `RagdollDamping`, `RagdollMobility`, `RagdollCollisionLayers`) are left intact so
 /// the character can be re-activated later.
-pub(crate) fn on_character_helpers_removed(
-    trigger: On<Remove, HelperVertexPositions>,
+pub(crate) fn on_teardown_character(
+    trigger: On<TeardownCharacter>,
     characters: Query<(), With<CharacterShape>>,
     collider_lists: Query<&ColliderList>,
     joint_lists: Query<&JointList>,
     mut commands: Commands,
 ) {
-    let entity = trigger.entity;
+    teardown_character_physics(trigger.event().0, &characters, &collider_lists, &joint_lists, &mut commands);
+}
+
+/// Observer for [`RefitCharacter`]: same physics teardown, so the collider
+/// spawn re-runs from current morph weights after the fit rebuilds.
+pub(crate) fn on_refit_character(
+    trigger: On<RefitCharacter>,
+    characters: Query<(), With<CharacterShape>>,
+    collider_lists: Query<&ColliderList>,
+    joint_lists: Query<&JointList>,
+    mut commands: Commands,
+) {
+    teardown_character_physics(trigger.event().0, &characters, &collider_lists, &joint_lists, &mut commands);
+}
+
+fn teardown_character_physics(
+    entity: Entity,
+    characters: &Query<(), With<CharacterShape>>,
+    collider_lists: &Query<&ColliderList>,
+    joint_lists: &Query<&JointList>,
+    commands: &mut Commands,
+) {
     if characters.get(entity).is_err() {
         return;
     }

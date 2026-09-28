@@ -109,7 +109,6 @@ fn add_humans(
                     template_handle.clone(),
                     morphs.clone(),
                 ))),
-                HelperVertexPositions::default(),
                 RootOnlyRetargeting,
                 InheritedVisibility::default(),
                 CameraDistance::default(),
