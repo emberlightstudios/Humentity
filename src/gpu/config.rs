@@ -117,8 +117,10 @@ pub struct GpuShapeSkeleton {
     /// Shape name, matching the `CharacterTemplate` shape it was fitted from.
     pub shape: &'static str,
     /// Fitted local rest translations in LOD bone order, padded to `Vec4`
-    /// (w unused). The pose shader swaps these in over the reference
-    /// translations baked into the shared clip frames.
+    /// (w unused). The pose shader blends these by the instance shape weights
+    /// and re-anchors the clip's translation offsets onto them (same math as
+    /// the CPU `rescale_dynamic_retargeting`: length ratio plus direction fix,
+    /// applied per frame in `pose.wgsl`).
     pub translations: Vec<Vec4>,
     /// Fitted model-space inverse bindposes in LOD bone order (replaces the reference undo).
     pub inv_binds: Vec<Mat4>,
@@ -126,6 +128,17 @@ pub struct GpuShapeSkeleton {
     /// same factor the CPU `rescale_root_bone_translation` applies). The
     /// shader blends these by the instance shape weights.
     pub root_scale: f32,
+    /// Per-bone translation length ratios (`fitted / reference` local length)
+    /// in LOD bone order. The pose shader scales each frame's clip offset
+    /// (`clip - reference rest`) by the weight-blended ratio, so bone
+    /// translations survive on every shape. Root and zero-length bones hold
+    /// 1.0 (identity: the offset passes through untouched).
+    pub translation_ratios: Vec<f32>,
+    /// Per-bone direction fixes in LOD bone order, stored as quats (`xyzw` in
+    /// a `Vec4`). Each rotates a reference-space clip offset into this
+    /// shape's parent space (same `parent_space_direction_fix` the CPU dynamic
+    /// path and the shape bake use). Root and zero-length bones hold identity.
+    pub translation_direction_adjust: Vec<Vec4>,
 }
 
 /// Per-shape fitted skeletons for the GPU crowd.

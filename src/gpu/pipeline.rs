@@ -13,7 +13,7 @@ use bevy::{
 
 use super::{
     bank::GpuRenderHandles,
-    config::{POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z, pose_grid_side},
+    config::{pose_grid_side, POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z},
     POSE_SHADER,
 };
 
@@ -138,6 +138,26 @@ pub(super) fn init_pose_pipeline(mut commands: Commands, pipeline_cache: Res<Pip
             },
             count: None,
         },
+        BindGroupLayoutEntry {
+            binding: 11,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        BindGroupLayoutEntry {
+            binding: 12,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
     ];
     let layout = BindGroupLayoutDescriptor::new("crowd_pose", &entries);
     let pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
@@ -172,6 +192,8 @@ pub(super) fn prepare_pose_bind_group(
         Some(shape_weights),
         Some(root_scales),
         Some(root_bind),
+        Some(shape_ratios),
+        Some(shape_direction_adjust),
     ) = (
         gpu_buffers.get(&handles.parents),
         gpu_buffers.get(&handles.frames),
@@ -184,6 +206,8 @@ pub(super) fn prepare_pose_bind_group(
         gpu_buffers.get(&handles.shape_weights),
         gpu_buffers.get(&handles.root_scales),
         gpu_buffers.get(&handles.root_bind),
+        gpu_buffers.get(&handles.shape_ratios),
+        gpu_buffers.get(&handles.shape_direction_adjust),
     )
     else {
         return;
@@ -204,6 +228,8 @@ pub(super) fn prepare_pose_bind_group(
             shape_weights.buffer.as_entire_buffer_binding(),
             root_scales.buffer.as_entire_buffer_binding(),
             root_bind.buffer.as_entire_buffer_binding(),
+            shape_ratios.buffer.as_entire_buffer_binding(),
+            shape_direction_adjust.buffer.as_entire_buffer_binding(),
         )),
     );
     commands.insert_resource(CrowdPoseBindGroup(bind_group));
@@ -244,4 +270,3 @@ pub(super) fn dispatch_pose(
     }
     render_queue.submit(std::iter::once(encoder.finish()));
 }
-

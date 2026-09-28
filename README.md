@@ -201,11 +201,13 @@ commands.spawn((
 
 ### Clips
 
-Clip loads are manual. Queue them on `GpuAnimationBank` once the retargeted asset is loaded, then wait for them to land before wiring blend slots:
+Clip loads are manual. Queue natively loaded clips (Bevy's glTF loader keeps every translation track) by handle, then wait for them to land before wiring blend slots:
 
 ```rust
-// Queue (e.g. when the RetargetedAnimationAsset finishes loading):
-bank.request_load("Idle-loop", GpuClipMode::Loop);
+// Queue (e.g. once the AnimationClip asset is loaded):
+let idle_clip =
+    asset_server.load(GltfAssetLabel::Animation(0).from_asset("animation/idle.glb"));
+bank.request_load_handle("Idle-loop", GpuClipMode::Loop, idle_clip);
 
 // Spawn-gate:
 if bank.is_loaded("Idle-loop") {
@@ -214,7 +216,9 @@ if bank.is_loaded("Idle-loop") {
 }
 ```
 
-`request_load` spawns one background bake task per clip; `request_unload` packs the buffer back up. `GpuClipMode::Loop` loops, `GpuClipMode::OnceHold` fires `GpuOneShotDone` and holds the last frame. Bank slot 0 is the permanent bindpose fallback — empty rows read rest pose, but you must still drive the slot weight to 0.
+Baked frames keep every translation track, and the pose shader retargets them per shape per frame (length ratio + direction fix from each registered `GpuShapeSkeleton`, same math as the CPU dynamic path) — one path, no per-clip variant. `request_load` (by name through a `RetargetedAnimationAsset`) still works for root-only clips; those render exactly as before since a rest offset retargets onto itself.
+
+`request_load_handle` spawns one background bake task per clip; `request_unload` packs the buffer back up. `GpuClipMode::Loop` loops, `GpuClipMode::OnceHold` fires `GpuOneShotDone` and holds the last frame. Bank slot 0 is the permanent bindpose fallback — empty rows read rest pose, but you must still drive the slot weight to 0.
 
 ### Blending per instance
 

@@ -18,13 +18,13 @@
 //! nothing.
 
 use bevy::{
-    animation::AnimationTargetId,
+    animation::{AnimationClip, AnimationTargetId},
     prelude::*,
     render::{extract_resource::ExtractResource, storage::ShaderBuffer},
 };
 use crossbeam_channel::{Receiver, Sender};
 
-use super::config::{CLIP_CAP, GpuClipMode};
+use super::config::{GpuClipMode, CLIP_CAP};
 
 /// Bank slot permanently holding the bindpose fallback clip. Frame 0 of the
 /// shared frames buffer is the bindpose in plain rest-bend shape (the same
@@ -49,6 +49,19 @@ pub(crate) struct BankSlot {
 pub(crate) struct PendingGpuAnimationClip {
     pub(crate) name: String,
     pub(crate) mode: GpuClipMode,
+}
+
+/// A bake request carrying its clip directly (Bevy's native `AnimationClip`
+/// with every translation track intact), instead of resolving `name` through
+/// a [`RetargetedAnimationAsset`](crate::loaders::RetargetedAnimationAsset)
+/// (whose root-only loader drops non-root translations at import). This is
+/// the GPU dynamic path: full tracks in, per-shape retarget in the pose
+/// shader, no per-clip variant.
+#[derive(Clone)]
+pub(crate) struct PendingHandleClip {
+    pub(crate) name: String,
+    pub(crate) mode: GpuClipMode,
+    pub(crate) clip_handle: Handle<AnimationClip>,
 }
 
 /// Baked local-frame matrices for one clip, sent from the background task.
@@ -78,6 +91,7 @@ pub struct GpuAnimationBank {
     pub(crate) frames: Vec<Mat4>,
     pub(crate) slots: Vec<Option<(String, BankSlot)>>,
     pub(crate) pending: Vec<PendingGpuAnimationClip>,
+    pub(crate) pending_handles: Vec<PendingHandleClip>,
     pub(crate) baking: Vec<String>,
     pub(crate) unload_queue: Vec<String>,
     /// Completed bakes waiting for a quiet moment. Committed (slots assigned,
@@ -114,6 +128,7 @@ impl GpuAnimationBank {
             frames: Vec::new(),
             slots,
             pending: Vec::new(),
+            pending_handles: Vec::new(),
             baking: Vec::new(),
             unload_queue: Vec::new(),
             staged: Vec::new(),
@@ -139,13 +154,59 @@ impl GpuAnimationBank {
         if self.staged.iter().any(|s| s.name == name) {
             return true;
         }
-        if self.pending.iter().any(|p| p.name == name) || self.baking.iter().any(|b| b == &name) {
+        if self.pending.iter().any(|p| p.name == name)
+            || self.pending_handles.iter().any(|p| p.name == name)
+            || self.baking.iter().any(|b| b == &name)
+        {
             return false;
         }
         if self.slots.iter().skip(1).all(|s| s.is_some()) {
             return false;
         }
         self.pending.push(PendingGpuAnimationClip { name, mode });
+        true
+    }
+
+    /// Queues a background bake of a natively loaded clip (Bevy's glTF loader,
+    /// every translation track intact) under `name` with the given playback
+    /// mode. Prefer this over [`request_load`](Self::request_load) whenever
+    /// bone translations matter: the retargeted-asset path drops non-root
+    /// translations at import, while this path bakes them and lets the pose
+    /// shader retarget them per shape per frame. Same resident/queued/baking
+    /// and bank-full rules as `request_load`.
+    pub fn request_load_handle(
+        &mut self,
+        name: impl Into<String>,
+        mode: GpuClipMode,
+        clip_handle: Handle<AnimationClip>,
+    ) -> bool {
+        let name = name.into();
+        if name == BIND_POSE_CLIP {
+            return false;
+        }
+        if let Some(idx) = self.slot_of(&name) {
+            // Already resident: cancel a queued unload so the load wins.
+            self.unload_queue.retain(|n| n != &name);
+            let _ = idx;
+            return true;
+        }
+        if self.staged.iter().any(|s| s.name == name) {
+            return true;
+        }
+        if self.pending.iter().any(|p| p.name == name)
+            || self.pending_handles.iter().any(|p| p.name == name)
+            || self.baking.iter().any(|b| b == &name)
+        {
+            return false;
+        }
+        if self.slots.iter().skip(1).all(|s| s.is_some()) {
+            return false;
+        }
+        self.pending_handles.push(PendingHandleClip {
+            name,
+            mode,
+            clip_handle,
+        });
         true
     }
     /// Unloads `name`. Resident clips are queued for a packed rebuild (bytes
@@ -251,6 +312,13 @@ pub struct GpuRenderHandles {
     /// Per-shape inverse bindposes: `shape_count * num_bones` `Mat4`s, same
     /// layout as `shape_translations`.
     pub shape_inv_binds: Handle<ShaderBuffer>,
+    /// Per-shape translation length ratios: `shape_count * num_bones` `f32`s,
+    /// same layout as `shape_translations`. Slice 0 holds 1.0 (identity).
+    pub shape_ratios: Handle<ShaderBuffer>,
+    /// Per-shape translation direction fixes: `shape_count * num_bones` quats
+    /// (`xyzw` in a `Vec4`), same layout as `shape_translations`. Slice 0
+    /// holds identity.
+    pub shape_direction_adjust: Handle<ShaderBuffer>,
     pub joints: Handle<ShaderBuffer>,
     pub uniforms: Handle<ShaderBuffer>,
     pub instance_data: Handle<ShaderBuffer>,

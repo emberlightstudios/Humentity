@@ -46,6 +46,12 @@ struct RootBindInfo {
 // Reference root bind-pose Y (model space): `binds[0]` local Y with no
 // ancestors, since the root has no parent.
 @group(0) @binding(10) var<storage, read> root_bind: RootBindInfo;
+// Per-shape translation length ratios: shape_count * num_bones floats.
+// Slice 0 holds 1.0 (reference retargets onto itself untouched).
+@group(0) @binding(11) var<storage, read> shape_translation_ratios: array<f32>;
+// Per-shape translation direction fixes: shape_count * num_bones quats
+// (`xyzw`), same layout as the ratios. Slice 0 holds identity.
+@group(0) @binding(12) var<storage, read> shape_direction_adjust: array<vec4f>;
 
 fn instance_weight(instance: u32, slot: u32) -> f32 {
     return instance_data[instance * 12u + slot];
@@ -108,6 +114,46 @@ fn mat_mix(a: mat4x4f, b: mat4x4f, f: f32) -> mat4x4f {
     return mat4x4f(mix(a[0], b[0], f), mix(a[1], b[1], f), mix(a[2], b[2], f), mix(a[3], b[3], f));
 }
 
+// Rotates a translation offset by a unit quat stored as `xyzw`.
+fn quat_rotate_offset(adjust_quat: vec4f, translation_offset: vec3f) -> vec3f {
+    let adjust_xyz = adjust_quat.xyz;
+    let adjust_w = adjust_quat.w;
+    return translation_offset
+        + 2.0 * cross(adjust_xyz, cross(adjust_xyz, translation_offset) + adjust_w * translation_offset);
+}
+
+// Dynamic bone translation for this instance + bone: the baked clip offset
+// (`clip_translation - reference rest`, reference-proportioned like the CPU
+// `AnimationPlayer` output) rescaled by the length ratio and rotated into the
+// fitted direction, per shape, then blended by the instance shape weights.
+// Same math as the CPU `rescale_dynamic_retargeting` and the shape bake, so
+// clips keep every translation track and every shape plays them fitted.
+// Rest poses land exactly on the blended rest (`clip == reference` zeroes the
+// offset), so root-only bakes render exactly as before.
+fn retargeted_bone_translation(instance: u32, bone: u32, clip_translation: vec3f) -> vec3f {
+    let reference_rest_translation = shape_translations[bone].xyz;
+    var blended_retargeted_translation = clip_translation;
+    for (var shape_index = 0u; shape_index < 8u; shape_index++) {
+        if (shape_index + 1u >= uniforms.shape_count) {
+            break;
+        }
+        let shape_weight = instance_shape_weight(instance, shape_index);
+        if (shape_weight != 0.0) {
+            let shape_slice_base = (shape_index + 1u) * uniforms.num_bones + bone;
+            let fitted_rest_translation = shape_translations[shape_slice_base].xyz;
+            let length_ratio = shape_translation_ratios[shape_slice_base];
+            let direction_fix = shape_direction_adjust[shape_slice_base];
+            let scaled_clip_offset =
+                (clip_translation - reference_rest_translation) * length_ratio;
+            let shape_retargeted_translation =
+                fitted_rest_translation + quat_rotate_offset(direction_fix, scaled_clip_offset);
+            blended_retargeted_translation +=
+                shape_weight * (shape_retargeted_translation - clip_translation);
+        }
+    }
+    return blended_retargeted_translation;
+}
+
 fn frame_at(bank: u32, bone: u32, frame: u32) -> mat4x4f {
     return frames[(uniforms.offsets[bank] + frame) * uniforms.num_bones + bone];
 }
@@ -155,16 +201,20 @@ fn clip_local(slot: u32, bone: u32, instance: u32, fitted: vec3f, is_root: bool)
     let bank = instance_bank(instance, slot);
     let pair = frame_pair(bank, instance, slot);
     let f = bitcast<f32>(pair.z);
-    // Swap the baked reference translation for this instance's blended rest
-    // translation. Rotations/scales play through untouched: clips are authored
-    // for reference rotations, which every fitted shape restores. The root
-    // gets the rescaled clip Y instead of the fitted rest (same fix the CPU
-    // post-update applies).
+    // Retarget the baked reference translation onto this instance's blended
+    // shape. Rotations/scales play through untouched: clips are authored for
+    // reference rotations, which every fitted shape restores. The root gets
+    // the rescaled clip Y instead (same fix the CPU post-update applies);
+    // every other bone gets the dynamic offset retarget, so bone translations
+    // survive on every shape instead of collapsing to rest.
     let a = frame_at(bank, bone, pair.x);
     let b = frame_at(bank, bone, pair.y);
     var trans = fitted;
     if (is_root) {
         trans = rescaled_root_y(mix(a[3].y, b[3].y, f), instance);
+    } else {
+        let clip_translation = mix(a[3].xyz, b[3].xyz, f);
+        trans = retargeted_bone_translation(instance, bone, clip_translation);
     }
     let a_fitted = mat4x4f(a[0], a[1], a[2], vec4f(trans, 1.0));
     let b_fitted = mat4x4f(b[0], b[1], b[2], vec4f(trans, 1.0));

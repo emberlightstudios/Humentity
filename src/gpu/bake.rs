@@ -300,6 +300,21 @@ pub(super) fn bake_gpu_animation(
         bytemuck::cast_slice(&inv_bind),
         RenderAssetUsages::RENDER_WORLD,
     ));
+    // Dynamic-retarget corrections, slice 0 (reference): length ratios of 1.0
+    // and identity direction quats, so the shader passes clip offsets through
+    // untouched for the reference shape. `upload_shape_buffers` appends one
+    // fitted slice per registered shape.
+    let reference_ratios = vec![1.0f32; binds.len()];
+    let shape_ratios_handle = buffers.add(ShaderBuffer::new(
+        bytemuck::cast_slice(&reference_ratios),
+        RenderAssetUsages::RENDER_WORLD,
+    ));
+    let reference_direction_adjust =
+        vec![Vec4::new(0.0, 0.0, 0.0, 1.0); binds.len()];
+    let shape_direction_adjust_handle = buffers.add(ShaderBuffer::new(
+        bytemuck::cast_slice(&reference_direction_adjust),
+        RenderAssetUsages::RENDER_WORLD,
+    ));
     let joints_handle = buffers.add(ShaderBuffer::new(
         bytemuck::cast_slice(&joints_data),
         RenderAssetUsages::RENDER_WORLD,
@@ -360,6 +375,8 @@ pub(super) fn bake_gpu_animation(
         inv_bind: inv_bind_handle,
         shape_translations: shape_translations_handle,
         shape_inv_binds: shape_inv_binds_handle,
+        shape_ratios: shape_ratios_handle,
+        shape_direction_adjust: shape_direction_adjust_handle,
         joints: joints_handle,
         uniforms: uniforms_handle,
         instance_data: instance_data_handle,
@@ -415,6 +432,42 @@ pub(super) fn submit_clip_bakes(
     };
     let tx = jobs.sender.clone();
     let pool = AsyncComputeTaskPool::get();
+    // Handle path first: natively loaded clips (full translation tracks) bake
+    // as soon as their asset is available. Same task shape as below.
+    let mut h = 0;
+    while h < bank.pending_handles.len() {
+        let req = bank.pending_handles[h].clone();
+        if req.name == BIND_POSE_CLIP
+            || bank.slot_of(&req.name).is_some()
+            || bank.staged.iter().any(|s| s.name == req.name)
+        {
+            bank.pending_handles.remove(h);
+            continue;
+        }
+        let Some(clip) = clips.get(&req.clip_handle) else {
+            h += 1;
+            continue;
+        };
+        let clip = clip.clone();
+        let bones = bank.bones.clone();
+        let targets = bank.targets.clone();
+        let binds = bank.binds.clone();
+        let rate = bank.sample_rate;
+        bank.pending_handles.remove(h);
+        bank.baking.push(req.name.clone());
+        let tx = tx.clone();
+        pool.spawn(async move {
+            let duration = clip.duration().max(0.01);
+            let frames = sample_clip_frames(&clip, duration, &bones, &targets, &binds, rate);
+            let _ = tx.send(BakedClip {
+                name: req.name,
+                mode: req.mode,
+                duration,
+                frames,
+            });
+        })
+        .detach();
+    }
     let mut i = 0;
     while i < bank.pending.len() {
         let req = bank.pending[i].clone();
@@ -496,6 +549,7 @@ pub(super) fn collect_clip_bakes(
     // bake just finished and siblings may follow). A burst of clips then
     // re-uploads exactly once.
     let work_pending = !bank.pending.is_empty()
+        || !bank.pending_handles.is_empty()
         || !bank.baking.is_empty()
         || !jobs.receiver.is_empty()
         || newly_staged;
@@ -636,12 +690,18 @@ pub(super) fn upload_shape_buffers(
         return;
     }
     for shape in shapes.shapes.iter() {
-        if shape.translations.len() != num_bones || shape.inv_binds.len() != num_bones {
+        if shape.translations.len() != num_bones
+            || shape.inv_binds.len() != num_bones
+            || shape.translation_ratios.len() != num_bones
+            || shape.translation_direction_adjust.len() != num_bones
+        {
             warn!(
-                "GPU shapes: '{}' has {}/{} bones, expected {num_bones}; skipping upload",
+                "GPU shapes: '{}' has {}/{}/{}/{} bones, expected {num_bones}; skipping upload",
                 shape.shape,
                 shape.translations.len(),
                 shape.inv_binds.len(),
+                shape.translation_ratios.len(),
+                shape.translation_direction_adjust.len(),
             );
             return;
         }
@@ -674,15 +734,27 @@ pub(super) fn upload_shape_buffers(
     let mut inv_binds = Vec::with_capacity((shapes.shapes.len() + 1) * num_bones);
     translations.extend_from_slice(&reference_translations);
     inv_binds.extend_from_slice(&reference_inv_binds);
+    // Slice 0 corrections are identity (ratio 1.0, identity quat): the
+    // reference shape retargets clip offsets onto itself untouched.
+    let mut ratios = vec![1.0f32; num_bones];
+    let mut direction_adjust = vec![Vec4::new(0.0, 0.0, 0.0, 1.0); num_bones];
     for shape in shapes.shapes.iter() {
         translations.extend_from_slice(&shape.translations);
         inv_binds.extend_from_slice(&shape.inv_binds);
+        ratios.extend_from_slice(&shape.translation_ratios);
+        direction_adjust.extend_from_slice(&shape.translation_direction_adjust);
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.shape_translations) {
         buffer.data = Some(bytemuck::cast_slice(&translations).to_vec());
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.shape_inv_binds) {
         buffer.data = Some(bytemuck::cast_slice(&inv_binds).to_vec());
+    }
+    if let Some(mut buffer) = buffers.get_mut(&handles.shape_ratios) {
+        buffer.data = Some(bytemuck::cast_slice(&ratios).to_vec());
+    }
+    if let Some(mut buffer) = buffers.get_mut(&handles.shape_direction_adjust) {
+        buffer.data = Some(bytemuck::cast_slice(&direction_adjust).to_vec());
     }
     handles.shape_count = shapes.shapes.len() as u32 + 1;
     // Publish the new shape count so the pose shader can clamp shape indices

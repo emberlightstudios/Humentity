@@ -1,21 +1,22 @@
 //! GPU morphs: `morphs_and_templates` bodies posed entirely on the GPU.
 //!
 //! Same baby/bodybuilder template, but crowd-style: one shared GPU mesh,
-//! the idle clip baked once on the reference skeleton, per-entity
-//! [`MeshMorphWeights`] for the body variation plus a per-instance
-//! shape-weight row blending the fitted shape skeletons (same weights the
-//! mesh morphs use, so hybrids ride the true blended skeleton).
+//! the idle clip (full translation tracks) baked once on the reference
+//! skeleton, per-entity [`MeshMorphWeights`] for the body variation plus a
+//! per-instance shape-weight row blending the fitted shape skeletons (same
+//! weights the mesh morphs use, so hybrids ride the true blended skeleton,
+//! bone translations included via the pose-shader dynamic retarget).
 //! If morphs work through the GPU skinning vertex shader, the five characters
 //! look different despite sharing one mesh handle and one material.
 
 mod shared;
 
 use bevy::{
-    mesh::{MeshTag, morph::MeshMorphWeights},
+    mesh::{morph::MeshMorphWeights, MeshTag},
     prelude::*,
 };
 use humentity::prelude::*;
-use shared::{CameraFraming, CustomCrowdMaterial, custom_crowd_material, setup_app_gpu};
+use shared::{custom_crowd_material, setup_app_gpu, CameraFraming, CustomCrowdMaterial};
 
 const BABY: &str = "baby";
 const BODYBUILDER: &str = "bodybuilder";
@@ -39,7 +40,7 @@ fn main() {
 struct MorphBuild {
     part: Handle<MhcloAsset>,
     template: Handle<CharacterTemplate>,
-    clips: Handle<RetargetedAnimationAsset>,
+    idle_clip: Handle<AnimationClip>,
 }
 
 fn trigger_morph_build(
@@ -65,17 +66,24 @@ fn trigger_morph_build(
         template_handle: template.clone(),
         skeleton_lod: MeshBuildLod::Gpu,
     });
-    let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
-    commands.insert_resource(MorphBuild { part, template, clips });
+    // Native glTF clip: every translation track intact, so the pose shader
+    // can retarget bone translations per shape per frame.
+    let idle_clip =
+        asset_server.load(GltfAssetLabel::Animation(0).from_asset("animation/idle.glb"));
+    commands.insert_resource(MorphBuild {
+        part,
+        template,
+        idle_clip,
+    });
     info!("gpu morph build triggered");
 }
 
-/// Manual clip loads: retries every frame until the bank accepts every clip
-/// in the retargeted asset.
+/// Manual clip load: retries every frame until the bank accepts the idle
+/// clip.
 fn request_clip_bakes(
     bank: Option<ResMut<GpuAnimationBank>>,
     build: Option<Res<MorphBuild>>,
-    clips: Res<Assets<RetargetedAnimationAsset>>,
+    clips: Res<Assets<AnimationClip>>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -84,21 +92,18 @@ fn request_clip_bakes(
     let (Some(mut bank), Some(build)) = (bank, build) else {
         return;
     };
-    let Some(asset) = clips.get(&build.clips) else {
+    if clips.get(&build.idle_clip).is_none() {
         return;
-    };
+    }
     // Level-driven, not event-driven: a bank that is missing (base bake not
     // done) or full must not lose the load, so keep asking until accepted.
-    let mut retry = false;
-    for name in asset.clips.keys() {
-        if !bank.is_loaded(name)
-            && !bank.is_baking(name)
-            && !bank.request_load(name.to_string(), GpuClipMode::Loop)
-        {
-            retry = true;
-        }
+    if !bank.is_loaded("Idle-loop")
+        && !bank.is_baking("Idle-loop")
+        && !bank.request_load_handle("Idle-loop", GpuClipMode::Loop, build.idle_clip.clone())
+    {
+        return;
     }
-    *done = !retry;
+    *done = true;
 }
 
 /// Fits one GPU shape skeleton per template shape from morphed helper verts,
@@ -144,15 +149,14 @@ fn fit_shape_skeletons(
     }
     for shape in template.shapes.iter() {
         let helpers = template
-            .get_helpers(&single_shape_weights(shape.name), &base_mesh.vertices, &morphs)
+            .get_helpers(
+                &single_shape_weights(shape.name),
+                &base_mesh.vertices,
+                &morphs,
+            )
             .expect("template shape helpers resolve once targets are ready");
-        let fitted = fit_shape_skeleton_from_helpers(
-            shape.name,
-            &helpers,
-            &bank.bones,
-            rig,
-            &vertex_groups,
-        );
+        let fitted =
+            fit_shape_skeleton_from_helpers(shape.name, &helpers, &bank.bones, rig, &vertex_groups);
         shapes.register(fitted);
     }
     *done = true;

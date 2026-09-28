@@ -1,16 +1,18 @@
 //! Basic GPU crowd: many characters posed entirely on the GPU.
 //!
-//! The idle clip is baked once to local bone matrices on the single crowd skeleton. Every
-//! frame a compute shader poses all instances x bones and the joint buffer
-//! feeds the skinning vertex shader bindlessly. The main world holds only
-//! static `Transform`s: no skeletons, no `AnimationPlayer`, no transform
+//! The idle clip (full translation tracks, Bevy's native glTF loader) is baked
+//! once to local bone matrices on the single crowd skeleton. Every frame a
+//! compute shader poses all instances x bones with per-shape dynamic retarget
+//! (length ratio + direction fix from each registered shape) and the joint
+//! buffer feeds the skinning vertex shader bindlessly. The main world holds
+//! only static `Transform`s: no skeletons, no `AnimationPlayer`, no transform
 //! propagation for the crowd.
 
 mod shared;
 
 use bevy::{camera::visibility::VisibilityRange, mesh::MeshTag, prelude::*};
 use humentity::prelude::*;
-use shared::{CameraFraming, CustomCrowdMaterial, custom_crowd_material, setup_app_gpu};
+use shared::{custom_crowd_material, setup_app_gpu, CameraFraming, CustomCrowdMaterial};
 
 // This type of crowd rendering is largely gpu bound and poly count matters enormously here.
 // You may get a few thousand basemesh instances at acceptable framerates, but if you really
@@ -34,9 +36,8 @@ fn main() {
 struct CrowdBuild {
     lod_parts: [Handle<MhcloAsset>; 4],
     template: Handle<CharacterTemplate>,
-    clips: Handle<RetargetedAnimationAsset>,
+    idle_clip: Handle<AnimationClip>,
 }
-
 
 fn trigger_crowd_build(
     mut commands: Commands,
@@ -61,21 +62,24 @@ fn trigger_crowd_build(
             skeleton_lod: MeshBuildLod::Gpu,
         });
     }
-    let clips = asset_server.load::<RetargetedAnimationAsset>("animation/idle.glb");
+    // Native glTF clip: every translation track intact, so the pose shader
+    // can retarget bone translations per shape per frame.
+    let idle_clip =
+        asset_server.load(GltfAssetLabel::Animation(0).from_asset("animation/idle.glb"));
     commands.insert_resource(CrowdBuild {
         lod_parts: lod_part_handles,
         template,
-        clips,
+        idle_clip,
     });
     info!("crowd build triggered");
 }
 
-/// Manual clip loads: retries every frame until the bank accepts every clip
-/// in the retargeted asset. Nothing else queues loads.
+/// Manual clip load: retries every frame until the bank accepts the idle
+/// clip. Nothing else queues loads.
 fn request_clip_bakes(
     bank: Option<ResMut<GpuAnimationBank>>,
     build: Option<Res<CrowdBuild>>,
-    clips: Res<Assets<RetargetedAnimationAsset>>,
+    clips: Res<Assets<AnimationClip>>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -84,21 +88,18 @@ fn request_clip_bakes(
     let (Some(mut bank), Some(build)) = (bank, build) else {
         return;
     };
-    let Some(asset) = clips.get(&build.clips) else {
+    if clips.get(&build.idle_clip).is_none() {
         return;
-    };
+    }
     // Level-driven, not event-driven: a bank that is missing (base bake not
     // done) or full must not lose the load, so keep asking until accepted.
-    let mut retry = false;
-    for name in asset.clips.keys() {
-        if !bank.is_loaded(name)
-            && !bank.is_baking(name)
-            && !bank.request_load(name.to_string(), GpuClipMode::Loop)
-        {
-            retry = true;
-        }
+    if !bank.is_loaded("Idle-loop")
+        && !bank.is_baking("Idle-loop")
+        && !bank.request_load_handle("Idle-loop", GpuClipMode::Loop, build.idle_clip.clone())
+    {
+        return;
     }
-    *done = !retry;
+    *done = true;
 }
 
 fn spawn_crowd(
@@ -128,11 +129,7 @@ fn spawn_crowd(
     let mut lod_mesh_handles = Vec::with_capacity(4);
     for lod_part in &build.lod_parts {
         let Some(lod_mesh_handle) = cached
-            .get(&(
-                lod_part.clone(),
-                build.template.clone(),
-                MeshBuildLod::Gpu,
-            ))
+            .get(&(lod_part.clone(), build.template.clone(), MeshBuildLod::Gpu))
             .cloned()
         else {
             return;
@@ -201,4 +198,3 @@ fn spawn_crowd(
     }
     info!("spawned {count} GPU-posed characters x 4 LODs sharing one material");
 }
-
