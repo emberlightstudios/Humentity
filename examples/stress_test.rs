@@ -1,4 +1,9 @@
 //! Stress test: spawns an NxN grid of LOD characters to measure performance.
+//!
+//! KNOWN ISSUE: body shapes are applied as morph targets, and Bevy loses
+//! the morph the first time a mesh is hidden and shown again, so distant
+//! characters may render the base body shape instead of the morphed one.
+//! See https://github.com/bevyengine/bevy/issues/25966
 
 mod shared;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};

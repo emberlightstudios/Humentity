@@ -8,6 +8,10 @@
 //! inconsistent values to the prepass, producing visible popping/flicker. Keep
 //! your LOD visibility ranges non-overlapping when a depth prepass is active.
 //!
+//! KNOWN ISSUE: body shapes are applied as morph targets, and Bevy loses
+//! the morph the first time a mesh is hidden and shown again. Every LOD
+//! fade then renders the base body shape instead of the morphed one.
+//! See https://github.com/bevyengine/bevy/issues/25966
 
 mod shared;
 use bevy::{camera::visibility::VisibilityRange, prelude::*};
