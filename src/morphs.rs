@@ -196,10 +196,10 @@ impl MakeHumanMorphs {
             morph_targets.insert("proportions", 0.5);
         }
         if !morph_targets.contains_key("cupsize") {
-            morph_targets.insert("cupsize", 0.0);
+            morph_targets.insert("cupsize", 0.5);
         }
         if !morph_targets.contains_key("firmness") {
-            morph_targets.insert("firmness", 0.0);
+            morph_targets.insert("firmness", 0.5);
         }
 
         // --- 3️⃣ Compute macro morphs ---
@@ -300,42 +300,35 @@ impl MakeHumanMorphs {
             }
         }
 
-        for &gender in macros.morph_map["gender"].iter() {
-            if gender == "male" {
+        for &age in macros.morph_map["age"].iter() {
+            if age == "baby" {
                 continue;
             }
-            let gender_value = macro_values.get(&gender).copied().unwrap_or(0.0);
-            for &age in macros.morph_map["age"].iter() {
-                if age == "baby" {
-                    continue;
-                }
-                let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
-                for &muscle in macros.morph_map["muscle"].iter() {
-                    let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
-                    for &weight in macros.morph_map["weight"].iter() {
-                        let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
-                        for &cupsize in macros.morph_map["cupsize"].iter() {
-                            let cupsize_value = macro_values.get(&cupsize).copied().unwrap_or(0.0);
-                            for &firmness in macros.morph_map["firmness"].iter() {
-                                if firmness == "averagefirmness" && cupsize == "averagecup" {
-                                    continue;
-                                }
-                                let firmness_value =
-                                    macro_values.get(&firmness).copied().unwrap_or(0.0);
-                                let name = NAME_INTERNER
-                                    .intern(&format!(
-                                        "{gender}-{age}-{muscle}-{weight}-{cupsize}-{firmness}"
-                                    ))
-                                    .leak();
-                                let value = gender_value
-                                    * age_value
-                                    * muscle_value
-                                    * weight_value
-                                    * cupsize_value
-                                    * firmness_value;
-                                if value != 0.0 {
-                                    result.insert(name, value);
-                                }
+            let age_value = macro_values.get(&age).copied().unwrap_or(0.0);
+            for &muscle in macros.morph_map["muscle"].iter() {
+                let muscle_value = macro_values.get(&muscle).copied().unwrap_or(0.0);
+                for &weight in macros.morph_map["weight"].iter() {
+                    let weight_value = macro_values.get(&weight).copied().unwrap_or(0.0);
+                    for &cupsize in macros.morph_map["cupsize"].iter() {
+                        let cupsize_value = macro_values.get(&cupsize).copied().unwrap_or(0.0);
+                        for &firmness in macros.morph_map["firmness"].iter() {
+                            if firmness == "averagefirmness" && cupsize == "averagecup" {
+                                continue;
+                            }
+                            let firmness_value =
+                                macro_values.get(&firmness).copied().unwrap_or(0.0);
+                            let name = NAME_INTERNER
+                                .intern(&format!(
+                                    "female-{age}-{muscle}-{weight}-{cupsize}-{firmness}"
+                                ))
+                                .leak();
+                            let value = age_value
+                                * muscle_value
+                                * weight_value
+                                * cupsize_value
+                                * firmness_value;
+                            if value != 0.0 {
+                                result.insert(name, value);
                             }
                         }
                     }
