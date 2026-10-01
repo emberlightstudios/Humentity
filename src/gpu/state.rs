@@ -55,6 +55,19 @@ pub struct GpuInstanceAnims {
     pub max_shapes: usize,
 }
 
+/// Reusable scratch buffers for [`update_instance_clocks`]: three flat `f32`
+/// rows sized to the crowd (`count × stride`). Kept across frames so the
+/// per-frame pack is a `clear` + refill, not a fresh allocation.
+#[derive(Resource, Default)]
+pub(super) struct InstanceClockScratch {
+    /// `count × BLEND_CAP × 3` (weights + clocks + bank indices).
+    pub instance_data: Vec<f32>,
+    /// `count × SHAPE_CAP` shape weights.
+    pub shape_weights: Vec<f32>,
+    /// `count` root scales.
+    pub root_scales: Vec<f32>,
+}
+
 impl GpuInstanceAnims {
     /// Active blend slots per instance.
     pub const fn blend_len(&self) -> usize {
@@ -166,6 +179,7 @@ pub(super) fn update_instance_clocks(
     anims: Option<ResMut<GpuInstanceAnims>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut done_events: MessageWriter<GpuOneShotDone>,
+    mut scratch: Local<InstanceClockScratch>,
 ) {
     let (Some(handles), Some(mut anims)) = (handles, anims) else {
         return;
@@ -214,9 +228,9 @@ pub(super) fn update_instance_clocks(
             }
         }
     }
-    // Layout must match pose.wgsl: BLEND_CAP weights + clocks + bank indices.
-    // Active rows pad with zeros so smaller configs feed the fixed stride.
-    let mut flat = Vec::with_capacity(count * BLEND_CAP * 3);
+    let flat = &mut scratch.instance_data;
+    flat.clear();
+    flat.reserve(count * BLEND_CAP * 3);
     for i in 0..count {
         flat.extend_from_slice(&anims.weights[i]);
         flat.extend(std::iter::repeat_n(
@@ -235,11 +249,13 @@ pub(super) fn update_instance_clocks(
         ));
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.instance_data) {
-        buffer.data = Some(bytemuck::cast_slice(&flat).to_vec());
+        buffer.data = Some(bytemuck::cast_slice(flat).to_vec());
     }
     // Shape weights ride a separate buffer: one SHAPE_CAP row per instance,
     // same semantics as the entity's morph weights. Active rows pad out.
-    let mut shape_flat = Vec::with_capacity(count * SHAPE_CAP);
+    let shape_flat = &mut scratch.shape_weights;
+    shape_flat.clear();
+    shape_flat.reserve(count * SHAPE_CAP);
     for i in 0..count {
         if let Some(row) = anims.shape_weights.get(i) {
             shape_flat.extend_from_slice(row);
@@ -249,14 +265,16 @@ pub(super) fn update_instance_clocks(
         }
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.shape_weights) {
-        buffer.data = Some(bytemuck::cast_slice(&shape_flat).to_vec());
+        buffer.data = Some(bytemuck::cast_slice(shape_flat).to_vec());
     }
     // Root scales ride their own buffer: one float per instance.
-    let mut root_flat = Vec::with_capacity(count);
+    let root_flat = &mut scratch.root_scales;
+    root_flat.clear();
+    root_flat.reserve(count);
     for i in 0..count {
         root_flat.push(anims.root_scales.get(i).copied().unwrap_or(1.0));
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.root_scales) {
-        buffer.data = Some(bytemuck::cast_slice(&root_flat).to_vec());
+        buffer.data = Some(bytemuck::cast_slice(root_flat).to_vec());
     }
 }

@@ -100,34 +100,6 @@ pub struct ShapeBakedAnimationSettings {
 #[derive(Default, TypePath)]
 pub struct ShapeBakedAnimationAssetLoader;
 
-/// Bake every clip in raw glTF `bytes` to `shape_corrections`, returning
-/// plain clips keyed by clip name. Single-shape helper for one-off code bakes
-/// with `Assets::add`; the loader parses once and runs
-/// `bake_shape_clips_from_document` per listed shape instead, so multi-shape
-/// loads go through settings rather than repeated calls here.
-pub fn bake_shape_clips_from_bytes(
-    bytes: &[u8],
-    shape_corrections: &ShapeBakedCorrections,
-) -> Result<AHashMap<&'static str, AnimationClip>, std::io::Error> {
-    let invalid = |message: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
-    let (document, buffers, _) = gltf::import_slice(bytes).map_err(|err| invalid(&err.to_string()))?;
-    if document.skins().len() > 1 {
-        return Err(invalid("More than one skin present in file"));
-    }
-    let Some(skin) = document.skins().next() else {
-        return Err(invalid("No skins available"));
-    };
-    let root_node = find_root_joints(&skin);
-    let joint_targets = build_joint_paths(&root_node);
-    let root_bone_name: &str = root_node.name().unwrap_or("");
-    let bone_corrections: AHashMap<&str, &BakedBoneCorrection> = shape_corrections
-        .baked_bone_corrections
-        .iter()
-        .map(|correction| (correction.bone_name.as_str(), correction))
-        .collect();
-    bake_shape_clips_from_document(&document, &buffers, &joint_targets, root_bone_name, shape_corrections, &bone_corrections)
-}
-
 fn bake_shape_clips_from_document(
     document: &gltf::Document,
     buffers: &[gltf::buffer::Data],

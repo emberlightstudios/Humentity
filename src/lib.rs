@@ -59,7 +59,7 @@ pub mod prelude {
         loaders::{
             BoneJsonConfig, BoneTransformSpec, CategoryMorphsAsset, CharacterShapeAsset,
             CharacterShapeConfigLoader, CharacterTemplateAssetLoader, CompositeTarget,
-            CompositeTargetsAsset, MacroBoundString, MacroBounds, MacroDataAsset,
+            CompositeTargetsAsset, MacroBounds, MacroDataAsset,
             MacroDataAssetLoader, MhcloAsset, MhcloAssetLoader, ObjVertsAsset, ObjVertsAssetLoader,
             ObjVertsSettings, OppositesAsset, ReferenceRigAsset, ReferenceRigAssetLoader,
             RotationOnlyAnimationAsset, RotationOnlyAnimationAssetLoader,
@@ -67,7 +67,7 @@ pub mod prelude {
             RigConfigAsset, RigConfigAssetLoader, RigWeightsAsset, RigWeightsAssetLoader,
             ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader, ShapeBakedAnimationSettings,
             ShapeBakeRequest, TargetAsset, TargetAssetLoader, TargetDelta, TargetManifestAssetLoader,
-            VertexGroupsAsset, VertexGroupsAssetLoader, bake_shape_clips_from_bytes,
+            VertexGroupsAsset, VertexGroupsAssetLoader,
         },
         mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_vertex_positions},
         morphs::{MakeHumanMorphs, MorphError, MorphTargets, adjust_helpers_to_morphs},

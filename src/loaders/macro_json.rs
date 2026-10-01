@@ -17,7 +17,7 @@ pub struct MacroDataAsset {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct MacroDataAssetString {
+struct MacroDataAssetString {
     pub macrotargets: AHashMap<String, MacroBoundsString>,
 }
 
@@ -27,7 +27,7 @@ pub struct MacroBounds {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct MacroBoundsString {
+struct MacroBoundsString {
     pub parts: Vec<MacroBoundString>,
 }
 
@@ -40,7 +40,7 @@ pub struct MacroBound {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct MacroBoundString {
+struct MacroBoundString {
     pub lowest: f32,
     pub highest: f32,
     pub low: String,

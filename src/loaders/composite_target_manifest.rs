@@ -35,16 +35,16 @@ pub struct OppositesAsset {
 
 // Temp types with String for deserialization
 #[derive(Clone, Debug, Deserialize, Deref)]
-pub struct CompositeMorphsAssetString(pub AHashMap<String, CategoryMorphsAssetString>);
+struct CompositeMorphsAssetString(pub AHashMap<String, CategoryMorphsAssetString>);
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct CategoryMorphsAssetString {
+struct CategoryMorphsAssetString {
     #[serde(rename = "categories")]
     pub morphs: Vec<CompositeMorphAssetString>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct CompositeMorphAssetString {
+struct CompositeMorphAssetString {
     pub has_left_and_right: bool,
     pub name: String,
     pub opposites: Option<OppositesAssetString>,
@@ -53,7 +53,7 @@ pub struct CompositeMorphAssetString {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct OppositesAssetString {
+struct OppositesAssetString {
     pub negative_left: String,
     pub negative_right: String,
     pub negative_unsided: String,

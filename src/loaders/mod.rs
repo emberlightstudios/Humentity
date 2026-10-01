@@ -14,7 +14,7 @@ pub use composite_target_manifest::{
     CategoryMorphsAsset, CompositeTarget, CompositeTargetsAsset, OppositesAsset,
     TargetManifestAssetLoader,
 };
-pub use macro_json::{MacroBoundString, MacroBounds, MacroDataAsset, MacroDataAssetLoader};
+pub use macro_json::{MacroBounds, MacroDataAsset, MacroDataAssetLoader};
 pub use mhclo::{MhcloAsset, MhcloAssetLoader, MhcloVertexMap};
 pub use obj_verts::{
     ObjVertsAsset, ObjVertsAssetLoader, ObjVertsSettings, VertexGroupsAsset,
@@ -24,7 +24,7 @@ pub use reference_rig::{ReferenceRigAsset, ReferenceRigAssetLoader};
 pub use rotation_only_animation::{
     RotationOnlyAnimationAsset, RotationOnlyAnimationAssetLoader, RotationOnlyAnimationSettings,
     ShapeBakeRequest, ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader,
-    ShapeBakedAnimationSettings, bake_shape_clips_from_bytes,
+    ShapeBakedAnimationSettings,
 };
 pub use rig_config::{BoneJsonConfig, BoneTransformSpec, RigConfigAsset, RigConfigAssetLoader};
 pub use rig_weights::{RigWeightsAsset, RigWeightsAssetLoader};

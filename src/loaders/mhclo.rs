@@ -24,7 +24,6 @@ pub enum MhcloVertexMap {
 
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct MhcloAsset {
-    pub name: String,
     pub obj_file: AssetPath<'static>,
     pub tags: Vec<String>,
     pub z_depth: i8,
@@ -61,7 +60,6 @@ impl AssetLoader for MhcloAssetLoader {
         let raw_text = String::from_utf8(bytes)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
-        let mut name = "".to_string();
         let mut obj_file = AssetPath::default();
         let mut tags = Vec::new();
         let mut z_depth = 0_i8;
@@ -93,12 +91,6 @@ impl AssetLoader for MhcloAssetLoader {
 
             match section {
                 FileSection::Header => match key {
-                    "name" => {
-                        let name_text = parts.collect::<Vec<_>>().join(" ");
-                        if !name_text.is_empty() {
-                            name = line.strip_prefix("name ").unwrap().to_string();
-                        }
-                    }
                     "obj_file" => {
                         if let Some(obj_token) = parts.next()
                             && let Ok(path) = load_context
@@ -245,7 +237,6 @@ impl AssetLoader for MhcloAssetLoader {
         }
 
         Ok(MhcloAsset {
-            name,
             obj_file,
             tags,
             z_depth,

@@ -15,7 +15,7 @@ pub struct RigWeightsAsset {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct WeightsFormat {
+struct WeightsFormat {
     pub weights: AHashMap<String, Vec<(u16, f32)>>,
 }
 
