@@ -4,7 +4,7 @@
 //! [`GpuCrowdConfig`](super::config::GpuCrowdConfig)). Per-instance blend
 //! slots index into the bank, so the crowd can blend any `blend_slots` of
 //! the loaded clips. Loads are manual via
-//! [`GpuAnimationBank::request_load`]: each request spawns one background bake
+//! [`GpuAnimationBank::request_load_handle`]: each request spawns one background bake
 //! task, and the baked frames are appended to the packed `frames` shadow when
 //! ready. Unloads ([`GpuAnimationBank::request_unload`]) splice the clip's
 //! bytes out of the shadow and rewrite later offsets, so the buffer stays
@@ -45,18 +45,10 @@ pub(crate) struct BankSlot {
     pub duration: f32,
     pub mode: GpuClipMode,
 }
-#[derive(Clone)]
-pub(crate) struct PendingGpuAnimationClip {
-    pub(crate) name: String,
-    pub(crate) mode: GpuClipMode,
-}
 
 /// A bake request carrying its clip directly (Bevy's native `AnimationClip`
-/// with every translation track intact), instead of resolving `name` through
-/// a [`RotationOnlyAnimationAsset`](crate::loaders::RotationOnlyAnimationAsset)
-/// (whose root-only loader drops non-root translations at import). This is
-/// the GPU dynamic path: full tracks in, per-shape retarget in the pose
-/// shader, no per-clip variant.
+/// with every translation track intact). Full tracks in, per-shape retarget
+/// in the pose shader, no per-clip variant.
 #[derive(Clone)]
 pub(crate) struct PendingHandleClip {
     pub(crate) name: String,
@@ -90,7 +82,6 @@ pub struct GpuAnimationBank {
     /// upload, so the buffer itself cannot be used as the append source.
     pub(crate) frames: Vec<Mat4>,
     pub(crate) slots: Vec<Option<(String, BankSlot)>>,
-    pub(crate) pending: Vec<PendingGpuAnimationClip>,
     pub(crate) pending_handles: Vec<PendingHandleClip>,
     pub(crate) baking: Vec<String>,
     pub(crate) unload_queue: Vec<String>,
@@ -127,7 +118,6 @@ impl GpuAnimationBank {
             frame_total: 1,
             frames: Vec::new(),
             slots,
-            pending: Vec::new(),
             pending_handles: Vec::new(),
             baking: Vec::new(),
             unload_queue: Vec::new(),
@@ -135,45 +125,13 @@ impl GpuAnimationBank {
         }
     }
 
-    /// Queues a background bake of `name` with the given playback mode.
+    /// Queues a background bake of a natively loaded clip (Bevy's glTF loader,
+    /// every translation track intact) under `name` with the given playback
+    /// mode. The pose shader retargets bone translations per shape per frame.
     /// Returns false when the clip is already resident, queued, or baking, or
     /// when every bank slot is occupied (unload something, then retry).
     /// Slot 0 is the permanent bindpose clip: real clips start at slot 1.
-    /// Staged-but-uncommitted clips report success without queueing a
-    pub fn request_load(&mut self, name: impl Into<String>, mode: GpuClipMode) -> bool {
-        let name = name.into();
-        if name == BIND_POSE_CLIP {
-            return false;
-        }
-        if let Some(idx) = self.slot_of(&name) {
-            // Already resident: cancel a queued unload so the load wins.
-            self.unload_queue.retain(|n| n != &name);
-            let _ = idx;
-            return true;
-        }
-        if self.staged.iter().any(|s| s.name == name) {
-            return true;
-        }
-        if self.pending.iter().any(|p| p.name == name)
-            || self.pending_handles.iter().any(|p| p.name == name)
-            || self.baking.iter().any(|b| b == &name)
-        {
-            return false;
-        }
-        if self.slots.iter().skip(1).all(|s| s.is_some()) {
-            return false;
-        }
-        self.pending.push(PendingGpuAnimationClip { name, mode });
-        true
-    }
-
-    /// Queues a background bake of a natively loaded clip (Bevy's glTF loader,
-    /// every translation track intact) under `name` with the given playback
-    /// mode. Prefer this over [`request_load`](Self::request_load) whenever
-    /// bone translations matter: the retargeted-asset path drops non-root
-    /// translations at import, while this path bakes them and lets the pose
-    /// shader retarget them per shape per frame. Same resident/queued/baking
-    /// and bank-full rules as `request_load`.
+    /// Staged-but-uncommitted clips report success without queueing a second bake.
     pub fn request_load_handle(
         &mut self,
         name: impl Into<String>,
@@ -193,8 +151,7 @@ impl GpuAnimationBank {
         if self.staged.iter().any(|s| s.name == name) {
             return true;
         }
-        if self.pending.iter().any(|p| p.name == name)
-            || self.pending_handles.iter().any(|p| p.name == name)
+        if self.pending_handles.iter().any(|p| p.name == name)
             || self.baking.iter().any(|b| b == &name)
         {
             return false;
@@ -227,10 +184,6 @@ impl GpuAnimationBank {
         }
         if let Some(i) = self.staged.iter().position(|s| s.name == name) {
             self.staged.remove(i);
-            return true;
-        }
-        if let Some(i) = self.pending.iter().position(|p| p.name == name) {
-            self.pending.remove(i);
             return true;
         }
         false

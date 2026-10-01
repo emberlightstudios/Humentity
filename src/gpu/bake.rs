@@ -5,7 +5,7 @@
 //! `inv_bind`, the frame-0 bindpose clip, `joints`, `uniforms`,
 //! `instance_data`), creates the [`GpuAnimationBank`] registry, and seeds
 //! per-instance state. Clip loads are always manual: callers queue them via
-//! [`GpuAnimationBank::request_load`](super::bank::GpuAnimationBank::request_load),
+//! [`GpuAnimationBank::request_load_handle`](super::bank::GpuAnimationBank::request_load_handle),
 //! follow-up passes dispatch one background [`AsyncComputeTaskPool`] task per
 //! queued load; completions are collected on the main thread, appended to the
 //! shared `frames` buffer, and published through the bank tables +
@@ -159,7 +159,7 @@ mod tests {
 }
 /// First pass: uploads static buffers + frame-0 bindpose seed, creates the
 /// bank, and seeds per-instance state. Clip loads are manual via
-/// [`GpuAnimationBank::request_load`](super::bank::GpuAnimationBank::request_load).
+/// [`GpuAnimationBank::request_load_handle`](super::bank::GpuAnimationBank::request_load_handle).
 pub(super) fn bake_gpu_animation(
     mut commands: Commands,
     config: Res<GpuCrowdConfig>,
@@ -424,7 +424,6 @@ pub(super) fn bake_gpu_animation(
 pub(super) fn submit_clip_bakes(
     bank: Option<ResMut<GpuAnimationBank>>,
     jobs: Res<GpuBakeJobs>,
-    rotation_only: Res<Assets<RotationOnlyAnimationAsset>>,
     clips: Res<Assets<AnimationClip>>,
 ) {
     let Some(mut bank) = bank else {
@@ -432,8 +431,8 @@ pub(super) fn submit_clip_bakes(
     };
     let tx = jobs.sender.clone();
     let pool = AsyncComputeTaskPool::get();
-    // Handle path first: natively loaded clips (full translation tracks) bake
-    // as soon as their asset is available. Same task shape as below.
+    // Natively loaded clips (full translation tracks) bake as soon as their
+    // asset is available.
     let mut h = 0;
     while h < bank.pending_handles.len() {
         let req = bank.pending_handles[h].clone();
@@ -454,49 +453,6 @@ pub(super) fn submit_clip_bakes(
         let binds = bank.binds.clone();
         let rate = bank.sample_rate;
         bank.pending_handles.remove(h);
-        bank.baking.push(req.name.clone());
-        let tx = tx.clone();
-        pool.spawn(async move {
-            let duration = clip.duration().max(0.01);
-            let frames = sample_clip_frames(&clip, duration, &bones, &targets, &binds, rate);
-            let _ = tx.send(BakedClip {
-                name: req.name,
-                mode: req.mode,
-                duration,
-                frames,
-            });
-        })
-        .detach();
-    }
-    let mut i = 0;
-    while i < bank.pending.len() {
-        let req = bank.pending[i].clone();
-        if req.name == BIND_POSE_CLIP {
-            bank.pending.remove(i);
-            continue;
-        }
-        let Some(map) = rotation_only
-            .iter()
-            .find_map(|(_id, map)| map.clips.contains_key(req.name.as_str()).then_some(map))
-        else {
-            i += 1;
-            continue;
-        };
-        let Some(handle) = map.clips.get(req.name.as_str()) else {
-            warn!("GPU clip bake: '{}' not found, dropping request", req.name);
-            bank.pending.remove(i);
-            continue;
-        };
-        let Some(clip) = clips.get(handle) else {
-            i += 1;
-            continue;
-        };
-        let clip = clip.clone();
-        let bones = bank.bones.clone();
-        let targets = bank.targets.clone();
-        let binds = bank.binds.clone();
-        let rate = bank.sample_rate;
-        bank.pending.remove(i);
         bank.baking.push(req.name.clone());
         let tx = tx.clone();
         pool.spawn(async move {
@@ -548,8 +504,7 @@ pub(super) fn collect_clip_bakes(
     // in-flight bakes, and nothing newly arrived this pass (which implies a
     // bake just finished and siblings may follow). A burst of clips then
     // re-uploads exactly once.
-    let work_pending = !bank.pending.is_empty()
-        || !bank.pending_handles.is_empty()
+    let work_pending = !bank.pending_handles.is_empty()
         || !bank.baking.is_empty()
         || !jobs.receiver.is_empty()
         || newly_staged;

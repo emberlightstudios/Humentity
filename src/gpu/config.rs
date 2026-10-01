@@ -67,7 +67,7 @@ pub(crate) const CLIP_CAP: usize = 64;
 pub(crate) const SHAPE_CAP: usize = 8;
 
 /// Clip loads/unloads are manual via
-/// [`GpuAnimationBank`](super::bank::GpuAnimationBank) `request_load` /
+/// [`GpuAnimationBank`](super::bank::GpuAnimationBank) `request_load_handle` /
 /// `request_unload`.
 /// Per-instance blend weights template used once at bake to seed every instance.
 /// Runtime weights are per-instance in [`GpuInstanceAnims`](super::state::GpuInstanceAnims);

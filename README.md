@@ -232,7 +232,7 @@ if bank.is_loaded("Idle-loop") {
 }
 ```
 
-Baked frames keep every translation track, and the pose shader retargets them per shape per frame (length ratio + direction fix from each registered `GpuShapeSkeleton`, same math as the CPU dynamic path) — one path, no per-clip variant. `request_load` (by name through a `RotationOnlyAnimationAsset`) still works for root-only clips; those render exactly as before since a rest offset retargets onto itself.
+Baked frames keep every translation track, and the pose shader retargets them per shape per frame (length ratio + direction fix from each registered `GpuShapeSkeleton`, same math as the CPU dynamic path) — one path, no per-clip variant. GPU never uses `RotationOnlyAnimationAsset` clips (root-only translations are stripped at import); always queue native `AnimationClip` handles.
 
 `request_load_handle` spawns one background bake task per clip; `request_unload` packs the buffer back up. `GpuClipMode::Loop` loops, `GpuClipMode::OnceHold` fires `GpuOneShotDone` and holds the last frame. Bank slot 0 is the permanent bindpose fallback — empty rows read rest pose, but you must still drive the slot weight to 0.
 
