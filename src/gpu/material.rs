@@ -11,7 +11,7 @@ use bevy::{
     shader::ShaderRef,
 };
 
-use super::CROWD_SKIN_SHADER;
+use super::CROWD_FORWARD_SHADER;
 
 pub type CrowdMaterial = ExtendedMaterial<StandardMaterial, GpuCrowdExtension>;
 
@@ -26,23 +26,28 @@ pub struct GpuCrowdExtension {
 #[derive(Clone, Copy, ShaderType)]
 pub struct GpuCrowdUniform {
     pub num_bones: u32,
-    pub pad0: u32,
-    pub pad1: u32,
-    pub pad2: u32,
+    pub pad_a: u32,
+    pub pad_b: u32,
+    pub pad_c: u32,
 }
 
 impl MaterialExtension for GpuCrowdExtension {
     fn vertex_shader() -> ShaderRef {
-        CROWD_SKIN_SHADER.into()
+        CROWD_FORWARD_SHADER.into()
     }
 
-    // Posed depth/shadow pass: the prepass/shadow pipelines bind the real
-    // material layout (registry 0.19.1, #24843 backport) whenever a custom
-    // `prepass_vertex_shader` exists, so the joint buffer at group
-    // `MATERIAL_BIND_GROUP` validates. `crowd_prepass.wgsl` skins from the
-    // same joints the color pass uses, returning `prepass_io::VertexOutput`.
+    // Posed depth/shadow is parked until Bevy binds the real material layout
+    // when a custom `prepass_vertex_shader` exists: upstream (no patch
+    // section in either `Cargo.toml`, so 0.19.0 rules apply) pushes an empty
+    // layout on the depth-only opaque prepass (`is_depth_only_opaque_prepass`),
+    // so the joint buffer at group `MATERIAL_BIND_GROUP` (bindings 100/101)
+    // can never validate there. Revisit when Bevy ships the material-aware
+    // prepass (`prepass_reads_material`, registry 0.19.1 / #24843 backport).
+    // Until then the color pass poses via `crowd_forward.wgsl`; depth and
+    // shadows fall back to bind pose. `crowd_prepass.wgsl` stays in-tree as
+    // the posed entry for that day.
     fn prepass_vertex_shader() -> ShaderRef {
-        super::CROWD_PREPASS_SHADER.into()
+        ShaderRef::Default
     }
 
     fn specialize(
@@ -56,9 +61,9 @@ impl MaterialExtension for GpuCrowdExtension {
 }
 
 /// Routes the custom GPU joint attributes to shader locations 6/7 so any
-/// vertex shader — the default or a custom one calling `gpu_skin_vertex` —
-/// receives them. Custom [`MaterialExtension`]s reuse this instead of
-/// duplicating the layout walk.
+/// vertex shader — the default or a custom one calling the shared
+/// `humentity::crowd_skin` module — receives them. Custom
+/// [`MaterialExtension`]s reuse this instead of duplicating the layout walk.
 pub fn specialize_gpu_vertex_layout(
     descriptor: &mut RenderPipelineDescriptor,
     layout: &MeshVertexBufferLayoutRef,

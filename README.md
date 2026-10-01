@@ -269,7 +269,7 @@ Off by default. Set `readback_joints: true` and the plugin copies the posed `joi
 if let Some(m) = readback.joint(instance, bone) { /* hitbox math */ }
 ```
 
-`CrowdMaterial` is an `ExtendedMaterial<StandardMaterial, GpuCrowdExtension>`. For your own shading, compose the shared `gpu_skin_wgsl()` snippet with your own `@vertex` entry that calls `gpu_skin_vertex`, and route the joint attributes with `specialize_gpu_vertex_layout` (locations 6/7).
+`CrowdMaterial` is an `ExtendedMaterial<StandardMaterial, GpuCrowdExtension>`. For your own shading, call the shared `humentity::crowd_skin` module (`crowd_skin::crowd_skin_pose`) from your own `@vertex` entry and route the joint attributes with `specialize_gpu_vertex_layout` (locations 6/7). See `src/gpu/crowd_forward.wgsl` (color pass) and `src/gpu/crowd_prepass.wgsl` (depth/shadow) for the two entries; morph + joint-fetch math lives only in `src/gpu/crowd_skin.wgsl`.
 
 ## Ragdoll physics
 

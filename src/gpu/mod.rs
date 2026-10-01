@@ -40,63 +40,33 @@ pub use state::{GpuInstanceAnims, GpuOneShotDone};
 use std::marker::PhantomData;
 
 use bevy::{
-    asset::{load_internal_asset, uuid::Uuid},
+    asset::{embedded_asset, load_internal_asset, uuid::Uuid},
     pbr::MaterialPlugin,
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems, extract_resource::ExtractResourcePlugin,
     },
+    shader::load_shader_library,
 };
 
 pub const POSE_SHADER: Handle<Shader> = Handle::Uuid(
     Uuid::from_u128(0x677075616e696d4750753030317567),
     PhantomData,
 );
-pub const CROWD_SKIN_SHADER: Handle<Shader> = Handle::Uuid(
-    Uuid::from_u128(0x677075616e696d4750753030327567),
-    PhantomData,
-);
-pub const CROWD_PREPASS_SHADER: Handle<Shader> = Handle::Uuid(
-    Uuid::from_u128(0x677075616e696d4750753030337567),
-    PhantomData,
-);
 
-/// The shared skinning snippet: joint/uniform bindings plus the single
-/// `gpu_skin_vertex` function. Custom vertex shaders compose this with their
-/// own `@vertex` entry that calls the function, then adds work on top of the
-/// returned `VertexOutput`. Entries must not re-import what the snippet
-/// already imports (`VertexOutput`, `position_world_to_clip`); duplicate
+/// Forward color-pass entry: calls the shared `humentity::crowd_skin` module
+/// and builds `forward_io::VertexOutput`.
+pub const CROWD_FORWARD_SHADER: &str = "embedded://humentity/gpu/crowd_forward.wgsl";
+/// Posed depth/shadow entry: calls the shared `humentity::crowd_skin` module
+/// and builds `prepass_io::VertexOutput`. Both the depth prepass and the
+/// shadow passes run this entry.
+pub const CROWD_PREPASS_SHADER: &str = "embedded://humentity/gpu/crowd_prepass.wgsl";
+
+/// The shared skinning module (`humentity::crowd_skin`): joint/uniform
+/// bindings plus the single `crowd_skin_pose` function, which returns plain
+/// posed-vertex data. Both entries call it and build their own output type.
+/// Entries must not re-import what the module already imports; duplicate
 /// imports fail as ambiguous.
-pub const fn gpu_skin_wgsl() -> &'static str {
-    include_str!("skin.wgsl")
-}
-
-/// Default `@vertex` entry: pure call-through to `gpu_skin_vertex`, no extras.
-const CROWD_SKIN_ENTRY: &str = r#"
-struct GpuVertex {
-    @builtin(instance_index) instance_index: u32,
-    @builtin(vertex_index) vertex_index: u32,
-    @location(0) position: vec3<f32>,
-    @location(1) normal: vec3<f32>,
-    @location(2) uv: vec2<f32>,
-    @location(6) joint_indices: vec4<u32>,
-    @location(7) joint_weights: vec4<f32>,
-};
-
-@vertex
-fn vertex(vertex: GpuVertex) -> VertexOutput {
-    return gpu_skin_vertex(
-        vertex.instance_index,
-        vertex.vertex_index,
-        vertex.position,
-        vertex.normal,
-        vertex.uv,
-        vertex.joint_indices,
-        vertex.joint_weights,
-    );
-}
-"#;
-
 pub struct HumentityGpuPlugin {
     pub instances: usize,
     pub sample_rate: f32,
@@ -127,21 +97,9 @@ impl Default for HumentityGpuPlugin {
 impl Plugin for HumentityGpuPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, POSE_SHADER, "pose.wgsl", Shader::from_wgsl);
-        load_internal_asset!(
-            app,
-            CROWD_PREPASS_SHADER,
-            "crowd_prepass.wgsl",
-            Shader::from_wgsl
-        );
-        // The default skin shader is composed from the shared snippet so the
-        // function stays the single source of truth.
-        let _ = app.world_mut().resource_mut::<Assets<Shader>>().insert(
-            CROWD_SKIN_SHADER.id(),
-            Shader::from_wgsl(
-                format!("{}\n{}", gpu_skin_wgsl(), CROWD_SKIN_ENTRY),
-                "crowd_skin.wgsl",
-            ),
-        );
+        load_shader_library!(app, "crowd_skin.wgsl");
+        embedded_asset!(app, "crowd_forward.wgsl");
+        embedded_asset!(app, "crowd_prepass.wgsl");
         app.add_plugins(MaterialPlugin::<CrowdMaterial>::default());
         app.add_plugins(ExtractResourcePlugin::<GpuRenderHandles>::default());
         app.insert_resource(GpuCrowdConfig {

@@ -366,13 +366,10 @@ pub fn setup_env(
     commands.spawn((Camera3d::default(), camera));
 }
 
-/// Entry source for [`EXAMPLE_VERTEX_SHADER`], shared by all GPU crowd
-/// examples so there is exactly one of them.
-pub const EXAMPLE_VERTEX_ENTRY: &str = include_str!("crowd_vertex.wgsl");
 
 /// Material extension for examples with their own GPU crowd vertex shader.
-/// skinning itself always comes from the
-/// shared `gpu_skin_vertex` function.
+/// Skinning itself always comes from the shared `humentity::crowd_skin`
+/// module.
 pub type CustomCrowdMaterial = ExtendedMaterial<StandardMaterial, CustomCrowdExtension>;
 
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
@@ -385,11 +382,11 @@ pub struct CustomCrowdExtension {
 
 impl MaterialExtension for CustomCrowdExtension {
     fn vertex_shader() -> ShaderRef {
-        CROWD_SKIN_SHADER.into()
+        CROWD_FORWARD_SHADER.into()
     }
 
     fn prepass_vertex_shader() -> ShaderRef {
-        CROWD_PREPASS_SHADER.into()
+        ShaderRef::Default
     }
 
     fn specialize(
@@ -413,9 +410,9 @@ pub fn custom_crowd_material(
             joints: handles.joints.clone(),
             crowd: GpuCrowdUniform {
                 num_bones: handles.num_bones,
-                pad0: 0,
-                pad1: 0,
-                pad2: 0,
+                pad_a: 0,
+                pad_b: 0,
+                pad_c: 0,
             },
         },
     })
