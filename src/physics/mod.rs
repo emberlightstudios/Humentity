@@ -1,5 +1,7 @@
-// Shared constants used by the `avian` feature-gated submodule.
-#![allow(dead_code)]
+// Shared constants consumed by the `avian` submodule: without the feature
+// nothing reads them, so silence dead-code there instead of hiding real
+// warnings when avian is on.
+#![cfg_attr(not(feature = "avian"), allow(dead_code))]
 
 use bevy::prelude::*;
 

@@ -684,9 +684,12 @@ pub(crate) fn sync_bones_to_ragdoll(
             _ => None,
         };
 
-        // Write each collider's position back to its single skeleton bone as a
-        // local (parent-relative) transform, lerping for smoothness.
-        let mut applied_joint_world = AHashMap::<Entity, Transform>::default();
+        // Fixed-size parent world cache indexed by `collider_index`: parents
+        // come before children in `COLLIDERS` order, so a child's skeletal
+        // parent (when itself collider-tracked) is already cached. A linear
+        // reverse lookup maps the skeletal parent entity back to its collider
+        // slot; untracked parents fall back to `GlobalTransform` as before.
+        let mut applied_joint_world: [Option<Transform>; 15] = [None; 15];
         for &bone_type in COLLIDERS.iter() {
             if let Some(bones) = partial_bones
                 && !bones.contains(&bone_type)
@@ -707,14 +710,23 @@ pub(crate) fn sync_bones_to_ragdoll(
             let Some(&bone_entity) = char_colliders.bone_entities.get(&bone_type) else {
                 continue;
             };
-
             // Convert joint_to_world (world space) to local using the single
             // skeleton's parent chain.
             let local = {
                 let (_, parent) = bones.get(bone_entity).expect("bone entity should be valid");
                 if let Some(parent) = parent {
                     let parent_entity = parent.parent();
-                    if let Some(parent_to_world) = applied_joint_world.get(&parent_entity) {
+                    let mut cached = None;
+                    for (slot, cached_world) in applied_joint_world.iter().enumerate() {
+                        if let Some(cached_world) = cached_world
+                            && char_colliders.bone_entities.get(&COLLIDERS[slot])
+                                == Some(&parent_entity)
+                        {
+                            cached = Some(*cached_world);
+                            break;
+                        }
+                    }
+                    if let Some(parent_to_world) = cached {
                         Transform::from_matrix(parent_to_world.to_matrix().inverse())
                             * joint_to_world
                     } else if let Ok(parent_to_world) = global_transforms.get(parent_entity) {
@@ -728,7 +740,7 @@ pub(crate) fn sync_bones_to_ragdoll(
                 }
             };
 
-            applied_joint_world.insert(bone_entity, joint_to_world);
+            applied_joint_world[collider_index(bone_type)] = Some(joint_to_world);
 
             // Write directly to the single skeleton's bone, lerping for smoothness.
             if let Ok((mut transform, _)) = bones.get_mut(bone_entity) {
