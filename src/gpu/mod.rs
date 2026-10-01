@@ -56,6 +56,10 @@ pub const CROWD_SKIN_SHADER: Handle<Shader> = Handle::Uuid(
     Uuid::from_u128(0x677075616e696d4750753030327567),
     PhantomData,
 );
+pub const CROWD_PREPASS_SHADER: Handle<Shader> = Handle::Uuid(
+    Uuid::from_u128(0x677075616e696d4750753030337567),
+    PhantomData,
+);
 
 /// The shared skinning snippet: joint/uniform bindings plus the single
 /// `gpu_skin_vertex` function. Custom vertex shaders compose this with their
@@ -123,6 +127,12 @@ impl Default for HumentityGpuPlugin {
 impl Plugin for HumentityGpuPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, POSE_SHADER, "pose.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            CROWD_PREPASS_SHADER,
+            "crowd_prepass.wgsl",
+            Shader::from_wgsl
+        );
         // The default skin shader is composed from the shared snippet so the
         // function stays the single source of truth.
         let _ = app.world_mut().resource_mut::<Assets<Shader>>().insert(

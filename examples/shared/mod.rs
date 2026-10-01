@@ -388,6 +388,10 @@ impl MaterialExtension for CustomCrowdExtension {
         CROWD_SKIN_SHADER.into()
     }
 
+    fn prepass_vertex_shader() -> ShaderRef {
+        CROWD_PREPASS_SHADER.into()
+    }
+
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,

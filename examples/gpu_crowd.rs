@@ -10,7 +10,7 @@
 
 mod shared;
 
-use bevy::{camera::visibility::VisibilityRange, mesh::MeshTag, prelude::*};
+use bevy::{camera::visibility::VisibilityRange, mesh::{morph::MeshMorphWeights, MeshTag}, prelude::*};
 use humentity::prelude::*;
 use shared::{custom_crowd_material, setup_app_gpu, CameraFraming, CustomCrowdMaterial};
 
@@ -192,6 +192,11 @@ fn spawn_crowd(
                 Mesh3d(lod_mesh_handle.clone()),
                 MeshMaterial3d(crowd_material_handle.clone()),
                 MeshTag(index as u32),
+                // Neutral morph entry: the GPU meshes carry morph targets via
+                // `make_gpu_mesh`, and `SetMeshBindGroup` derives the bind group
+                // key per entity — without this it resolves to `NoMorphTargets`
+                // (`model_only`) while the layout expects the morphed group.
+                MeshMorphWeights::Value { weights: vec![0.0] },
                 lod_visibility,
             ));
         }

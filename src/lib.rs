@@ -47,7 +47,7 @@ pub mod prelude {
         bone_debug::BoneDebugPlugin,
         gpu::{
             ATTRIBUTE_GPU_JOINT_INDEX, ATTRIBUTE_GPU_JOINT_WEIGHT, BIND_POSE_CLIP, BIND_POSE_SLOT,
-            CROWD_SKIN_SHADER, CrowdMaterial, GpuAnimationBank, GpuAnimationReady, GpuBlendWeights,
+            CROWD_PREPASS_SHADER, CROWD_SKIN_SHADER, CrowdMaterial, GpuAnimationBank, GpuAnimationReady, GpuBlendWeights,
             GpuClipMode, GpuCrowdConfig, GpuCrowdExtension, GpuCrowdShapes, GpuCrowdUniform,
             GpuInstanceAnims, GpuJointsReadback, GpuOneShotDone, GpuRenderHandles, GpuShapeSkeleton,
             GpuSkeletonLod, HumentityGpuPlugin, POSE_SHADER, POSE_WORKGROUP_X, POSE_WORKGROUP_Y,
