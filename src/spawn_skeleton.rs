@@ -363,17 +363,16 @@ pub(crate) fn check_skeletons_ready(
     }
 }
 
-/// Panics if `SkeletonLodConfig` is added, mutated, or replaced after the rig build.
+/// Panics if `SkeletonLodConfig` is mutated or replaced after the rig build.
 ///
 /// `SkeletonLodConfig` is upload-once: insert it before the rig build and never
 /// touch it afterwards. Mesh weights are baked from the build-time config, so a
 /// new config would silently disagree with every built mesh.
 ///
-/// Runs every frame on purpose: the reconcile below only fires on
-/// `Changed<SkeletonLodState>`, so a config swap with no state change would
-/// otherwise never be observed. Unconditional runs keep the change ticks fresh,
-/// so the pre-build insert reads as unchanged once `BuiltRigs` exists — only a
-/// post-build insert, replace, or mutate panics (`is_changed` covers added).
+/// A same-frame insert + build (the normal pre-build upload path) is not a
+/// change: `is_added` is only true on the insert frame, and the guard runs
+/// after the build each frame, so a genuinely late insert still panics the
+/// next frame via `is_changed` while the pre-build insert reads unchanged.
 pub(crate) fn enforce_skeleton_lod_config_frozen(
     lod_config: Option<Res<SkeletonLodConfig>>,
     built_rigs: Option<Res<BuiltRigs>>,
@@ -383,8 +382,8 @@ pub(crate) fn enforce_skeleton_lod_config_frozen(
     };
     if built_rigs.is_none() {
         return;
-    }
-    if config.is_changed() {
+    };
+    if config.is_changed() && !config.is_added() {
         panic!("SkeletonLodConfig changed after the rig build: upload it once before the build and never mutate or replace it (mesh weights are baked from the build-time config)");
     }
 }
