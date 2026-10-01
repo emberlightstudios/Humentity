@@ -369,13 +369,13 @@ pub(crate) fn check_skeletons_ready(
 /// touch it afterwards. Mesh weights are baked from the build-time config, so a
 /// new config would silently disagree with every built mesh.
 ///
-/// A same-frame insert + build (the normal pre-build upload path) is not a
-/// change: `is_added` is only true on the insert frame, and the guard runs
-/// after the build each frame, so a genuinely late insert still panics the
-/// next frame via `is_changed` while the pre-build insert reads unchanged.
+/// First-sight grace: the build and the guard run in the same schedule, so on
+/// the first frame `BuiltRigs` is visible the pre-build insert may still read
+/// as changed. That frame is graced once; later frames panic on any change.
 pub(crate) fn enforce_skeleton_lod_config_frozen(
     lod_config: Option<Res<SkeletonLodConfig>>,
     built_rigs: Option<Res<BuiltRigs>>,
+    mut seen_built: Local<bool>,
 ) {
     let Some(config) = lod_config else {
         return;
@@ -383,7 +383,14 @@ pub(crate) fn enforce_skeleton_lod_config_frozen(
     if built_rigs.is_none() {
         return;
     };
-    if config.is_changed() && !config.is_added() {
+    if !*seen_built {
+        // First frame the build is visible: the pre-build insert may still
+        // read as changed this frame. Grace it once; real post-build
+        // mutations still read changed on later frames and panic below.
+        *seen_built = true;
+        return;
+    }
+    if config.is_changed() {
         panic!("SkeletonLodConfig changed after the rig build: upload it once before the build and never mutate or replace it (mesh weights are baked from the build-time config)");
     }
 }
