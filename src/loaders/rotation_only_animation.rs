@@ -560,7 +560,7 @@ fn compute_global_transform(
 /// with `Human.rig` (the rig object) followed by the joint chain, matching the
 /// spawned skeleton and the GPU joint paths (both hardcoded to `Human.rig`).
 /// Single-root is enforced in `find_root_joints` (0 or 2+ roots panic).
-pub fn build_joint_paths(root: &gltf::Node) -> AHashMap<Name, Vec<Name>> {
+pub(crate) fn build_joint_paths(root: &gltf::Node) -> AHashMap<Name, Vec<Name>> {
     let mut paths = AHashMap::default();
     let mut current_path = vec!["Human.rig".to_string()];
     collect_paths_recursive(root, &mut current_path, &mut paths);

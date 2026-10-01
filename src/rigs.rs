@@ -475,66 +475,6 @@ mod default_rig_toe_average_tests {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn get_local_skeleton_transforms(
-    bone_order: &Vec<&'static str>,
-    rig_spec: &RigSpec,
-    global_transforms: &AHashMap<&'static str, Transform>,
-) -> AHashMap<&'static str, Transform> {
-    // Compute local transforms relative to parent
-    let mh_config = &rig_spec.config;
-    let mut local_transforms = AHashMap::<&'static str, Transform>::default();
-    for &name in bone_order.iter() {
-        let mut mat = global_transforms[name].to_matrix();
-        let mut parent_names = Vec::<&'static str>::new();
-
-        let mut bone = &mh_config.bones[name];
-        while !bone.parent.is_empty() {
-            parent_names.push(&bone.parent);
-            bone = &mh_config.bones[NAME_INTERNER.intern(&bone.parent).leak()];
-        }
-
-        // Apply inverse of each parent's local transform
-        for &parent_name in parent_names.iter().rev() {
-            let parent_local = local_transforms[&parent_name].to_matrix();
-            mat = parent_local.inverse() * mat;
-        }
-
-        local_transforms.insert(name, Transform::from_matrix(mat));
-    }
-    local_transforms
-}
-
-#[allow(dead_code)]
-pub(crate) fn get_bone_order(rig_data: &RigData) -> Vec<&'static str> {
-    let spec = rig_data
-        .0
-        .as_ref()
-        .expect("No rig data loaded");
-    let mh_config = &spec.config;
-    let mut depths = AHashMap::<&'static str, usize>::default();
-    for (name, bone) in mh_config.bones.iter() {
-        let mut depth = 0;
-        let mut parent = &bone.parent;
-        while !parent.is_empty() {
-            depth += 1;
-            parent = &mh_config
-                .bones
-                .get(NAME_INTERNER.intern(parent).leak())
-                .unwrap()
-                .parent;
-        }
-        depths.insert(name, depth);
-    }
-
-    let mut sorted_bones: Vec<(&'static str, usize)> = depths.into_iter().collect();
-    sorted_bones.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
-    sorted_bones
-        .into_iter()
-        .map(|(name, _)| name)
-        .collect::<Vec<&'static str>>()
-}
-
 pub(crate) fn get_bone_transform(
     bone: &BoneJsonConfig,
     vg: &VertexGroups,
