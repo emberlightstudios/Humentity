@@ -57,9 +57,11 @@ pub const POSE_SHADER: Handle<Shader> = Handle::Uuid(
 /// Forward color-pass entry: calls the shared `humentity::crowd_skin` module
 /// and builds `forward_io::VertexOutput`.
 pub const CROWD_FORWARD_SHADER: &str = "embedded://humentity/gpu/crowd_forward.wgsl";
-/// Posed depth/shadow entry: calls the shared `humentity::crowd_skin` module
-/// and builds `prepass_io::VertexOutput`. Both the depth prepass and the
-/// shadow passes run this entry.
+/// Posed depth/shadow entry (parked): calls the shared `humentity::crowd_skin`
+/// module and builds `prepass_io::VertexOutput`. Currently unused — both
+/// material hooks return `ShaderRef::Default` until Bevy binds the real
+/// material layout for custom prepass shaders (#24843 / `prepass_reads_material`);
+/// depth and shadows fall back to bind pose until then.
 pub const CROWD_PREPASS_SHADER: &str = "embedded://humentity/gpu/crowd_prepass.wgsl";
 
 /// The shared skinning module (`humentity::crowd_skin`): joint/uniform
