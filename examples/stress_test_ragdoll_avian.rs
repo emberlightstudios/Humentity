@@ -144,8 +144,8 @@ fn add_humans(
                     template_handle.clone(),
                     morphs.clone(),
                 ))),
+                BuildCpuSkeleton,
                 RootOnlyRetargeting,
-                InheritedVisibility::default(),
                 CameraDistance::default(),
                 AnimationPlayer::default(),
                 CharacterRagdoll::None,
@@ -248,7 +248,7 @@ fn update_camera_distance(
 const SKELETON_LOD_ACTIVATION_BUFFER: f32 = 1.0;
 
 fn sync_skeleton_lod_to_visibility(
-    characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonsReady>>,
+    characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonReady>>,
     parts: Query<(&VisibilityRange, &CharacterPart)>,
     descendants: Query<&Children>,
     mut commands: Commands,

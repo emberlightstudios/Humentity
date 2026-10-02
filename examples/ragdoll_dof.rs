@@ -219,7 +219,7 @@ fn ground_character(
 /// Snapshots every skeleton bone's local transform once the skeleton is fitted, so
 /// inactive bones can be snapped back to the bind pose.
 fn capture_bind_pose(
-    characters: Query<&CharacterSkeleton, Added<SkeletonsReady>>,
+    characters: Query<&CharacterSkeleton, Added<SkeletonReady>>,
     bones: Query<&Transform>,
     mut bind_pose: ResMut<BindPose>,
 ) {
@@ -654,6 +654,7 @@ fn add_human(
     commands.spawn((
         Transform::IDENTITY,
         CharacterShape(shape_assets.add(template_handle)),
+        BuildCpuSkeleton,
         CharacterRagdoll::None,
         CharacterColliders::new(None),
         RagdollJointLimitOverrides::default(),

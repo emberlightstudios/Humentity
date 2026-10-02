@@ -45,9 +45,17 @@ pub struct CharacterSkeleton {
 #[derive(Event, Debug, Clone, Copy)]
 pub struct ResetToBindPose(pub Entity);
 
+/// Opt-in marker: build a CPU skeleton for this character.
+///
+/// Place on the `CharacterShape` entity alongside `CharacterShape`. Only
+/// marked characters grow bone entities, run the fit pass, and receive
+/// [`SkeletonReady`]. GPU-only crowd members omit it and pose in the shader.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct BuildCpuSkeleton;
+
 /// Placed on `CharacterShape` once its single skeleton has been fitted.
 #[derive(Component, Debug)]
-pub struct SkeletonsReady;
+pub struct SkeletonReady;
 
 /// Tracks which skeleton LOD levels are currently active (in use by a shown mesh).
 ///
@@ -95,10 +103,10 @@ fn skeleton_root_transform(rig_name: &str, character_scale: Vec3) -> Transform {
         ))
 }
 
-/// Spawns the single full skeleton scene as a child of each `CharacterShape`,
-/// and marks the character as needing a fit.
+/// Spawns the single full skeleton scene as a child of each opted-in
+/// `CharacterShape`, and marks the character as needing a fit.
 pub(crate) fn spawn_rig_skeleton(
-    characters: Query<(Entity, Option<&CharacterScale>), (Without<SkeletonsReady>, Without<FitSkeleton>, With<CharacterShape>)>,
+    characters: Query<(Entity, Option<&CharacterScale>), (With<BuildCpuSkeleton>, Without<SkeletonReady>, Without<FitSkeleton>, With<CharacterShape>)>,
     rig_bundle: Res<RigBundleRes>,
     rig_data: Res<RigData>,
     mut commands: Commands,
@@ -346,20 +354,18 @@ pub(crate) fn fit_skeleton_to_shape(
                 reference_bind_pose_y: reference_root_y,
             });
         // `FitSkeleton` lives on the CharacterShape (the query filter), so remove
-        // it there. This is what allows `check_skeletons_ready` to fire.
+        // it there. This is what allows `check_skeleton_ready` to fire.
         commands.entity(entity).remove::<FitSkeleton>();
     }
 }
 
-/// Once the single skeleton is fitted (no `FitSkeleton`), insert `SkeletonsReady`.
-pub(crate) fn check_skeletons_ready(
+/// Once the single skeleton is fitted (no `FitSkeleton`), insert `SkeletonReady`.
+pub(crate) fn check_skeleton_ready(
     mut commands: Commands,
-    characters: Query<(Entity, Option<&FitSkeleton>), (With<CharacterSkeleton>, Without<SkeletonsReady>)>,
+    characters: Query<Entity, (With<CharacterSkeleton>, Without<SkeletonReady>, Without<FitSkeleton>)>,
 ) {
-    for (entity, fit) in &characters {
-        if fit.is_none() {
-            commands.entity(entity).insert(SkeletonsReady);
-        }
+    for entity in &characters {
+        commands.entity(entity).insert(SkeletonReady);
     }
 }
 
@@ -559,7 +565,7 @@ pub(crate) fn sync_skeleton_lod_subtrees(
 pub(crate) fn setup_part_skinning(
     parts: Query<(Entity, &ChildOf, &CharacterPart), Without<SkinnedMesh>>,
     parents: Query<&ChildOf>,
-    characters: Query<(&CharacterSkeleton, &SkeletonsReady)>,
+    characters: Query<(&CharacterSkeleton, &SkeletonReady)>,
     rig_bundle: Res<RigBundleRes>,
     rig_data: Res<RigData>,
     mut inv_bindpose_assets: ResMut<Assets<SkinnedMeshInverseBindposes>>,
@@ -635,11 +641,14 @@ pub(crate) fn on_teardown_character(
 }
 
 /// Observer for [`RefitCharacter`]: same teardown as [`TeardownCharacter`],
-/// plus re-inserts `FitSkeleton` so the spawn/fit chain rebuilds the
-/// character from current morph weights on the next frames.
+/// plus re-inserts `FitSkeleton` (for opted-in characters) so the spawn/fit
+/// chain rebuilds the character from current morph weights on the next
+/// frames. GPU-only characters keep no skeleton, so the marker is required
+/// to re-enter the chain.
 pub(crate) fn on_refit_character(
     trigger: On<RefitCharacter>,
     characters: Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
+    cpu_skeletons: Query<(), With<BuildCpuSkeleton>>,
     parts: Query<Entity, With<CharacterPart>>,
     gpu_parts: Query<Entity, With<GpuCharacterPart>>,
     descendants: Query<&Children>,
@@ -647,7 +656,9 @@ pub(crate) fn on_refit_character(
 ) {
     let entity = trigger.event().0;
     teardown_character_state(entity, &characters, &parts, &gpu_parts, &descendants, &mut commands);
-    commands.entity(entity).insert(FitSkeleton);
+    if cpu_skeletons.contains(entity) {
+        commands.entity(entity).insert(FitSkeleton);
+    }
 }
 
 fn teardown_character_state(
@@ -668,7 +679,7 @@ fn teardown_character_state(
         .entity(entity)
         .remove::<CharacterSkeleton>()
         .remove::<SkeletonLodState>()
-        .remove::<SkeletonsReady>();
+        .remove::<SkeletonReady>();
     // Strip mesh handles from the character's parts so they don't dangle against
     // the despawned skeleton joints. Descend from the character to its own
     // parts (grouping nodes included) instead of scanning every part in the

@@ -7,7 +7,7 @@ use bevy::{
 use bevy::ecs::intern::Internable;
 use crate::{
     helpers::{RefitCharacter, TeardownCharacter},
-    prelude::{CharacterShape, CharacterShapeAsset, CharacterSkeleton, SkeletonLodDisabled, SkeletonsReady},
+    prelude::{CharacterShape, CharacterShapeAsset, CharacterSkeleton, SkeletonLodDisabled, SkeletonReady},
     rigs::{RigData, SkeletalBone},
     spawn_skeleton::CharacterScale,
     NAME_INTERNER,
@@ -232,9 +232,9 @@ pub(crate) fn mark_needs_colliders(
     characters: Query<
         Entity,
         (
-            Or<(Added<CharacterColliders>, Added<SkeletonsReady>)>,
+            Or<(Added<CharacterColliders>, Added<SkeletonReady>)>,
             With<CharacterColliders>,
-            With<SkeletonsReady>,
+            With<SkeletonReady>,
         ),
     >,
 ) {
@@ -255,7 +255,7 @@ pub(crate) fn spawn_colliders(
             Option<&RagdollCollisionLayers>,
             Option<&CharacterScale>,
         ),
-        (With<NeedsColliders>, With<SkeletonsReady>),
+        (With<NeedsColliders>, With<SkeletonReady>),
     >,
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<crate::template::CharacterTemplate>>,

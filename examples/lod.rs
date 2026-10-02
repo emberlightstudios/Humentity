@@ -112,8 +112,8 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
+        BuildCpuSkeleton,
         RootOnlyRetargeting,
-        InheritedVisibility::default(),
         CameraDistance::default(),
         AnimationPlayer::default(),
         children![
@@ -186,8 +186,8 @@ fn add_humans(
                 template_handle.clone(),
                 morphs.clone(),
             ))),
+            BuildCpuSkeleton,
             RootOnlyRetargeting,
-            InheritedVisibility::default(),
             AnimationPlayer::default(),
             children![(
                 CharacterPart {
@@ -238,7 +238,7 @@ const SKELETON_LOD_ACTIVATION_BUFFER: f32 = 1.0;
 /// range; the reconcile system disables the bone sub-trees removed by every
 /// active LOD.
 fn sync_skeleton_lod_to_visibility(
-    characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonsReady>>,
+    characters: Query<(Entity, &CameraDistance, Option<&SkeletonLodState>), With<SkeletonReady>>,
     parts: Query<(&VisibilityRange, &CharacterPart)>,
     descendants: Query<&Children>,
     mut commands: Commands,
@@ -275,7 +275,7 @@ fn sync_reference_lod_state(
     parts: Query<&CharacterPart, Without<VisibilityRange>>,
     characters: Query<
         (Entity, Option<&SkeletonLodState>),
-        (With<SkeletonsReady>, Without<CameraDistance>),
+        (With<SkeletonReady>, Without<CameraDistance>),
     >,
     descendants: Query<&Children>,
     mut commands: Commands,

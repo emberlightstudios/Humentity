@@ -55,6 +55,7 @@ fn add_human(
         Transform::from_xyz(0.0, 0.0, 0.0),
         AnimationPlayer::default(),
         CharacterShape(shape_assets.add(template_handle)),
+        BuildCpuSkeleton,
         RootOnlyRetargeting,
         CharacterRagdoll::None,
         CharacterColliders::new(None),

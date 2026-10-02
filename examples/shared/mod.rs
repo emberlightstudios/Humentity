@@ -180,7 +180,7 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
 /// has been fitted. With a single fixed skeleton, this is expressed by writing
 /// `SkeletonLodState` with only LOD 0 active.
 pub fn enable_first_skeleton_on_ready(
-    characters: Query<Entity, Added<SkeletonsReady>>,
+    characters: Query<Entity, Added<SkeletonReady>>,
     mut commands: Commands,
 ) {
     for entity in &characters {

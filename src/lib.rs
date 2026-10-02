@@ -82,8 +82,8 @@ pub mod prelude {
             request_gpu_mesh,
         },
         spawn_skeleton::{
-            CharacterScale, CharacterSkeleton, ResetToBindPose, SkeletonLodDisabled, SkeletonLodState,
-            SkeletonsReady,
+            BuildCpuSkeleton, CharacterScale, CharacterSkeleton, ResetToBindPose, SkeletonLodDisabled,
+            SkeletonLodState, SkeletonReady,
         },
         template::{CharacterMorphShape, CharacterTemplate},
     };
@@ -243,13 +243,11 @@ impl Plugin for HumentityPlugin {
                             template::bake_template_deltas,
                             spawn_skeleton::spawn_rig_skeleton,
                             spawn_skeleton::fit_skeleton_to_shape,
-                            spawn_skeleton::check_skeletons_ready,
+                            spawn_skeleton::check_skeleton_ready,
                             spawn_skeleton::setup_part_skinning,
                         )
                             .chain()
                             .run_if(resource_exists::<HumentityAssetsReady>),
-                        // No mesh may construct until every core asset is proven
-                        // loaded. Resource existence alone races async loads and
                         // stranded jobs in BuildSubmitted with no mesh.
                         (spawn_mesh::mesh_build, spawn_mesh::mediators_clean_up)
                             .chain()
@@ -305,10 +303,10 @@ impl Plugin for HumentityPlugin {
                     Update,
                     (
                         physics::avian::mark_needs_colliders
-                            .after(spawn_skeleton::check_skeletons_ready),
+                            .after(spawn_skeleton::check_skeleton_ready),
                         physics::avian::spawn_colliders
                             .after(physics::avian::mark_needs_colliders)
-                            .after(spawn_skeleton::check_skeletons_ready),
+                            .after(spawn_skeleton::check_skeleton_ready),
                         physics::avian::set_ragdoll_state.in_set(HumentityRagdollSystemSet),
                         physics::avian::apply_joint_limit_overrides,
                         physics::avian::update_collision_layers,

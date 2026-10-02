@@ -114,8 +114,8 @@ fn add_humans(
                     template_handle.clone(),
                     morphs.clone(),
                 ))),
+                BuildCpuSkeleton,
                 RootOnlyRetargeting,
-                InheritedVisibility::default(),
                 CameraDistance::default(),
                 AnimationPlayer::default(),
                 children![
@@ -216,7 +216,7 @@ fn sync_skeleton_lod_to_visibility(
             Option<&SkeletonLodState>,
             Option<&Children>,
         ),
-        With<SkeletonsReady>,
+        With<SkeletonReady>,
     >,
     parts: Query<(&VisibilityRange, &CharacterPart)>,
     mut commands: Commands,

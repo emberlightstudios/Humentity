@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 /// Entity event: tear a character's render/physics state back down to a bare
 /// state blob. Fire to retire a character (`commands.trigger(TeardownCharacter(character))`):
-/// the skeleton, `CharacterSkeleton`/`SkeletonsReady`, per-part mesh handles,
+/// the skeleton, `CharacterSkeleton`/`SkeletonReady`, per-part mesh handles,
 /// and (avian) colliders, joints, `NeedsColliders` are all cleaned up.
 /// humentity observes this event for teardown. Observe the same event to clean
 /// up additional per-character data that humentity can't know about

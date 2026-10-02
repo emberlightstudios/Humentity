@@ -35,13 +35,13 @@ fn main() {
     let mut app = setup_app();
 
     app.add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
-        .add_observer(on_skeletons_ready)
+        .add_observer(on_skeleton_ready)
         .run();
 }
 
 /// Skeletons start fully enabled by default; here we narrow the active LOD set
 /// to LOD 0 so bone sub-trees it doesn't reference get disabled.
-fn on_skeletons_ready(trigger: On<Add, SkeletonsReady>, mut commands: Commands) {
+fn on_skeleton_ready(trigger: On<Add, SkeletonReady>, mut commands: Commands) {
     let mut active = [false; MAX_LODS];
     active[0] = true;
     commands
@@ -94,12 +94,13 @@ fn add_humans(
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(template_handle.clone())),
-        children![
-            (CharacterPart {
+        BuildCpuSkeleton,
+        children![(
+            CharacterPart {
                 mesh: basemesh_part.clone(),
                 skeleton_lod: 0
-            })
-        ],
+            }
+        )],
     ));
 
     // A baby
@@ -114,6 +115,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
+        BuildCpuSkeleton,
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -134,6 +136,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
+        BuildCpuSkeleton,
         children![(
             Name::new("mesh"),
             CharacterPart {
@@ -155,6 +158,7 @@ fn add_humans(
             template_handle.clone(),
             morphs.clone(),
         ))),
+        BuildCpuSkeleton,
         children![(
             CharacterPart {
                 mesh: basemesh_part.clone(),
@@ -174,6 +178,7 @@ fn add_humans(
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
+        BuildCpuSkeleton,
         children![(
             CharacterPart {
                 mesh: basemesh_part,

@@ -169,6 +169,7 @@ fn add_humans(
         InheritedVisibility::default(),
         AnimationPlayer::default(),
         CharacterShape(rot_only_shape),
+        BuildCpuSkeleton,
         RootOnlyRetargeting,
         ShowcaseBaby::RotationOnly,
         children![(
@@ -185,6 +186,7 @@ fn add_humans(
         InheritedVisibility::default(),
         AnimationPlayer::default(),
         CharacterShape(dynamic_shape),
+        BuildCpuSkeleton,
         DynamicRetargeting,
         ShowcaseBaby::Dynamic,
         children![(
@@ -195,13 +197,15 @@ fn add_humans(
             },
         )],
     ));
-    // Baked carries no marker: new clip will be remapped to proper shape during import
+    // Baked carries no retarget marker (clip remapped at import) but still
+    // needs bones: it plays on the CPU skeleton like the others.
     commands.spawn((
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         Name::new("Baked"),
         InheritedVisibility::default(),
         AnimationPlayer::default(),
         CharacterShape(baked_shape_handle.clone()),
+        BuildCpuSkeleton,
         ShowcaseBaby::Baked,
         children![(
             Name::new("Mesh"),
