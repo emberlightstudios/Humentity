@@ -9,6 +9,9 @@ struct CrowdForwardVertex {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+#ifdef VERTEX_TANGENTS
+    @location(4) tangent: vec4<f32>,
+#endif
     @location(6) joint_indices: vec4<u32>,
     @location(7) joint_weights: vec4<f32>,
 };
@@ -27,6 +30,14 @@ fn vertex(vertex_in: CrowdForwardVertex) -> VertexOutput {
     out.position = skinned.clip_position;
     out.world_position = skinned.world_position;
     out.world_normal = skinned.world_normal;
+#ifdef VERTEX_TANGENTS
+    out.world_tangent = crowd_skin::crowd_skin_world_tangent(
+        skinned,
+        vertex_in.tangent,
+        vertex_in.vertex_index,
+        vertex_in.instance_index,
+    );
+#endif
 #ifdef VERTEX_UVS_A
     out.uv = vertex_in.uv;
 #endif

@@ -8,7 +8,7 @@
 // `MaterialExtension`).
 //
 // v1 limits: motion vectors read as zero (previous pose not tracked), no
-// tangent/color support (crowd meshes carry neither).
+// color support (crowd meshes carry no vertex colors).
 struct CrowdPrepassVertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
@@ -76,6 +76,7 @@ fn vertex(vertex_in: CrowdPrepassVertex) -> VertexOutput {
     out.world_tangent = crowd_skin::crowd_skin_world_tangent(
         skinned,
         vertex_in.tangent,
+        render_vertex,
         vertex_in.instance_index,
     );
 #endif

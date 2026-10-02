@@ -11,7 +11,7 @@ use bevy::{
     shader::ShaderRef,
 };
 
-use super::CROWD_FORWARD_SHADER;
+use super::{CROWD_FORWARD_SHADER, CROWD_PREPASS_SHADER};
 
 pub type CrowdMaterial = ExtendedMaterial<StandardMaterial, GpuCrowdExtension>;
 
@@ -32,22 +32,26 @@ pub struct GpuCrowdUniform {
 }
 
 impl MaterialExtension for GpuCrowdExtension {
+
     fn vertex_shader() -> ShaderRef {
         CROWD_FORWARD_SHADER.into()
     }
 
-    // Posed depth/shadow is parked until Bevy binds the real material layout
-    // when a custom `prepass_vertex_shader` exists: upstream (no patch
-    // section in either `Cargo.toml`, so 0.19.0 rules apply) pushes an empty
-    // layout on the depth-only opaque prepass (`is_depth_only_opaque_prepass`),
+    // Posed depth/shadow entry: Bevy 0.19.1+ binds the real material layout
+    // for custom `prepass_vertex_shader` (`prepass_reads_material`, #24843),
     // so the joint buffer at group `MATERIAL_BIND_GROUP` (bindings 100/101)
-    // can never validate there. Revisit when Bevy ships the material-aware
-    // prepass (`prepass_reads_material`, registry 0.19.1 / #24843 backport).
-    // Until then the color pass poses via `crowd_forward.wgsl`; depth and
-    // shadows fall back to bind pose. `crowd_prepass.wgsl` stays in-tree as
-    // the posed entry for that day.
+    // validates in the depth prepass and shadow passes. Requires
+    // `bevy_pbr >= 0.19.1`; on 0.19.0 the depth-only path pushes an empty
+    // layout and the custom entry cannot bind.
     fn prepass_vertex_shader() -> ShaderRef {
-        ShaderRef::Default
+        CROWD_PREPASS_SHADER.into()
+    }
+
+    // Deferred geometry pass poses like the prepass: same `prepass_io`
+    // output, same joint buffer. Without this a deferred camera falls back
+    // to Bevy's default (unposed) vertex entry.
+    fn deferred_vertex_shader() -> ShaderRef {
+        CROWD_PREPASS_SHADER.into()
     }
 
     fn specialize(
@@ -99,9 +103,9 @@ pub const ATTRIBUTE_GPU_JOINT_INDEX: MeshVertexAttribute =
 pub const ATTRIBUTE_GPU_JOINT_WEIGHT: MeshVertexAttribute =
     MeshVertexAttribute::new("GpuJointWeight", 1338, VertexFormat::Float32x4);
 
-/// Rebuilds a humentity mesh for the GPU pipeline: only position, normal, uv
-/// plus the custom GPU joint attributes. Standard joint attributes are
-/// dropped so Bevy treats the mesh as unskinned (no CPU skin buffer, no
+/// Rebuilds a humentity mesh for the GPU pipeline: position, normal, uv, plus
+/// tangents when the source mesh carries them, plus the custom GPU joint
+/// attributes. Standard joint attributes are dropped so Bevy treats the mesh as unskinned (no CPU skin buffer, no
 /// `SkinnedMesh`), while the custom vertex shader still skins from the GPU
 /// joint buffer. Morph targets (and names) are preserved so per-entity
 /// `MeshMorphWeights` keep working through the GPU vertex shader.
@@ -114,6 +118,7 @@ pub fn make_gpu_mesh(source: &Mesh) -> Option<Mesh> {
     let uvs = source.attribute(Mesh::ATTRIBUTE_UV_0)?.clone();
     let joint_index = source.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)?.clone();
     let joint_weight = source.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)?.clone();
+    let cpu_tangents = source.attribute(Mesh::ATTRIBUTE_TANGENT).cloned();
     // Examples read the converted mesh back on the CPU (`has_morph_targets` in
     // `gpu_morphs::spawn_crowd` runs after render extraction), so keep the
     // data in the main world. `RENDER_WORLD` alone extracts the attributes
@@ -125,6 +130,9 @@ pub fn make_gpu_mesh(source: &Mesh) -> Option<Mesh> {
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    if let Some(tangent_values) = cpu_tangents {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, tangent_values);
+    }
     mesh.insert_attribute(ATTRIBUTE_GPU_JOINT_INDEX, joint_index);
     mesh.insert_attribute(ATTRIBUTE_GPU_JOINT_WEIGHT, joint_weight);
     if let Some(indices) = source.indices() {

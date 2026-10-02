@@ -97,14 +97,28 @@ fn crowd_skin_pose(
     return skinned;
 }
 
-// Poses a tangent from already-posed data for entries that carry tangents.
-// Crowd meshes carry none, so this only keeps the prepass compiling under
-// `VERTEX_TANGENTS`.
+// Poses a tangent from already-posed data: morph deltas first (Bevy's
+// `mesh.wgsl` order: morph, then skin), then the character's skin matrix
+// into world space.
 fn crowd_skin_world_tangent(
     skinned: CrowdSkinnedVertex,
     tangent: vec4<f32>,
+    vertex_index: u32,
     instance_index: u32,
 ) -> vec4<f32> {
+    var morphed_tangent = tangent;
+#ifdef MORPH_TARGETS
+    let first_vertex = mesh[instance_index].first_vertex_index;
+    let morph_vertex = vertex_index - first_vertex;
+    let weight_count = morph::layer_count(instance_index);
+    for (var i: u32 = 0u; i < weight_count; i++) {
+        let morph_weight = morph::weight_at(i, instance_index);
+        if (morph_weight == 0.0) {
+            continue;
+        }
+        morphed_tangent += vec4<f32>(morph_weight * morph::morph_tangent(morph_vertex, i, instance_index), 0.0);
+    }
+#endif
     let world_from_local = skinned.mesh_world * skinned.skin_matrix;
-    return mesh_functions::mesh_tangent_local_to_world(world_from_local, tangent, instance_index);
+    return mesh_functions::mesh_tangent_local_to_world(world_from_local, morphed_tangent, instance_index);
 }
