@@ -37,21 +37,34 @@ impl AssetLoader for ObjVertsAssetLoader {
         let content = String::from_utf8(bytes)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
+        let asset_label = _load_context
+            .path()
+            .path()
+            .to_string_lossy()
+            .into_owned();
         let mut vertices = Vec::new();
-        for line in content.lines() {
+        for (line_number, line) in content.lines().enumerate() {
             if !line.starts_with("v ") {
                 continue;
             }
             let mut values = line.split_whitespace().skip(1);
-            let Some(x) = values.next().and_then(|v| v.parse::<f32>().ok()) else {
-                continue;
+            let parse_axis = |axis_name: &str, axis_text: Option<&str>| -> f32 {
+                let axis_text = axis_text.unwrap_or_else(|| {
+                    panic!(
+                        "obj '{asset_label}' line {} is missing {axis_name}: every 'v' line needs three floats (got '{line}')",
+                        line_number + 1,
+                    )
+                });
+                axis_text.parse().unwrap_or_else(|_| {
+                    panic!(
+                        "obj '{asset_label}' line {} has a corrupt {axis_name} '{axis_text}': expected a float (got '{line}')",
+                        line_number + 1,
+                    )
+                })
             };
-            let Some(y) = values.next().and_then(|v| v.parse::<f32>().ok()) else {
-                continue;
-            };
-            let Some(z) = values.next().and_then(|v| v.parse::<f32>().ok()) else {
-                continue;
-            };
+            let x = parse_axis("x", values.next());
+            let y = parse_axis("y", values.next());
+            let z = parse_axis("z", values.next());
             vertices.push(Vec3::new(x, y, z));
         }
 

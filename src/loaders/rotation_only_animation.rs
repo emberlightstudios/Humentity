@@ -107,54 +107,76 @@ fn bake_shape_clips_from_document(
     root_bone_name: &str,
     shape_corrections: &ShapeBakedCorrections,
     bone_corrections: &AHashMap<&str, &BakedBoneCorrection>,
+    asset_label: &str,
 ) -> Result<AHashMap<&'static str, AnimationClip>, std::io::Error> {
     let mut baked_clips = AHashMap::default();
     for animation in document.animations() {
         let Some(clip_name) = animation.name() else {
-            continue;
+            panic!(
+                "clip in '{asset_label}' has no name: every animation must be named (check the NLA tracks in Blender)"
+            );
         };
         let mut clip = AnimationClip::default();
         for channel in animation.channels() {
             let sampler = channel.sampler();
             let input_accessor = sampler.input();
-            let Some(input_view) = input_accessor.view() else {
-                continue;
-            };
+            let input_view = input_accessor.view().unwrap_or_else(|| {
+                panic!(
+                    "clip '{clip_name}' in '{asset_label}' has a sampler with no input view: time track is missing (re-export the glTF)"
+                )
+            });
             let buffer = &buffers[input_view.buffer().index()];
             let start = input_accessor.offset() + input_view.offset();
             let end = start + input_accessor.count() * std::mem::size_of::<f32>();
-            let Some(input_bytes) = buffer.get(start..end) else {
-                continue;
-            };
+            let input_bytes = buffer.get(start..end).unwrap_or_else(|| {
+                panic!(
+                    "clip '{clip_name}' in '{asset_label}' reads time bytes {start}..{end} outside the buffer (buffer is {} bytes: file is truncated)",
+                    buffer.len(),
+                )
+            });
             let times: Vec<f32> = bytemuck::cast_slice(input_bytes).to_vec();
             let output_accessor = sampler.output();
-            let Some(output_view) = output_accessor.view() else {
-                continue;
-            };
+            let output_view = output_accessor.view().unwrap_or_else(|| {
+                panic!(
+                    "clip '{clip_name}' in '{asset_label}' has a sampler with no output view: value track is missing (re-export the glTF)"
+                )
+            });
             let buffer = &buffers[output_view.buffer().index()];
             let target = channel.target();
             let target_property = target.property();
             let target_node = target.node();
             let Some(target_name) = target_node.name() else {
-                continue;
+                panic!(
+                    "clip '{clip_name}' in '{asset_label}' targets glTF node #{} with no name: every animated node must be named after its joint (check the armature in Blender)",
+                    target_node.index(),
+                );
             };
             let animated_bone_name: &'static str = NAME_INTERNER.intern(target_name).leak();
             let target_key = Name::new(animated_bone_name);
             let Some(joint_path) = joint_targets.get(&target_key) else {
-                continue;
+                panic!(
+                    "clip '{clip_name}' in '{asset_label}' targets joint '{target_name}' which is not under the skin root: clips must be authored on the reference rig hierarchy (remove extra armatures from the glTF)"
+                );
             };
             let target_id = AnimationTargetId::from_names(joint_path.iter());
             let floats_per_element = match target_property {
                 gltf::animation::Property::Translation | gltf::animation::Property::Scale => 3,
                 gltf::animation::Property::Rotation => 4,
-                _ => continue,
+                _ => {
+                    panic!(
+                        "clip '{clip_name}' in '{asset_label}' has an unsupported channel type on '{target_name}': only translation/rotation/scale are baked (remove morph-weight tracks from the export)"
+                    );
+                }
             };
             let start = output_view.offset() + output_accessor.offset();
             let end = start
                 + output_accessor.count() * floats_per_element * std::mem::size_of::<f32>();
-            let Some(output_bytes) = buffer.get(start..end) else {
-                continue;
-            };
+            let output_bytes = buffer.get(start..end).unwrap_or_else(|| {
+                panic!(
+                    "clip '{clip_name}' in '{asset_label}' reads value bytes {start}..{end} outside the buffer (buffer is {} bytes: file is truncated)",
+                    buffer.len(),
+                )
+            });
             let floats: &[f32] = bytemuck::cast_slice(output_bytes);
             match target_property {
                 gltf::animation::Property::Translation => {
@@ -165,16 +187,20 @@ fn bake_shape_clips_from_document(
                             floats_per_element,
                             shape_corrections,
                         );
-                        let Ok(curve) = AnimatableKeyframeCurve::new(baked) else {
-                            continue;
-                        };
+                        let curve = AnimatableKeyframeCurve::new(baked).unwrap_or_else(|_| {
+                            panic!(
+                                "clip '{clip_name}' in '{asset_label}' has an empty root-translation track on '{target_name}': keyframes are missing (re-export the glTF)"
+                            )
+                        });
                         clip.add_curve_to_target(
                             target_id,
                             AnimatableCurve::new(animated_field!(Transform::translation), curve),
                         );
                     } else {
                         let Some(correction) = bone_corrections.get(animated_bone_name) else {
-                            continue;
+                            panic!(
+                                "clip '{clip_name}' in '{asset_label}' has a bone-translation track on '{target_name}' with no shape correction: '{target_name}' is missing from the shape's bone table (rebuild the shape's corrections)"
+                            );
                         };
                         let baked = bake_bone_translation(
                             &times,
@@ -182,9 +208,11 @@ fn bake_shape_clips_from_document(
                             floats_per_element,
                             correction,
                         );
-                        let Ok(curve) = AnimatableKeyframeCurve::new(baked) else {
-                            continue;
-                        };
+                        let curve = AnimatableKeyframeCurve::new(baked).unwrap_or_else(|_| {
+                            panic!(
+                                "clip '{clip_name}' in '{asset_label}' has an empty bone-translation track on '{target_name}': keyframes are missing (re-export the glTF)"
+                            )
+                        });
                         clip.add_curve_to_target(
                             target_id,
                             AnimatableCurve::new(animated_field!(Transform::translation), curve),
@@ -197,9 +225,11 @@ fn bake_shape_clips_from_document(
                             Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]]).normalize()
                         }),
                     );
-                    let Ok(curve) = AnimatableKeyframeCurve::new(baked) else {
-                        continue;
-                    };
+                    let curve = AnimatableKeyframeCurve::new(baked).unwrap_or_else(|_| {
+                        panic!(
+                            "clip '{clip_name}' in '{asset_label}' has an empty rotation track on '{target_name}': keyframes are missing (re-export the glTF)"
+                        )
+                    });
                     clip.add_curve_to_target(
                         target_id,
                         AnimatableCurve::new(animated_field!(Transform::rotation), curve),
@@ -211,15 +241,21 @@ fn bake_shape_clips_from_document(
                             Vec3::from_array([chunk[0], chunk[1], chunk[2]])
                         }),
                     );
-                    let Ok(curve) = AnimatableKeyframeCurve::new(baked) else {
-                        continue;
-                    };
+                    let curve = AnimatableKeyframeCurve::new(baked).unwrap_or_else(|_| {
+                        panic!(
+                            "clip '{clip_name}' in '{asset_label}' has an empty scale track on '{target_name}': keyframes are missing (re-export the glTF)"
+                        )
+                    });
                     clip.add_curve_to_target(
                         target_id,
                         AnimatableCurve::new(animated_field!(Transform::scale), curve),
                     );
                 }
-                _ => continue,
+                _ => {
+                    panic!(
+                        "clip '{clip_name}' in '{asset_label}' has an unsupported channel type on '{target_name}' after dispatch: only translation/rotation/scale are baked (remove morph-weight tracks from the export)"
+                    );
+                }
             }
         }
         let leaked_name: &'static str = NAME_INTERNER.intern(clip_name).leak();
@@ -309,6 +345,11 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
         let root_node = find_root_joints(&skin);
         let joint_targets = build_joint_paths(&root_node);
         let root_bone_name: &str = root_node.name().unwrap_or("");
+        let asset_label = load_context
+            .path()
+            .path()
+            .to_string_lossy()
+            .into_owned();
         let mut clip_handles = AHashMap::default();
         for bake in &settings.shape_bakes {
             let shape_corrections = &bake.shape_corrections;
@@ -324,6 +365,7 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
                 root_bone_name,
                 shape_corrections,
                 &bone_corrections,
+                &asset_label,
             )?;
             for (clip_name, clip) in baked_clips {
                 // Bevy IDs a labeled sub-asset from file path plus label only,
