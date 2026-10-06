@@ -118,45 +118,11 @@ pub enum CharacterRagdoll {
 #[derive(Resource)]
 pub struct CharacterPhysicsContainer(pub Entity);
 
-/// Linear + angular damping for one jolt collider body (0 = Jolt default glide).
-///
-/// `bevy_jolt` bakes bodies with no damping control, so this marker rides on
-/// the collider entity and `apply_collider_damping` pushes it into Jolt once
-/// the body owns a `JoltBodyId`. Mirrors avian's `LinearDamping(0.1)` /
-/// `AngularDamping(0.1)` on every collider.
-#[derive(Component, Clone, Copy, Debug)]
-pub struct JoltDamping {
-    pub linear_damping: f32,
-    pub angular_damping: f32,
-}
-
-impl JoltDamping {
-    pub const fn new(linear_damping: f32, angular_damping: f32) -> Self {
-        Self {
-            linear_damping,
-            angular_damping,
-        }
-    }
-}
-
-/// Pushes [`JoltDamping`] into Jolt once the collider body is baked.
-/// Body bake lands a flush after the collider spawns, so this polls until
-/// `JoltBodyId` exists, then removes the marker. Missing bodies on live
-/// colliders just mean "not baked yet".
-pub(crate) fn apply_collider_damping(
-    pending: Query<(Entity, &JoltDamping, &JoltBodyId)>,
-    mut physics_world: ResMut<JoltPhysicsWorld>,
-    mut commands: Commands,
-) {
-    for (collider_entity, damping, body_id) in pending.iter() {
-        physics_world.set_body_damping(
-            body_id.body_id_raw,
-            damping.linear_damping,
-            damping.angular_damping,
-        );
-        commands.entity(collider_entity).remove::<JoltDamping>();
-    }
-}
+/// Re-export of `bevy_jolt`'s damping: `JoltDamping::new(0.1, 0.1)` on a
+/// collider at spawn calms jitter; the `Changed` push in `bevy_jolt` carries
+/// later writes into Jolt before the next step. Mirrors avian's
+/// `LinearDamping(0.1)` / `AngularDamping(0.1)` on every collider.
+pub use bevy_jolt::JoltDamping;
 
 #[derive(Component, Default)]
 pub struct CharacterColliders {
@@ -832,24 +798,18 @@ fn respawn_ragdoll_joints(
         // endpoints exist (see `ensure_joint_no_collide` below).
         if let (Ok(parent_id), Ok(child_id)) = (body_ids.get(parent), body_ids.get(child)) {
             physics_world.set_bodies_no_collide(parent_id.body_id_raw, child_id.body_id_raw);
-            // Jolt has no joint damping: hold the relative motion by damping
-            // both endpoints instead. Knees carry the weight above, like avian's
-            // 20x knee damping.
-            let endpoint_damping = match bone {
-                ColliderBone::LowerRightLeg | ColliderBone::LowerLeftLeg => joint_damping * 20.0,
-                _ => joint_damping,
-            };
-            physics_world.set_body_damping(
-                parent_id.body_id_raw,
-                endpoint_damping,
-                endpoint_damping,
-            );
-            physics_world.set_body_damping(
-                child_id.body_id_raw,
-                endpoint_damping,
-                endpoint_damping,
-            );
         }
+        // Jolt has no joint damping: hold the relative motion by damping
+        // both endpoints instead. Component writes, not world pokes:
+        // `bevy_jolt`'s `Changed` push carries them into Jolt before the
+        // next step, even on unbaked bodies (their spawn `JoltDamping`
+        // already landed at bake).
+        commands
+            .entity(parent)
+            .insert(JoltDamping::new(joint_damping, joint_damping));
+        commands
+            .entity(child)
+            .insert(JoltDamping::new(joint_damping, joint_damping));
         let joint = spawn_ragdoll_joint(
             commands,
             bone,

@@ -350,7 +350,6 @@ impl Plugin for HumentityPlugin {
                         physics::jolt::apply_joint_limit_overrides,
                         physics::jolt::update_collision_layers,
                         physics::jolt::ensure_joint_no_collide,
-                        physics::jolt::apply_collider_damping,
                     ),
                 )
                 .add_systems(
