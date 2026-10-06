@@ -418,7 +418,7 @@ pub(crate) fn spawn_colliders(
  // Anchor at the bind-pose joint origin, in the same frame.
  let anchor = (character_world * model_to_joint).translation;
  let limit = resolve_joint_limit(collider, overrides, mobility_value);
- let joint = ragdoll_joint_for(collider, limit, anchor, part_world.rotation);
+ let joint = ragdoll_joint_for(collider, limit, anchor);
  let parent_part = get_collider_parent(collider)
  .and_then(|parent| part_index_of.get(&parent).copied());
  part_index_of.insert(collider, parts.len());
@@ -618,32 +618,20 @@ pub(crate) fn tag_ragdoll_parts(
  }
 }
 
-fn ragdoll_joint_for(
- bone: ColliderBone,
- limit: RagdollJointLimit,
- anchor: Vec3,
- seated_rotation: Quat,
-) -> RagdollJoint {
- // Axes follow the seated part: the spawn pose reads zero inside the
- // limits, matching the old per-joint derivation. Identity directions
- // would pre-bend every rotated part (chest, limbs) at creation.
- let axis = |local: Vec3, fallback: Dir3| Dir3::new(seated_rotation * local).unwrap_or(fallback);
+fn ragdoll_joint_for(bone: ColliderBone, limit: RagdollJointLimit, anchor: Vec3) -> RagdollJoint {
+ // Frames derive at bake per side from the seated rotations, so the
+ // spawn reads zero. Only limits + anchor live here.
  match bone {
  ColliderBone::LowerRightArm
  | ColliderBone::LowerLeftArm
  | ColliderBone::LowerRightLeg
  | ColliderBone::LowerLeftLeg => RagdollJoint::Hinge {
  anchor,
- // Hinges flex about body-local Z; twist about Y is the normal.
- hinge_axis: axis(Vec3::Z, Dir3::Z),
- normal_axis: axis(Vec3::Y, Dir3::Y),
  min: limit.angle_min,
  max: limit.angle_max,
  },
  _ => RagdollJoint::SwingTwist {
  anchor,
- twist_axis: axis(Vec3::Y, Dir3::Y),
- plane_axis: axis(Vec3::X, Dir3::X),
  normal_half_cone: limit.swing,
  plane_half_cone: limit.swing,
  twist_min: -limit.twist,
