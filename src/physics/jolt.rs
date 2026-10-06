@@ -447,9 +447,24 @@ pub(crate) fn set_ragdoll_state(
  Changed<CharacterRagdoll>,
  >,
  bones: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
+ rig_data: Res<RigData>,
  mut commands: Commands,
  container: Option<Res<CharacterPhysicsContainer>>,
 ) {
+ // Model-space measurements sit under the skeleton root frame (facing fix
+ // + rear shift; scale already baked into the measurements). Invert the
+ // root construction in `spawn_skeleton::skeleton_root_transform` so parts
+ // seat where the mesh actually is.
+ let rig_name = rig_data
+ .0
+ .as_ref()
+ .map(|spec| spec.reference_rig.rig_name.as_str())
+ .unwrap_or("default");
+ let model_root = Transform::from_rotation(crate::MODEL_ROTATION_FIX).with_translation(Vec3::new(
+ 0.0,
+ 0.0,
+ crate::rigs::skeleton_rear_offset_meters(rig_name),
+ ));
  let container_entity = container.map(|container| container.0);
  for (
  character_entity,
@@ -477,7 +492,9 @@ pub(crate) fn set_ragdoll_state(
         };
  let mobility = mobility.map_or(1.0, |mob| mob.0);
  let object_layer = collision_layers.map_or(0, |layers| layers.membership);
- let character_world = Transform::from(*character_to_world);
+ // Character pose × root frame × model measurement: the same composition
+ // the skeleton build uses, so parts land on the mesh.
+ let character_world = Transform::from(*character_to_world) * model_root;
  let mut parts = Vec::with_capacity(measured.measurements.len());
  let mut part_order = Vec::with_capacity(measured.measurements.len());
  let mut offsets = Vec::with_capacity(measured.measurements.len());
