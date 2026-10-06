@@ -18,7 +18,7 @@ fn main() {
 
     app.add_plugins((
         JoltPlugin::new().with_collision_layers(collision_layers),
-        //JoltDebugPlugin,
+        JoltDebugPlugin,
     ))
     .add_systems(Startup, (floor, spawn_ui))
     .add_systems(

@@ -509,11 +509,10 @@ pub(crate) fn set_ragdoll_state(
  continue; // Transient: bone gone, skip this part.
  };
  let joint_world = Transform::from(*joint_to_world);
- // Collider origin in world space: character pose × model-space
- // measurement. Same placement the old collider entities used —
- // seating from the bone would re-apply the bind rotation wrong
- // (chest tips forward, pelvis back).
- let part_world = character_world * measurement.collider_to_model;
+ // Seat at the CURRENT pose: live bone × fixed joint frame. Parts,
+ // anchors, and axes then agree, and the spawn reads zero bend. (An
+ // earlier bind-pose seating snapped flips back to bind on engage.)
+ let part_world = joint_world * measurement.offset.bone_to_collider;
  let limit = resolve_joint_limit(measurement.bone, overrides, mobility);
  // Pivot at the child bone's origin (the anatomical joint), matching the
  // old per-joint anchor derivation. Axes follow the seated part so the
