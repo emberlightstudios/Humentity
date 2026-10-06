@@ -34,51 +34,47 @@ fn main() {
     .run();
 }
 
-/// Prints every ragdoll joint's live angle vs its baked rest pose, with the
-/// configured limits alongside. Press J while the ragdoll is active: joints
-/// far from rest (or past their limits) point at wrong axes or missing
-/// damping. Example line:
-/// `knee.L live 42.3° rest ±(swing 85.9°, twist 17.2°) hinge [-137.5°, 0.0°]`.
+/// Prints every ragdoll part's live pose + sleep state, with the configured
+/// limits alongside. Press J while the ragdoll is active: parts that never
+/// sleep point at unsettled joints. Example line:
+/// `knee.L live y=0.412 awake | hinge [-137.5°, 0.0°]`.
 fn dump_joint_angles(
-    input: Res<ButtonInput<KeyCode>>,
-    joint_query: Query<(&Name, &JointRestPose, &JoltJoint)>,
-    transform_query: Query<&Transform>,
-    character_query: Query<&CharacterColliders>,
+ input: Res<ButtonInput<KeyCode>>,
+ transform_query: Query<&Transform>,
+ sleeping_query: Query<&JoltSleeping>,
+ character_query: Query<&CharacterColliders>,
 ) {
-    if !input.just_pressed(KeyCode::KeyJ) {
-        return;
-    }
-    let Ok(colliders) = character_query.single() else {
-        return;
-    };
-    for &joint_entity in &colliders.joint_entities {
-        let Ok((joint_name, rest_pose, _joint)) = joint_query.get(joint_entity) else {
-            continue;
-        };
-        let Ok(parent_transform) = transform_query.get(rest_pose.parent_entity) else {
-            continue;
-        };
-        let Ok(child_transform) = transform_query.get(rest_pose.child_entity) else {
-            continue;
-        };
-        let live_degrees = rest_pose.angle_from_rest_degrees(
-            parent_transform.rotation,
-            child_transform.rotation,
-        );
-        let Some(&bone) = colliders.joint_bone.get(&joint_entity) else {
-            continue;
-        };
-        let limit = default_joint_limit(bone);
-        println!(
-            "{} live {:>6.1}° from rest | swing {:>5.1}° twist {:>5.1}° hinge [{:>6.1}°, {:>5.1}°]",
-            joint_name,
-            live_degrees,
-            limit.swing.to_degrees(),
-            limit.twist.to_degrees(),
-            limit.angle_min.to_degrees(),
-            limit.angle_max.to_degrees(),
-        );
-    }
+ if !input.just_pressed(KeyCode::KeyJ) {
+ return;
+ }
+ let Ok(colliders) = character_query.single() else {
+ return;
+ };
+ for (&bone, &part_entity) in colliders.collider_entities.iter() {
+ let Ok(part_transform) = transform_query.get(part_entity) else {
+ continue;
+ };
+ let sleep = sleeping_query
+ .get(part_entity)
+ .map(|sleeping| {
+ if sleeping.sleeping {
+ "asleep"
+ } else {
+ "awake"
+ }
+ })
+ .unwrap_or("no-state");
+ let limit = default_joint_limit(bone);
+ println!(
+ "{bone:?} live y={:.3} {} | swing {:>5.1}° twist {:>5.1}° hinge [{:>6.1}°, {:>5.1}°]",
+ part_transform.translation.y,
+ sleep,
+ limit.swing.to_degrees(),
+ limit.twist.to_degrees(),
+ limit.angle_min.to_degrees(),
+ limit.angle_max.to_degrees(),
+ );
+ }
 }
 
 #[derive(Component)]
