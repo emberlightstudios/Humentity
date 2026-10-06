@@ -1,7 +1,7 @@
-// Shared constants consumed by the `avian` submodule: without the feature
-// nothing reads them, so silence dead-code there instead of hiding real
-// warnings when avian is on.
-#![cfg_attr(not(feature = "avian"), allow(dead_code))]
+// Shared constants consumed by the physics backend submodule: without a
+// backend nothing reads them, so silence dead-code there instead of hiding
+// real warnings when a backend is on.
+#![cfg_attr(not(any(feature = "avian", feature = "jolt")), allow(dead_code))]
 
 use bevy::prelude::*;
 
@@ -115,7 +115,8 @@ pub const fn get_collider_parent(bone: ColliderBone) -> Option<ColliderBone> {
         ColliderBone::RightFoot => Some(ColliderBone::LowerRightLeg),
     }
 }
-/// SystemSet for ragdoll joint (re)spawn (`avian::set_ragdoll_state`).
+/// SystemSet for ragdoll joint (re)spawn (`avian::set_ragdoll_state` or the
+/// `jolt` equivalent).
 ///
 /// Order tooling that seats collider bodies and flips `CharacterRagdoll`
 /// before this set: joint rest frames are baked from the collider bodies as
@@ -170,3 +171,9 @@ impl Default for RagdollMobility {
 
 #[cfg(feature = "avian")]
 pub mod avian;
+
+#[cfg(feature = "jolt")]
+pub mod jolt;
+
+#[cfg(all(feature = "avian", feature = "jolt"))]
+compile_error!("humentity physics backends are exclusive: enable `avian` or `jolt`, not both");
