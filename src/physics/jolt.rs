@@ -516,11 +516,12 @@ pub(crate) fn set_ragdoll_state(
  let part_world = character_world * measurement.collider_to_model;
  let limit = resolve_joint_limit(measurement.bone, overrides, mobility);
  // Pivot at the child bone's origin (the anatomical joint), matching the
- // old per-joint anchor derivation.
- let joint = ragdoll_joint_for(measurement.bone, limit, joint_world.translation);
+ // old per-joint anchor derivation. Axes follow the seated part so the
+ // spawn pose reads zero.
+ let joint =
+ ragdoll_joint_for(measurement.bone, limit, joint_world.translation, part_world.rotation);
  let parent_part = get_collider_parent(measurement.bone)
  .and_then(|parent| part_index_of.get(&parent).copied());
- // Root parts (no parent in the set) hang parentless.
  part_index_of.insert(measurement.bone, parts.len());
  part_order.push(measurement.bone);
  offsets.push(measurement.offset);
@@ -610,7 +611,16 @@ pub(crate) fn tag_ragdoll_parts(
  }
 }
 
-fn ragdoll_joint_for(bone: ColliderBone, limit: RagdollJointLimit, anchor: Vec3) -> RagdollJoint {
+fn ragdoll_joint_for(
+ bone: ColliderBone,
+ limit: RagdollJointLimit,
+ anchor: Vec3,
+ seated_rotation: Quat,
+) -> RagdollJoint {
+ // Axes follow the seated part: the spawn pose reads zero inside the
+ // limits, matching the old per-joint derivation. Identity directions
+ // would pre-bend every rotated part (chest, limbs) at creation.
+ let axis = |local: Vec3, fallback: Dir3| Dir3::new(seated_rotation * local).unwrap_or(fallback);
  match bone {
  ColliderBone::LowerRightArm
  | ColliderBone::LowerLeftArm
@@ -618,16 +628,15 @@ fn ragdoll_joint_for(bone: ColliderBone, limit: RagdollJointLimit, anchor: Vec3)
  | ColliderBone::LowerLeftLeg => RagdollJoint::Hinge {
  anchor,
  // Hinges flex about body-local Z; twist about Y is the normal.
- // Seated rotations bake the rest pose, so identity axes read zero.
- hinge_axis: Dir3::Z,
- normal_axis: Dir3::Y,
+ hinge_axis: axis(Vec3::Z, Dir3::Z),
+ normal_axis: axis(Vec3::Y, Dir3::Y),
  min: limit.angle_min,
  max: limit.angle_max,
  },
  _ => RagdollJoint::SwingTwist {
  anchor,
- twist_axis: Dir3::Y,
- plane_axis: Dir3::X,
+ twist_axis: axis(Vec3::Y, Dir3::Y),
+ plane_axis: axis(Vec3::X, Dir3::X),
  normal_half_cone: limit.swing,
  plane_half_cone: limit.swing,
  twist_min: -limit.twist,
