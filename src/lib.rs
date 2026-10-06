@@ -31,13 +31,11 @@ pub mod prelude {
         ColliderOffset, DisablePhysics, RagdollCollisionLayers, RagdollJointLimit,
         RagdollJointLimitOverrides, default_joint_limit, resolve_joint_limit,
     };
- #[cfg(feature = "jolt")]
- pub use crate::physics::jolt::{
- BoneForCollider, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
- ColliderOffset, RagdollCollisionLayers,
- RagdollJointLimit, RagdollJointLimitOverrides, default_joint_limit, jolt_layer_for,
- resolve_joint_limit,
- };
+    #[cfg(feature = "jolt")]
+    pub use crate::physics::jolt::{
+        BoneForCollider, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
+        ColliderOffset, RagdollCollisionLayers,
+    };
     pub use crate::physics::{
         COLLIDERS, ColliderBone, HumentityRagdollSystemSet, RagdollDamping, RagdollDensity,
         RagdollMobility, get_collider_parent,
@@ -346,9 +344,8 @@ impl Plugin for HumentityPlugin {
  physics::jolt::spawn_colliders
  .after(physics::jolt::mark_needs_colliders)
  .after(spawn_skeleton::check_skeleton_ready),
- physics::jolt::set_ragdoll_state.in_set(HumentityRagdollSystemSet),
- physics::jolt::apply_joint_limit_overrides,
- physics::jolt::tag_ragdoll_parts,
+                physics::jolt::set_ragdoll_state.in_set(HumentityRagdollSystemSet),
+                physics::jolt::tag_ragdoll_parts,
  ),
  )
  .add_systems(

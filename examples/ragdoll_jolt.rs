@@ -34,49 +34,35 @@ fn main() {
     .run();
 }
 
-/// Prints every ragdoll part's live pose + sleep state, with the configured
-/// limits alongside. Press J while the ragdoll is active: parts that never
-/// sleep point at unsettled joints. Example line:
-/// `knee.L live y=0.412 awake | hinge [-137.5°, 0.0°]`.
+/// Prints every ragdoll part's live pose + sleep state. Press J while the
+/// ragdoll is active: parts that never sleep point at unsettled joints.
+/// Example line: `knee.L live y=0.412 awake`.
 fn dump_joint_angles(
- input: Res<ButtonInput<KeyCode>>,
- transform_query: Query<&Transform>,
- sleeping_query: Query<&JoltSleeping>,
- character_query: Query<&CharacterColliders>,
+    input: Res<ButtonInput<KeyCode>>,
+    transform_query: Query<&Transform>,
+    sleeping_query: Query<&JoltSleeping>,
+    character_query: Query<&CharacterColliders>,
 ) {
- if !input.just_pressed(KeyCode::KeyJ) {
- return;
- }
- let Ok(colliders) = character_query.single() else {
- return;
- };
- for (&bone, &part_entity) in colliders.collider_entities.iter() {
- let Ok(part_transform) = transform_query.get(part_entity) else {
- continue;
- };
- let sleep = sleeping_query
- .get(part_entity)
- .map(|sleeping| {
- if sleeping.sleeping {
- "asleep"
- } else {
- "awake"
- }
- })
- .unwrap_or("no-state");
- let limit = default_joint_limit(bone);
- println!(
- "{bone:?} live y={:.3} {} | swing {:>5.1}° twist {:>5.1}° hinge [{:>6.1}°, {:>5.1}°]",
- part_transform.translation.y,
- sleep,
- limit.swing.to_degrees(),
- limit.twist.to_degrees(),
- limit.angle_min.to_degrees(),
- limit.angle_max.to_degrees(),
- );
- }
+    if !input.just_pressed(KeyCode::KeyJ) {
+        return;
+    }
+    let Ok(colliders) = character_query.single() else {
+        return;
+    };
+    for (bone, &part_entity) in colliders.collider_entities.iter() {
+        let Ok(part_transform) = transform_query.get(part_entity) else {
+            continue;
+        };
+        let sleep = sleeping_query
+            .get(part_entity)
+            .map(|sleeping| if sleeping.sleeping { "asleep" } else { "awake" })
+            .unwrap_or("no-state");
+        println!(
+            "{bone:?} live y={:.3} {}",
+            part_transform.translation.y, sleep,
+        );
+    }
 }
-
 #[derive(Component)]
 struct AnimationController(AnimationNodeIndex);
 
@@ -117,7 +103,6 @@ fn add_human(
             RAGDOLL_TEAM,
             (1 << WORLD_TEAM) | (1 << CHARACTER_TEAM) | (1 << RAGDOLL_TEAM),
         ),
-        RagdollMobility(1.0),
         children![(CharacterPart {
             mesh: basemesh,
             skeleton_lod: 0
