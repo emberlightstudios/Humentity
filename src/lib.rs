@@ -352,6 +352,13 @@ impl Plugin for HumentityPlugin {
  ),
  )
  .add_systems(
+ FixedUpdate,
+ (
+ physics::jolt::sync_colliders,
+ physics::jolt::ensure_kinematic_targets.after(physics::jolt::sync_colliders),
+ ),
+ )
+ .add_systems(
  PostUpdate,
  physics::jolt::sync_bones_to_ragdoll
  .in_set(animation::HumentitySkeletonSystemSet)

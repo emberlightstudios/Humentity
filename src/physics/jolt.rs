@@ -275,29 +275,6 @@ pub(crate) fn mark_needs_colliders(
  }
 }
 
-/// Measures every collider shape + offset from the fitted bind pose and caches
-/// them on the character. The bodies themselves spawn later, when the ragdoll
-/// flips on — [`set_ragdoll_state`] builds the `JoltRagdoll` spec from these.
-#[derive(Component, Clone, Debug)]
-pub(crate) struct ColliderMeasurement {
- pub(crate) bone: ColliderBone,
- pub(crate) shape: RagdollShape,
- /// Collider origin in model space (bind pose), with its measured
- /// rotation. Flip seats parts as character-world × this — the same
- /// placement the old collider entities used.
- pub(crate) collider_to_model: Transform,
- /// Fixed joint frame: collider origin relative to its bone (bind pose).
- /// What [`sync_bones_to_ragdoll`] needs, cached here so no second pass
- /// computes it.
- pub(crate) offset: ColliderOffset,
-}
-
-/// Cached collider measurements, filled by [`spawn_colliders`]. The ragdoll
-/// spec builds from these on flip.
-#[derive(Component, Default)]
-pub(crate) struct MeasuredColliders {
- pub(crate) measurements: Vec<ColliderMeasurement>,
-}
 
 pub(crate) fn spawn_colliders(
  mut commands: Commands,
@@ -307,7 +284,11 @@ pub(crate) fn spawn_colliders(
  &CharacterShape,
  &CharacterSkeleton,
  &mut CharacterColliders,
+ &GlobalTransform,
  Option<&CharacterScale>,
+ Option<&RagdollCollisionLayers>,
+ Option<&RagdollJointLimitOverrides>,
+ Option<&RagdollMobility>,
  ),
  (With<NeedsColliders>, With<SkeletonReady>),
  >,
@@ -315,17 +296,23 @@ pub(crate) fn spawn_colliders(
  templates: Res<Assets<crate::template::CharacterTemplate>>,
  basemesh: Res<crate::basemesh::BaseMesh>,
  rig_data: Res<RigData>,
- ) {
+ container: Option<Res<CharacterPhysicsContainer>>,
+) {
  const BATCH_SIZE: usize = 2;
  let mut spawned_character_count = 0;
-    for (
-        character_entity,
-        character_shape,
-        skeleton,
-        mut colliders,
-        character_scale,
-    ) in characters.iter_mut()
-    {
+ let container_entity = container.map(|container| container.0);
+ for (
+ character_entity,
+ character_shape,
+ skeleton,
+ mut colliders,
+ character_to_world,
+ character_scale,
+ collision_layers,
+ overrides,
+ mobility,
+ ) in characters.iter_mut()
+ {
         if spawned_character_count >= BATCH_SIZE {
             break;
         }
@@ -384,11 +371,29 @@ pub(crate) fn spawn_colliders(
             }
         }
 
- // Measure shapes + offsets (LOD-independent) and cache them. The
- // offset is the fixed joint frame: collider origin relative to its
- // bone in the bind pose, so the flip and the sync share one frame.
+ // Measure shapes + offsets at the bind pose, then build the spec
+ // immediately. Bodies bake kinematic (hitbox mode): contacts report
+ // from birth, and flips only change motion, never respawn.
  let collider_scale = character_scale.map_or(1.0, |scale| scale.0);
- let mut measurements = Vec::with_capacity(target_bones.len());
+ let mobility_value = mobility.map_or(1.0, |mob| mob.0);
+ let object_layer = collision_layers.map_or(0, |layers| layers.membership);
+ // Seat under the skeleton root frame (facing fix + rear shift), the
+ // same composition the skeleton build uses.
+ let rig_name = rig_data
+ .0
+ .as_ref()
+ .map(|spec| spec.reference_rig.rig_name.as_str())
+ .unwrap_or("default");
+ let model_root = Transform::from_rotation(crate::MODEL_ROTATION_FIX).with_translation(Vec3::new(
+ 0.0,
+ 0.0,
+ crate::rigs::skeleton_rear_offset_meters(rig_name),
+ ));
+ let character_world = Transform::from(*character_to_world) * model_root;
+ let mut parts = Vec::with_capacity(target_bones.len());
+ let mut part_order = Vec::with_capacity(target_bones.len());
+ let mut offsets = Vec::with_capacity(target_bones.len());
+ let mut part_index_of: AHashMap<ColliderBone, usize> = AHashMap::default();
  for &collider in &target_bones {
  let collider_slot = collider_index(collider);
  let (shape, collider_to_model) = get_collider_geometry(
@@ -403,129 +408,24 @@ pub(crate) fn spawn_colliders(
  let collider_to_joint = model_to_joint * collider_to_model;
  let joint_to_collider =
  Transform::from_matrix(collider_to_joint.to_matrix().inverse());
- measurements.push(ColliderMeasurement {
- bone: collider,
- shape,
- collider_to_model,
- offset: ColliderOffset {
+ let offset = ColliderOffset {
  collider_to_bone: collider_to_joint,
  bone_to_collider: joint_to_collider,
- },
- });
- }
-        commands
-            .entity(character_entity)
-            .insert(MeasuredColliders { measurements });
-        commands
-            .entity(character_entity)
-            .remove::<NeedsColliders>();
-        spawned_character_count += 1;
-    }
-}
-
-
-/// Spawns (or despawns) the `JoltRagdoll` spec when `CharacterRagdoll` flips.
-/// Full builds one spec from the cached bind-pose measurements; None
-/// despawns it. Partial is not supported on this backend: Jolt bakes the
-/// whole chain in one call, so Partial falls back to Full.
-///
-/// Flip from the bind pose: parts seat at their measured placement, so a
-/// mid-animation flip offsets pivots by the pose delta (idle sway is
-/// harmless, a sprint is not).
-pub(crate) fn set_ragdoll_state(
- mut characters: Query<
- (
- Entity,
- &CharacterRagdoll,
- &mut CharacterColliders,
- &GlobalTransform,
- Option<&RagdollCollisionLayers>,
- Option<&MeasuredColliders>,
- Option<&RagdollJointLimitOverrides>,
- Option<&RagdollMobility>,
- ),
- Changed<CharacterRagdoll>,
- >,
- bones: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
- rig_data: Res<RigData>,
- mut commands: Commands,
- container: Option<Res<CharacterPhysicsContainer>>,
-) {
- // Model-space measurements sit under the skeleton root frame (facing fix
- // + rear shift; scale already baked into the measurements). Invert the
- // root construction in `spawn_skeleton::skeleton_root_transform` so parts
- // seat where the mesh actually is.
- let rig_name = rig_data
- .0
- .as_ref()
- .map(|spec| spec.reference_rig.rig_name.as_str())
- .unwrap_or("default");
- let model_root = Transform::from_rotation(crate::MODEL_ROTATION_FIX).with_translation(Vec3::new(
- 0.0,
- 0.0,
- crate::rigs::skeleton_rear_offset_meters(rig_name),
- ));
- let container_entity = container.map(|container| container.0);
- for (
- character_entity,
- ragdoll,
- mut character_colliders,
- character_to_world,
- collision_layers,
- measured,
- overrides,
- mobility,
- ) in characters.iter_mut()
- {
-        // Tear down any live spec first: flips and limit changes rebuild.
-        if let Some(ragdoll_entity) = character_colliders.ragdoll_entity.take() {
-            commands.entity(ragdoll_entity).despawn();
-        }
-        character_colliders.collider_entities.clear();
-        character_colliders.part_order.clear();
-
-        if matches!(ragdoll, CharacterRagdoll::None) {
-            continue;
-        }
-        let Some(measured) = measured else {
-            continue; // Transient: measurements still pending, retry next flip.
-        };
- let mobility = mobility.map_or(1.0, |mob| mob.0);
- let object_layer = collision_layers.map_or(0, |layers| layers.membership);
- // Character pose × root frame × model measurement: the same composition
- // the skeleton build uses, so parts land on the mesh.
- let character_world = Transform::from(*character_to_world) * model_root;
- let mut parts = Vec::with_capacity(measured.measurements.len());
- let mut part_order = Vec::with_capacity(measured.measurements.len());
- let mut offsets = Vec::with_capacity(measured.measurements.len());
- // Part index per collider bone: parents-first order comes free —
- // `COLLIDERS` lists parents before children, and measurements follow it.
- let mut part_index_of: AHashMap<ColliderBone, usize> = AHashMap::default();
- for measurement in &measured.measurements {
- let Some(&bone_entity) = character_colliders.bone_entities.get(&measurement.bone) else {
- continue; // Transient: bone missing from the map, skip this part.
  };
- let Ok(joint_to_world) = bones.get(bone_entity) else {
- continue; // Transient: bone gone, skip this part.
- };
- let joint_world = Transform::from(*joint_to_world);
- // Seat at the CURRENT pose: live bone × fixed joint frame. Parts,
- // anchors, and axes then agree, and the spawn reads zero bend. (An
- // earlier bind-pose seating snapped flips back to bind on engage.)
- let part_world = joint_world * measurement.offset.bone_to_collider;
- let limit = resolve_joint_limit(measurement.bone, overrides, mobility);
- // Pivot at the child bone's origin (the anatomical joint), matching the
- // old per-joint anchor derivation. Axes follow the seated part so the
- // spawn pose reads zero.
- let joint =
- ragdoll_joint_for(measurement.bone, limit, joint_world.translation, part_world.rotation);
- let parent_part = get_collider_parent(measurement.bone)
+ // Seat at the bind pose: spawn runs before first animation, so
+ // model-space placement is exact with no bone reads.
+ let part_world = character_world * collider_to_model;
+ // Anchor at the bind-pose joint origin, in the same frame.
+ let anchor = (character_world * model_to_joint).translation;
+ let limit = resolve_joint_limit(collider, overrides, mobility_value);
+ let joint = ragdoll_joint_for(collider, limit, anchor, part_world.rotation);
+ let parent_part = get_collider_parent(collider)
  .and_then(|parent| part_index_of.get(&parent).copied());
- part_index_of.insert(measurement.bone, parts.len());
- part_order.push(measurement.bone);
- offsets.push(measurement.offset);
+ part_index_of.insert(collider, parts.len());
+ part_order.push(collider);
+ offsets.push(offset);
  parts.push(bevy_jolt::RagdollPart {
- shape: measurement.shape,
+ shape,
  part_position: part_world.translation,
  part_rotation: part_world.rotation,
  parent_part,
@@ -535,15 +435,15 @@ pub(crate) fn set_ragdoll_state(
  if parts.is_empty() {
  continue;
  }
- let spec = JoltRagdoll {
- parts,
- object_layer,
- density_kg_per_m3: 1000.0,
- };
  let spec_id = commands
  .spawn((
  Name::new("RagdollSpec"),
- spec,
+ JoltRagdoll {
+ parts,
+ object_layer,
+ density_kg_per_m3: 1000.0,
+ motion: bevy_jolt::JoltMotion::Kinematic,
+ },
  ColliderForCharacter(character_entity),
  SpecOwner(character_entity),
  ))
@@ -551,13 +451,121 @@ pub(crate) fn set_ragdoll_state(
  if let Some(container_entity) = container_entity {
  commands.entity(container_entity).add_child(spec_id);
  }
- character_colliders.ragdoll_entity = Some(spec_id);
- character_colliders.part_order = part_order;
- // Stash offsets on the character for the bake tagger (spec order).
+ colliders.ragdoll_entity = Some(spec_id);
+ colliders.part_order = part_order;
  commands
  .entity(character_entity)
  .insert(PendingOffsets { offsets });
+ commands
+ .entity(character_entity)
+ .remove::<NeedsColliders>();
+ spawned_character_count += 1;
  }
+}
+
+
+/// Flips ragdoll motion without respawning: Full simulates (dynamic),
+/// anything else rides the bones (kinematic hitboxes). The spec stays
+/// alive throughout — bodies exist from spawn, so contacts report in
+/// both modes. Partial falls back to Full (per-part motion is not
+/// wired yet).
+pub(crate) fn set_ragdoll_state(
+    characters: Query<(&CharacterRagdoll, &CharacterColliders), Changed<CharacterRagdoll>>,
+    handles: Query<&bevy_jolt::JoltRagdollHandle>,
+    ragdoll_parts: Query<&bevy_jolt::JoltRagdollParts>,
+    mut commands: Commands,
+    mut physics_world: ResMut<bevy_jolt::JoltPhysicsWorld>,
+) {
+    for (ragdoll, colliders) in characters.iter() {
+        let Some(spec_entity) = colliders.ragdoll_entity else {
+            continue; // Transient: spec still baking, retry next flip.
+        };
+        let Ok(handle) = handles.get(spec_entity) else {
+            continue; // Transient: bake observer hasn't run yet.
+        };
+        let world = &mut *physics_world;
+        match ragdoll {
+            CharacterRagdoll::Full => {
+                // Simulate: drop targets so nothing drives the bodies.
+                if let Ok(baked) = ragdoll_parts.get(spec_entity) {
+                    for &part_entity in &baked.part_entities {
+                        commands
+                            .entity(part_entity)
+                            .remove::<bevy_jolt::JoltKinematicTarget>();
+                    }
+                }
+                world.ragdoll_set_motion(handle.raw(), bevy_jolt::JoltMotion::Dynamic);
+            }
+            // Kinematic follow (hitbox mode): bodies ride the bones.
+            _ => {
+                world.ragdoll_set_motion(handle.raw(), bevy_jolt::JoltMotion::Kinematic);
+            }
+        }
+    }
+}
+
+/// Drives kinematic ragdoll parts toward their bones every tick (hitbox
+/// mode). Jolt derives velocity from the delta, so followers shove
+/// dynamics aside. Dynamic parts (ragdoll mode) are skipped: the pose
+/// sync owns them. Runs in `FixedUpdate`, before the step.
+pub(crate) fn sync_colliders(
+    characters: Query<(&CharacterRagdoll, &CharacterColliders)>,
+    bones: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
+    mut parts: Query<(
+        &mut Transform,
+        &mut bevy_jolt::JoltKinematicTarget,
+        &ColliderOffset,
+        &BoneForCollider,
+        &ColliderForCharacter,
+    )>,
+) {
+    for (ragdoll, colliders) in characters.iter() {
+        if matches!(ragdoll, CharacterRagdoll::Full) {
+            continue;
+        }
+        for &part_entity in colliders.collider_entities.values() {
+            let Ok((mut part_transform, mut target, offset, bone_link, _)) =
+                parts.get_mut(part_entity)
+            else {
+                continue; // Transient: tagger hasn't run, or no target yet.
+            };
+            let Ok(joint_to_world) = bones.get(bone_link.0) else {
+                continue; // Transient: bone gone before its part despawns.
+            };
+            let target_world = Transform::from(*joint_to_world) * offset.collider_to_bone;
+            part_transform.translation = target_world.translation;
+            part_transform.rotation = target_world.rotation;
+            if target.target_position != target_world.translation
+                || target.target_rotation != target_world.rotation
+            {
+                target.target_position = target_world.translation;
+                target.target_rotation = target_world.rotation;
+            }
+        }
+    }
+}
+
+/// Ensures every ragdoll part carries a `JoltKinematicTarget`. Runs after
+/// `sync_colliders`; separate query because that system only matches
+/// entities that already have the component.
+pub(crate) fn ensure_kinematic_targets(
+    characters: Query<(&CharacterRagdoll, &CharacterColliders)>,
+    tagged: Query<(Entity, &Transform), (With<ColliderBone>, Without<bevy_jolt::JoltKinematicTarget>)>,
+    mut commands: Commands,
+) {
+    for (ragdoll, colliders) in characters.iter() {
+        if matches!(ragdoll, CharacterRagdoll::Full) {
+            continue;
+        }
+        for &part_entity in colliders.collider_entities.values() {
+            if let Ok((_, part_transform)) = tagged.get(part_entity) {
+                commands.entity(part_entity).insert(bevy_jolt::JoltKinematicTarget {
+                    target_position: part_transform.translation,
+                    target_rotation: part_transform.rotation,
+                });
+            }
+        }
+    }
 }
 
 /// Which character owns a ragdoll spec entity. Set at spawn so the bake
@@ -952,11 +960,7 @@ fn teardown_character_physics(
     }
     character_colliders.collider_entities.clear();
     character_colliders.part_order.clear();
-    commands
-        .entity(character_entity)
-        .remove::<CharacterColliders>()
-        .remove::<NeedsColliders>()
-        .remove::<MeasuredColliders>();
+ commands.entity(character_entity).remove::<CharacterColliders>().remove::<NeedsColliders>();
 }
 
 /// Rebuilds the ragdoll spec live when limits, mobility, or layers change.
@@ -977,24 +981,30 @@ pub(crate) fn apply_joint_limit_overrides(
     >,
     mut commands: Commands,
 ) {
- for (character_entity, ragdoll, character_colliders) in characters.iter_mut() {
-        if matches!(ragdoll, CharacterRagdoll::None) {
-            continue;
-        }
-        // Skip the respawn when nothing was ever spawned: the spec builds on
-        // the next ragdoll flip, already carrying the new limits.
-        if character_colliders.ragdoll_entity.is_none() {
-            continue;
-        }
-        // Re-trigger the state system by touching the marker: remove + re-add
-        // forces a `Changed` on the next tick.
-        commands
-            .entity(character_entity)
-            .remove::<CharacterRagdoll>();
-        commands
-            .entity(character_entity)
-            .insert(ragdoll.clone());
-    }
+ for (character_entity, ragdoll, mut character_colliders) in characters.iter_mut() {
+ // Nothing measured yet: the spec builds on spawn already carrying
+ // the new limits.
+ if character_colliders.bone_entities.is_empty() {
+ continue;
+ }
+ // Full rebuild: new limits bake at creation. Despawn the spec,
+ // re-measure from current state, and re-fire the flip so motion
+ // lands correctly once the bake flushes (converges in ~2 ticks).
+ if let Some(ragdoll_entity) = character_colliders.ragdoll_entity.take() {
+ commands.entity(ragdoll_entity).despawn();
+ }
+ character_colliders.collider_entities.clear();
+ character_colliders.part_order.clear();
+ commands.entity(character_entity).insert(NeedsColliders);
+ // Re-trigger the state system by touching the marker: remove + re-add
+ // forces a `Changed` on the next tick.
+ commands
+ .entity(character_entity)
+ .remove::<CharacterRagdoll>();
+ commands
+ .entity(character_entity)
+ .insert(ragdoll.clone());
+ }
 }
 
 const fn get_spherical_limits(bone: ColliderBone) -> (f32, f32) {
