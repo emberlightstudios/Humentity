@@ -34,8 +34,8 @@ use ahash::AHashMap;
 use bevy::ecs::intern::Internable;
 use bevy::math::{Quat, Vec3};
 use bevy_jolt::{
-    JointSpace, JoltBody, JoltBodyId, JoltJoint, JoltKinematicTarget, JoltPhysicsWorld,
-    JoltShape, JoltSleeping,
+    JointSpace, JoltBody, JoltBodyId, JoltDamping, JoltJoint, JoltKinematicTarget,
+    JoltPhysicsWorld, JoltShape, JoltSleeping,
 };
 
 use crate::{
@@ -117,12 +117,6 @@ pub enum CharacterRagdoll {
 /// Plain identity entity: no `JoltBody`/`JoltShape`, so jolt ignores it.
 #[derive(Resource)]
 pub struct CharacterPhysicsContainer(pub Entity);
-
-/// Re-export of `bevy_jolt`'s damping: `JoltDamping::new(0.1, 0.1)` on a
-/// collider at spawn calms jitter; the `Changed` push in `bevy_jolt` carries
-/// later writes into Jolt before the next step. Mirrors avian's
-/// `LinearDamping(0.1)` / `AngularDamping(0.1)` on every collider.
-pub use bevy_jolt::JoltDamping;
 
 #[derive(Component, Default)]
 pub struct CharacterColliders {

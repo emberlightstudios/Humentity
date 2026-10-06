@@ -34,7 +34,7 @@ pub mod prelude {
     #[cfg(feature = "jolt")]
     pub use crate::physics::jolt::{
         BoneForCollider, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
-        ColliderOffset, DisablePhysics, JointRestPose, JoltDamping, RagdollCollisionLayers,
+        ColliderOffset, DisablePhysics, JointRestPose, RagdollCollisionLayers,
         RagdollJointLimit, RagdollJointLimitOverrides, default_joint_limit, jolt_layer_for,
         resolve_joint_limit,
     };

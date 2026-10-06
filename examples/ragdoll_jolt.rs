@@ -26,7 +26,6 @@ fn main() {
         (
             add_human.run_if(resource_exists::<HumentityAssetsReady>),
             toggle,
-            sleep_ragdoll,
             setup_graph,
             start_clip,
             dump_joint_angles,
@@ -205,51 +204,6 @@ fn spawn_ui(mut commands: Commands) {
             ..default()
         },
     ));
-}
-
-#[derive(Component)]
-struct RagdollSleepTimer(Timer);
-
-impl Default for RagdollSleepTimer {
-    fn default() -> Self {
-        Self(Timer::from_seconds(2., TimerMode::Once))
-    }
-}
-
-fn sleep_ragdoll(
-    time: Res<Time>,
-    mut commands: Commands,
-    mut timers: Query<(Entity, &mut RagdollSleepTimer)>,
-    changed_ragdolls: Query<
-        (Entity, &CharacterRagdoll, &CharacterColliders),
-        Changed<CharacterRagdoll>,
-    >,
-    mut sleeping_flags: Query<&mut JoltSleeping>,
-) {
-    for (entity, ragdoll, colliders) in changed_ragdolls.iter() {
-        match ragdoll {
-            CharacterRagdoll::Full | CharacterRagdoll::Partial(_) => {
-                commands.entity(entity).insert(RagdollSleepTimer::default());
-            }
-            CharacterRagdoll::None => {
-                commands.entity(entity).remove::<RagdollSleepTimer>();
-                for &collider_entity in colliders.collider_entities.values() {
-                    // Wake anything the sleep timer parked; harmless on awake bodies.
-                    if let Ok(mut sleeping) = sleeping_flags.get_mut(collider_entity) {
-                        sleeping.sleeping = false;
-                    }
-                }
-            }
-        }
-    }
-
-    for (entity, mut timer) in timers.iter_mut() {
-        timer.0.tick(time.delta());
-        if timer.0.just_finished() {
-            commands.trigger(DisablePhysics { character: entity });
-            commands.entity(entity).remove::<RagdollSleepTimer>();
-        }
-    }
 }
 
 fn floor(mut commands: Commands) {
