@@ -34,8 +34,8 @@ use ahash::AHashMap;
 use bevy::ecs::intern::Internable;
 use bevy::math::{Quat, Vec3};
 use bevy_jolt::{
-    JointSpace, JoltBody, JoltBodyId, JoltDensity, JoltJoint, JoltKinematicTarget,
-    JoltPhysicsWorld, JoltShape, JoltSleeping,
+    JointSpace, JoltBody, JoltBodyId, JoltJoint, JoltKinematicTarget, JoltPhysicsWorld,
+    JoltShape, JoltSleeping,
 };
 
 use crate::{
@@ -84,7 +84,7 @@ pub const fn jolt_layer_for(membership_bit: u32) -> u16 {
 
 /// Describes whether ragdoll physics is active
 #[derive(Component, Debug, Clone, PartialEq, Eq, Default)]
-#[require(RagdollDensity, RagdollDamping)]
+#[require(RagdollDamping)]
 pub enum CharacterRagdoll {
     #[default]
     None,
@@ -318,7 +318,6 @@ pub(crate) fn spawn_colliders(
             &CharacterShape,
             &CharacterSkeleton,
             &mut CharacterColliders,
-            &RagdollDensity,
             Option<&RagdollCollisionLayers>,
             Option<&CharacterScale>,
         ),
@@ -350,7 +349,6 @@ pub(crate) fn spawn_colliders(
         character_shape,
         skeleton,
         mut colliders,
-        density,
         collision_layers,
         character_scale,
     ) in characters.iter_mut()
@@ -361,7 +359,6 @@ pub(crate) fn spawn_colliders(
         let Some(collision_layers) = collision_layers else {
             continue;
         };
-        let density = density.0;
 
         let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
@@ -442,7 +439,6 @@ pub(crate) fn spawn_colliders(
                         .leak(),
                 ),
                 JoltBody::kinematic(collision_layers.membership),
-                JoltDensity::new(density),
                 collider,
                 geometry,
                 ColliderOffset {

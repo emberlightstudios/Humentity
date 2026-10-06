@@ -123,8 +123,6 @@ fn add_human(
             (1 << WORLD_TEAM) | (1 << CHARACTER_TEAM) | (1 << RAGDOLL_TEAM),
         ),
         RagdollMobility(1.0),
-        // Ragdolls tend to twitch without higher density settings in my findings
-        RagdollDensity(10.0),
         children![(CharacterPart {
             mesh: basemesh,
             skeleton_lod: 0

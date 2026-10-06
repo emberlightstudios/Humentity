@@ -708,7 +708,6 @@ fn add_human(
             (1 << WORLD_TEAM) | (1 << CHARACTER_TEAM) | (1 << RAGDOLL_TEAM),
         ),
         RagdollMobility(1.0),
-        RagdollDensity(10.0),
         RagdollDamping::default(),
         children![(CharacterPart {
             mesh: basemesh,
