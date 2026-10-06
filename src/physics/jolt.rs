@@ -282,9 +282,13 @@ pub(crate) fn mark_needs_colliders(
 pub(crate) struct ColliderMeasurement {
  pub(crate) bone: ColliderBone,
  pub(crate) shape: RagdollShape,
+ /// Collider origin in model space (bind pose), with its measured
+ /// rotation. Flip seats parts as character-world × this — the same
+ /// placement the old collider entities used.
+ pub(crate) collider_to_model: Transform,
  /// Fixed joint frame: collider origin relative to its bone (bind pose).
- /// Part pose at flip = live bone world × this; the stored offset is also
- /// what [`sync_bones_to_ragdoll`] needs, so no second pass computes it.
+ /// What [`sync_bones_to_ragdoll`] needs, cached here so no second pass
+ /// computes it.
  pub(crate) offset: ColliderOffset,
 }
 
@@ -402,6 +406,7 @@ pub(crate) fn spawn_colliders(
  measurements.push(ColliderMeasurement {
  bone: collider,
  shape,
+ collider_to_model,
  offset: ColliderOffset {
  collider_to_bone: collider_to_joint,
  bone_to_collider: joint_to_collider,
@@ -420,37 +425,43 @@ pub(crate) fn spawn_colliders(
 
 
 /// Spawns (or despawns) the `JoltRagdoll` spec when `CharacterRagdoll` flips.
-/// Full builds one spec from the cached measurements at the current bone
-/// poses; None despawns it. Partial is not supported on this backend: Jolt
-/// bakes the whole chain in one call, so Partial falls back to Full.
+/// Full builds one spec from the cached bind-pose measurements; None
+/// despawns it. Partial is not supported on this backend: Jolt bakes the
+/// whole chain in one call, so Partial falls back to Full.
+///
+/// Flip from the bind pose: parts seat at their measured placement, so a
+/// mid-animation flip offsets pivots by the pose delta (idle sway is
+/// harmless, a sprint is not).
 pub(crate) fn set_ragdoll_state(
-    mut characters: Query<
-        (
-            Entity,
-            &CharacterRagdoll,
-            &mut CharacterColliders,
-            Option<&RagdollCollisionLayers>,
-            Option<&MeasuredColliders>,
-            Option<&RagdollJointLimitOverrides>,
-            Option<&RagdollMobility>,
-        ),
-        Changed<CharacterRagdoll>,
-    >,
-    bones: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
-    mut commands: Commands,
-    container: Option<Res<CharacterPhysicsContainer>>,
+ mut characters: Query<
+ (
+ Entity,
+ &CharacterRagdoll,
+ &mut CharacterColliders,
+ &GlobalTransform,
+ Option<&RagdollCollisionLayers>,
+ Option<&MeasuredColliders>,
+ Option<&RagdollJointLimitOverrides>,
+ Option<&RagdollMobility>,
+ ),
+ Changed<CharacterRagdoll>,
+ >,
+ bones: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
+ mut commands: Commands,
+ container: Option<Res<CharacterPhysicsContainer>>,
 ) {
-    let container_entity = container.map(|container| container.0);
-    for (
-        character_entity,
-        ragdoll,
-        mut character_colliders,
-        collision_layers,
-        measured,
-        overrides,
-        mobility,
-    ) in characters.iter_mut()
-    {
+ let container_entity = container.map(|container| container.0);
+ for (
+ character_entity,
+ ragdoll,
+ mut character_colliders,
+ character_to_world,
+ collision_layers,
+ measured,
+ overrides,
+ mobility,
+ ) in characters.iter_mut()
+ {
         // Tear down any live spec first: flips and limit changes rebuild.
         if let Some(ragdoll_entity) = character_colliders.ragdoll_entity.take() {
             commands.entity(ragdoll_entity).despawn();
@@ -464,9 +475,9 @@ pub(crate) fn set_ragdoll_state(
         let Some(measured) = measured else {
             continue; // Transient: measurements still pending, retry next flip.
         };
-        let mobility = mobility.map_or(1.0, |mob| mob.0);
-        let object_layer = collision_layers.map_or(0, |layers| layers.membership);
-
+ let mobility = mobility.map_or(1.0, |mob| mob.0);
+ let object_layer = collision_layers.map_or(0, |layers| layers.membership);
+ let character_world = Transform::from(*character_to_world);
  let mut parts = Vec::with_capacity(measured.measurements.len());
  let mut part_order = Vec::with_capacity(measured.measurements.len());
  let mut offsets = Vec::with_capacity(measured.measurements.len());
@@ -481,10 +492,11 @@ pub(crate) fn set_ragdoll_state(
  continue; // Transient: bone gone, skip this part.
  };
  let joint_world = Transform::from(*joint_to_world);
- // Collider origin in world space: live bone pose × fixed joint
- // frame. The offset was measured in the bind pose, so this seats
- // the part exactly where the old collider entities sat.
- let part_world = joint_world * measurement.offset.bone_to_collider;
+ // Collider origin in world space: character pose × model-space
+ // measurement. Same placement the old collider entities used —
+ // seating from the bone would re-apply the bind rotation wrong
+ // (chest tips forward, pelvis back).
+ let part_world = character_world * measurement.collider_to_model;
  let limit = resolve_joint_limit(measurement.bone, overrides, mobility);
  // Pivot at the child bone's origin (the anatomical joint), matching the
  // old per-joint anchor derivation.
