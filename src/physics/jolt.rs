@@ -34,8 +34,8 @@ use ahash::AHashMap;
 use bevy::ecs::intern::Internable;
 use bevy::math::{Quat, Vec3};
 use bevy_jolt::{
-    JointSpace, JoltBody, JoltBodyId, JoltJoint, JoltKinematicTarget, JoltPhysicsWorld,
-    JoltShape, JoltSleeping,
+    JointSpace, JoltBody, JoltBodyId, JoltDensity, JoltJoint, JoltKinematicTarget,
+    JoltPhysicsWorld, JoltShape, JoltSleeping,
 };
 
 use crate::{
@@ -441,7 +441,8 @@ pub(crate) fn spawn_colliders(
                         .intern(&format!("Collider {joint_name}"))
                         .leak(),
                 ),
-                JoltBody::kinematic(collision_layers.membership).with_density(density),
+                JoltBody::kinematic(collision_layers.membership),
+                JoltDensity::new(density),
                 collider,
                 geometry,
                 ColliderOffset {
