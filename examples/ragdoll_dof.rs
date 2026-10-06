@@ -163,7 +163,10 @@ fn main() {
         .insert_resource(ActiveDof::default())
         .insert_resource(BindPose::default())
         .add_systems(Startup, spawn_status_text)
-        .add_systems(Update, add_human.run_if(resource_exists::<HumentityAssetsReady>))
+        .add_systems(
+            Update,
+            add_human.run_if(resource_exists::<HumentityAssetsReady>),
+        )
         .add_systems(
             Update,
             (
@@ -199,15 +202,22 @@ fn ground_character(
             continue;
         };
         if basemesh.vertices.is_empty()
-            || template.shapes.iter().any(|shape| shape.helper_deltas.is_none())
+            || template
+                .shapes
+                .iter()
+                .any(|shape| shape.helper_deltas.is_none())
         {
             continue;
         }
-        let blended_helpers = template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
+        let blended_helpers =
+            template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
         if blended_helpers.is_empty() {
             continue;
         }
-        let min_y = blended_helpers.iter().map(|v| v.y).fold(f32::INFINITY, f32::min);
+        let min_y = blended_helpers
+            .iter()
+            .map(|v| v.y)
+            .fold(f32::INFINITY, f32::min);
         // +0.05 clearance above y = 0.
         let y = -min_y + 0.05;
         commands
@@ -413,8 +423,7 @@ fn apply_active_dof(
                 if !complete {
                     continue;
                 }
-                if let Ok((mut pos, mut rot, offset)) = collider_poses.get_mut(collider_entity)
-                {
+                if let Ok((mut pos, mut rot, offset)) = collider_poses.get_mut(collider_entity) {
                     let body_world = world * offset.collider_to_bone;
                     pos.0 = body_world.translation;
                     rot.0 = body_world.rotation;
@@ -670,4 +679,4 @@ fn add_human(
             skeleton_lod: 0
         },)],
     ));
-    }
+}

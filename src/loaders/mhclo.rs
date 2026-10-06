@@ -60,11 +60,7 @@ impl AssetLoader for MhcloAssetLoader {
         let raw_text = String::from_utf8(bytes)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
-        let asset_label = load_context
-            .path()
-            .path()
-            .to_string_lossy()
-            .into_owned();
+        let asset_label = load_context.path().path().to_string_lossy().into_owned();
         let mut obj_file = AssetPath::default();
         let mut tags = Vec::new();
         let mut z_depth = 0_i8;
@@ -125,8 +121,7 @@ impl AssetLoader for MhcloAssetLoader {
                         tags.push(tag_text);
                     }
                     "x_scale" | "y_scale" | "z_scale" => {
-                        let scale_values =
-                            line.split_whitespace().skip(1).collect::<Vec<_>>();
+                        let scale_values = line.split_whitespace().skip(1).collect::<Vec<_>>();
                         if scale_values.len() < 3 {
                             panic!(
                                 "mhclo '{asset_label}' line {line_number} has '{key}' with {} values, expected 3 ('<min> <max> <scale>', got '{raw_line}')",

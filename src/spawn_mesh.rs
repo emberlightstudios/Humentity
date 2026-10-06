@@ -286,17 +286,11 @@ pub(crate) fn mesh_build(
                         let effective_template = parts[i_mesh]
                             .template_override
                             .as_ref()
-                            .map_or(template_handle, |override_template| {
-                                &override_template.0
-                            })
+                            .map_or(template_handle, |override_template| &override_template.0)
                             .clone();
                         let mesh_handle = meshes.add(mesh);
                         cached_meshes.insert(
-                            (
-                                handle,
-                                effective_template,
-                                MeshBuildLod::Cpu(lod),
-                            ),
+                            (handle, effective_template, MeshBuildLod::Cpu(lod)),
                             mesh_handle.clone(),
                         );
                     }
@@ -337,8 +331,15 @@ pub fn build_single_mesh_direct(
     lod_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
 ) -> Mesh {
     let (mesh, morph_names) = build_final_mesh_mhclo(
-        mhclo, input_mesh, mesh_verts, template, mh_morphs, basemesh, rig_spec,
-        lod_bone_names, lod_weights,
+        mhclo,
+        input_mesh,
+        mesh_verts,
+        template,
+        mh_morphs,
+        basemesh,
+        rig_spec,
+        lod_bone_names,
+        lod_weights,
     );
     let msg = MeshConstructedMsg {
         final_meshes: vec![mesh],

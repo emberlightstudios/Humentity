@@ -34,7 +34,10 @@ fn main() {
     let mut app = setup_app();
 
     app.add_plugins(BoneDebugPlugin)
-        .add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
+        .add_systems(
+            Update,
+            add_humans.run_if(resource_exists::<HumentityAssetsReady>),
+        )
         .add_systems(
             Update,
             (
@@ -303,7 +306,14 @@ fn setup_graph(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     clips: Res<Assets<RotationOnlyAnimationAsset>>,
-    characters: Query<Entity, (With<AnimationPlayer>, Without<AnimationGraphHandle>, With<CharacterShape>)>,
+    characters: Query<
+        Entity,
+        (
+            With<AnimationPlayer>,
+            Without<AnimationGraphHandle>,
+            With<CharacterShape>,
+        ),
+    >,
 ) {
     let Some((_id, clips_map)) = clips.iter().next() else {
         return;
@@ -324,4 +334,3 @@ fn start_clip(mut characters: Query<(&mut AnimationPlayer, &AnimCtrl), Added<Ani
         player.play(ctrl.0).repeat();
     }
 }
-

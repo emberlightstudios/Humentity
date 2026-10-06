@@ -19,7 +19,10 @@ fn main() {
     app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin))
         //.insert_resource(SubstepCount(10))
         .add_systems(Startup, (floor, spawn_ui))
-        .add_systems(Update, add_human.run_if(resource_exists::<HumentityAssetsReady>))
+        .add_systems(
+            Update,
+            add_human.run_if(resource_exists::<HumentityAssetsReady>),
+        )
         .add_systems(Update, (toggle, setup_graph, start_clip, oscillate))
         .run();
 }

@@ -37,11 +37,7 @@ impl AssetLoader for ObjVertsAssetLoader {
         let content = String::from_utf8(bytes)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
-        let asset_label = _load_context
-            .path()
-            .path()
-            .to_string_lossy()
-            .into_owned();
+        let asset_label = _load_context.path().path().to_string_lossy().into_owned();
         let mut vertices = Vec::new();
         for (line_number, line) in content.lines().enumerate() {
             if !line.starts_with("v ") {

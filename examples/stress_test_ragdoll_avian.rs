@@ -37,21 +37,24 @@ fn main() {
     let mut app = setup_app();
 
     app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin))
-    .insert_resource(SubstepCount(10))
-    .add_systems(Startup, (physics_floor, spawn_ui))
-    .add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
-    .add_systems(
-        Update,
-        (
-            update_camera_distance,
-            sync_skeleton_lod_to_visibility,
-            setup_graph,
-            start_clip,
-            toggle,
-            sleep_ragdoll,
-        ),
-    )
-    .run();
+        .insert_resource(SubstepCount(10))
+        .add_systems(Startup, (physics_floor, spawn_ui))
+        .add_systems(
+            Update,
+            add_humans.run_if(resource_exists::<HumentityAssetsReady>),
+        )
+        .add_systems(
+            Update,
+            (
+                update_camera_distance,
+                sync_skeleton_lod_to_visibility,
+                setup_graph,
+                start_clip,
+                toggle,
+                sleep_ragdoll,
+            ),
+        )
+        .run();
 }
 
 fn physics_floor(mut commands: Commands) {

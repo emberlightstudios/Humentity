@@ -6,7 +6,9 @@ use crate::loaders::MhcloVertexMap;
 pub fn get_vertex_positions(mesh: &Mesh) -> Vec<Vec3> {
     let Some(VertexAttributeValues::Float32x3(verts)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
     else {
-        panic!("mesh build needs POSITION vertices: the proxy mesh has no position attribute (check the proxy .obj and its ObjVerts snapshot)")
+        panic!(
+            "mesh build needs POSITION vertices: the proxy mesh has no position attribute (check the proxy .obj and its ObjVerts snapshot)"
+        )
     };
     verts
         .iter()
@@ -28,7 +30,9 @@ pub(crate) fn get_vertex_tangents(mesh: &Mesh) -> Result<Vec<Vec3>, BevyError> {
 pub(crate) fn get_vertex_normals(mesh: &Mesh) -> Vec<Vec3> {
     let Some(VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
     else {
-        panic!("mesh build needs NORMAL vertices: the proxy mesh has no normal attribute (check the proxy .obj — re-export with normals)")
+        panic!(
+            "mesh build needs NORMAL vertices: the proxy mesh has no normal attribute (check the proxy .obj — re-export with normals)"
+        )
     };
     normals
         .iter()
@@ -38,7 +42,9 @@ pub(crate) fn get_vertex_normals(mesh: &Mesh) -> Vec<Vec3> {
 
 pub(crate) fn get_uv_coords(mesh: &Mesh) -> Vec<Vec2> {
     let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0) else {
-        panic!("mesh build needs UV_0 texcoords: the proxy mesh has no uv attribute (check the proxy .obj — re-export with uvs)")
+        panic!(
+            "mesh build needs UV_0 texcoords: the proxy mesh has no uv attribute (check the proxy .obj — re-export with uvs)"
+        )
     };
     uv.iter()
         .map(|arr| Vec2::new(arr[0], arr[1]))

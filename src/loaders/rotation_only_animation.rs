@@ -169,8 +169,8 @@ fn bake_shape_clips_from_document(
                 }
             };
             let start = output_view.offset() + output_accessor.offset();
-            let end = start
-                + output_accessor.count() * floats_per_element * std::mem::size_of::<f32>();
+            let end =
+                start + output_accessor.count() * floats_per_element * std::mem::size_of::<f32>();
             let output_bytes = buffer.get(start..end).unwrap_or_else(|| {
                 panic!(
                     "clip '{clip_name}' in '{asset_label}' reads value bytes {start}..{end} outside the buffer (buffer is {} bytes: file is truncated)",
@@ -202,12 +202,8 @@ fn bake_shape_clips_from_document(
                                 "clip '{clip_name}' in '{asset_label}' has a bone-translation track on '{target_name}' with no shape correction: '{target_name}' is missing from the shape's bone table (rebuild the shape's corrections)"
                             );
                         };
-                        let baked = bake_bone_translation(
-                            &times,
-                            floats,
-                            floats_per_element,
-                            correction,
-                        );
+                        let baked =
+                            bake_bone_translation(&times, floats, floats_per_element, correction);
                         let curve = AnimatableKeyframeCurve::new(baked).unwrap_or_else(|_| {
                             panic!(
                                 "clip '{clip_name}' in '{asset_label}' has an empty bone-translation track on '{target_name}': keyframes are missing (re-export the glTF)"
@@ -220,11 +216,13 @@ fn bake_shape_clips_from_document(
                     }
                 }
                 gltf::animation::Property::Rotation => {
-                    let baked = times.into_iter().zip(
-                        floats.chunks(floats_per_element).map(|chunk| {
-                            Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]]).normalize()
-                        }),
-                    );
+                    let baked =
+                        times
+                            .into_iter()
+                            .zip(floats.chunks(floats_per_element).map(|chunk| {
+                                Quat::from_array([chunk[0], chunk[1], chunk[2], chunk[3]])
+                                    .normalize()
+                            }));
                     let curve = AnimatableKeyframeCurve::new(baked).unwrap_or_else(|_| {
                         panic!(
                             "clip '{clip_name}' in '{asset_label}' has an empty rotation track on '{target_name}': keyframes are missing (re-export the glTF)"
@@ -237,9 +235,9 @@ fn bake_shape_clips_from_document(
                 }
                 gltf::animation::Property::Scale => {
                     let baked = times.into_iter().zip(
-                        floats.chunks(floats_per_element).map(|chunk| {
-                            Vec3::from_array([chunk[0], chunk[1], chunk[2]])
-                        }),
+                        floats
+                            .chunks(floats_per_element)
+                            .map(|chunk| Vec3::from_array([chunk[0], chunk[1], chunk[2]])),
                     );
                     let curve = AnimatableKeyframeCurve::new(baked).unwrap_or_else(|_| {
                         panic!(
@@ -332,8 +330,7 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
         // Parse once, bake once per listed shape: one outer load serves all
         // shapes, so the asset server never dedups a second shape onto the
         // first shape's bake.
-        let invalid =
-            |message: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
+        let invalid = |message: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
         let (document, buffers, _) =
             gltf::import_slice(&bytes).map_err(|err| invalid(&err.to_string()))?;
         if document.skins().len() > 1 {
@@ -345,11 +342,7 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
         let root_node = find_root_joints(&skin);
         let joint_targets = build_joint_paths(&root_node);
         let root_bone_name: &str = root_node.name().unwrap_or("");
-        let asset_label = load_context
-            .path()
-            .path()
-            .to_string_lossy()
-            .into_owned();
+        let asset_label = load_context.path().path().to_string_lossy().into_owned();
         let mut clip_handles = AHashMap::default();
         for bake in &settings.shape_bakes {
             let shape_corrections = &bake.shape_corrections;
@@ -384,10 +377,8 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
                 let label: &'static str = NAME_INTERNER
                     .intern(&format!("{clip_name}.{suffix}"))
                     .leak();
-                let handle = load_context.add_loaded_labeled_asset(
-                    label,
-                    LoadedAsset::new_with_dependencies(clip),
-                );
+                let handle = load_context
+                    .add_loaded_labeled_asset(label, LoadedAsset::new_with_dependencies(clip));
                 clip_handles.insert(label, handle);
             }
         }
@@ -649,4 +640,3 @@ pub(crate) fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
     }
     root_joint
 }
-

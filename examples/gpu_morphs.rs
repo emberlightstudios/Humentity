@@ -12,11 +12,11 @@
 mod shared;
 
 use bevy::{
-    mesh::{morph::MeshMorphWeights, MeshTag},
+    mesh::{MeshTag, morph::MeshMorphWeights},
     prelude::*,
 };
 use humentity::prelude::*;
-use shared::{custom_crowd_material, setup_app_gpu, CameraFraming, CustomCrowdMaterial};
+use shared::{CameraFraming, CustomCrowdMaterial, custom_crowd_material, setup_app_gpu};
 
 const BABY: &str = "baby";
 const BODYBUILDER: &str = "bodybuilder";
@@ -153,7 +153,8 @@ fn fit_shape_skeletons(
         }
     }
     for shape in template.shapes.iter() {
-        let helpers = template.blend_helpers(&single_shape_weights(shape.name), &base_mesh.vertices);
+        let helpers =
+            template.blend_helpers(&single_shape_weights(shape.name), &base_mesh.vertices);
         let fitted =
             fit_shape_skeleton_from_helpers(shape.name, &helpers, &bank.bones, rig, &vertex_groups);
         shapes.register(fitted);

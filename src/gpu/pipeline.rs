@@ -12,9 +12,9 @@ use bevy::{
 };
 
 use super::{
-    bank::GpuRenderHandles,
-    config::{pose_grid_side, POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z},
     POSE_SHADER,
+    bank::GpuRenderHandles,
+    config::{POSE_WORKGROUP_X, POSE_WORKGROUP_Y, POSE_WORKGROUP_Z, pose_grid_side},
 };
 
 #[derive(Resource)]

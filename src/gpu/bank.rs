@@ -24,7 +24,7 @@ use bevy::{
 };
 use crossbeam_channel::{Receiver, Sender};
 
-use super::config::{GpuClipMode, CLIP_CAP};
+use super::config::{CLIP_CAP, GpuClipMode};
 
 /// Bank slot permanently holding the bindpose fallback clip. Frame 0 of the
 /// shared frames buffer is the bindpose in plain rest-bend shape (the same

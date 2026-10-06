@@ -3,7 +3,7 @@ use bevy::{
     asset::AssetPlugin,
     dev_tools::fps_overlay::FpsOverlayPlugin,
     input::mouse::MouseMotion,
-    mesh::{morph::MeshMorphWeights, skinning::SkinnedMesh, MeshVertexBufferLayoutRef},
+    mesh::{MeshVertexBufferLayoutRef, morph::MeshMorphWeights, skinning::SkinnedMesh},
     pbr::{
         ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
         MaterialPlugin,
@@ -15,8 +15,8 @@ use bevy::{
 };
 use bevy_egui::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use humentity::prelude::*;
 use humentity::HumentityPlugin;
+use humentity::prelude::*;
 
 /// Default skeleton LOD configurations.
 ///
@@ -233,10 +233,10 @@ fn update_mesh_when_ready(
 
         // Stitched parts may carry a TemplateOverride: the builder caches under
         // the effective template, so the lookup must use it too.
-        let effective_template = template_overrides
-            .get(entity)
-            .ok()
-            .map_or_else(|| template.clone(), |override_template| override_template.0.clone());
+        let effective_template = template_overrides.get(entity).ok().map_or_else(
+            || template.clone(),
+            |override_template| override_template.0.clone(),
+        );
         if let Some(mesh_handle) = cached_meshes.get(&(
             part.mesh.clone(),
             effective_template.clone(),
@@ -365,7 +365,6 @@ pub fn setup_env(
     };
     commands.spawn((Camera3d::default(), camera));
 }
-
 
 /// Material extension for examples with their own GPU crowd vertex shader.
 /// Skinning itself always comes from the shared `humentity::crowd_skin`

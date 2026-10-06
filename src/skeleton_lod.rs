@@ -1,15 +1,12 @@
 use std::sync::Arc;
 
 use ahash::AHashMap;
-use bevy::{
-    ecs::intern::Internable,
-    prelude::*,
-};
+use bevy::{ecs::intern::Internable, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    loaders::{ReferenceRigAsset, RigWeightsAsset},
     NAME_INTERNER,
+    loaders::{ReferenceRigAsset, RigWeightsAsset},
 };
 
 /// Configuration for which bones to merge.
@@ -344,8 +341,7 @@ pub(crate) fn build_lod_data(
     // of silently merging whatever happens to match.
     let uses_default_toe_merge = configs.iter().any(|merge_config| {
         merge_config.merge_into_kept_bone.iter().any(|kept_merge| {
-            (kept_merge.parent_bone_name == "foot.L"
-                && kept_merge.kept_bone_name == "toe1-1.L")
+            (kept_merge.parent_bone_name == "foot.L" && kept_merge.kept_bone_name == "toe1-1.L")
                 || (kept_merge.parent_bone_name == "foot.R"
                     && kept_merge.kept_bone_name == "toe1-1.R")
         })
@@ -390,13 +386,8 @@ mod kept_bone_merge_tests {
     use super::*;
 
     fn foot_test_rig() -> (Vec<&'static str>, ReferenceRigAsset, RigWeightsAsset) {
-        let bone_names: Vec<&'static str> = vec![
-            "foot.L",
-            "toe1-1.L",
-            "toe1-2.L",
-            "toe2-1.L",
-            "toe2-2.L",
-        ];
+        let bone_names: Vec<&'static str> =
+            vec!["foot.L", "toe1-1.L", "toe1-2.L", "toe2-1.L", "toe2-2.L"];
         let bone_parents: AHashMap<&'static str, String> = [
             ("foot.L", "lowerleg02.L".to_string()),
             ("toe1-1.L", "foot.L".to_string()),

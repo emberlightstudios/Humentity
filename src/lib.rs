@@ -65,21 +65,21 @@ pub mod prelude {
         loaders::{
             BoneJsonConfig, BoneTransformSpec, CategoryMorphsAsset, CharacterShapeAsset,
             CharacterShapeConfigLoader, CharacterTemplateAssetLoader, CompositeTarget,
-            CompositeTargetsAsset, MacroBounds, MacroDataAsset,
-            MacroDataAssetLoader, MhcloAsset, MhcloAssetLoader, ObjVertsAsset, ObjVertsAssetLoader,
-            ObjVertsSettings, OppositesAsset, ReferenceRigAsset, ReferenceRigAssetLoader,
-            RotationOnlyAnimationAsset, RotationOnlyAnimationAssetLoader,
-            RotationOnlyAnimationSettings,
-            RigConfigAsset, RigConfigAssetLoader, RigWeightsAsset, RigWeightsAssetLoader,
+            CompositeTargetsAsset, MacroBounds, MacroDataAsset, MacroDataAssetLoader, MhcloAsset,
+            MhcloAssetLoader, ObjVertsAsset, ObjVertsAssetLoader, ObjVertsSettings, OppositesAsset,
+            ReferenceRigAsset, ReferenceRigAssetLoader, RigConfigAsset, RigConfigAssetLoader,
+            RigWeightsAsset, RigWeightsAssetLoader, RotationOnlyAnimationAsset,
+            RotationOnlyAnimationAssetLoader, RotationOnlyAnimationSettings, ShapeBakeRequest,
             ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader, ShapeBakedAnimationSettings,
-            ShapeBakeRequest, TargetAsset, TargetAssetLoader, TargetDelta, TargetManifestAssetLoader,
+            TargetAsset, TargetAssetLoader, TargetDelta, TargetManifestAssetLoader,
             VertexGroupsAsset, VertexGroupsAssetLoader,
         },
         mesh_ops::{generate_mhid_lookup, generate_vertex_map, get_vertex_positions},
         morphs::{MakeHumanMorphs, MorphError, MorphTargets, adjust_helpers_to_morphs},
         rigs::{RigData, RigSpec, SkeletalBone, SkeletonRootBone},
         skeleton_lod::{
-            BoneMergeConfig, MAX_LODS, MergeIntoKeptBone, RigBundle, SkeletonLodConfig, SkeletonLodData,
+            BoneMergeConfig, MAX_LODS, MergeIntoKeptBone, RigBundle, SkeletonLodConfig,
+            SkeletonLodData,
         },
         spawn_mesh::{
             CachedMhcloMeshHandles, CharacterPart, CharacterShape, GpuCharacterPart,
@@ -87,8 +87,8 @@ pub mod prelude {
             request_gpu_mesh,
         },
         spawn_skeleton::{
-            BuildCpuSkeleton, CharacterScale, CharacterSkeleton, ResetToBindPose, SkeletonLodDisabled,
-            SkeletonLodState, SkeletonReady,
+            BuildCpuSkeleton, CharacterScale, CharacterSkeleton, ResetToBindPose,
+            SkeletonLodDisabled, SkeletonLodState, SkeletonReady,
         },
         template::{CharacterMorphShape, CharacterTemplate},
     };
@@ -229,7 +229,8 @@ impl Plugin for HumentityPlugin {
                 (
                     check_humentity_assets_ready
                         .run_if(not(resource_exists::<HumentityAssetsReady>)),
-                    spawn_skeleton::enforce_skeleton_lod_config_frozen.after(rigs::build_rig_scenes),
+                    spawn_skeleton::enforce_skeleton_lod_config_frozen
+                        .after(rigs::build_rig_scenes),
                     basemesh::extract_basemesh_asset.run_if(resource_exists::<basemesh::BaseMesh>),
                     basemesh::extract_vertex_groups_asset
                         .run_if(resource_exists::<basemesh::VertexGroups>),
@@ -336,34 +337,35 @@ impl Plugin for HumentityPlugin {
 
             app.register_type::<RagdollDensity>()
                 .register_type::<RagdollDamping>()
- .add_systems(
- Update,
- (
- physics::jolt::mark_needs_colliders
- .after(spawn_skeleton::check_skeleton_ready),
- physics::jolt::spawn_colliders
- .after(physics::jolt::mark_needs_colliders)
- .after(spawn_skeleton::check_skeleton_ready),
-                physics::jolt::set_ragdoll_state.in_set(HumentityRagdollSystemSet),
-                physics::jolt::tag_ragdoll_parts,
- ),
- )
- .add_systems(
- FixedUpdate,
- (
- physics::jolt::sync_colliders,
- physics::jolt::ensure_kinematic_targets.after(physics::jolt::sync_colliders),
- ),
- )
- .add_systems(
- PostUpdate,
- physics::jolt::sync_bones_to_ragdoll
- .in_set(animation::HumentitySkeletonSystemSet)
- .after(AnimationSystems)
- .before(TransformSystems::Propagate),
- )
- .add_observer(physics::jolt::on_teardown_character)
- .add_observer(physics::jolt::on_refit_character);
- }
- }
+                .add_systems(
+                    Update,
+                    (
+                        physics::jolt::mark_needs_colliders
+                            .after(spawn_skeleton::check_skeleton_ready),
+                        physics::jolt::spawn_colliders
+                            .after(physics::jolt::mark_needs_colliders)
+                            .after(spawn_skeleton::check_skeleton_ready),
+                        physics::jolt::set_ragdoll_state.in_set(HumentityRagdollSystemSet),
+                        physics::jolt::tag_ragdoll_parts,
+                    ),
+                )
+                .add_systems(
+                    FixedUpdate,
+                    (
+                        physics::jolt::sync_colliders,
+                        physics::jolt::ensure_kinematic_targets
+                            .after(physics::jolt::sync_colliders),
+                    ),
+                )
+                .add_systems(
+                    PostUpdate,
+                    physics::jolt::sync_bones_to_ragdoll
+                        .in_set(animation::HumentitySkeletonSystemSet)
+                        .after(AnimationSystems)
+                        .before(TransformSystems::Propagate),
+                )
+                .add_observer(physics::jolt::on_teardown_character)
+                .add_observer(physics::jolt::on_refit_character);
+        }
+    }
 }

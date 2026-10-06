@@ -89,7 +89,6 @@ pub(crate) struct FitSkeleton;
 #[derive(Component, Clone, Debug, Default)]
 pub struct SkeletonLodDisabled;
 
-
 /// Skeleton root transform: face -Z (model verts face +Z), keep
 /// `CharacterScale`, and shift the default rig rearward (see
 /// [`crate::rigs::skeleton_rear_offset_meters`]).
@@ -106,7 +105,15 @@ fn skeleton_root_transform(rig_name: &str, character_scale: Vec3) -> Transform {
 /// Spawns the single full skeleton scene as a child of each opted-in
 /// `CharacterShape`, and marks the character as needing a fit.
 pub(crate) fn spawn_rig_skeleton(
-    characters: Query<(Entity, Option<&CharacterScale>), (With<BuildCpuSkeleton>, Without<SkeletonReady>, Without<FitSkeleton>, With<CharacterShape>)>,
+    characters: Query<
+        (Entity, Option<&CharacterScale>),
+        (
+            With<BuildCpuSkeleton>,
+            Without<SkeletonReady>,
+            Without<FitSkeleton>,
+            With<CharacterShape>,
+        ),
+    >,
     rig_bundle: Res<RigBundleRes>,
     rig_data: Res<RigData>,
     mut commands: Commands,
@@ -175,9 +182,7 @@ pub(crate) fn fit_skeleton_to_shape(
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
 ) {
-    for (entity, character_shape, animation_player, skeleton, scale) in
-        characters.iter_mut()
-    {
+    for (entity, character_shape, animation_player, skeleton, scale) in characters.iter_mut() {
         let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
@@ -189,13 +194,18 @@ pub(crate) fn fit_skeleton_to_shape(
         }
         // All shapes must carry baked deltas before blending; the template
         // bake retries until they do, so this waits for it.
-        if template.shapes.iter().any(|shape| shape.helper_deltas.is_none()) {
+        if template
+            .shapes
+            .iter()
+            .any(|shape| shape.helper_deltas.is_none())
+        {
             continue;
         }
         // Blend this character's morphed helpers on demand: base plus each
         // shape's baked delta times the character's weight. Cheap (~13k
         // verts), synchronous, no per-character background task or cache.
-        let helpers = template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
+        let helpers =
+            template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
         let Some(rig_spec) = rig_data.0.as_ref() else {
             continue;
         };
@@ -227,14 +237,13 @@ pub(crate) fn fit_skeleton_to_shape(
 
         if animation_player.is_some() {
             for &bone_entity in bone_entities.values() {
-                commands
-                    .entity(bone_entity)
-                    .insert(AnimatedBy(entity));
+                commands.entity(bone_entity).insert(AnimatedBy(entity));
             }
         }
 
         // Re-fit skeleton to mesh shape (shared with the GPU shape fit).
-        let model_space_bindposes = crate::rigs::fitted_model_space_bindposes(&helpers, rig_spec, &vg);
+        let model_space_bindposes =
+            crate::rigs::fitted_model_space_bindposes(&helpers, rig_spec, &vg);
 
         let bone_config = &rig_spec.config;
 
@@ -304,7 +313,6 @@ pub(crate) fn fit_skeleton_to_shape(
             });
         }
 
-
         // Compute full inverse bindposes in reference bone order.
         let model_space_inv_bindposes: Vec<Mat4> = rig_spec
             .reference_rig
@@ -362,7 +370,14 @@ pub(crate) fn fit_skeleton_to_shape(
 /// Once the single skeleton is fitted (no `FitSkeleton`), insert `SkeletonReady`.
 pub(crate) fn check_skeleton_ready(
     mut commands: Commands,
-    characters: Query<Entity, (With<CharacterSkeleton>, Without<SkeletonReady>, Without<FitSkeleton>)>,
+    characters: Query<
+        Entity,
+        (
+            With<CharacterSkeleton>,
+            Without<SkeletonReady>,
+            Without<FitSkeleton>,
+        ),
+    >,
 ) {
     for entity in &characters {
         commands.entity(entity).insert(SkeletonReady);
@@ -397,7 +412,9 @@ pub(crate) fn enforce_skeleton_lod_config_frozen(
         return;
     }
     if config.is_changed() {
-        panic!("SkeletonLodConfig changed after the rig build: upload it once before the build and never mutate or replace it (mesh weights are baked from the build-time config)");
+        panic!(
+            "SkeletonLodConfig changed after the rig build: upload it once before the build and never mutate or replace it (mesh weights are baked from the build-time config)"
+        );
     }
 }
 
@@ -420,19 +437,12 @@ pub(crate) fn enforce_skeleton_lod_config_frozen(
 /// inserts after a respawn), via `Changed<SkeletonLodState>`.
 #[allow(clippy::type_complexity)]
 pub(crate) fn sync_skeleton_lod_subtrees(
-    characters: Query<
-        (Entity, &SkeletonLodState, &CharacterSkeleton),
-        Changed<SkeletonLodState>,
-    >,
+    characters: Query<(Entity, &SkeletonLodState, &CharacterSkeleton), Changed<SkeletonLodState>>,
     lod_config: Option<Res<SkeletonLodConfig>>,
     rig_data: Res<RigData>,
     mut commands: Commands,
     bones: Query<
-        (
-            &Transform,
-            &GlobalTransform,
-            Has<SkeletonLodDisabled>,
-        ),
+        (&Transform, &GlobalTransform, Has<SkeletonLodDisabled>),
         Allow<SkeletonLodDisabled>,
     >,
 ) {
@@ -449,7 +459,9 @@ pub(crate) fn sync_skeleton_lod_subtrees(
         let active = state.active;
         for (level, &level_active) in active.iter().enumerate() {
             if level_active && level >= config_count {
-                panic!("SkeletonLodState activates LOD {level} but SkeletonLodConfig only built {config_count} LOD levels: upload the full config before the rig build (mesh weights and bone disables are baked from it)");
+                panic!(
+                    "SkeletonLodState activates LOD {level} but SkeletonLodConfig only built {config_count} LOD levels: upload the full config before the rig build (mesh weights and bone disables are baked from it)"
+                );
             }
         }
 
@@ -588,7 +600,11 @@ pub(crate) fn setup_part_skinning(
             continue;
         };
         let Some(variant) = lod_data.get(part.skeleton_lod) else {
-            panic!("CharacterPart asks for skeleton LOD {} but the rig build only produced {} levels: upload the full SkeletonLodConfig before the build (mesh weights and bone disables are baked from it)", part.skeleton_lod, lod_data.len());
+            panic!(
+                "CharacterPart asks for skeleton LOD {} but the rig build only produced {} levels: upload the full SkeletonLodConfig before the build (mesh weights and bone disables are baked from it)",
+                part.skeleton_lod,
+                lod_data.len()
+            );
         };
         let bone_names = &variant.bone_names;
 
@@ -637,7 +653,14 @@ pub(crate) fn on_teardown_character(
     descendants: Query<&Children>,
     mut commands: Commands,
 ) {
-    teardown_character_state(trigger.event().0, &characters, &parts, &gpu_parts, &descendants, &mut commands);
+    teardown_character_state(
+        trigger.event().0,
+        &characters,
+        &parts,
+        &gpu_parts,
+        &descendants,
+        &mut commands,
+    );
 }
 
 /// Observer for [`RefitCharacter`]: same teardown as [`TeardownCharacter`],
@@ -655,7 +678,14 @@ pub(crate) fn on_refit_character(
     mut commands: Commands,
 ) {
     let entity = trigger.event().0;
-    teardown_character_state(entity, &characters, &parts, &gpu_parts, &descendants, &mut commands);
+    teardown_character_state(
+        entity,
+        &characters,
+        &parts,
+        &gpu_parts,
+        &descendants,
+        &mut commands,
+    );
     if cpu_skeletons.contains(entity) {
         commands.entity(entity).insert(FitSkeleton);
     }
@@ -711,7 +741,10 @@ pub(crate) fn on_reset_to_bind_pose(
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     templates: Res<Assets<CharacterTemplate>>,
     basemesh: Res<BaseMesh>,
-    mut local_transforms: Query<&mut Transform, (Without<CharacterShape>, Allow<SkeletonLodDisabled>)>,
+    mut local_transforms: Query<
+        &mut Transform,
+        (Without<CharacterShape>, Allow<SkeletonLodDisabled>),
+    >,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
 ) {
@@ -726,7 +759,10 @@ pub(crate) fn on_reset_to_bind_pose(
         return;
     };
     if basemesh.vertices.is_empty()
-        || template.shapes.iter().any(|shape| shape.helper_deltas.is_none())
+        || template
+            .shapes
+            .iter()
+            .any(|shape| shape.helper_deltas.is_none())
     {
         return;
     };

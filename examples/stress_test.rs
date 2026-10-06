@@ -36,17 +36,20 @@ struct AnimCtrl(AnimationNodeIndex);
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
-        .add_systems(
-            Update,
-            (
-                update_camera_distance,
-                sync_skeleton_lod_to_visibility,
-                setup_graph,
-                start_clip,
-            ),
-        )
-        .run();
+    app.add_systems(
+        Update,
+        add_humans.run_if(resource_exists::<HumentityAssetsReady>),
+    )
+    .add_systems(
+        Update,
+        (
+            update_camera_distance,
+            sync_skeleton_lod_to_visibility,
+            setup_graph,
+            start_clip,
+        ),
+    )
+    .run();
 }
 
 fn add_humans(
@@ -252,7 +255,14 @@ fn setup_graph(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     clips: Res<Assets<RotationOnlyAnimationAsset>>,
-    characters: Query<Entity, (With<AnimationPlayer>, Without<AnimationGraphHandle>, With<CharacterShape>)>,
+    characters: Query<
+        Entity,
+        (
+            With<AnimationPlayer>,
+            Without<AnimationGraphHandle>,
+            With<CharacterShape>,
+        ),
+    >,
 ) {
     let Some((_id, clips_map)) = clips.iter().next() else {
         return;

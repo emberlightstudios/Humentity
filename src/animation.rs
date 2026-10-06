@@ -143,11 +143,17 @@ pub fn shape_baked_corrections_for_shape(
         .get(&shape_asset.template)
         .ok_or(MorphError::TargetNotFound("template missing for shape"))?;
     if basemesh_vertices.vertices.is_empty()
-        || template.shapes.iter().any(|shape| shape.helper_deltas.is_none())
+        || template
+            .shapes
+            .iter()
+            .any(|shape| shape.helper_deltas.is_none())
     {
         return Err(MorphError::TargetNotFound("template deltas not baked yet"));
     }
-    let helpers = template.blend_helpers(&shape_asset.template_morph_targets, &basemesh_vertices.vertices);
+    let helpers = template.blend_helpers(
+        &shape_asset.template_morph_targets,
+        &basemesh_vertices.vertices,
+    );
     let fitted_model_space = fitted_model_space_bindposes(&helpers, rig_spec, vertex_groups);
     let reference_rig = rig_spec.reference_rig();
     Ok(shape_corrections_from_model_space(
@@ -176,12 +182,8 @@ pub(crate) fn bone_translation_correction(
     }
     let translation_length_ratio = fitted_local.translation.length() / reference_length;
     let leaked_parent: &'static str = NAME_INTERNER.intern(parent_name).leak();
-    let translation_direction_adjust = parent_space_direction_fix(
-        reference_rig,
-        fitted_model_space,
-        bone_name,
-        leaked_parent,
-    );
+    let translation_direction_adjust =
+        parent_space_direction_fix(reference_rig, fitted_model_space, bone_name, leaked_parent);
     Some((translation_length_ratio, translation_direction_adjust))
 }
 
@@ -246,7 +248,9 @@ pub(crate) fn local_from_model_space(
         let leaked_parent: &'static str = NAME_INTERNER.intern(parent_name).leak();
         fitted_model_space.get(leaked_parent)?.to_matrix()
     };
-    Some(Transform::from_matrix(parent_matrix.inverse() * child_matrix))
+    Some(Transform::from_matrix(
+        parent_matrix.inverse() * child_matrix,
+    ))
 }
 
 pub(crate) fn parent_space_direction_fix(
@@ -268,10 +272,8 @@ pub(crate) fn parent_space_direction_fix(
     if reference_segment.length_squared() < 1e-12 || fitted_segment.length_squared() < 1e-12 {
         return Quat::IDENTITY;
     }
-    let model_space_delta = Quat::from_rotation_arc(
-        reference_segment.normalize(),
-        fitted_segment.normalize(),
-    );
+    let model_space_delta =
+        Quat::from_rotation_arc(reference_segment.normalize(), fitted_segment.normalize());
     (fitted_parent.rotation.inverse() * model_space_delta * fitted_parent.rotation).normalize()
 }
 
@@ -286,10 +288,7 @@ pub(crate) fn parent_space_direction_fix(
 /// the same math the shape bake applies at import, so baked and dynamic
 /// agree on all bones and there is no rest detection to diverge.
 pub(crate) fn rescale_dynamic_retargeting(
-    characters: Query<
-        (&CharacterSkeleton, Option<&AnimationPlayer>),
-        With<DynamicRetargeting>,
-    >,
+    characters: Query<(&CharacterSkeleton, Option<&AnimationPlayer>), With<DynamicRetargeting>>,
     root_bones: Query<&SkeletonRootBone>,
     mut bone_transforms: Query<
         &mut Transform,
@@ -337,4 +336,3 @@ pub(crate) fn rescale_dynamic_retargeting(
         }
     }
 }
-

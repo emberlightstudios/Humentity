@@ -10,9 +10,13 @@
 
 mod shared;
 
-use bevy::{camera::visibility::VisibilityRange, mesh::{morph::MeshMorphWeights, MeshTag}, prelude::*};
+use bevy::{
+    camera::visibility::VisibilityRange,
+    mesh::{MeshTag, morph::MeshMorphWeights},
+    prelude::*,
+};
 use humentity::prelude::*;
-use shared::{custom_crowd_material, setup_app_gpu, CameraFraming, CustomCrowdMaterial};
+use shared::{CameraFraming, CustomCrowdMaterial, custom_crowd_material, setup_app_gpu};
 
 // This type of crowd rendering is largely gpu bound and poly count matters enormously here.
 // You may get a few thousand basemesh instances at acceptable framerates, but if you really

@@ -13,14 +13,17 @@ fn main() {
     let mut app = setup_app();
 
     app.add_plugins((
-            PhysicsPlugins::default(),
-            //PhysicsDebugPlugin
-        ))
-        .insert_resource(SubstepCount(10))
-        .add_systems(Startup, (floor, spawn_ui))
-        .add_systems(Update, add_human.run_if(resource_exists::<HumentityAssetsReady>))
-        .add_systems(Update, (toggle, sleep_ragdoll, setup_graph, start_clip))
-        .run();
+        PhysicsPlugins::default(),
+        //PhysicsDebugPlugin
+    ))
+    .insert_resource(SubstepCount(10))
+    .add_systems(Startup, (floor, spawn_ui))
+    .add_systems(
+        Update,
+        add_human.run_if(resource_exists::<HumentityAssetsReady>),
+    )
+    .add_systems(Update, (toggle, sleep_ragdoll, setup_graph, start_clip))
+    .run();
 }
 
 #[derive(Component)]

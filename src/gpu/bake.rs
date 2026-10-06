@@ -21,7 +21,10 @@ use bevy::{
     tasks::AsyncComputeTaskPool,
 };
 
-use crate::{prelude::*, rigs::{RigBundleRes, skeleton_rear_offset_meters}};
+use crate::{
+    prelude::*,
+    rigs::{RigBundleRes, skeleton_rear_offset_meters},
+};
 
 use super::{
     bank::{
@@ -309,8 +312,7 @@ pub(super) fn bake_gpu_animation(
         bytemuck::cast_slice(&reference_ratios),
         RenderAssetUsages::RENDER_WORLD,
     ));
-    let reference_direction_adjust =
-        vec![Vec4::new(0.0, 0.0, 0.0, 1.0); binds.len()];
+    let reference_direction_adjust = vec![Vec4::new(0.0, 0.0, 0.0, 1.0); binds.len()];
     let shape_direction_adjust_handle = buffers.add(ShaderBuffer::new(
         bytemuck::cast_slice(&reference_direction_adjust),
         RenderAssetUsages::RENDER_WORLD,

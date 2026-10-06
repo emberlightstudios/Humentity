@@ -5,7 +5,6 @@ use bevy::{
     ecs::system::SystemState,
     mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
-
 };
 use std::sync::Arc;
 
@@ -181,10 +180,8 @@ pub(crate) struct BuiltRigs;
 pub(crate) fn build_rig_scenes(world: &mut World) {
     // Collect rig data and config
     let (reference_rig, weights, lod_config) = {
-        let mut state: SystemState<(
-            Res<RigData>,
-            Option<Res<SkeletonLodConfig>>,
-        )> = SystemState::new(world);
+        let mut state: SystemState<(Res<RigData>, Option<Res<SkeletonLodConfig>>)> =
+            SystemState::new(world);
         match state.get(world) {
             Ok((rig_data, lod_config)) => {
                 let Some(spec) = &rig_data.0 else {
@@ -219,7 +216,6 @@ pub(crate) fn build_rig_scenes(world: &mut World) {
     // Mark as built
     world.insert_resource(BuiltRigs);
 }
-
 
 /// Builds skeleton scene from reference rig.
 pub(crate) fn build_skeleton_scene(

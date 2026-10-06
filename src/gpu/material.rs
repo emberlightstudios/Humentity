@@ -32,7 +32,6 @@ pub struct GpuCrowdUniform {
 }
 
 impl MaterialExtension for GpuCrowdExtension {
-
     fn vertex_shader() -> ShaderRef {
         CROWD_FORWARD_SHADER.into()
     }

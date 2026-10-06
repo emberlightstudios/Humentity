@@ -128,9 +128,12 @@ struct CreatorAssets {
 fn main() {
     let mut app = setup_app();
 
-    app        .add_plugins(FeathersPlugins)
+    app.add_plugins(FeathersPlugins)
         .insert_resource(UiTheme(create_dark_theme()))
-        .add_systems(Update, setup_and_add_human.run_if(resource_exists::<HumentityAssetsReady>))
+        .add_systems(
+            Update,
+            setup_and_add_human.run_if(resource_exists::<HumentityAssetsReady>),
+        )
         .add_systems(
             Update,
             update_character_mesh.run_if(resource_exists::<CreatorAssets>),

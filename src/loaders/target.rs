@@ -40,11 +40,7 @@ impl AssetLoader for TargetAssetLoader {
         let raw_text = String::from_utf8(bytes)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
         let mut deltas = Vec::new();
-        let asset_label = _load_context
-            .path()
-            .path()
-            .to_string_lossy()
-            .into_owned();
+        let asset_label = _load_context.path().path().to_string_lossy().into_owned();
         for (line_number, raw_line) in raw_text.lines().enumerate() {
             let line = raw_line.trim();
             if line.is_empty() || line.starts_with('#') {

@@ -34,9 +34,12 @@ const BODYBUILDER: &str = "bodybuilder";
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(Update, add_humans.run_if(resource_exists::<HumentityAssetsReady>))
-        .add_observer(on_skeleton_ready)
-        .run();
+    app.add_systems(
+        Update,
+        add_humans.run_if(resource_exists::<HumentityAssetsReady>),
+    )
+    .add_observer(on_skeleton_ready)
+    .run();
 }
 
 /// Skeletons start fully enabled by default; here we narrow the active LOD set
@@ -95,12 +98,12 @@ fn add_humans(
         InheritedVisibility::default(),
         CharacterShape(shape_assets.add(template_handle.clone())),
         BuildCpuSkeleton,
-        children![(
-            CharacterPart {
+        children![
+            (CharacterPart {
                 mesh: basemesh_part.clone(),
                 skeleton_lod: 0
-            }
-        )],
+            })
+        ],
     ));
 
     // A baby

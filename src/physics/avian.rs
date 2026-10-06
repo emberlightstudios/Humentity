@@ -1,18 +1,20 @@
+use super::*;
+use crate::{
+    NAME_INTERNER,
+    helpers::{RefitCharacter, TeardownCharacter},
+    prelude::{
+        CharacterShape, CharacterShapeAsset, CharacterSkeleton, SkeletonLodDisabled, SkeletonReady,
+    },
+    rigs::{RigData, SkeletalBone},
+    spawn_skeleton::CharacterScale,
+};
 use ahash::AHashMap;
 use avian3d::prelude::*;
+use bevy::ecs::intern::Internable;
 use bevy::{
     math::{Quat, Vec3},
     prelude::*,
 };
-use bevy::ecs::intern::Internable;
-use crate::{
-    helpers::{RefitCharacter, TeardownCharacter},
-    prelude::{CharacterShape, CharacterShapeAsset, CharacterSkeleton, SkeletonLodDisabled, SkeletonReady},
-    rigs::{RigData, SkeletalBone},
-    spawn_skeleton::CharacterScale,
-    NAME_INTERNER,
-};
-use super::*;
 
 /// Collision layers for ragdoll/hitbox colliders on this character.
 ///
@@ -303,7 +305,10 @@ pub(crate) fn spawn_colliders(
             continue;
         };
         if basemesh.vertices.is_empty()
-            || template.shapes.iter().any(|shape| shape.helper_deltas.is_none())
+            || template
+                .shapes
+                .iter()
+                .any(|shape| shape.helper_deltas.is_none())
         {
             continue;
         }
@@ -403,9 +408,7 @@ pub(crate) fn spawn_colliders(
                 .insert(collider, collider_entity);
         }
 
-        commands
-            .entity(character_entity)
-            .remove::<NeedsColliders>();
+        commands.entity(character_entity).remove::<NeedsColliders>();
         char_count += 1;
     }
 }
@@ -598,8 +601,7 @@ pub(crate) fn set_ragdoll_state(
                 };
                 // basis2 aligns the two *body* frames so the as-seated relative
                 // rotation is the rest position (frame1 keeps identity basis).
-                let local_basis2 =
-                    child_collider.rotation.inverse() * parent_collider.rotation;
+                let local_basis2 = child_collider.rotation.inverse() * parent_collider.rotation;
 
                 // Resolve the limit for this joint: explicit override wins,
                 // otherwise the anatomical default; scaled by mobility.
@@ -670,7 +672,11 @@ pub(crate) fn sync_bones_to_ragdoll(
     >,
     mut bones: Query<
         (&mut Transform, Option<&ChildOf>),
-        (With<SkeletalBone>, Without<ColliderBone>, Allow<SkeletonLodDisabled>),
+        (
+            With<SkeletalBone>,
+            Without<ColliderBone>,
+            Allow<SkeletonLodDisabled>,
+        ),
     >,
     global_transforms: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
 ) {
@@ -704,8 +710,8 @@ pub(crate) fn sync_bones_to_ragdoll(
                 continue;
             };
 
-            let joint_to_world =
-                Transform::from_translation(position.0).with_rotation(rotation.0) * offset.bone_to_collider;
+            let joint_to_world = Transform::from_translation(position.0).with_rotation(rotation.0)
+                * offset.bone_to_collider;
 
             let Some(&bone_entity) = char_colliders.bone_entities.get(&bone_type) else {
                 continue;
@@ -748,9 +754,8 @@ pub(crate) fn sync_bones_to_ragdoll(
                 let dr = local.rotation.angle_between(transform.rotation);
                 if dp > 0.0001 || dr > 0.0001 {
                     const LERP_FACTOR: f32 = 0.85;
-                    transform.translation = transform
-                        .translation
-                        .lerp(local.translation, LERP_FACTOR);
+                    transform.translation =
+                        transform.translation.lerp(local.translation, LERP_FACTOR);
                     transform.rotation = transform.rotation.slerp(local.rotation, LERP_FACTOR);
                 }
             }
@@ -833,9 +838,8 @@ fn get_midsection_collider(
                 (zmax - zmin) * scale,
                 (ymax - ymin) * scale,
             ),
-            Transform::from_translation(center).with_rotation(
-                bind_rot * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
-            ),
+            Transform::from_translation(center)
+                .with_rotation(bind_rot * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
         )
     } else {
         (
@@ -878,7 +882,11 @@ fn get_limb_collider(helpers: &[Vec3], joint: ColliderBone, scale: f32) -> (Coll
     )
 }
 
-fn get_extremity_collider(helpers: &[Vec3], joint: ColliderBone, scale: f32) -> (Collider, Transform) {
+fn get_extremity_collider(
+    helpers: &[Vec3],
+    joint: ColliderBone,
+    scale: f32,
+) -> (Collider, Transform) {
     let ref_verts = match joint {
         ColliderBone::LeftHand => LEFT_HAND_VERTICES,
         ColliderBone::RightHand => RIGHT_HAND_VERTICES,
@@ -1034,7 +1042,13 @@ pub(crate) fn on_teardown_character(
     joint_lists: Query<&JointList>,
     mut commands: Commands,
 ) {
-    teardown_character_physics(trigger.event().0, &characters, &collider_lists, &joint_lists, &mut commands);
+    teardown_character_physics(
+        trigger.event().0,
+        &characters,
+        &collider_lists,
+        &joint_lists,
+        &mut commands,
+    );
 }
 
 /// Observer for [`RefitCharacter`]: same physics teardown, so the collider
@@ -1046,7 +1060,13 @@ pub(crate) fn on_refit_character(
     joint_lists: Query<&JointList>,
     mut commands: Commands,
 ) {
-    teardown_character_physics(trigger.event().0, &characters, &collider_lists, &joint_lists, &mut commands);
+    teardown_character_physics(
+        trigger.event().0,
+        &characters,
+        &collider_lists,
+        &joint_lists,
+        &mut commands,
+    );
 }
 
 fn teardown_character_physics(

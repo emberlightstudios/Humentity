@@ -1,7 +1,7 @@
-use ahash::AHashMap;
 use crate::prelude::*;
+use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 use serde::{Deserializer, Serializer};
 
 /// One blendable body/face shape in a [`CharacterTemplate`].
@@ -100,7 +100,6 @@ impl CharacterTemplate {
         }
     }
 
-
     /// Blend per-character helpers from baked template deltas.
     ///
     /// `base + Σ weight × delta`: macro shapes blend with weights summing to
@@ -157,10 +156,12 @@ fn bake_shape_deltas(
     }
     accumulated
         .into_iter()
-        .map(|(vert_index, vert_offset)| ShapeDelta { vertex: vert_index, offset: vert_offset })
+        .map(|(vert_index, vert_offset)| ShapeDelta {
+            vertex: vert_index,
+            offset: vert_offset,
+        })
         .collect()
 }
-
 
 /// Resolves macro morph sliders (e.g. "muscle") into direct morph targets
 /// whenever a new CharacterTemplate asset is added. Templates must only be
@@ -230,14 +231,12 @@ pub(crate) fn bake_template_deltas(
     // under a shared borrow, then write via `get_mut_untracked`.
     let pending: Vec<_> = templates.ids().collect();
     for id in pending {
-        let needs_bake = templates
-            .get(id)
-            .is_some_and(|template| {
-                template.shapes.iter().any(|shape| {
-                    shape.helper_deltas.is_none()
-                        && morphs.has_targets_for_shapes(std::slice::from_ref(shape))
-                })
-            });
+        let needs_bake = templates.get(id).is_some_and(|template| {
+            template.shapes.iter().any(|shape| {
+                shape.helper_deltas.is_none()
+                    && morphs.has_targets_for_shapes(std::slice::from_ref(shape))
+            })
+        });
         if !needs_bake {
             continue;
         }
@@ -253,4 +252,3 @@ pub(crate) fn bake_template_deltas(
         }
     }
 }
-

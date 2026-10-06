@@ -3,9 +3,9 @@ mod macro_json;
 mod mhclo;
 mod obj_verts;
 mod reference_rig;
-mod rotation_only_animation;
 mod rig_config;
 mod rig_weights;
+mod rotation_only_animation;
 mod shape_config;
 mod target;
 mod template_asset;
@@ -21,13 +21,13 @@ pub use obj_verts::{
     VertexGroupsAssetLoader,
 };
 pub use reference_rig::{ReferenceRigAsset, ReferenceRigAssetLoader};
+pub use rig_config::{BoneJsonConfig, BoneTransformSpec, RigConfigAsset, RigConfigAssetLoader};
+pub use rig_weights::{RigWeightsAsset, RigWeightsAssetLoader};
 pub use rotation_only_animation::{
     RotationOnlyAnimationAsset, RotationOnlyAnimationAssetLoader, RotationOnlyAnimationSettings,
     ShapeBakeRequest, ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader,
     ShapeBakedAnimationSettings,
 };
-pub use rig_config::{BoneJsonConfig, BoneTransformSpec, RigConfigAsset, RigConfigAssetLoader};
-pub use rig_weights::{RigWeightsAsset, RigWeightsAssetLoader};
 pub use target::{TargetAsset, TargetAssetLoader, TargetDelta};
 
 pub use shape_config::{CharacterShapeAsset, CharacterShapeConfigLoader};
