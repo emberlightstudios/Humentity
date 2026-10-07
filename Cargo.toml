@@ -43,6 +43,10 @@ required-features = ["avian"]
 name = "ragdoll_jolt"
 required-features = ["jolt"]
 
+[[example]]
+name = "ragdoll_joints_jolt"
+required-features = ["jolt"]
+
 
 [features]
 default = []
