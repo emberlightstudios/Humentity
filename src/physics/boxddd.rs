@@ -67,6 +67,15 @@ pub enum CharacterRagdoll {
     Full,
 }
 
+/// Fired when a character's ragdoll state flips (kinematic hitboxes ↔ full
+/// simulation). Observers run after the native body types have switched, so
+/// impulses applied here land on bodies already in their new state.
+#[derive(Event, Debug, Clone)]
+pub struct RagdollStateChanged {
+    pub character: Entity,
+    pub state: CharacterRagdoll,
+}
+
 /// Bone ↔ part mapping, built at spawn.
 #[derive(Component, Default)]
 pub struct CharacterColliders {
@@ -561,6 +570,14 @@ fn limb_basis_rotation(bone_world: Quat) -> Option<Quat> {
     )))
 }
 
+/// Fixed quarter-turn about X mapping the limb basis onto the spherical
+/// convention: former Y (along the limb) lands on Z, former Z lands on −Y.
+/// Both Box3D cone and twist are Z-referenced; bevy_jolt references both to
+/// body-local Y, so this is the rotation that carries the tuned limits over.
+fn limb_quarter_turn() -> Quat {
+    Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)
+}
+
 /// Creates native Box3D joints for entities whose part bodies both exist.
 /// Runs after the plugin's body creation (same `Update` slot, ordered after
 /// [`spawn_joints`]).
@@ -589,20 +606,26 @@ pub(crate) fn create_native_joints(
             .anchor_bone
             .and_then(|bone_entity| bone_transforms.get(bone_entity).ok())
             .map(|bone_to_world| bone_to_world.compute_transform().rotation);
-        // Hinge joints (elbows, knees) build their reference orientation from
-        // the limb itself: Y along the limb (the anchor bone's long axis,
-        // verified by probe), Z mediolateral (world X projected ⊥ Y), X third.
-        // This puts the revolute axis (frame Z) on the anatomical flexion
-        // axis. Spherical joints keep the anchor bone's orientation.
-        let hinge_reference = match anchor.descriptor {
-            RagdollJointDescriptor::Hinge { .. } => anchor
-                .anchor_bone
-                .and_then(|bone_entity| bone_transforms.get(bone_entity).ok())
-                .map(|bone_to_world| bone_to_world.compute_transform().rotation)
-                .and_then(limb_basis_rotation),
-            RagdollJointDescriptor::SwingTwist { .. } => None,
+        // All joint frames build their reference orientation from the limb
+        // basis: Y along the limb (the anchor bone's long axis, verified by
+        // probe), Z mediolateral (world X projected ⊥ Y), X third. Hinges
+        // revolve about frame Z, so this puts their axis on the anatomical
+        // flexion axis. Sphericals measure cone and twist about frame Z;
+        // bevy_jolt (which these limits were tuned for) references both to
+        // body-local Y, i.e. along the limb — so sphericals rotate the limb
+        // basis a quarter-turn about X, putting former Y (limb) onto Z.
+        let limb_reference = anchor
+            .anchor_bone
+            .and_then(|bone_entity| bone_transforms.get(bone_entity).ok())
+            .map(|bone_to_world| bone_to_world.compute_transform().rotation)
+            .and_then(limb_basis_rotation);
+        let joint_reference = match anchor.descriptor {
+            RagdollJointDescriptor::Hinge { .. } => limb_reference,
+            RagdollJointDescriptor::SwingTwist { .. } => {
+                limb_reference.map(|limb| limb * limb_quarter_turn())
+            }
         };
-        let part_reference = hinge_reference
+        let part_reference = joint_reference
             .or(shared_reference)
             .or(anchor.part_bone.and_then(|bone_entity| {
                 bone_transforms
@@ -611,7 +634,7 @@ pub(crate) fn create_native_joints(
                     .map(|bone_to_world| bone_to_world.compute_transform().rotation)
             }))
             .unwrap_or(part_transform.rotation);
-        let parent_reference = hinge_reference
+        let parent_reference = joint_reference
             .or(shared_reference)
             .or(anchor.parent_bone.and_then(|bone_entity| {
                 bone_transforms
@@ -667,6 +690,7 @@ pub(crate) fn create_native_joints(
 pub(crate) fn set_ragdoll_state(
     characters: Query<
         (
+            Entity,
             &CharacterRagdoll,
             &CharacterColliders,
             Option<&RagdollDamping>,
@@ -680,7 +704,7 @@ pub(crate) fn set_ragdoll_state(
     let Some(world) = physics_context.world_mut() else {
         return;
     };
-    for (ragdoll, colliders, ragdoll_damping) in characters.iter() {
+    for (character_entity, ragdoll, colliders, ragdoll_damping) in characters.iter() {
         let (body_component, body_type) = match ragdoll {
             CharacterRagdoll::Full => (
                 BoxdddRigidBody::Dynamic,
@@ -710,6 +734,10 @@ pub(crate) fn set_ragdoll_state(
                 },
             ));
         }
+        commands.trigger(RagdollStateChanged {
+            character: character_entity,
+            state: ragdoll.clone(),
+        });
     }
 }
 

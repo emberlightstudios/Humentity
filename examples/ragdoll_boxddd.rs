@@ -21,12 +21,14 @@ const ALL_CATEGORIES: u32 =
 fn main() {
     let mut app = setup_app();
 
-    app.insert_resource(BoxdddDebugDrawSettings {
-        enabled: true,
-        options: boxddd::DebugDrawOptions::default(),
-    })
+    app
+    //.insert_resource(BoxdddDebugDrawSettings {
+    //    enabled: true,
+    //    options: boxddd::DebugDrawOptions::default(),
+    //})
     .add_plugins((BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()),))
     .add_systems(Startup, (floor, spawn_ui))
+    .add_observer(nudge_on_ragdoll_full)
     .add_systems(
         Update,
         (
@@ -77,8 +79,8 @@ fn add_human(
         CharacterRagdoll::None,
         CharacterColliders::new(None),
         RagdollCollisionLayers::new(RAGDOLL_CATEGORY, ALL_CATEGORIES),
-        RagdollDensity(10.0),
-        RagdollDamping::default(),
+        RagdollDensity(1000.0),
+        RagdollDamping(5.0),
         children![(CharacterPart {
             mesh: basemesh,
             skeleton_lod: 0
@@ -118,13 +120,55 @@ fn toggle(
             player.play(clip_index).repeat();
         }
         CharacterRagdoll::None => {
-            // Toggle ragdoll on
+            // Toggle ragdoll on; the observer nudges bodies once dynamic.
             *ragdoll = CharacterRagdoll::Full;
 
             // Stop animation so it doesn't compete with physics
             player.stop(clip_index);
         }
     }
+}
+
+/// Nudges every part when the backend finishes flipping to full simulation.
+/// Runs as an observer on [`RagdollStateChanged`], after the native bodies
+/// are dynamic — so the impulse lands instead of being discarded.
+fn nudge_on_ragdoll_full(
+    trigger: On<RagdollStateChanged>,
+    time: Res<Time>,
+    characters: Query<&CharacterColliders>,
+    body_ids: Query<&BoxdddBody>,
+    mut physics_context: NonSendMut<BoxdddPhysicsContext>,
+) {
+    let changed = trigger.event();
+    if !matches!(changed.state, CharacterRagdoll::Full) {
+        return;
+    }
+    let Ok(colliders) = characters.get(changed.character) else {
+        return;
+    };
+    let Some(world) = physics_context.world_mut() else {
+        return;
+    };
+    // Varies with time so each activation is unique.
+    let elapsed = time.elapsed_secs();
+    let seed = (elapsed * 100.0).floor() / 100.0;
+    for (bone, &collider_entity) in colliders.collider_entities.iter() {
+        let Ok(body) = body_ids.get(collider_entity) else {
+            continue;
+        };
+        let bone_index = *bone as usize;
+        let hash = ((bone_index as f32 + seed) * 0x9e3779b9u32 as f32).sin();
+        let dir = Vec3::new(
+            ((hash * 43_758.547).fract() - 0.5) * 2.0,
+            ((hash * 27_118.313).fract()) * 0.5,
+            ((hash * 30_903.55).fract() - 0.5) * 2.0,
+        )
+        .normalize_or_zero();
+        let _ = world.apply_linear_impulse_to_center(body.0, boxddd_vec3(dir * 2.0), true);
+    }
+}
+fn boxddd_vec3(bevy_vector: Vec3) -> boxddd::Vec3 {
+    boxddd::Vec3::new(bevy_vector.x, bevy_vector.y, bevy_vector.z)
 }
 
 

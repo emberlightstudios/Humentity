@@ -34,7 +34,7 @@ pub mod prelude {
     #[cfg(feature = "boxddd")]
     pub use crate::physics::boxddd::{
         BoneForCollider, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
-        ColliderOffset, RagdollCollisionLayers,
+        ColliderOffset, RagdollCollisionLayers, RagdollStateChanged,
     };
     pub use crate::physics::{
         COLLIDERS, ColliderBone, HumentityRagdollSystemSet, RagdollDamping, RagdollDensity,
