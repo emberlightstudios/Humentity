@@ -88,24 +88,19 @@ fn add_human(
 
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
     mut character: Query<(
         Entity,
         &mut CharacterRagdoll,
-        &mut CharacterColliders,
         &mut AnimationPlayer,
         Option<&AnimationController>,
     )>,
-    body_ids: Query<&BoxdddBody>,
     mut commands: Commands,
-    mut physics_context: NonSendMut<BoxdddPhysicsContext>,
 ) {
     if !input.just_pressed(KeyCode::Space) {
         return;
     }
 
-    let Ok((entity, mut ragdoll, colliders, mut player, controller)) = character.single_mut()
-    else {
+    let Ok((entity, mut ragdoll, mut player, controller)) = character.single_mut() else {
         return;
     };
 
@@ -128,35 +123,10 @@ fn toggle(
 
             // Stop animation so it doesn't compete with physics
             player.stop(clip_index);
-
-            // Give each collider a small nudge so the collapse is interesting.
-            // Varies with time so each activation is unique.
-            let Some(world) = physics_context.world_mut() else {
-                return;
-            };
-            for (bone, &collider_entity) in colliders.collider_entities.iter() {
-                let Ok(body) = body_ids.get(collider_entity) else {
-                    continue;
-                };
-                let bone_index = *bone as usize;
-                let elapsed = time.elapsed_secs();
-                let seed = (elapsed * 100.0).floor() / 100.0;
-                let hash = ((bone_index as f32 + seed) * 0x9e3779b9u32 as f32).sin();
-                let dir = Vec3::new(
-                    ((hash * 43_758.547).fract() - 0.5) * 2.0,
-                    ((hash * 27_118.313).fract()) * 0.5,
-                    ((hash * 30_903.55).fract() - 0.5) * 2.0,
-                )
-                .normalize_or_zero();
-                let _ = world.apply_linear_impulse_to_center(body.0, boxddd_vec3(dir * 2.0), true);
-            }
         }
     }
 }
 
-fn boxddd_vec3(bevy_vector: Vec3) -> boxddd::Vec3 {
-    boxddd::Vec3::new(bevy_vector.x, bevy_vector.y, bevy_vector.z)
-}
 
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
