@@ -115,6 +115,17 @@ fn load_core_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
 }
 
 pub fn setup_app() -> App {
+    setup_app_inner(true)
+}
+
+/// Same as [`setup_app`], but without the world inspector panel.
+/// Benches with their own overlay (like the joint tuning bench) use this
+/// so the inspector does not cover the scene.
+pub fn setup_app_without_inspector() -> App {
+    setup_app_inner(false)
+}
+
+fn setup_app_inner(with_inspector: bool) -> App {
     // I moved target.json and macro.macro to the root of the assets folder because when trying to load
     // the target folders, the asset server tried to load them there also.
 
@@ -140,7 +151,7 @@ pub fn setup_app() -> App {
             }),
         HumentityPlugin,
     ))
-    .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
+    .add_plugins(EguiPlugin::default())
     .add_plugins(FpsOverlayPlugin::default())
     .insert_resource(SkeletonLodConfig::new(&default_skeleton_lods()))
     .insert_resource(CameraFraming::Close)
@@ -156,6 +167,10 @@ pub fn setup_app() -> App {
             //debug_forward_gizmo,
         ),
     );
+
+    if with_inspector {
+        app.add_plugins(WorldInspectorPlugin::new());
+    }
 
     app
 }

@@ -171,6 +171,30 @@ const fn joint_limit(bone: ColliderBone) -> JointLimit {
     }
 }
 
+/// Which skeleton bone's origin anchors a collider's joint to its parent.
+/// A bone's origin sits at its start (the joint that moves it), so for limbs
+/// the collider's own bone is the pivot; the chest pivots at `spine03`, the
+/// head at `neck02`, and the pelvis root has no joint. `None` = no joint.
+pub(crate) const fn joint_anchor_bone(bone: ColliderBone) -> Option<&'static str> {
+    match bone {
+        ColliderBone::Pelvis => None,
+        ColliderBone::Chest => Some("spine03"),
+        ColliderBone::Head => Some("neck02"),
+        ColliderBone::UpperRightArm => Some("upperarm01.R"),
+        ColliderBone::UpperLeftArm => Some("upperarm01.L"),
+        ColliderBone::LowerRightArm => Some("lowerarm01.R"),
+        ColliderBone::LowerLeftArm => Some("lowerarm01.L"),
+        ColliderBone::RightHand => Some("wrist.R"),
+        ColliderBone::LeftHand => Some("wrist.L"),
+        ColliderBone::UpperRightLeg => Some("upperleg01.R"),
+        ColliderBone::UpperLeftLeg => Some("upperleg01.L"),
+        ColliderBone::LowerRightLeg => Some("lowerleg01.R"),
+        ColliderBone::LowerLeftLeg => Some("lowerleg01.L"),
+        ColliderBone::RightFoot => Some("foot.R"),
+        ColliderBone::LeftFoot => Some("foot.L"),
+    }
+}
+
 fn ragdoll_joint_for(bone: ColliderBone, anchor: Vec3) -> RagdollJoint {
     let limit = joint_limit(bone);
     match bone {
@@ -313,7 +337,7 @@ pub(crate) fn spawn_colliders(
 
         // Measure shapes + offsets at the bind pose, then build the spec.
         // Bodies bake kinematic (hitbox mode): flips only change motion.
-        let mut parts = Vec::with_capacity(COLLIDERS.len());
+        let mut parts: Vec<bevy_jolt::RagdollPart> = Vec::with_capacity(COLLIDERS.len());
         let mut part_order = Vec::with_capacity(COLLIDERS.len());
         let mut offsets = Vec::with_capacity(COLLIDERS.len());
         let mut part_index_of: AHashMap<ColliderBone, usize> = AHashMap::default();
@@ -335,8 +359,13 @@ pub(crate) fn spawn_colliders(
             // Seat at the bind pose: spawn runs before first animation, so
             // model-space placement is exact with no bone reads.
             let part_world = character_world * collider_to_model;
-            // Anchor at the bind-pose joint origin, in the same frame.
-            let anchor = (character_world * joint_to_model).translation;
+            // Anchor at the mapped bone's origin (bind pose): limbs pivot at
+            // their own bone start, chest at spine03, head at neck02. Pelvis
+            // has no joint; its anchor is unused but kept at its center.
+            let anchor = joint_anchor_bone(collider)
+                .and_then(|anchor_bone| joint_to_model_map.get(anchor_bone))
+                .map(|anchor_to_model| (character_world * *anchor_to_model).translation)
+                .unwrap_or(part_world.translation);
             let parent_part = get_collider_parent(collider)
                 .and_then(|parent| part_index_of.get(&parent).copied());
             part_index_of.insert(collider, parts.len());

@@ -1,23 +1,21 @@
-//! Joint-by-joint ragdoll tuning bench (Jolt backend).
+//! Joint-by-joint constraint tuning bench (Jolt backend).
 //!
-//! The character hangs in the air (no floor) in full dynamic ragdoll mode.
-//! One joint at a time is driven through its range by a real Jolt velocity
-//! motor: `[` / `]` steps through joints, `,` / `.` steps through the
-//! selected joint's axes (hinges have one; swing-twist joints expose twist
-//! then swing). The motor sweeps back and forth at a fixed speed, so the
-//! limits — not the drive — decide where the limb stops. `G` toggles gravity
-//! for a free-hang check, `M` releases the motor so the limb hangs on limits
-//! alone.
+//! No animation: everything stays kinematic except the single selected joint,
+//! which goes dynamic so its real Jolt motor sweeps it against its real
+//! limits. `[` / `]` steps through
+//! joints, `,` / `.` steps through the selected joint's axes (hinges have
+//! one; swing-twist joints expose twist then swing). `M` pauses the sweep.
 //!
 //! A gizmo sphere marks the driven joint's anchor; a line shows the hinge or
 //! twist axis. The overlay names the joint, its axis, its configured limits,
 mod shared;
 
+use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy_jolt::prelude::*;
-use bevy_jolt::JoltRagdollHandle;
+use bevy_jolt::{JoltRagdollHandle, RagdollJoint};
 use humentity::prelude::*;
-use shared::setup_app;
+use shared::setup_app_without_inspector;
 use std::f32::consts::PI;
 
 const RAGDOLL_TEAM: u16 = 3;
@@ -107,7 +105,7 @@ struct ActiveJoint {
 struct BenchText;
 
 fn main() {
-    let mut app = setup_app();
+    let mut app = setup_app_without_inspector();
     let collision_layers = CollisionLayers::new(4);
     app.add_plugins((
         JoltPlugin::new().with_collision_layers(collision_layers),
@@ -120,15 +118,17 @@ fn main() {
         motor_on: true,
     })
     .add_systems(Startup, spawn_ui)
+    .add_systems(FixedUpdate, follow_driven_parent)
     .add_systems(
         Update,
         (
             add_human.run_if(resource_exists::<HumentityAssetsReady>),
-            arm_full_ragdoll,
             cycle_joint,
-            gravity_toggle,
+            arm_selected_joint,
             drive_joint,
             draw_joint_gizmos,
+            bench_camera,
+            debug_dump,
             update_overlay,
         ),
     )
@@ -155,11 +155,9 @@ fn add_human(
         skeleton_lod: MeshBuildLod::Cpu(0),
     });
     commands.spawn((
-        Transform::from_xyz(0.0, 1.2, 0.0),
-        AnimationPlayer::default(),
+        Transform::from_xyz(0.0, 0.0, 0.0),
         CharacterShape(shape_assets.add(template_handle)),
         BuildCpuSkeleton,
-        RootOnlyRetargeting,
         CharacterRagdoll::Full,
         CharacterColliders::new(None),
         RagdollCollisionLayers::new(
@@ -173,28 +171,235 @@ fn add_human(
     ));
 }
 
-/// The plugin bakes kinematic; the bench needs dynamic from the start so the
-/// motor — not the follow — owns the limb. Runs once the spec has baked.
-fn arm_full_ragdoll(
-    mut armed: Local<bool>,
-    character: Query<(&CharacterColliders, &CharacterRagdoll)>,
-    handles: Query<&JoltRagdollHandle>,
+/// Only the driven limb goes dynamic; its children stay kinematic but rigidly
+/// follow their parent body each tick, so the motor moves a stiff limb
+/// instead of dragging a frozen subtree. Everything else stays frozen at
+/// Only the selected body goes dynamic so its real joint motor and limits
+/// run against a kinematic anchor; descendants stay kinematic and ride their
+/// parent rigidly each tick (see `follow_driven_parent`). Everything else
+/// stays frozen at bind. Re-parks the old limb on switch.
+fn arm_selected_joint(
+    active: Res<ActiveJoint>,
+    character: Query<(Entity, &CharacterColliders)>,
+    baked: Query<&JoltRagdollParts>,
+    body_ids: Query<&JoltBodyId>,
+    ragdoll_specs: Query<&JoltRagdoll>,
     mut physics_world: ResMut<JoltPhysicsWorld>,
+    mut armed_root: Local<Option<usize>>,
+    mut commands: Commands,
 ) {
-    if *armed {
+    if !active.is_changed() && armed_root.is_some() {
         return;
     }
-    let Ok((colliders, _)) = character.single() else {
+    let Ok((character_entity, colliders)) = character.single() else {
         return;
     };
     let Some(spec_entity) = colliders.ragdoll_entity else {
         return;
     };
-    let Ok(handle) = handles.get(spec_entity) else {
+    let Ok(parts) = baked.get(spec_entity) else {
         return;
     };
-    physics_world.ragdoll_set_motion(handle.id(), JoltMotion::Dynamic);
-    *armed = true;
+    let selected = active.axes[active.axis_index];
+    let Some(selected_part) = colliders
+        .part_order
+        .iter()
+        .position(|&joint_bone| joint_bone == selected.joint_bone)
+    else {
+        return;
+    };
+    if *armed_root == Some(selected_part) {
+        return;
+    }
+    if armed_root.take().is_some() {
+        for (part_index, _) in colliders.part_order.iter().enumerate() {
+            park_part_at_bind(
+                &parts,
+                &body_ids,
+                &ragdoll_specs,
+                &mut physics_world,
+                spec_entity,
+                part_index,
+            );
+        }
+        commands.trigger(ResetToBindPose(character_entity));
+    }
+    set_part_motion(
+        &parts,
+        &body_ids,
+        &mut physics_world,
+        selected_part,
+        JoltMotion::Dynamic,
+    );
+    for part_index in subtree_parts(&colliders.part_order, selected_part) {
+        if part_index == selected_part {
+            continue;
+        }
+        let (Some(&part_entity), Ok(spec)) = (
+            parts.part_entities.get(part_index),
+            ragdoll_specs.get(spec_entity),
+        ) else {
+            continue;
+        };
+        let (Ok(body_id), Some(part)) = (
+            body_ids.get(part_entity),
+            spec.parts.get(part_index),
+        ) else {
+            continue;
+        };
+        physics_world.set_body_velocity(body_id.body_id_raw, Vec3::ZERO, Vec3::ZERO);
+        physics_world.teleport_body(
+            body_id.body_id_raw,
+            part.part_position,
+            part.part_rotation,
+        );
+        physics_world.set_body_motion(body_id.body_id_raw, JoltMotion::Kinematic);
+        commands.entity(part_entity).insert(JoltKinematicTarget {
+            target_position: part.part_position,
+            target_rotation: part.part_rotation,
+        });
+    }
+    *armed_root = Some(selected_part);
+}
+
+/// Pins each kinematic descendant of the driven limb to its live parent body:
+/// child target = parent live pose * baked parent-to-child offset. Runs in
+/// `FixedUpdate` so `apply_jolt_kinematic_targets` picks the targets up
+/// before the same step. Only the armed subtree matches, so the frozen rest
+/// of the body is untouched.
+fn follow_driven_parent(
+    character: Query<&CharacterColliders>,
+    baked: Query<&JoltRagdollParts>,
+    ragdoll_specs: Query<&JoltRagdoll>,
+    mut targets: Query<(&mut JoltKinematicTarget, &JoltBodyId)>,
+    body_poses: Query<&Transform, With<JoltBodyId>>,
+    armed_root: Local<Option<usize>>,
+) {
+    let Some(armed_part) = *armed_root else {
+        return;
+    };
+    let Ok(colliders) = character.single() else {
+        return;
+    };
+    let Some(spec_entity) = colliders.ragdoll_entity else {
+        return;
+    };
+    let (Ok(parts), Ok(spec)) = (baked.get(spec_entity), ragdoll_specs.get(spec_entity))
+    else {
+        return;
+    };
+    for part_index in subtree_parts(&colliders.part_order, armed_part) {
+        // The driven root is owned by its motor, not this system.
+        if part_index == armed_part {
+            continue;
+        }
+        let Some(part) = spec.parts.get(part_index) else {
+            continue;
+        };
+        let Some(parent_part) = part.parent_part.map(|parent| parent as usize) else {
+            continue;
+        };
+        let (Some(&part_entity), Some(&parent_entity)) = (
+            parts.part_entities.get(part_index),
+            parts.part_entities.get(parent_part),
+        ) else {
+            continue;
+        };
+        let Ok(parent_pose) = body_poses.get(parent_entity) else {
+            continue;
+        };
+        let (Some(parent_baked), Ok((mut target, _))) = (
+            spec.parts.get(parent_part),
+            targets.get_mut(part_entity),
+        ) else {
+            continue;
+        };
+        // Baked relative offset, re-applied to the live parent pose: the
+        // child rides its parent rigidly, no joint solving between them.
+        let relative_rotation = parent_baked.part_rotation.conjugate() * part.part_rotation;
+        let relative_offset = parent_baked.part_rotation.conjugate()
+            * (part.part_position - parent_baked.part_position);
+        target.target_position =
+            parent_pose.translation + (parent_pose.rotation * relative_offset);
+        target.target_rotation = parent_pose.rotation * relative_rotation;
+    }
+}
+
+/// The selected part plus every part hanging off it (children, recursively).
+/// Parent indices always come first in `part_order`, so the pelvis-ward walk
+/// below reaches every descendant.
+fn subtree_parts(part_order: &[ColliderBone], root_part: usize) -> Vec<usize> {
+    let Some(&root_bone) = part_order.get(root_part) else {
+        return Vec::new();
+    };
+    let mut collected = vec![root_part];
+    for (part_index, &joint_bone) in part_order.iter().enumerate() {
+        if part_index == root_part {
+            continue;
+        }
+        // Walk pelvis-ward: a `None` parent means the pelvis root, which is
+        // only a descendant when the driven joint is the pelvis itself.
+        let mut cursor = Some(joint_bone);
+        while let Some(cursor_bone) = cursor {
+            if cursor_bone == root_bone {
+                collected.push(part_index);
+                break;
+            }
+            cursor = get_collider_parent(cursor_bone);
+        }
+    }
+    collected.sort_unstable();
+    collected
+}
+
+/// Flips one ragdoll part between frozen (kinematic) and simulated
+/// (dynamic), leaving the rest of the ragdoll untouched.
+fn set_part_motion(
+    baked: &JoltRagdollParts,
+    body_ids: &Query<&JoltBodyId>,
+    physics_world: &mut ResMut<JoltPhysicsWorld>,
+    part_index: usize,
+    motion: JoltMotion,
+) {
+    let Some(&part_entity) = baked.part_entities.get(part_index) else {
+        return;
+    };
+    let Ok(body_id) = body_ids.get(part_entity) else {
+        return;
+    };
+    physics_world.set_body_motion(body_id.body_id_raw, motion);
+}
+
+/// Parks one part back at its baked bind pose: zero its velocity, teleport
+/// it home, then freeze it kinematic. Called on the old limb when the
+/// selection moves, so a switch never leaves a bent limb behind.
+fn park_part_at_bind(
+    baked: &JoltRagdollParts,
+    body_ids: &Query<&JoltBodyId>,
+    ragdoll_specs: &Query<&JoltRagdoll>,
+    physics_world: &mut ResMut<JoltPhysicsWorld>,
+    spec_entity: Entity,
+    part_index: usize,
+) {
+    let (Some(&part_entity), Ok(spec)) = (
+        baked.part_entities.get(part_index),
+        ragdoll_specs.get(spec_entity),
+    ) else {
+        return;
+    };
+    let (Ok(body_id), Some(part)) = (
+        body_ids.get(part_entity),
+        spec.parts.get(part_index),
+    ) else {
+        return;
+    };
+    physics_world.set_body_velocity(body_id.body_id_raw, Vec3::ZERO, Vec3::ZERO);
+    physics_world.teleport_body(
+        body_id.body_id_raw,
+        part.part_position,
+        part.part_rotation,
+    );
+    physics_world.set_body_motion(body_id.body_id_raw, JoltMotion::Kinematic);
 }
 
 /// `[` / `]` steps through joints, `,` / `.` steps through the current
@@ -298,9 +503,12 @@ fn release_joint_motor(
     }
 }
 
-/// Sweeps the selected joint back and forth; releases the motor on `M`.
-/// Part index = position of the joint's bone in the character's `part_order`
-/// (spec order), which the tagger recorded at bake.
+/// Sweeps the selected joint back and forth with its real Jolt velocity
+/// motor; releases the motor on `M`. Part index = position of the joint's
+/// bone in the character's `part_order` (spec order), which the tagger
+/// recorded at bake. Only the selected body is dynamic; its kinematic parent
+/// anchors the constraint, so the limits — not the drive — decide where the
+/// limb stops.
 fn drive_joint(
     time: Res<Time>,
     mut active: ResMut<ActiveJoint>,
@@ -340,13 +548,14 @@ fn drive_joint(
     );
 }
 
-/// Sphere on the driven limb plus a line along its axis. The sphere sits on
-/// the limb body (the anchor itself lives inside Jolt); the line shows the
-/// driven axis in world space.
+/// Sphere on the driven joint's true anchor plus a line along its axis. The
+/// anchor comes from the baked spec (bind-pose joint origin); the body center
+/// would lie (e.g. mid-chest instead of the spine).
 fn draw_joint_gizmos(
     active: Res<ActiveJoint>,
     character: Query<&CharacterColliders>,
     part_transforms: Query<&Transform>,
+    ragdoll_specs: Query<&JoltRagdoll>,
     mut gizmos: Gizmos,
 ) {
     let Ok(colliders) = character.single() else {
@@ -364,8 +573,11 @@ fn draw_joint_gizmos(
         RagdollDriveAxis::Twist => part_pose.rotation * Vec3::Y,
         RagdollDriveAxis::Swing => part_pose.rotation * Vec3::X,
     };
-    let anchor = part_pose.translation;
-    gizmos.sphere(anchor, 0.03, Color::srgb(1.0, 0.2, 0.2));
+    // True joint anchor from the baked spec (bind-pose joint origin), not the
+    // body center: e.g. chest pivots at the spine, mid-chest is just where
+    // its collider box sits.
+    let anchor = joint_anchor(&colliders, &ragdoll_specs, &selected)
+        .unwrap_or(part_pose.translation);
     gizmos.line(
         anchor - axis_direction * 0.15,
         anchor + axis_direction * 0.15,
@@ -373,18 +585,23 @@ fn draw_joint_gizmos(
     );
 }
 
-/// `G` toggles gravity for a free-hang check: with gravity on, the undriven
-/// joints show whether the limits hold a natural pose.
-fn gravity_toggle(input: Res<ButtonInput<KeyCode>>, mut physics_world: ResMut<JoltPhysicsWorld>) {
-    if !input.just_pressed(KeyCode::KeyG) {
-        return;
-    }
-    let resting_gravity = physics_world.world_gravity();
-    physics_world.set_world_gravity(if resting_gravity.length() > 0.5 {
-        Vec3::ZERO
-    } else {
-        Vec3::new(0.0, -9.81, 0.0)
-    });
+/// Baked anchor of the selected joint, in world space.
+fn joint_anchor(
+    colliders: &CharacterColliders,
+    ragdoll_specs: &Query<&JoltRagdoll>,
+    selected: &JointAxis,
+) -> Option<Vec3> {
+    let spec_entity = colliders.ragdoll_entity?;
+    let spec = ragdoll_specs.get(spec_entity).ok()?;
+    let part_index = colliders
+        .part_order
+        .iter()
+        .position(|&joint_bone| joint_bone == selected.joint_bone)?;
+    let part = spec.parts.get(part_index)?;
+    Some(match part.joint {
+        RagdollJoint::Hinge { anchor, .. } => anchor,
+        RagdollJoint::SwingTwist { anchor, .. } => anchor,
+    })
 }
 
 fn update_overlay(
@@ -410,7 +627,7 @@ fn update_overlay(
         .map(|part_pose| format!("{:.3}", part_pose.translation.y))
         .unwrap_or_else(|| "—".to_string());
     overlay.0 = format!(
-        "{:?} {} [{}/{}]{} | limb y={} | [ ] joint | , . axis | M motor | G gravity",
+        "{:?} {} [{}/{}]{} | limb y={} | [ ] joint | , . axis | M motor",
         selected.joint_bone,
         selected.label(),
         active.axis_index + 1,
@@ -423,7 +640,126 @@ fn update_overlay(
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Text::new("baking…"),
+        TextLayout::justify(Justify::Right),
         TextFont::from_font_size(18.0),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(12.),
+            right: Val::Px(12.),
+            ..default()
+        },
         BenchText,
     ));
 }
+
+/// Press `J`: logs every ragdoll part's live pose plus which joint axis is
+/// selected, so a frozen motor shows up as unchanging numbers.
+fn debug_dump(
+    input: Res<ButtonInput<KeyCode>>,
+    active: Res<ActiveJoint>,
+    character: Query<(&CharacterColliders, &GlobalTransform)>,
+    part_transforms: Query<&Transform>,
+) {
+    if !input.just_pressed(KeyCode::KeyJ) {
+        return;
+    }
+    let Ok((colliders, character_pose)) = character.single() else {
+        info!("bench: no character yet");
+        return;
+    };
+    let selected = active.axes[active.axis_index];
+    info!(
+        "bench: character at {:?}, driving {:?} {}",
+        character_pose.translation(),
+        selected.joint_bone,
+        selected.label(),
+    );
+    let mut ordered_parts: Vec<(usize, ColliderBone)> = colliders
+        .part_order
+        .iter()
+        .enumerate()
+        .map(|(part_index, &joint_bone)| (part_index, joint_bone))
+        .collect();
+    ordered_parts.sort_by_key(|&(part_index, _)| part_index);
+    for (part_index, joint_bone) in ordered_parts {
+        let pose_text = colliders
+            .collider_entities
+            .get(&joint_bone)
+            .and_then(|&part_entity| part_transforms.get(part_entity).ok())
+            .map(|part_pose| {
+                format!(
+                    "pos=({:.3}, {:.3}, {:.3})",
+                    part_pose.translation.x, part_pose.translation.y, part_pose.translation.z
+                )
+            })
+            .unwrap_or_else(|| "no body yet".to_string());
+        let marker = if joint_bone == selected.joint_bone {
+            " <-- driving"
+        } else {
+            ""
+        };
+        info!("bench: part {part_index} {joint_bone:?} {pose_text}{marker}");
+    }
+}
+
+/// Drag-orbit camera: hold left mouse and drag to orbit the character,
+/// mouse wheel zooms. The shared `cam_controls` has mouse look commented
+/// out, so the bench owns its own orbit rig here.
+fn bench_camera(
+    mut camera: Query<&mut Transform, With<Camera3d>>,
+    mut mouse_motion: MessageReader<MouseMotion>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mut mouse_wheel: MessageReader<MouseWheel>,
+    mut orbit: Local<BenchOrbit>,
+    mut initialized: Local<bool>,
+) {
+    let Ok(mut camera_pose) = camera.single_mut() else {
+        return;
+    };
+    if !*initialized {
+        *initialized = true;
+        let offset = camera_pose.translation - orbit.focus;
+        orbit.distance = offset.length().max(0.5);
+        orbit.yaw = offset.x.atan2(offset.z);
+        orbit.pitch = (offset.y / orbit.distance).clamp(-1.0, 1.0).asin();
+    }
+    if mouse_button.pressed(MouseButton::Left) {
+        for motion in mouse_motion.read() {
+            orbit.yaw -= motion.delta.x * 0.005;
+            orbit.pitch = (orbit.pitch - motion.delta.y * 0.005).clamp(-1.4, 1.4);
+        }
+    } else {
+        mouse_motion.clear();
+    }
+    for scroll in mouse_wheel.read() {
+        orbit.distance = (orbit.distance - scroll.y * 0.2).clamp(0.5, 20.0);
+    }
+    camera_pose.translation = orbit.focus
+        + Vec3::new(
+            orbit.distance * orbit.pitch.cos() * orbit.yaw.sin(),
+            orbit.distance * orbit.pitch.sin(),
+            orbit.distance * orbit.pitch.cos() * orbit.yaw.cos(),
+        );
+    camera_pose.look_at(orbit.focus, Vec3::Y);
+}
+
+/// Orbit state for [`bench_camera`]: focus point plus yaw/pitch/distance.
+#[derive(Clone, Copy)]
+struct BenchOrbit {
+    focus: Vec3,
+    yaw: f32,
+    pitch: f32,
+    distance: f32,
+}
+
+impl Default for BenchOrbit {
+    fn default() -> Self {
+        Self {
+            focus: Vec3::new(0.0, 0.9, 0.0),
+            yaw: 0.0,
+            pitch: 0.1,
+            distance: 4.0,
+        }
+    }
+}
+
