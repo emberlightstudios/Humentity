@@ -302,7 +302,7 @@ pub fn cam_controls(
     };
     for ev in mouse_motion.read() {
         *_yaw -= ev.delta.x * LS;
-        *_pitch -= ev.delta.y * LS;
+        *_pitch = (*_pitch - ev.delta.y * LS).clamp(-1.4, 1.4);
     }
     cam.rotation = Quat::from_euler(EulerRot::YXZ, *_yaw, *_pitch, 0.);
     let mut mv = Vec3::ZERO;

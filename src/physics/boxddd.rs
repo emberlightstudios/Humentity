@@ -121,10 +121,15 @@ pub(crate) struct PendingJoints {
 pub(crate) struct PendingNativeJoint;
 
 /// Anchor + descriptor for one ragdoll joint, waiting on native bodies.
+/// The bone entities give the anatomical (skeleton) frame each side's joint
+/// frame is built from — not the body orientation, which includes
+/// shape-fitting flips (e.g. the chest's 90° X flip).
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct JointAnchor {
     pub(crate) part_entity: Entity,
     pub(crate) parent_entity: Entity,
+    pub(crate) part_bone: Option<Entity>,
+    pub(crate) parent_bone: Option<Entity>,
     pub(crate) anchor: Vec3,
     pub(crate) descriptor: RagdollJointDescriptor,
 }
@@ -500,6 +505,8 @@ pub(crate) fn spawn_joints(
                     JointAnchor {
                         part_entity,
                         parent_entity,
+                        part_bone: colliders.bone_entities.get(&collider).copied(),
+                        parent_bone: colliders.bone_entities.get(&parent_collider).copied(),
                         anchor,
                         descriptor: joint_descriptor_for(collider),
                     },
@@ -538,6 +545,7 @@ pub(crate) fn create_native_joints(
     mut physics_context: NonSendMut<BoxdddPhysicsContext>,
     joints: Query<(Entity, &JointAnchor), With<PendingNativeJoint>>,
     bodies: Query<(&bevy_boxddd::BoxdddBody, &Transform)>,
+    bone_transforms: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
 ) {
     let Some(world) = physics_context.world_mut() else {
         return;
@@ -549,11 +557,23 @@ pub(crate) fn create_native_joints(
         ) else {
             continue; // Transient: a part body isn't created yet.
         };
-        // Each side's frame uses its own body's bind orientation, so the
-        // bind pose reads zero on each side.
+        // Reference orientation comes from the skeleton bones (anatomical
+        // frames), not the bodies (which carry shape-fitting flips like the
+        // chest's 90° X rotation). Falls back to the body orientation when
+        // a bone mapping is missing.
+        let part_reference = anchor
+            .part_bone
+            .and_then(|bone_entity| bone_transforms.get(bone_entity).ok())
+            .map(|bone_to_world| bone_to_world.compute_transform().rotation)
+            .unwrap_or(part_transform.rotation);
+        let parent_reference = anchor
+            .parent_bone
+            .and_then(|bone_entity| bone_transforms.get(bone_entity).ok())
+            .map(|bone_to_world| bone_to_world.compute_transform().rotation)
+            .unwrap_or(parent_transform.rotation);
         let (Some(part_local), Some(parent_local)) = (
-            local_frame_for(part_transform, anchor.anchor, part_transform.rotation),
-            local_frame_for(parent_transform, anchor.anchor, parent_transform.rotation),
+            local_frame_for(part_transform, anchor.anchor, part_reference),
+            local_frame_for(parent_transform, anchor.anchor, parent_reference),
         ) else {
             continue; // Non-finite rotation; retry next frame.
         };
