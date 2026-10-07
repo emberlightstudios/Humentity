@@ -26,18 +26,18 @@ fn main() {
         options: boxddd::DebugDrawOptions::default(),
     })
     .add_plugins((BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()),))
-        .add_systems(Startup, (floor, spawn_ui))
-        .add_systems(
-            Update,
-            (
-                add_human.run_if(resource_exists::<HumentityAssetsReady>),
-                toggle,
-                setup_graph,
-                start_clip,
-                bevy_boxddd::draw_debug_gizmos,
-            ),
-        )
-        .run();
+    .add_systems(Startup, (floor, spawn_ui))
+    .add_systems(
+        Update,
+        (
+            add_human.run_if(resource_exists::<HumentityAssetsReady>),
+            toggle,
+            setup_graph,
+            start_clip,
+            bevy_boxddd::draw_debug_gizmos,
+        ),
+    )
+    .run();
 }
 
 #[derive(Component)]
@@ -77,6 +77,8 @@ fn add_human(
         CharacterRagdoll::None,
         CharacterColliders::new(None),
         RagdollCollisionLayers::new(RAGDOLL_CATEGORY, ALL_CATEGORIES),
+        RagdollDensity(10.0),
+        RagdollDamping::default(),
         children![(CharacterPart {
             mesh: basemesh,
             skeleton_lod: 0

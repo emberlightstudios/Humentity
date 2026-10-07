@@ -350,9 +350,7 @@ impl Plugin for HumentityPlugin {
                         physics::jolt::tag_ragdoll_parts,
                     ),
                 )
-                .add_systems(
-                    FixedUpdate, physics::jolt::ensure_kinematic_targets
-                )
+                .add_systems(FixedUpdate, physics::jolt::ensure_kinematic_targets)
                 .add_systems(
                     PostUpdate,
                     physics::jolt::sync_bones_to_ragdoll
@@ -380,8 +378,8 @@ impl Plugin for HumentityPlugin {
                             .after(physics::boxddd::mark_needs_colliders)
                             .after(spawn_skeleton::check_skeleton_ready),
                         physics::boxddd::set_ragdoll_state.in_set(HumentityRagdollSystemSet),
-                        physics::boxddd::spawn_joints
-                            .after(physics::boxddd::spawn_colliders),
+                        physics::boxddd::apply_damping,
+                        physics::boxddd::spawn_joints.after(physics::boxddd::spawn_colliders),
                         physics::boxddd::create_native_joints
                             .after(physics::boxddd::spawn_joints),
                     ),

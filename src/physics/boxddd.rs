@@ -26,8 +26,9 @@ use super::{
     COLLIDERS, ColliderBone, DEFAULT_RIG_COLLIDER_BONE_NAMES, HEAD_VERTICES, LEFT_FOOT_VERTICES,
     LEFT_HAND_VERTICES, LOWER_LEFT_ARM_VERTICES, LOWER_LEFT_LEG_VERTICES, LOWER_RIGHT_ARM_VERTICES,
     LOWER_RIGHT_LEG_VERTICES, PELVIS_VERTICES, RIGHT_FOOT_VERTICES, RIGHT_HAND_VERTICES,
-    TORSO_VERTICES, UPPER_LEFT_ARM_VERTICES, UPPER_LEFT_LEG_VERTICES, UPPER_RIGHT_ARM_VERTICES,
-    UPPER_RIGHT_LEG_VERTICES, collider_index, get_collider_parent,
+    RagdollDamping, RagdollDensity, TORSO_VERTICES, UPPER_LEFT_ARM_VERTICES,
+    UPPER_LEFT_LEG_VERTICES, UPPER_RIGHT_ARM_VERTICES, UPPER_RIGHT_LEG_VERTICES, collider_index,
+    get_collider_parent,
 };
 use crate::{
     NAME_INTERNER,
@@ -276,6 +277,8 @@ pub(crate) fn spawn_colliders(
             &GlobalTransform,
             Option<&CharacterScale>,
             Option<&RagdollCollisionLayers>,
+            Option<&RagdollDamping>,
+            Option<&RagdollDensity>,
         ),
         (With<NeedsColliders>, With<SkeletonReady>),
     >,
@@ -307,6 +310,8 @@ pub(crate) fn spawn_colliders(
         character_to_world,
         character_scale,
         collision_layers,
+        ragdoll_damping,
+        ragdoll_density,
     ) in characters.iter_mut()
     {
         if spawned_character_count >= BATCH_SIZE {
@@ -367,6 +372,9 @@ pub(crate) fn spawn_colliders(
         let character_world = Transform::from(*character_to_world) * model_root;
         let collider_scale = character_scale.map_or(1.0, |scale| scale.0);
         let shape_filter = collider_filter(collision_layers);
+        let body_damping = ragdoll_damping.map_or(RagdollDamping::default().0, |damping| damping.0);
+        let shape_density =
+            ragdoll_density.map_or(RagdollDensity::default().0, |density| density.0);
 
         // Measure shapes + offsets at the bind pose: spawn runs before first
         // animation, so model-space placement is exact with no bone reads.
@@ -405,9 +413,14 @@ pub(crate) fn spawn_colliders(
                     Name::new(format!("RagdollPart:{collider:?}")),
                     part_world,
                     BoxdddRigidBody::Kinematic,
+                    bevy_boxddd::BodySettings {
+                        linear_damping: body_damping,
+                        angular_damping: body_damping,
+                        ..default()
+                    },
                     shape,
                     PhysicsMaterial {
-                        density: 1000.0,
+                        density: shape_density,
                         filter: shape_filter,
                         ..default()
                     },
@@ -576,7 +589,14 @@ pub(crate) fn create_native_joints(
 /// is switched directly; the component insert keeps Bevy-side state (and the
 /// plugin's default transform-sync direction) consistent.
 pub(crate) fn set_ragdoll_state(
-    characters: Query<(&CharacterRagdoll, &CharacterColliders), Changed<CharacterRagdoll>>,
+    characters: Query<
+        (
+            &CharacterRagdoll,
+            &CharacterColliders,
+            Option<&RagdollDamping>,
+        ),
+        Changed<CharacterRagdoll>,
+    >,
     bodies: Query<&bevy_boxddd::BoxdddBody>,
     mut commands: Commands,
     mut physics_context: NonSendMut<BoxdddPhysicsContext>,
@@ -584,7 +604,7 @@ pub(crate) fn set_ragdoll_state(
     let Some(world) = physics_context.world_mut() else {
         return;
     };
-    for (ragdoll, colliders) in characters.iter() {
+    for (ragdoll, colliders, ragdoll_damping) in characters.iter() {
         let (body_component, body_type) = match ragdoll {
             CharacterRagdoll::Full => (
                 BoxdddRigidBody::Dynamic,
@@ -595,6 +615,7 @@ pub(crate) fn set_ragdoll_state(
                 bevy_boxddd::boxddd::BodyType::Kinematic,
             ),
         };
+        let body_damping = ragdoll_damping.map_or(RagdollDamping::default().0, |damping| damping.0);
         for &part_entity in colliders.collider_entities.values() {
             let Ok(body) = bodies.get(part_entity) else {
                 continue; // Transient: body not created yet.
@@ -602,7 +623,45 @@ pub(crate) fn set_ragdoll_state(
             if world.set_body_type(body.0, body_type).is_err() {
                 continue;
             }
-            commands.entity(part_entity).insert(body_component);
+            let _ = world.set_body_linear_damping(body.0, body_damping);
+            let _ = world.set_body_angular_damping(body.0, body_damping);
+            commands.entity(part_entity).insert((
+                body_component,
+                bevy_boxddd::BodySettings {
+                    linear_damping: body_damping,
+                    angular_damping: body_damping,
+                    ..default()
+                },
+            ));
+        }
+    }
+}
+
+/// Re-applies [`RagdollDamping`] to every part body when the component
+/// changes, without requiring a ragdoll flip.
+pub(crate) fn apply_damping(
+    characters: Query<(&CharacterColliders, &RagdollDamping), Changed<RagdollDamping>>,
+    bodies: Query<&bevy_boxddd::BoxdddBody>,
+    mut commands: Commands,
+    mut physics_context: NonSendMut<BoxdddPhysicsContext>,
+) {
+    let Some(world) = physics_context.world_mut() else {
+        return;
+    };
+    for (colliders, ragdoll_damping) in characters.iter() {
+        for &part_entity in colliders.collider_entities.values() {
+            let Ok(body) = bodies.get(part_entity) else {
+                continue; // Transient: body not created yet.
+            };
+            let _ = world.set_body_linear_damping(body.0, ragdoll_damping.0);
+            let _ = world.set_body_angular_damping(body.0, ragdoll_damping.0);
+            commands
+                .entity(part_entity)
+                .insert(bevy_boxddd::BodySettings {
+                    linear_damping: ragdoll_damping.0,
+                    angular_damping: ragdoll_damping.0,
+                    ..default()
+                });
         }
     }
 }

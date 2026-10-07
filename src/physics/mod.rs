@@ -1,7 +1,10 @@
 // Shared constants consumed by the physics backend submodule: without a
 // backend nothing reads them, so silence dead-code there instead of hiding
 // real warnings when a backend is on.
-#![cfg_attr(not(any(feature = "avian", feature = "jolt", feature = "boxddd")), allow(dead_code))]
+#![cfg_attr(
+    not(any(feature = "avian", feature = "jolt", feature = "boxddd")),
+    allow(dead_code)
+)]
 
 use bevy::prelude::*;
 
@@ -183,4 +186,6 @@ pub mod jolt;
     all(feature = "avian", feature = "boxddd"),
     all(feature = "jolt", feature = "boxddd"),
 ))]
-compile_error!("humentity physics backends are exclusive: enable only one of `avian`, `jolt`, `boxddd`");
+compile_error!(
+    "humentity physics backends are exclusive: enable only one of `avian`, `jolt`, `boxddd`"
+);
