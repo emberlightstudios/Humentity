@@ -130,6 +130,7 @@ pub(crate) struct JointAnchor {
     pub(crate) parent_entity: Entity,
     pub(crate) part_bone: Option<Entity>,
     pub(crate) parent_bone: Option<Entity>,
+    pub(crate) anchor_bone: Option<Entity>,
     pub(crate) anchor: Vec3,
     pub(crate) descriptor: RagdollJointDescriptor,
 }
@@ -490,12 +491,16 @@ pub(crate) fn spawn_joints(
             ) else {
                 continue; // Transient: part missing, skip this joint.
             };
-            let Some(anchor) = pending
+            let Some((anchor_bone, anchor)) = pending
                 .anchor_bones
                 .get(part_index)
                 .and_then(|anchor_bone| *anchor_bone)
-                .and_then(|anchor_entity| bone_transforms.get(anchor_entity).ok())
-                .map(|anchor_to_world| anchor_to_world.translation())
+                .and_then(|anchor_entity| {
+                    bone_transforms
+                        .get(anchor_entity)
+                        .ok()
+                        .map(|anchor_to_world| (anchor_entity, anchor_to_world.translation()))
+                })
             else {
                 continue; // No anchor bone (pelvis root) or bone gone.
             };
@@ -507,6 +512,7 @@ pub(crate) fn spawn_joints(
                         parent_entity,
                         part_bone: colliders.bone_entities.get(&collider).copied(),
                         parent_bone: colliders.bone_entities.get(&parent_collider).copied(),
+                        anchor_bone: Some(anchor_bone),
                         anchor,
                         descriptor: joint_descriptor_for(collider),
                     },
@@ -537,6 +543,23 @@ fn local_frame_for(
     ))
 }
 
+/// Builds a hinge reference orientation from a limb bone's live world
+/// orientation: Y along the limb (the bone's long axis), Z mediolateral
+/// (world X projected perpendicular to Y), X completing a right-handed
+/// frame. Returns `None` when Y is parallel to world X (degenerate).
+fn limb_basis_rotation(bone_world: Quat) -> Option<Quat> {
+    let limb_axis = bone_world * Vec3::Y;
+    let side_axis = (Vec3::X - limb_axis * limb_axis.x).normalize_or_zero();
+    if side_axis == Vec3::ZERO {
+        return None;
+    }
+    let forward_axis = limb_axis.cross(side_axis);
+    Some(Quat::from_mat3(&Mat3::from_cols(
+        forward_axis,
+        limb_axis,
+        side_axis,
+    )))
+}
 
 /// Creates native Box3D joints for entities whose part bodies both exist.
 /// Runs after the plugin's body creation (same `Update` slot, ordered after
@@ -558,19 +581,44 @@ pub(crate) fn create_native_joints(
         ) else {
             continue; // Transient: a part body isn't created yet.
         };
-        // Reference orientation comes from the skeleton bones (anatomical
-        // frames), not the bodies (which carry shape-fitting flips like the
-        // chest's 90° X rotation). Falls back to the body orientation when
-        // a bone mapping is missing.
-        let part_reference = anchor
-            .part_bone
+        // Both sides share the anchor bone's live orientation as their
+        // reference, so the two frames agree and the spawn pose reads zero
+        // joint angle. Translations are untouched (anchor per side, already
+        // correct). Falls back per side when a bone mapping is missing.
+        let shared_reference = anchor
+            .anchor_bone
             .and_then(|bone_entity| bone_transforms.get(bone_entity).ok())
-            .map(|bone_to_world| bone_to_world.compute_transform().rotation)
+            .map(|bone_to_world| bone_to_world.compute_transform().rotation);
+        // Hinge joints (elbows, knees) build their reference orientation from
+        // the limb itself: Y along the limb (the anchor bone's long axis,
+        // verified by probe), Z mediolateral (world X projected ⊥ Y), X third.
+        // This puts the revolute axis (frame Z) on the anatomical flexion
+        // axis. Spherical joints keep the anchor bone's orientation.
+        let hinge_reference = match anchor.descriptor {
+            RagdollJointDescriptor::Hinge { .. } => anchor
+                .anchor_bone
+                .and_then(|bone_entity| bone_transforms.get(bone_entity).ok())
+                .map(|bone_to_world| bone_to_world.compute_transform().rotation)
+                .and_then(limb_basis_rotation),
+            RagdollJointDescriptor::SwingTwist { .. } => None,
+        };
+        let part_reference = hinge_reference
+            .or(shared_reference)
+            .or(anchor.part_bone.and_then(|bone_entity| {
+                bone_transforms
+                    .get(bone_entity)
+                    .ok()
+                    .map(|bone_to_world| bone_to_world.compute_transform().rotation)
+            }))
             .unwrap_or(part_transform.rotation);
-        let parent_reference = anchor
-            .parent_bone
-            .and_then(|bone_entity| bone_transforms.get(bone_entity).ok())
-            .map(|bone_to_world| bone_to_world.compute_transform().rotation)
+        let parent_reference = hinge_reference
+            .or(shared_reference)
+            .or(anchor.parent_bone.and_then(|bone_entity| {
+                bone_transforms
+                    .get(bone_entity)
+                    .ok()
+                    .map(|bone_to_world| bone_to_world.compute_transform().rotation)
+            }))
             .unwrap_or(parent_transform.rotation);
         let (Some(part_local), Some(parent_local)) = (
             local_frame_for(part_transform, anchor.anchor, part_reference),
