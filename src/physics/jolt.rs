@@ -392,11 +392,11 @@ pub(crate) fn set_ragdoll_state(
                             .remove::<bevy_jolt::JoltKinematicTarget>();
                     }
                 }
-                world.ragdoll_set_motion(handle.raw(), bevy_jolt::JoltMotion::Dynamic);
+                world.ragdoll_set_motion(handle.id(), bevy_jolt::JoltMotion::Dynamic);
             }
             // Kinematic follow (hitbox mode): bodies ride the bones.
             _ => {
-                world.ragdoll_set_motion(handle.raw(), bevy_jolt::JoltMotion::Kinematic);
+                world.ragdoll_set_motion(handle.id(), bevy_jolt::JoltMotion::Kinematic);
             }
         }
     }

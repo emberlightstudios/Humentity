@@ -340,6 +340,7 @@ impl Plugin for HumentityPlugin {
                 .add_systems(
                     Update,
                     (
+                        physics::jolt::sync_colliders,
                         physics::jolt::mark_needs_colliders
                             .after(spawn_skeleton::check_skeleton_ready),
                         physics::jolt::spawn_colliders
@@ -350,12 +351,7 @@ impl Plugin for HumentityPlugin {
                     ),
                 )
                 .add_systems(
-                    FixedUpdate,
-                    (
-                        physics::jolt::sync_colliders,
-                        physics::jolt::ensure_kinematic_targets
-                            .after(physics::jolt::sync_colliders),
-                    ),
+                    FixedUpdate, physics::jolt::ensure_kinematic_targets
                 )
                 .add_systems(
                     PostUpdate,
