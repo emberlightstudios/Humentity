@@ -178,7 +178,8 @@ fn floor(
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(200.0, 0.2, 200.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.2, 0.25))),
-        Transform::IDENTITY,
+        // Top face sits exactly at y = 0 so the character's feet rest on it.
+        Transform::from_xyz(0.0, -0.1, 0.0),
         RigidBody::Static,
         Collider::cuboid(100.0, 0.1, 100.0),
     ));
