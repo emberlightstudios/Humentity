@@ -230,7 +230,18 @@ pub(crate) fn spawn_colliders(
 ) {
     const BATCH_SIZE: usize = 2;
     let mut spawned_character_count = 0;
-    let container_entity = container.map(|container| container.0);
+    // Create the single global container on first use, then reuse it for every
+    // character so all ragdoll specs share one world-root parent.
+    let container_entity = match container {
+        Some(container) => container.0,
+        None => {
+            let entity = commands
+                .spawn((Name::new("CharacterPhysics"), Transform::IDENTITY))
+                .id();
+            commands.insert_resource(CharacterPhysicsContainer(entity));
+            entity
+        }
+    };
     for (
         character_entity,
         character_shape,
@@ -352,9 +363,7 @@ pub(crate) fn spawn_colliders(
                 SpecOwner(character_entity),
             ))
             .id();
-        if let Some(container_entity) = container_entity {
-            commands.entity(container_entity).add_child(spec_id);
-        }
+        commands.entity(container_entity).add_child(spec_id);
         colliders.ragdoll_entity = Some(spec_id);
         colliders.part_order = part_order;
         commands
