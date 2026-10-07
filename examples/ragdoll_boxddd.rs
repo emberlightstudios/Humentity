@@ -21,7 +21,11 @@ const ALL_CATEGORIES: u32 =
 fn main() {
     let mut app = setup_app();
 
-    app.add_plugins((BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()),))
+    app.insert_resource(BoxdddDebugDrawSettings {
+        enabled: true,
+        options: boxddd::DebugDrawOptions::default(),
+    })
+    .add_plugins((BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()),))
         .add_systems(Startup, (floor, spawn_ui))
         .add_systems(
             Update,
@@ -30,6 +34,7 @@ fn main() {
                 toggle,
                 setup_graph,
                 start_clip,
+                bevy_boxddd::draw_debug_gizmos,
             ),
         )
         .run();

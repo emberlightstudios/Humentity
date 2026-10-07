@@ -55,7 +55,7 @@ default = []
 debug = ["bevy/debug"]
 avian = ["dep:avian3d"]
 jolt = ["dep:bevy_jolt"]
-boxddd = ["dep:bevy_boxddd"]
+boxddd = ["dep:bevy_boxddd", "bevy_boxddd/debug-gizmos"]
 
 [lints.clippy]
 all = "deny"
