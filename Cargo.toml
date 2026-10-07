@@ -16,6 +16,7 @@ crossbeam-channel = ">=0.5.15"
 toml = ">=1.1.2"
 thiserror = ">=2.0.18"
 avian3d = { optional = true, version = "0.7.0" }
+bevy_boxddd = { optional = true, version = "0.4.0" }
 bevy_jolt = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -44,8 +45,9 @@ name = "ragdoll_jolt"
 required-features = ["jolt"]
 
 [[example]]
-name = "ragdoll_joints_jolt"
-required-features = ["jolt"]
+name = "ragdoll_boxddd"
+required-features = ["boxddd"]
+
 
 
 [features]
@@ -53,6 +55,7 @@ default = []
 debug = ["bevy/debug"]
 avian = ["dep:avian3d"]
 jolt = ["dep:bevy_jolt"]
+boxddd = ["dep:bevy_boxddd"]
 
 [lints.clippy]
 all = "deny"
