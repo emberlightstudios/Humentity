@@ -107,10 +107,12 @@ pub struct ColliderList(Vec<Entity>);
 #[derive(Component)]
 pub(crate) struct NeedsColliders;
 
-/// Seated joint anchors in collider order, waiting for the joint spawner.
+/// Anchor bone entities in collider order, waiting for the joint spawner.
+/// The spawner reads their live `GlobalTransform`, so joints are created at
+/// the current animated pose — not the bind pose the bodies were measured in.
 #[derive(Component)]
 pub(crate) struct PendingJoints {
-    pub(crate) anchors: Vec<Option<Vec3>>,
+    pub(crate) anchor_bones: Vec<Option<Entity>>,
 }
 
 /// Marker: this joint entity still needs its native Box3D joint created
@@ -382,7 +384,7 @@ pub(crate) fn spawn_colliders(
         // type, never the shape. Each part carries exactly one shape, so the
         // body frame IS the shape frame (shape-local transform is identity).
         let mut part_order = Vec::with_capacity(COLLIDERS.len());
-        let mut anchors = Vec::with_capacity(COLLIDERS.len());
+        let mut anchor_bones = Vec::with_capacity(COLLIDERS.len());
         for &collider in &COLLIDERS {
             let collider_slot = collider_index(collider);
             let joint_name = DEFAULT_RIG_COLLIDER_BONE_NAMES[collider_slot];
@@ -400,14 +402,17 @@ pub(crate) fn spawn_colliders(
             };
             // Seat at the bind pose.
             let part_world = character_world * collider_to_model;
-            // Anchor at the mapped bone's origin (bind pose): limbs pivot at
-            // their own bone start, chest at spine03, head at neck02. Pelvis
-            // has no joint.
-            let anchor = joint_anchor_bone(collider)
-                .and_then(|anchor_bone| joint_to_model_map.get(anchor_bone))
-                .map(|anchor_to_model| (character_world * *anchor_to_model).translation);
+            // Anchor bone entity (limbs pivot at their own bone start, chest
+            // at spine03, head at neck02, pelvis has no joint). The spawner
+            // reads its live transform, so joints land on the animated pose.
+            let anchor_bone = joint_anchor_bone(collider).and_then(|anchor_name| {
+                skeleton
+                    .bone_map
+                    .get(NAME_INTERNER.intern(anchor_name).leak())
+                    .copied()
+            });
             part_order.push(collider);
-            anchors.push(anchor);
+            anchor_bones.push(anchor_bone);
             let part_entity = commands
                 .spawn((
                     Name::new(format!("RagdollPart:{collider:?}")),
@@ -440,7 +445,7 @@ pub(crate) fn spawn_colliders(
         colliders.part_order = part_order;
         commands
             .entity(character_entity)
-            .insert(PendingJoints { anchors });
+            .insert(PendingJoints { anchor_bones });
         commands.entity(character_entity).remove::<NeedsColliders>();
         spawned_character_count += 1;
     }
@@ -454,6 +459,7 @@ pub(crate) fn spawn_joints(
     mut commands: Commands,
     mut characters: Query<(Entity, &mut CharacterColliders, &PendingJoints)>,
     bodies: Query<&bevy_boxddd::BoxdddBody>,
+    bone_transforms: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
     container: Option<Res<CharacterPhysicsContainer>>,
 ) {
     let Some(container) = container else {
@@ -480,11 +486,13 @@ pub(crate) fn spawn_joints(
                 continue; // Transient: part missing, skip this joint.
             };
             let Some(anchor) = pending
-                .anchors
+                .anchor_bones
                 .get(part_index)
-                .and_then(|seated_anchor| *seated_anchor)
+                .and_then(|anchor_bone| *anchor_bone)
+                .and_then(|anchor_entity| bone_transforms.get(anchor_entity).ok())
+                .map(|anchor_to_world| anchor_to_world.translation())
             else {
-                continue; // No anchor bone (pelvis root).
+                continue; // No anchor bone (pelvis root) or bone gone.
             };
             let joint_entity = commands
                 .spawn((
@@ -541,12 +549,11 @@ pub(crate) fn create_native_joints(
         ) else {
             continue; // Transient: a part body isn't created yet.
         };
-        // Both joint frames share the part's bind orientation, so the bind
-        // pose reads zero on each side.
-        let reference_rotation = part_transform.rotation;
+        // Each side's frame uses its own body's bind orientation, so the
+        // bind pose reads zero on each side.
         let (Some(part_local), Some(parent_local)) = (
-            local_frame_for(part_transform, anchor.anchor, reference_rotation),
-            local_frame_for(parent_transform, anchor.anchor, reference_rotation),
+            local_frame_for(part_transform, anchor.anchor, part_transform.rotation),
+            local_frame_for(parent_transform, anchor.anchor, parent_transform.rotation),
         ) else {
             continue; // Non-finite rotation; retry next frame.
         };
