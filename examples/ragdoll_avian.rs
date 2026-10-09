@@ -534,14 +534,14 @@ fn draw_swing_twist_shapes(
         parent_pose.transform_point(Vec3::ZERO),
         joint_color.with_alpha(0.5),
     );
-    // Cone axis: parent frame's local Y (the bake's twist axis) aimed at the
-    // child body, so the cone opens over the limb it guards.
+    // Cone axis: anchor → child center, so the cone opens over the limb it
+    // guards. (The old parent-Y axis runs down the shin at the ankle, which
+    // put the foot outside the drawn cone even though the real constraint
+    // holds it fine.)
     let child_center = child_pose.transform_point(Vec3::ZERO);
-    let mut cone_axis = parent_pose.rotation * Vec3::Y;
-    if cone_axis.dot(child_center - live_anchor) < 0.0 {
-        cone_axis = -cone_axis;
-    }
-    // Twist arrow along the child's live twist axis.
+    let cone_axis = (child_center - live_anchor)
+        .try_normalize()
+        .unwrap_or(parent_pose.rotation * Vec3::Y);
     let mut child_twist = child_pose.rotation * Vec3::Y;
     if child_twist.dot(child_center - live_anchor) < 0.0 {
         child_twist = -child_twist;
