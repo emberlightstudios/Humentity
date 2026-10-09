@@ -31,10 +31,10 @@ pub mod prelude {
         ColliderOffset, DisablePhysics, RagdollCollisionLayers, RagdollJointLimit,
         RagdollJointLimitOverrides, default_joint_limit, resolve_joint_limit,
     };
-    #[cfg(feature = "boxddd")]
-    pub use crate::physics::boxddd::{
+    #[cfg(feature = "jolt")]
+    pub use crate::physics::jolt::{
         BoneForCollider, CharacterColliders, CharacterRagdoll, ColliderForCharacter,
-        ColliderOffset, RagdollCollisionLayers, RagdollStateChanged,
+        ColliderOffset, RagdollCollisionLayers,
     };
     pub use crate::physics::{
         COLLIDERS, ColliderBone, HumentityRagdollSystemSet, RagdollDamping, RagdollDensity,
