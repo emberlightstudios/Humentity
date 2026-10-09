@@ -348,7 +348,7 @@ pub(crate) fn spawn_colliders(
                 panic!("collider bone {joint_name} missing from reference rig");
             };
             let (shape, collider_to_model) =
-                collider_shape(collider, helpers, &joint_to_model, collider_scale);
+                collider_shape(collider, helpers, collider_scale);
             let collider_to_joint = Transform::from_matrix(
                 joint_to_model.to_matrix().inverse() * collider_to_model.to_matrix(),
             );
@@ -611,13 +611,12 @@ pub struct CharacterPhysicsContainer(pub Entity);
 fn collider_shape(
     collider: ColliderBone,
     helpers: &[Vec3],
-    joint_to_model: &Transform,
     scale: f32,
 ) -> (RagdollShape, Transform) {
     match collider {
         ColliderBone::Head => head_shape(helpers, scale),
         ColliderBone::Chest | ColliderBone::Pelvis => {
-            midsection_shape(helpers, collider, joint_to_model.rotation.inverse(), scale)
+            midsection_shape(helpers, collider, scale)
         }
         ColliderBone::UpperRightArm
         | ColliderBone::UpperLeftArm
@@ -637,6 +636,8 @@ fn collider_shape(
 fn head_shape(helpers: &[Vec3], scale: f32) -> (RagdollShape, Transform) {
     let head_center = (helpers[HEAD_VERTICES[0]] + helpers[HEAD_VERTICES[1]]) * 0.5;
     let head_radius = (helpers[HEAD_VERTICES[0]] - head_center).length() * scale;
+    // Sphere needs no orientation, but the joint frame does: identity keeps
+    // local Y up the spine so the head cone opens along the neck.
     (
         RagdollShape::Sphere {
             radius: head_radius,
@@ -648,7 +649,6 @@ fn head_shape(helpers: &[Vec3], scale: f32) -> (RagdollShape, Transform) {
 fn midsection_shape(
     helpers: &[Vec3],
     joint: ColliderBone,
-    bind_rotation: Quat,
     scale: f32,
 ) -> (RagdollShape, Transform) {
     let ref_verts = match joint {
@@ -675,33 +675,22 @@ fn midsection_shape(
     let zmin = verts.iter().map(|vert| vert.z).reduce(f32::min).unwrap();
     let zmax = verts.iter().map(|vert| vert.z).reduce(f32::max).unwrap();
 
-    // Chest: explicit 90° flip about local X, swapping forward and up vs the
-    // inherited bind frame. The y/z extents swap with the axes so the box
-    // keeps its measured shape.
-    if joint == ColliderBone::Chest {
-        (
-            RagdollShape::Box {
-                half_extents: Vec3::new(
-                    (xmax - xmin) * scale * 0.5,
-                    (zmax - zmin) * scale * 0.5,
-                    (ymax - ymin) * scale * 0.5,
-                ),
-            },
-            Transform::from_translation(center)
-                .with_rotation(bind_rotation * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
-        )
-    } else {
-        (
-            RagdollShape::Box {
-                half_extents: Vec3::new(
-                    (xmax - xmin) * scale * 0.5,
-                    (ymax - ymin) * scale * 0.5,
-                    (zmax - zmin) * scale * 0.5,
-                ),
-            },
-            Transform::from_translation(center).with_rotation(bind_rotation),
-        )
-    }
+    // Spine-aligned frame: local Y runs up the spine toward the next collider
+    // in the chain (pelvis -> chest -> head), matching how limbs build Y
+    // along the limb. Identity rotation in model space, so the measured
+    // extents map straight onto local axes with no swaps or flips. This also
+    // fixes the joint frames: the bake derives twist (local Y) from these
+    // seated rotations, so chest/head cones now open along the spine.
+    (
+        RagdollShape::Box {
+            half_extents: Vec3::new(
+                (xmax - xmin) * scale * 0.5,
+                (ymax - ymin) * scale * 0.5,
+                (zmax - zmin) * scale * 0.5,
+            ),
+        },
+        Transform::from_translation(center),
+    )
 }
 
 fn limb_shape(helpers: &[Vec3], joint: ColliderBone, scale: f32) -> (RagdollShape, Transform) {
