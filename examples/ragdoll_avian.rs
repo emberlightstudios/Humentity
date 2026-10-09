@@ -294,18 +294,33 @@ fn dump_collider_states(
 /// Spherical joints also get a wireframe swing cone plus a twist-axis arrow,
 /// both in the *parent* side's live frame. Revolute joints get their axis
 /// arrow plus the min/max sweep arc.
+/// Draws one sphere per joint at the live constraint position, rendered on
+/// top of everything (`depth_bias: -1`). Revolute joints (elbows, knees)
+/// draw orange, spherical joints cyan, so a glance shows which constraint
+/// type guards each pivot. Mirrors the jolt example's `draw_joint_anchors`,
+/// adapted to avian joint components: the queries read `RevoluteJoint` and
+/// `SphericalJoint` directly, and limits come from `resolve_joint_limit`
+/// (same source the backend bakes from).
+///
+/// Before the flip there are no joint components yet (the backend spawns
+/// them in `set_ragdoll_state`), so the preview branch derives the same
+/// anchor the backend will bake — child bone origin, chest at the pelvis
+/// top-center — and draws the same shapes from the colliders' live frames.
+/// After the flip the joint branch below reads the real components.
 fn draw_joint_anchors(
     revolute_query: Query<(&RevoluteJoint, &Name)>,
     spherical_query: Query<(&SphericalJoint, &Name)>,
     collider_poses: Query<&Transform>,
-    mobility_overrides: Query<(
+    bone_worlds: Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
+    collider_shapes: Query<&Collider>,
+    preview_roots: Query<(
         &CharacterColliders,
         Option<&RagdollJointLimitOverrides>,
         Option<&RagdollMobility>,
     )>,
     mut gizmos: Gizmos,
 ) {
-    for (character_colliders, limit_overrides, mobility) in &mobility_overrides {
+    for (character_colliders, limit_overrides, mobility) in &preview_roots {
         let mobility_scale = mobility.map_or(1.0, |ragdoll_mobility| ragdoll_mobility.0);
         for (collider_bone, &child_collider) in character_colliders.collider_entities.iter() {
             let Some(parent_bone) = get_collider_parent(*collider_bone) else {
@@ -328,66 +343,129 @@ fn draw_joint_anchors(
             // Revolute joints guard elbows and knees; everything else is
             // spherical. The backend spawns exactly one of the two per bone,
             // so matching on the bone keeps the queries disjoint.
-            match collider_bone {
+            let hinge_bone = matches!(
+                collider_bone,
                 ColliderBone::LowerRightArm
-                | ColliderBone::LowerLeftArm
-                | ColliderBone::LowerRightLeg
-                | ColliderBone::LowerLeftLeg => {
-                    let Some((hinge_joint, _)) = revolute_query
-                        .iter()
-                        .find(|(revolute_joint, _)| revolute_joint.body2 == child_collider)
-                    else {
-                        // Joint not spawned yet (ragdoll off or mid-transition).
+                    | ColliderBone::LowerLeftArm
+                    | ColliderBone::LowerRightLeg
+                    | ColliderBone::LowerLeftLeg
+            );
+            if hinge_bone {
+                if let Some((hinge_joint, _)) = revolute_query
+                    .iter()
+                    .find(|(revolute_joint, _)| revolute_joint.body2 == child_collider)
+                {
+                    let live_anchor = joint_live_anchor(
+                        hinge_joint.frame1.anchor,
+                        hinge_joint.frame2.anchor,
+                        parent_pose,
+                        child_pose,
+                    );
+                    draw_hinge_shapes(
+                        &mut gizmos,
+                        live_anchor,
+                        child_pose,
+                        parent_pose,
+                        joint_limit.angle_min,
+                        joint_limit.angle_max,
+                    );
+                } else {
+                    // Joint not spawned yet (ragdoll off): preview the anchor
+                    // the backend will bake, in the colliders' live frames.
+                    let Some(preview_anchor) = preview_joint_anchor(
+                        *collider_bone,
+                        character_colliders,
+                        &bone_worlds,
+                        &collider_shapes,
+                        parent_pose,
+                    ) else {
                         continue;
                     };
-                    draw_hinge_gizmo(
+                    draw_hinge_shapes(
                         &mut gizmos,
-                        hinge_joint,
+                        preview_anchor,
                         child_pose,
                         parent_pose,
                         joint_limit.angle_min,
                         joint_limit.angle_max,
                     );
                 }
-                _ => {
-                    let Some((swing_twist_joint, _)) = spherical_query
-                        .iter()
-                        .find(|(spherical_joint, _)| spherical_joint.body2 == child_collider)
-                    else {
-                        // Joint not spawned yet (ragdoll off or mid-transition).
-                        continue;
-                    };
-                    draw_swing_twist_gizmo(
-                        &mut gizmos,
-                        swing_twist_joint,
-                        child_pose,
-                        parent_pose,
-                        joint_limit.swing,
-                    );
-                }
+            } else if let Some((swing_twist_joint, _)) = spherical_query
+                .iter()
+                .find(|(spherical_joint, _)| spherical_joint.body2 == child_collider)
+            {
+                let live_anchor = joint_live_anchor(
+                    swing_twist_joint.frame1.anchor,
+                    swing_twist_joint.frame2.anchor,
+                    parent_pose,
+                    child_pose,
+                );
+                draw_swing_twist_shapes(
+                    &mut gizmos,
+                    live_anchor,
+                    child_pose,
+                    parent_pose,
+                    joint_limit.swing,
+                );
+            } else {
+                // Joint not spawned yet (ragdoll off): preview the anchor the
+                // backend will bake, in the colliders' live frames.
+                let Some(preview_anchor) = preview_joint_anchor(
+                    *collider_bone,
+                    character_colliders,
+                    &bone_worlds,
+                    &collider_shapes,
+                    parent_pose,
+                ) else {
+                    continue;
+                };
+                draw_swing_twist_shapes(
+                    &mut gizmos,
+                    preview_anchor,
+                    child_pose,
+                    parent_pose,
+                    joint_limit.swing,
+                );
             }
         }
     }
 }
 
-/// Hinge branch of `draw_joint_anchors`: orange sphere at the live anchor,
+/// Anchor the backend will bake for this joint: the child bone's origin
+/// (anatomical pivot for limbs), except the chest which pivots at the waist
+/// (top-center of the parent pelvis collider). Mirrors `set_ragdoll_state`.
+fn preview_joint_anchor(
+    joint_bone: ColliderBone,
+    character_colliders: &CharacterColliders,
+    bone_worlds: &Query<&GlobalTransform, Allow<SkeletonLodDisabled>>,
+    collider_shapes: &Query<&Collider>,
+    parent_pose: &Transform,
+) -> Option<Vec3> {
+    if joint_bone == ColliderBone::Chest {
+        let parent_bone = get_collider_parent(joint_bone)?;
+        let &parent_collider = character_colliders.collider_entities.get(&parent_bone)?;
+        let parent_shape = collider_shapes.get(parent_collider).ok()?;
+        let half_up = parent_shape.shape().as_cuboid().map(|cuboid| cuboid.half_extents.y)?;
+        return Some(parent_pose.transform_point(Vec3::new(0.0, half_up, 0.0)));
+    }
+    let &child_bone_entity = character_colliders.bone_entities.get(&joint_bone)?;
+    let child_bone_world = bone_worlds.get(child_bone_entity).ok()?;
+    Some(child_bone_world.translation())
+}
+
+/// Hinge branch of `draw_joint_anchors`: orange sphere at the anchor,
 /// hinge-axis arrow, plus the allowed min/max sweep arc fanning out from the
 /// parent frame, with a white arrow for the child's current direction.
-fn draw_hinge_gizmo(
+fn draw_hinge_shapes(
     gizmos: &mut Gizmos,
-    hinge_joint: &RevoluteJoint,
+    joint_anchor: Vec3,
     child_pose: &Transform,
     parent_pose: &Transform,
     sweep_min: f32,
     sweep_max: f32,
 ) {
     let hinge_color = Color::srgb(1.0, 0.55, 0.1);
-    let live_anchor = joint_live_anchor(
-        hinge_joint.frame1.anchor,
-        hinge_joint.frame2.anchor,
-        parent_pose,
-        child_pose,
-    );
+    let live_anchor = joint_anchor;
     gizmos.sphere(Isometry3d::from_translation(live_anchor), 0.03, hinge_color);
     gizmos.line(
         live_anchor,
@@ -438,23 +516,18 @@ fn draw_hinge_gizmo(
     );
 }
 
-/// Swing-twist branch of `draw_joint_anchors`: cyan sphere at the live
-/// anchor, twist arrow along the child's live twist axis, plus a wireframe
-/// swing cone opening over the limb in the parent's live frame.
-fn draw_swing_twist_gizmo(
+/// Swing-twist branch of `draw_joint_anchors`: cyan sphere at the anchor,
+/// twist arrow along the child's live twist axis, plus a wireframe swing
+/// cone opening over the limb in the parent's live frame.
+fn draw_swing_twist_shapes(
     gizmos: &mut Gizmos,
-    swing_twist_joint: &SphericalJoint,
+    joint_anchor: Vec3,
     child_pose: &Transform,
     parent_pose: &Transform,
     swing_half_angle: f32,
 ) {
     let joint_color = Color::srgb(0.1, 0.9, 1.0);
-    let live_anchor = joint_live_anchor(
-        swing_twist_joint.frame1.anchor,
-        swing_twist_joint.frame2.anchor,
-        parent_pose,
-        child_pose,
-    );
+    let live_anchor = joint_anchor;
     gizmos.sphere(Isometry3d::from_translation(live_anchor), 0.03, joint_color);
     gizmos.line(
         live_anchor,
