@@ -404,11 +404,7 @@ pub(crate) fn fitted_model_space_bindposes(
             );
         }
     }
-    fit_default_rig_single_toes(
-        &rig.reference_rig().rig_name,
-        &rig.reference_rig().bone_parents,
-        &mut model_space,
-    );
+    fit_default_rig_single_toes(&rig.reference_rig().rig_name, &mut model_space);
     model_space
 }
 
@@ -476,47 +472,39 @@ mod default_rig_toe_average_tests {
 
     use super::*;
 
-    fn toe_test_pose() -> (
-        AHashMap<&'static str, String>,
-        AHashMap<&'static str, Transform>,
-    ) {
-        let bone_parents: AHashMap<&'static str, String> = [
-            ("foot.L", "lowerleg02.L".to_string()),
-            ("toe1-1.L", "foot.L".to_string()),
-            ("toe1-2.L", "toe1-1.L".to_string()),
-            ("toe2-1.L", "foot.L".to_string()),
-        ]
-        .into_iter()
-        .collect();
-        let model_space: AHashMap<&'static str, Transform> = [
-            ("foot.L", Vec3::ZERO),
-            ("toe1-1.L", Vec3::ZERO),
-            ("toe1-2.L", Vec3::new(0.0, 0.0, 2.0)),
-            ("toe2-1.L", Vec3::new(3.0, 0.0, 0.0)),
+    fn toe_test_pose() -> AHashMap<&'static str, Transform> {
+        [
+            ("toe1-1.L", Vec3::new(0.1, 0.2, 0.3)),
+            ("toe1-1.R", Vec3::new(-0.1, 0.2, 0.3)),
         ]
         .into_iter()
         .map(|(toe_bone_name, toe_position)| {
             (toe_bone_name, Transform::from_translation(toe_position))
         })
-        .collect();
-        (bone_parents, model_space)
+        .collect()
     }
 
     #[test]
-    fn kept_toe_moves_to_average_toe_position() {
-        let (bone_parents, mut model_space) = toe_test_pose();
-        fit_default_rig_single_toes("default", &bone_parents, &mut model_space);
-        let kept_toe_translation = model_space["toe1-1.L"].translation;
-        assert!(
-            (kept_toe_translation - Vec3::new(1.0, 0.0, 2.0 / 3.0)).length() < 1e-6,
-            "kept toe must sit at the toe centroid, got {kept_toe_translation:?}"
+    fn kept_toe_position_never_moves() {
+        let mut model_space = toe_test_pose();
+        fit_default_rig_single_toes("default", &mut model_space);
+        // The rig config already plants the kept toe on the big-toe joint;
+        // centroid averaging used to drag it ~3cm sideways. Position is exact
+        // and must survive the fit untouched.
+        assert_eq!(
+            model_space["toe1-1.L"].translation,
+            Vec3::new(0.1, 0.2, 0.3)
+        );
+        assert_eq!(
+            model_space["toe1-1.R"].translation,
+            Vec3::new(-0.1, 0.2, 0.3)
         );
     }
 
     #[test]
     fn kept_toe_rest_roll_matches_no_toes_bind_pose() {
-        let (bone_parents, mut model_space) = toe_test_pose();
-        fit_default_rig_single_toes("default", &bone_parents, &mut model_space);
+        let mut model_space = toe_test_pose();
+        fit_default_rig_single_toes("default", &mut model_space);
         // Identity rest rotated by the fix must equal the measured no-toes
         // bind-pose twist (xyzw), not identity: the full-toes reference roll
         // would otherwise twist the skinned toe mesh in every pose.
@@ -530,18 +518,19 @@ mod default_rig_toe_average_tests {
     }
 
     #[test]
-    fn other_rigs_keep_original_toe_positions() {
-        let (bone_parents, mut model_space) = toe_test_pose();
-        fit_default_rig_single_toes("mixamo", &bone_parents, &mut model_space);
-        assert_eq!(model_space["toe1-1.L"].translation, Vec3::ZERO);
-        assert_eq!(model_space["toe1-1.L"].rotation, Quat::IDENTITY);
+    fn other_rigs_keep_original_toe_pose() {
+        let mut model_space = toe_test_pose();
+        fit_default_rig_single_toes("mixamo", &mut model_space);
+        assert_eq!(
+            model_space["toe1-1.L"],
+            Transform::from_translation(Vec3::new(0.1, 0.2, 0.3))
+        );
     }
 
     #[test]
     fn missing_toe_bones_skip_without_panic() {
-        let (bone_parents, _) = toe_test_pose();
         let mut model_space: AHashMap<&'static str, Transform> = AHashMap::default();
-        fit_default_rig_single_toes("default", &bone_parents, &mut model_space);
+        fit_default_rig_single_toes("default", &mut model_space);
         assert!(model_space.is_empty());
     }
 }

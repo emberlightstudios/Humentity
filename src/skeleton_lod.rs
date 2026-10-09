@@ -98,12 +98,13 @@ pub fn all_children_of(
 }
 
 /// Default-rig single-toe fit ([`BoneMergeConfig::merge_default_rig_toes`]):
-/// move each kept toe bone (`toe1-1.L` / `toe1-1.R`) to the average
-/// model-space position of every toe on its foot, so the single replacement
-/// toe sits in the middle of the toes it absorbed instead of on the big toe,
-/// and untwist its rest rotation to the no-toes Blender bind pose.
-/// Co-located with the merge config it compensates: the LOD merge folds toe
-/// weights into the kept toe, and this recenters that toe on the absorbed mass.
+/// untwist each kept toe bone (`toe1-1.L` / `toe1-1.R`) to the no-toes
+/// Blender bind pose. Position is already exact: the rig config plants the
+/// kept toe on the big-toe joint (`joint-l-toe-1-1`), which is where MPFB's
+/// no-toes rig keeps its single toe — so this never moves it. (Centroid
+/// averaging was tried here and shifted the toe ~3cm sideways across the
+/// forefoot; the absorbed toes' skin weights still fold into the kept toe,
+/// so mesh coverage never depended on the bone position.)
 ///
 /// The rotation half matters more than it looks. Our reference rig
 /// (`skeletons/default.glb`, full toes) disagrees with the no-toes animation
@@ -120,7 +121,6 @@ pub fn all_children_of(
 /// are untouched, and missing bones are skipped without panicking.
 pub(crate) fn fit_default_rig_single_toes(
     rig_name: &str,
-    bone_parents: &AHashMap<&'static str, String>,
     model_space: &mut AHashMap<&'static str, Transform>,
 ) {
     /// Measured local-frame twist from the full-toes reference bindpose to the
@@ -130,24 +130,12 @@ pub(crate) fn fit_default_rig_single_toes(
     if rig_name != "default" {
         return;
     }
-    for (foot_bone_name, kept_toe_bone_name, toe_roll_fix) in [
-        ("foot.L", "toe1-1.L", LEFT_TOE_ROLL_FIX),
-        ("foot.R", "toe1-1.R", RIGHT_TOE_ROLL_FIX),
+    for (kept_toe_bone_name, toe_roll_fix) in [
+        ("toe1-1.L", LEFT_TOE_ROLL_FIX),
+        ("toe1-1.R", RIGHT_TOE_ROLL_FIX),
     ] {
-        let mut toe_position_sum = Vec3::ZERO;
-        let mut toe_bone_count = 0u32;
-        for descendant_bone in all_children_of(bone_parents, foot_bone_name) {
-            if let Some(descendant_pose) = model_space.get(descendant_bone) {
-                toe_position_sum += descendant_pose.translation;
-                toe_bone_count += 1;
-            }
-        }
-        if toe_bone_count == 0 {
-            continue;
-        }
         let kept_toe_leaked: &'static str = NAME_INTERNER.intern(kept_toe_bone_name).leak();
         if let Some(kept_toe_pose) = model_space.get_mut(kept_toe_leaked) {
-            kept_toe_pose.translation = toe_position_sum / toe_bone_count as f32;
             kept_toe_pose.rotation =
                 (kept_toe_pose.rotation * Quat::from_array(toe_roll_fix)).normalize();
         }
