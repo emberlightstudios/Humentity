@@ -42,6 +42,12 @@ use crate::{
 pub struct RagdollCollisionLayers {
     pub membership: u16,
     pub collides_with_mask: u32,
+    /// Team parts join while simulated (`CharacterRagdoll::Full`). `None`
+    /// (default) keeps parts on `membership` in both modes. Set it when the
+    /// follow team must stay quiet (e.g. crowd capsules that skip the
+    /// heightmap) but simulated bodies still need the world: the flip moves
+    /// every part body across, with no velocity change.
+    pub simulated_membership: Option<u16>,
 }
 
 impl RagdollCollisionLayers {
@@ -49,7 +55,14 @@ impl RagdollCollisionLayers {
         Self {
             membership,
             collides_with_mask,
+            simulated_membership: None,
         }
+    }
+
+    /// Team simulated parts collide on; see `simulated_membership`.
+    pub const fn with_simulated_membership(mut self, simulated_membership: u16) -> Self {
+        self.simulated_membership = Some(simulated_membership);
+        self
     }
 }
 
@@ -551,23 +564,33 @@ pub(crate) fn spawn_colliders(
 /// Flips ragdoll motion without respawning: `Full` simulates (dynamic),
 /// anything else rides the bones (kinematic hitboxes).
 pub(crate) fn set_ragdoll_state(
-    characters: Query<(Entity, &CharacterRagdoll, &CharacterColliders), Changed<CharacterRagdoll>>,
+    characters: Query<(
+        Entity,
+        &CharacterRagdoll,
+        &CharacterColliders,
+        Option<&RagdollCollisionLayers>,
+    ), Changed<CharacterRagdoll>>,
     handles: Query<&bevy_jolt::JoltRagdollHandle>,
     ragdoll_parts: Query<&bevy_jolt::JoltRagdollParts>,
     mut commands: Commands,
     mut physics_world: ResMut<bevy_jolt::JoltPhysicsWorld>,
 ) {
-    for (character_entity, ragdoll, colliders) in characters.iter() {
+    for (character_entity, ragdoll, colliders, collision_layers) in characters.iter() {
         let Some(spec_entity) = colliders.ragdoll_entity else {
             continue; // Transient: spec still baking, retry next flip.
         };
         let Ok(handle) = handles.get(spec_entity) else {
             continue; // Transient: bake observer hasn't run yet.
         };
+        let follow_team = collision_layers.map_or(0, |layers| layers.membership);
+        let simulated_team = collision_layers
+            .and_then(|layers| layers.simulated_membership)
+            .unwrap_or(follow_team);
         let world = &mut *physics_world;
         match ragdoll {
             CharacterRagdoll::Full => {
-                // Simulate: drop targets so nothing drives the bodies.
+                // Simulate: drop targets so nothing drives the bodies, and
+                // join the simulated team so bodies meet the world.
                 if let Ok(baked) = ragdoll_parts.get(spec_entity) {
                     for &part_entity in &baked.part_entities {
                         commands
@@ -575,10 +598,13 @@ pub(crate) fn set_ragdoll_state(
                             .remove::<bevy_jolt::JoltKinematicTarget>();
                     }
                 }
+                world.ragdoll_set_layer(handle.id(), simulated_team);
                 world.ragdoll_set_motion(handle.id(), bevy_jolt::JoltMotion::Dynamic);
             }
-            // Kinematic follow (hitbox mode): bodies ride the bones.
+            // Kinematic follow (hitbox mode): bodies ride the bones on the
+            // quiet follow team.
             _ => {
+                world.ragdoll_set_layer(handle.id(), follow_team);
                 world.ragdoll_set_motion(handle.id(), bevy_jolt::JoltMotion::Kinematic);
             }
         }
