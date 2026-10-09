@@ -19,7 +19,7 @@ fn main() {
 
     app.add_plugins((
         JoltPlugin::new().with_collision_layers(collision_layers),
-        JoltDebugPlugin,
+        //JoltDebugPlugin,
     ))
     .add_systems(Startup, (floor, spawn_ui, joint_gizmos_on_top))
     .add_systems(
@@ -278,17 +278,33 @@ fn draw_joint_anchors(
                 .transform_point3(match part_spec.joint {
                     RagdollJoint::Hinge { anchor, .. } => anchor,
                     RagdollJoint::SwingTwist { anchor, .. } => anchor,
+                    RagdollJoint::SwingTwistFramed { anchor, .. } => anchor,
                 });
             let live_anchor = child_pose.transform_point(anchor_bind_local);
             let child_live_rotation = child_pose.rotation();
             let parent_live_rotation = parent_pose.rotation();
             let parent_spec = &ragdoll_spec.parts[parent_index];
             // Live joint frames mirror the bake: each side's frame is its own
-            // seated rotation carrying body-local axes (twist = Y, plane = X
-            // for swing-twist; hinge about Z). The live pose rotation stands
-            // in for the seated one, so these arrows track the bodies.
-            let parent_twist_axis = parent_live_rotation * Vec3::Y;
-            let parent_plane_axis = parent_live_rotation * Vec3::X;
+            // seated rotation carrying the joint's local axes (framed joints
+            // carry explicit axes; plain swing-twist uses Y/X, hinges use Z).
+            // The live pose rotation stands in for the seated one, so these
+            // arrows track the bodies.
+            let (parent_twist_local, parent_plane_local) = match part_spec.joint {
+                RagdollJoint::SwingTwistFramed {
+                    parent_twist,
+                    parent_plane,
+                    ..
+                } => (parent_twist, parent_plane),
+                _ => (Vec3::Y, Vec3::X),
+            };
+            let parent_twist_axis = parent_live_rotation * parent_twist_local;
+            let parent_plane_axis = parent_live_rotation * parent_plane_local;
+            let child_twist_local = match part_spec.joint {
+                RagdollJoint::SwingTwistFramed {
+                    child_twist, ..
+                } => child_twist,
+                _ => Vec3::Y,
+            };
             let _ = parent_spec;
             match part_spec.joint {
                 RagdollJoint::Hinge { min, max, .. } => {
@@ -349,6 +365,11 @@ fn draw_joint_anchors(
                     normal_half_cone,
                     plane_half_cone,
                     ..
+                }
+                | RagdollJoint::SwingTwistFramed {
+                    normal_half_cone,
+                    plane_half_cone,
+                    ..
                 } => {
                     let joint_color = Color::srgb(0.1, 0.9, 1.0);
                     gizmos.sphere(Isometry3d::from_translation(live_anchor), 0.03, joint_color);
@@ -365,7 +386,7 @@ fn draw_joint_anchors(
                         cone_axis = -cone_axis;
                     }
                     // Twist arrow along the child's live twist axis.
-                    let mut child_twist = child_live_rotation * Vec3::Y;
+                    let mut child_twist = child_live_rotation * child_twist_local;
                     if child_twist.dot(child_center - live_anchor) < 0.0 {
                         child_twist = -child_twist;
                     }
@@ -375,20 +396,22 @@ fn draw_joint_anchors(
                         Color::WHITE,
                     );
                     // Elliptical rim: clean orthonormal frame off the cone
-                    // axis, semi-axes from each half-cone angle.
+                    // axis, semi-axes from each half-cone angle. Sized by slant
+                    // (anchor → rim stays `cone_length`), so wide cones read
+                    // as wider fans, not enormous funnels.
                     let cone_length = 0.2;
-                    let rim_center = live_anchor + cone_axis * cone_length;
+                    let rim_center = live_anchor + cone_axis * cone_length * normal_half_cone.cos();
                     let rim_u = (parent_plane_axis - cone_axis * parent_plane_axis.dot(cone_axis))
                         .normalize_or_zero();
                     let rim_v = cone_axis.cross(rim_u).normalize_or_zero();
                     let rim_steps = 24;
                     let mut previous_point =
-                        rim_center + rim_u * (normal_half_cone.tan() * cone_length);
+                        rim_center + rim_u * (normal_half_cone.sin() * cone_length);
                     for step in 0..=rim_steps {
                         let angle = step as f32 / rim_steps as f32 * std::f32::consts::TAU;
                         let rim_point = rim_center
-                            + rim_u * (angle.cos() * normal_half_cone.tan() * cone_length)
-                            + rim_v * (angle.sin() * plane_half_cone.tan() * cone_length);
+                            + rim_u * (angle.cos() * normal_half_cone.sin() * cone_length)
+                            + rim_v * (angle.sin() * plane_half_cone.sin() * cone_length);
                         gizmos.line(previous_point, rim_point, joint_color);
                         // Spokes at the four cardinal points tie rim to apex.
                         if step % (rim_steps / 4) == 0 {

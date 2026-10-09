@@ -195,6 +195,91 @@ pub(crate) const fn joint_anchor_bone(bone: ColliderBone) -> Option<&'static str
     }
 }
 
+/// Ankle frames: the cone must open between toes-forward and toes-down, not
+/// along the shin or the foot box's measured Y. Toes-forward is one end of
+/// the ankle's swing range and toes-down the other, so the twist axis bisects
+/// the foot's long axis and the plantar direction (down the shin); the seated
+/// pose still reads zero, but now sits mid-cone instead of at its edge. The
+/// plane axis is the shin direction stripped of any twist-parallel part, so
+/// the pair stays orthonormal in each side's seated local frame (`character`
+/// prefixes keep the names off the shader-import scan list).
+fn ankle_joint_for(
+    character_anchor: Vec3,
+    character_parent_seated: Quat,
+    character_child_seated: Quat,
+    character_foot_world: Vec3,
+    character_shin_world: Vec3,
+) -> RagdollJoint {
+    let limit = joint_limit(ColliderBone::LeftFoot);
+    let character_axis_in_frame = |character_seated: Quat,
+                                   character_world_axis: Vec3,
+                                   character_fallback: Vec3| {
+        (character_seated.inverse() * character_world_axis)
+            .try_normalize()
+            .unwrap_or(character_fallback)
+    };
+    let character_foot_long =
+        character_foot_world.try_normalize().unwrap_or(Vec3::NEG_Y);
+    let character_shin_up = character_shin_world.try_normalize().unwrap_or(Vec3::Y);
+    // Bisector of toes-forward and toes-down (-shin runs down the leg, the
+    // direction the toes point at full plantarflexion).
+    let character_cone_center_world = (character_foot_long - character_shin_up)
+        .try_normalize()
+        .unwrap_or(character_foot_long);
+    // Strip the twist-parallel part out of the plane axis in world space
+    // (unit vectors there) before carrying it into the seated local frame.
+    let character_plane_world = |character_twist_world: Vec3| {
+        character_shin_world - character_twist_world * character_shin_world.dot(character_twist_world)
+    };
+    let character_parent_twist =
+        character_axis_in_frame(character_parent_seated, character_cone_center_world, Vec3::Y);
+    let character_parent_plane = character_axis_in_frame(
+        character_parent_seated,
+        character_plane_world(character_cone_center_world),
+        Vec3::X,
+    );
+    let character_child_twist =
+        character_axis_in_frame(character_child_seated, character_cone_center_world, Vec3::Y);
+    let character_child_plane = character_axis_in_frame(
+        character_child_seated,
+        character_plane_world(character_cone_center_world),
+        Vec3::X,
+    );
+    RagdollJoint::SwingTwistFramed {
+        anchor: character_anchor,
+        parent_twist: character_parent_twist,
+        parent_plane: character_parent_plane,
+        child_twist: character_child_twist,
+        child_plane: character_child_plane,
+        normal_half_cone: limit.swing,
+        plane_half_cone: limit.swing,
+        twist_min: -limit.twist,
+        twist_max: limit.twist,
+    }
+}
+
+/// Toe tip in model space: midpoint of the two foot-helper verts furthest
+/// forward (+Z), so the ankle cone aims down the actual foot.
+fn foot_toe_model(helpers: &[Vec3], foot_collider: ColliderBone) -> Vec3 {
+    let foot_verts = match foot_collider {
+        ColliderBone::LeftFoot => LEFT_FOOT_VERTICES,
+        ColliderBone::RightFoot => RIGHT_FOOT_VERTICES,
+        _ => unreachable!("toe tip only fits feet"),
+    };
+    let mut first_toe_vert = Vec3::ZERO;
+    let mut second_toe_vert = Vec3::ZERO;
+    for &helper_index in &foot_verts {
+        let helper_position = helpers[helper_index];
+        if helper_position.z > first_toe_vert.z {
+            second_toe_vert = first_toe_vert;
+            first_toe_vert = helper_position;
+        } else if helper_position.z > second_toe_vert.z {
+            second_toe_vert = helper_position;
+        }
+    }
+    (first_toe_vert + second_toe_vert) * 0.5
+}
+
 fn ragdoll_joint_for(bone: ColliderBone, anchor: Vec3) -> RagdollJoint {
     let limit = joint_limit(bone);
     match bone {
@@ -371,12 +456,42 @@ pub(crate) fn spawn_colliders(
             part_index_of.insert(collider, parts.len());
             part_order.push(collider);
             offsets.push(offset);
+            // Ankles aim the cone down the foot (ankle → toe) instead of the
+            // shin/foot-box Y: measure both directions at the bind pose.
+            let joint = match collider {
+                ColliderBone::LeftFoot | ColliderBone::RightFoot => {
+                    let character_foot_world = character_world.rotation
+                        * (foot_toe_model(helpers, collider) - joint_to_model.translation);
+                    let character_shin_world = parent_part
+                        .and_then(|character_parent_index| {
+                            parts.get(character_parent_index)
+                        })
+                        .map(|character_parent_part| {
+                            character_parent_part.part_rotation * Vec3::Y
+                        })
+                        .unwrap_or(character_world.rotation * Vec3::Y);
+                    let character_parent_seated = parent_part
+                        .and_then(|character_parent_index| {
+                            parts.get(character_parent_index)
+                        })
+                        .map(|character_parent_part| character_parent_part.part_rotation)
+                        .unwrap_or(character_world.rotation);
+                    ankle_joint_for(
+                        anchor,
+                        character_parent_seated,
+                        part_world.rotation,
+                        character_foot_world,
+                        character_shin_world,
+                    )
+                }
+                _ => ragdoll_joint_for(collider, anchor),
+            };
             parts.push(bevy_jolt::RagdollPart {
                 shape,
                 part_position: part_world.translation,
                 part_rotation: part_world.rotation,
                 parent_part,
-                joint: ragdoll_joint_for(collider, anchor),
+                joint,
             });
         }
         let spec_id = commands

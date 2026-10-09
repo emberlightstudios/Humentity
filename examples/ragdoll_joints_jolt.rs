@@ -601,6 +601,7 @@ fn joint_anchor(
     Some(match part.joint {
         RagdollJoint::Hinge { anchor, .. } => anchor,
         RagdollJoint::SwingTwist { anchor, .. } => anchor,
+        RagdollJoint::SwingTwistFramed { anchor, .. } => anchor,
     })
 }
 
