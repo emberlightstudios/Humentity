@@ -176,14 +176,40 @@ pub(crate) fn bone_translation_correction(
 ) -> Option<(f32, Quat)> {
     let reference_local = reference_rig.local_bindpose.get(bone_name)?;
     let fitted_local = local_from_model_space(bone_name, parent_name, fitted_model_space)?;
-    let reference_length = reference_local.translation.length();
+    let leaked_parent: &'static str = NAME_INTERNER.intern(parent_name).leak();
+    // The kept single toes are the one bone whose clips were authored in a
+    // different bindpose than the reference rig: walk-clip toe tracks live in
+    // the no-toes `movement.glb` frame. Lengths are frame-free scalars; the
+    // segment is measured in the bind-pose model frame the fit works in
+    // (helper/model space, above the facing flip — never negated, never the
+    // bone-local). A local vector here reads a phantom ~111° twist and throws
+    // toes behind the foot; the const names say which frame each is in.
+    const NO_TOES_TOE_LOCAL_LEN: f32 = 0.1381916;
+    const NO_TOES_TOE_MODEL_SEGMENT: Vec3 = Vec3::new(0.0002, -0.0654, 0.1218);
+    let (reference_length, translation_direction_adjust) = match bone_name {
+        "toe1-1.L" | "toe1-1.R" => (
+            NO_TOES_TOE_LOCAL_LEN,
+            parent_space_direction_fix_for_segment(
+                NO_TOES_TOE_MODEL_SEGMENT,
+                bone_name,
+                leaked_parent,
+                fitted_model_space,
+            ),
+        ),
+        _ => (
+            reference_local.translation.length(),
+            parent_space_direction_fix(
+                reference_rig,
+                fitted_model_space,
+                bone_name,
+                leaked_parent,
+            ),
+        ),
+    };
     if reference_length < 1e-3 {
         return Some((1.0, Quat::IDENTITY));
     }
     let translation_length_ratio = fitted_local.translation.length() / reference_length;
-    let leaked_parent: &'static str = NAME_INTERNER.intern(parent_name).leak();
-    let translation_direction_adjust =
-        parent_space_direction_fix(reference_rig, fitted_model_space, bone_name, leaked_parent);
     Some((translation_length_ratio, translation_direction_adjust))
 }
 
@@ -259,15 +285,37 @@ pub(crate) fn parent_space_direction_fix(
     bone_name: &'static str,
     parent_name: &'static str,
 ) -> Quat {
-    let (Some(reference_bone), Some(reference_parent), Some(fitted_bone), Some(fitted_parent)) = (
+    let (Some(reference_bone), Some(reference_parent)) = (
         reference_rig.model_space_bindpose.get(bone_name),
         reference_rig.model_space_bindpose.get(parent_name),
+    ) else {
+        return Quat::IDENTITY;
+    };
+    parent_space_direction_fix_for_segment(
+        reference_bone.translation - reference_parent.translation,
+        bone_name,
+        parent_name,
+        fitted_model_space,
+    )
+}
+
+/// Same fix from an explicit model-frame reference segment. The kept toes use
+/// this with the no-toes bindpose segment the clips were authored in; it must
+/// be the bind-pose model frame the fit works in (never the bone-local: the
+/// arc is measured in model space, so a local vector reads a phantom ~111°
+/// twist and throws toes behind the foot).
+fn parent_space_direction_fix_for_segment(
+    reference_segment: Vec3,
+    bone_name: &'static str,
+    parent_name: &'static str,
+    fitted_model_space: &AHashMap<&'static str, Transform>,
+) -> Quat {
+    let (Some(fitted_bone), Some(fitted_parent)) = (
         fitted_model_space.get(bone_name),
         fitted_model_space.get(parent_name),
     ) else {
         return Quat::IDENTITY;
     };
-    let reference_segment = reference_bone.translation - reference_parent.translation;
     let fitted_segment = fitted_bone.translation - fitted_parent.translation;
     if reference_segment.length_squared() < 1e-12 || fitted_segment.length_squared() < 1e-12 {
         return Quat::IDENTITY;
@@ -334,5 +382,80 @@ pub(crate) fn rescale_dynamic_retargeting(
                 * bone_transform.translation
                 * translation_correction.translation_length_ratio;
         }
+    }
+}
+
+#[cfg(test)]
+mod kept_toe_correction_tests {
+    use super::*;
+    use crate::loaders::ReferenceRigAsset;
+
+    /// The kept toe corrects against the no-toes clip frame in the skeleton's
+    /// game frame. Fixture uses the real bind-pose numbers: same shape at 3x
+    /// scale, so the fitted toe sits where the reference toe sits, longer.
+    /// A clip translation down the clip toe axis must come back along the
+    /// fitted toe — forward of the foot, on its axis, at fitted length.
+    #[test]
+    fn kept_toe_translation_stays_forward_on_its_axis() {
+        // Real bind-pose numbers: skeleton foot model rotation straight from
+        // `skeletons/default.glb`, same shape at 3x scale. The foot is really
+        // rotated here — an identity foot puts the skeleton-local vector into
+        // a model slot and reads a phantom twist (that mistake failed twice).
+        let fitted_foot_rotation =
+            Quat::from_array([0.84357, -0.02196, -0.0354, 0.5354]).normalize();
+        let fitted_toe_local = Vec3::new(-0.0314, 0.1472, -0.0052).normalize() * 0.4517;
+        let fitted_foot = Transform {
+            translation: Vec3::ZERO,
+            rotation: fitted_foot_rotation,
+            scale: Vec3::ONE,
+        };
+        let fitted_toe = Transform {
+            translation: fitted_foot_rotation * fitted_toe_local,
+            rotation: Quat::IDENTITY,
+            scale: Vec3::ONE,
+        };
+        let reference_rig = ReferenceRigAsset {
+            bone_names: vec!["foot.L", "toe1-1.L"],
+            bone_parents: AHashMap::from_iter([
+                ("foot.L", "lowerleg02.L".to_string()),
+                ("toe1-1.L", "foot.L".to_string()),
+            ]),
+            local_bindpose: AHashMap::from_iter([(
+                "toe1-1.L",
+                Transform::from_translation(Vec3::new(-0.0314, 0.1472, -0.0052)),
+            )]),
+            model_space_bindpose: AHashMap::from_iter([
+                ("foot.L", Transform::IDENTITY),
+                (
+                    "toe1-1.L",
+                    Transform::from_translation(Vec3::new(-0.0314, 0.1472, -0.0052)),
+                ),
+            ]),
+            bone_name_to_index: AHashMap::default(),
+            rig_name: "default".to_string(),
+        };
+        let fitted_model_space: AHashMap<&'static str, Transform> =
+            AHashMap::from_iter([("foot.L", fitted_foot), ("toe1-1.L", fitted_toe)]);
+        let Some((translation_length_ratio, translation_direction_adjust)) =
+            bone_translation_correction(&reference_rig, "foot.L", "toe1-1.L", &fitted_model_space)
+        else {
+            panic!("kept toe must produce a correction");
+        };
+        assert!(
+            (translation_length_ratio - 0.4517 / 0.1381916).abs() < 0.01,
+            "ratio must rescale the clip frame to the fitted toe, got {translation_length_ratio:.4}"
+        );
+        let walk_clip_toe = Vec3::new(0.0, 0.1382, 0.0);
+        let corrected = translation_direction_adjust * walk_clip_toe * translation_length_ratio;
+        let sideways = Vec3::new(
+            corrected.x - fitted_toe_local.x,
+            0.0,
+            corrected.z - fitted_toe_local.z,
+        )
+        .length();
+        assert!(
+            sideways < 0.1,
+            "corrected toe must stay near the fitted toe axis, got sideways {sideways:.4} in {corrected:?}"
+        );
     }
 }
