@@ -221,7 +221,7 @@ pub(crate) fn build_final_meshes_mhclo(
             .filter_map(|m| m.as_mut())
             .collect::<Vec<_>>();
         fix_normals_multiple(&mut tmp_mesh_vec);
-        for (mesh_shape, fitted) in template.shapes.iter().zip(mesh_shapes.into_iter()) {
+        for (mesh_shape, fitted) in template.shapes.iter().zip(mesh_shapes) {
             shape_meshes.insert((i_mesh, mesh_shape.name), fitted);
         }
     }

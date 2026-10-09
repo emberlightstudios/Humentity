@@ -11,10 +11,7 @@ use crate::{
 use ahash::AHashMap;
 use avian3d::prelude::*;
 use bevy::ecs::intern::Internable;
-use bevy::{
-    math::{Quat, Vec3},
-    prelude::*,
-};
+use bevy::{math::{Quat, Vec3}};
 
 /// Collision layers for ragdoll/hitbox colliders on this character.
 ///

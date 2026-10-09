@@ -43,7 +43,7 @@
 //! needs the shape's corrections before its clip can load: this example
 //! derives them from `CharacterShapeAsset` + `CharacterTemplate` (baked deltas)
 //! + `BaseMesh` + `RigData` + `VertexGroups`, retrying until the core assets
-//! are ready and the template deltas are baked.
+//!   are ready and the template deltas are baked.
 //!
 //! Important notes:
 //!  - AnimationTargetId matching requires you to leave the base object name as its
@@ -229,7 +229,7 @@ fn add_humans(
         animations.dynamic_clip =
             Some(asset_server.load(GltfAssetLabel::Animation(0).from_asset("animation/idle.glb")));
     }
-    animations.baked_shape = Some(baked_shape_handle.clone());
+    animations.baked_shape = Some(baked_shape_handle);
 
     *done = true;
     info!("Babies created");

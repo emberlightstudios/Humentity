@@ -108,7 +108,7 @@ fn bake_shape_clips_from_document(
     shape_corrections: &ShapeBakedCorrections,
     bone_corrections: &AHashMap<&str, &BakedBoneCorrection>,
     asset_label: &str,
-) -> Result<AHashMap<&'static str, AnimationClip>, std::io::Error> {
+) -> AHashMap<&'static str, AnimationClip> {
     let mut baked_clips = AHashMap::default();
     for animation in document.animations() {
         let Some(clip_name) = animation.name() else {
@@ -259,7 +259,7 @@ fn bake_shape_clips_from_document(
         let leaked_name: &'static str = NAME_INTERNER.intern(clip_name).leak();
         baked_clips.insert(leaked_name, clip);
     }
-    Ok(baked_clips)
+    baked_clips
 }
 
 fn bake_root_translation(
@@ -359,7 +359,7 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
                 shape_corrections,
                 &bone_corrections,
                 &asset_label,
-            )?;
+            );
             for (clip_name, clip) in baked_clips {
                 // Bevy IDs a labeled sub-asset from file path plus label only,
                 // so filing under the plain clip name would share an ID with

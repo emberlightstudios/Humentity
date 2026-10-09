@@ -45,6 +45,10 @@ name = "ragdoll_jolt"
 required-features = ["jolt"]
 
 [[example]]
+name = "ragdoll_joints_jolt"
+required-features = ["jolt"]
+
+[[example]]
 name = "ragdoll_boxddd"
 required-features = ["boxddd"]
 

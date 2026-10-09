@@ -36,7 +36,7 @@ impl CharacterShapeAsset {
         })
     }
 
-    pub fn new(template: Handle<CharacterTemplate>, morphs: MorphTargets) -> Self {
+    pub const fn new(template: Handle<CharacterTemplate>, morphs: MorphTargets) -> Self {
         Self {
             template,
             template_morph_targets: morphs,

@@ -118,48 +118,6 @@ fn sample_clip_frames(
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn translation_clip(times: &[f32]) -> AnimationClip {
-        let mut clip = AnimationClip::default();
-        let target = AnimationTargetId::from_name(&Name::new("bone"));
-        clip.add_curve_to_target(
-            target,
-            AnimatableCurve::new(
-                animated_field!(Transform::translation),
-                AnimatableKeyframeCurve::new(
-                    times
-                        .iter()
-                        .enumerate()
-                        .map(|(i, t)| (*t, Vec3::new(0.0, i as f32, 0.0))),
-                )
-                .unwrap(),
-            ),
-        );
-        clip
-    }
-
-    /// The wrap blend `frame(nf-1) -> frame(0)` must span the true loop
-    /// endpoints. With exclusive sampling the last frame sits a full step
-    /// before `duration`, so a clip whose only motion is at the end key
-    /// never appears in the bake and the seam jumps.
-    #[test]
-    fn baked_last_frame_samples_duration_endpoint() {
-        let clip = translation_clip(&[0.0, 2.0]);
-        let bones = ["bone"];
-        let targets = [AnimationTargetId::from_name(&Name::new("bone"))];
-        let binds = [Transform::IDENTITY];
-        let frames = sample_clip_frames(&clip, 2.0, &bones, &targets, &binds, 30.0);
-        assert_eq!(frames.len() / bones.len(), 60);
-        let last = frames.last().unwrap().to_scale_rotation_translation().2;
-        assert!(
-            (last.y - 1.0).abs() < 1e-4,
-            "last baked frame must hold the duration endpoint, got {last:?}"
-        );
-    }
-}
 /// First pass: uploads static buffers + frame-0 bindpose seed, creates the
 /// bank, and seeds per-instance state. Clip loads are manual via
 /// [`GpuAnimationBank::request_load_handle`](super::bank::GpuAnimationBank::request_load_handle).
@@ -772,4 +730,47 @@ fn pose_uniform_bytes(
         words[196 + i] = modes[i];
     }
     bytemuck::cast(words)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn translation_clip(times: &[f32]) -> AnimationClip {
+        let mut clip = AnimationClip::default();
+        let target = AnimationTargetId::from_name(&Name::new("bone"));
+        clip.add_curve_to_target(
+            target,
+            AnimatableCurve::new(
+                animated_field!(Transform::translation),
+                AnimatableKeyframeCurve::new(
+                    times
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| (*t, Vec3::new(0.0, i as f32, 0.0))),
+                )
+                .unwrap(),
+            ),
+        );
+        clip
+    }
+
+    /// The wrap blend `frame(nf-1) -> frame(0)` must span the true loop
+    /// endpoints. With exclusive sampling the last frame sits a full step
+    /// before `duration`, so a clip whose only motion is at the end key
+    /// never appears in the bake and the seam jumps.
+    #[test]
+    fn baked_last_frame_samples_duration_endpoint() {
+        let clip = translation_clip(&[0.0, 2.0]);
+        let bones = ["bone"];
+        let targets = [AnimationTargetId::from_name(&Name::new("bone"))];
+        let binds = [Transform::IDENTITY];
+        let frames = sample_clip_frames(&clip, 2.0, &bones, &targets, &binds, 30.0);
+        assert_eq!(frames.len() / bones.len(), 60);
+        let last = frames.last().unwrap().to_scale_rotation_translation().2;
+        assert!(
+            (last.y - 1.0).abs() < 1e-4,
+            "last baked frame must hold the duration endpoint, got {last:?}"
+        );
+    }
 }

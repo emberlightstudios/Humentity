@@ -80,7 +80,7 @@ pub fn setup_app_gpu(instances: usize, sample_rate: f32, framing: CameraFraming)
                 }),
                 ..default()
             }),
-        HumentityPlugin::default(),
+        HumentityPlugin,
         HumentityGpuPlugin {
             instances,
             sample_rate,

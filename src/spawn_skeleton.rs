@@ -491,11 +491,7 @@ pub(crate) fn sync_skeleton_lod_subtrees(
                 let present_in_all = (0..config_count)
                     .filter(|&m| active[m])
                     .all(|m| config.0[m].without_children_of.iter().any(|r| r == anchor));
-                if present_in_all
-                    && !effective_anchors
-                        .iter()
-                        .any(|&known_anchor| known_anchor == anchor.as_str())
-                {
+                if present_in_all && !effective_anchors.contains(&anchor.as_str()) {
                     effective_anchors.push(anchor);
                 }
             }
@@ -506,11 +502,7 @@ pub(crate) fn sync_skeleton_lod_subtrees(
                         .iter()
                         .any(|other_merge| other_merge == kept_merge)
                 });
-                if present_in_all
-                    && !effective_kept_merges
-                        .iter()
-                        .any(|&known_kept_merge| known_kept_merge == kept_merge)
-                {
+                if present_in_all && !effective_kept_merges.contains(&kept_merge) {
                     effective_kept_merges.push(kept_merge);
                 }
             }
@@ -523,9 +515,7 @@ pub(crate) fn sync_skeleton_lod_subtrees(
         for &kept_merge in &effective_kept_merges {
             let parent_bone_name = NAME_INTERNER.intern(&kept_merge.parent_bone_name).leak();
             let swallowed_by_anchor = effective_anchors.iter().any(|&anchor| {
-                all_children_of(bone_parents, anchor)
-                    .iter()
-                    .any(|&descendant_bone| descendant_bone == parent_bone_name)
+                all_children_of(bone_parents, anchor).contains(&parent_bone_name)
             });
             if swallowed_by_anchor {
                 continue;
