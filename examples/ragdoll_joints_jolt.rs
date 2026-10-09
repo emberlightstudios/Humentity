@@ -568,10 +568,11 @@ fn draw_joint_gizmos(
     let Ok(part_pose) = part_transforms.get(part_entity) else {
         return;
     };
+    let selected_joint = joint_spec(&colliders, &ragdoll_specs, &selected);
     let axis_direction = match selected.drive_axis {
         RagdollDriveAxis::Hinge => part_pose.rotation * Vec3::Z,
-        RagdollDriveAxis::Twist => part_pose.rotation * Vec3::Y,
-        RagdollDriveAxis::Swing => part_pose.rotation * Vec3::X,
+        RagdollDriveAxis::Twist => part_pose.rotation * twist_local(selected_joint),
+        RagdollDriveAxis::Swing => part_pose.rotation * plane_local(selected_joint),
     };
     // True joint anchor from the baked spec (bind-pose joint origin), not the
     // body center: e.g. chest pivots at the spine, mid-chest is just where
@@ -585,7 +586,39 @@ fn draw_joint_gizmos(
     );
 }
 
-/// Baked anchor of the selected joint, in world space.
+/// Baked joint spec of the selected joint, if the spec is baked.
+fn joint_spec(
+    colliders: &CharacterColliders,
+    ragdoll_specs: &Query<&JoltRagdoll>,
+    selected: &JointAxis,
+) -> Option<RagdollJoint> {
+    let spec_entity = colliders.ragdoll_entity?;
+    let spec = ragdoll_specs.get(spec_entity).ok()?;
+    let part_index = colliders
+        .part_order
+        .iter()
+        .position(|&joint_bone| joint_bone == selected.joint_bone)?;
+    spec.parts.get(part_index).map(|part| part.joint)
+}
+
+/// Twist axis in the child's seated local frame (framed joints carry their
+/// own; plain swing-twist uses Y).
+fn twist_local(selected_joint: Option<RagdollJoint>) -> Vec3 {
+    match selected_joint {
+        Some(RagdollJoint::SwingTwistFramed { child_twist, .. }) => child_twist,
+        _ => Vec3::Y,
+    }
+}
+
+/// Plane axis in the child's seated local frame (framed joints carry their
+/// own; plain swing-twist uses X).
+fn plane_local(selected_joint: Option<RagdollJoint>) -> Vec3 {
+    match selected_joint {
+        Some(RagdollJoint::SwingTwistFramed { child_plane, .. }) => child_plane,
+        _ => Vec3::X,
+    }
+}
+
 fn joint_anchor(
     colliders: &CharacterColliders,
     ragdoll_specs: &Query<&JoltRagdoll>,

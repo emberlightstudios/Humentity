@@ -19,7 +19,7 @@ fn main() {
 
     app.add_plugins((
         JoltPlugin::new().with_collision_layers(collision_layers),
-        //JoltDebugPlugin,
+        JoltDebugPlugin,
     ))
     .add_systems(Startup, (floor, spawn_ui, joint_gizmos_on_top))
     .add_systems(
@@ -33,6 +33,7 @@ fn main() {
             draw_joint_anchors,
         ),
     )
+    .add_observer(nudge_on_ragdoll_full)
     .run();
 }
 
@@ -114,23 +115,19 @@ fn add_human(
 
 fn toggle(
     input: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
     mut character: Query<(
         Entity,
         &mut CharacterRagdoll,
-        &mut CharacterColliders,
         &mut AnimationPlayer,
         Option<&AnimationController>,
     )>,
-    mut collider_data: Query<&mut JoltLinearVelocity>,
     mut commands: Commands,
 ) {
     if !input.just_pressed(KeyCode::Space) {
         return;
     }
 
-    let Ok((entity, mut ragdoll, colliders, mut player, controller)) = character.single_mut()
-    else {
+    let Ok((entity, mut ragdoll, mut player, controller)) = character.single_mut() else {
         return;
     };
 
@@ -148,30 +145,46 @@ fn toggle(
             player.play(clip_index).repeat();
         }
         _ => {
-            // Toggle ragdoll on
+            // Toggle ragdoll on; the observer nudges bodies once dynamic.
             *ragdoll = CharacterRagdoll::Full;
 
             // Stop animation so it doesn't compete with physics
             player.stop(clip_index);
-
-            // Give each collider a small nudge so the collapse is interesting.
-            // Varies with time so each activation is unique.
-            for (bone, &collider_entity) in colliders.collider_entities.iter() {
-                if let Ok(mut velocity) = collider_data.get_mut(collider_entity) {
-                    let bone_index = *bone as usize;
-                    let elapsed = time.elapsed_secs();
-                    let seed = (elapsed * 100.0).floor() / 100.0;
-                    let hash = ((bone_index as f32 + seed) * 0x9e3779b9u32 as f32).sin();
-                    let dir = Vec3::new(
-                        ((hash * 43_758.547).fract() - 0.5) * 2.0,
-                        ((hash * 27_118.313).fract()) * 0.5,
-                        ((hash * 30_903.55).fract() - 0.5) * 2.0,
-                    )
-                    .normalize_or_zero();
-                    velocity.linear_velocity += dir * 2.0;
-                }
-            }
         }
+    }
+}
+
+/// Nudges every part when the backend finishes flipping to full simulation.
+/// Runs as an observer on [`RagdollStateChanged`], after the native bodies
+/// are dynamic — so the impulse lands instead of being discarded. Triggers
+/// [`JoltImpulse`] per part (ragdoll parts carry no velocity component, so
+/// writing one would miss every body).
+fn nudge_on_ragdoll_full(
+    trigger: On<RagdollStateChanged>,
+    time: Res<Time>,
+    characters: Query<&CharacterColliders>,
+    mut commands: Commands,
+) {
+    let changed = trigger.event();
+    if !matches!(changed.state, CharacterRagdoll::Full) {
+        return;
+    }
+    let Ok(colliders) = characters.get(changed.character) else {
+        return;
+    };
+    // Varies with time so each activation is unique.
+    let elapsed = time.elapsed_secs();
+    let seed = (elapsed * 100.0).floor() / 100.0;
+    for (bone, &collider_entity) in colliders.collider_entities.iter() {
+        let bone_index = *bone as usize;
+        let hash = ((bone_index as f32 + seed) * 0x9e3779b9u32 as f32).sin();
+        let dir = Vec3::new(
+            ((hash * 43_758.547).fract() - 0.5) * 2.0,
+            ((hash * 27_118.313).fract()) * 0.5,
+            ((hash * 30_903.55).fract() - 0.5) * 2.0,
+        )
+        .normalize_or_zero();
+        commands.trigger(JoltImpulse::linear(collider_entity, dir * 10.0));
     }
 }
 

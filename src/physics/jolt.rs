@@ -62,6 +62,16 @@ pub enum CharacterRagdoll {
     Full,
 }
 
+/// Fired from [`set_ragdoll_state`](crate::physics::jolt::set_ragdoll_state)
+/// after the native bodies have switched, so observers (e.g. the entry
+/// impulse) land on bodies already in their new state. Same shape as the
+/// boxddd backend's event.
+#[derive(Event, Debug, Clone)]
+pub struct RagdollStateChanged {
+    pub character: Entity,
+    pub state: CharacterRagdoll,
+}
+
 /// Bone ↔ baked-part mapping, built at spawn and filled when the spec bakes.
 #[derive(Component, Default)]
 pub struct CharacterColliders {
@@ -151,7 +161,7 @@ const fn joint_limit(bone: ColliderBone) -> JointLimit {
             angle_max: 0.0,
         },
         ColliderBone::UpperRightLeg | ColliderBone::UpperLeftLeg => JointLimit {
-            swing: 1.5,
+            swing: 1.22,
             twist: 0.3,
             angle_min: 0.0,
             angle_max: 0.0,
@@ -195,22 +205,24 @@ pub(crate) const fn joint_anchor_bone(bone: ColliderBone) -> Option<&'static str
     }
 }
 
-/// Ankle frames: the cone must open between toes-forward and toes-down, not
-/// along the shin or the foot box's measured Y. Toes-forward is one end of
-/// the ankle's swing range and toes-down the other, so the twist axis bisects
-/// the foot's long axis and the plantar direction (down the shin); the seated
-/// pose still reads zero, but now sits mid-cone instead of at its edge. The
-/// plane axis is the shin direction stripped of any twist-parallel part, so
-/// the pair stays orthonormal in each side's seated local frame (`character`
-/// prefixes keep the names off the shader-import scan list).
-fn ankle_joint_for(
+/// Limb frames for joints where neither body's long axis is the anatomical
+/// axis: the cone opens along an explicit center direction (in world at the
+/// bind pose), and the plane axis is a reference direction stripped of any
+/// twist-parallel part, so the pair stays orthonormal in each side's seated
+/// local frame. Both ankles and shoulders use this: the ankle bisects
+/// toes-forward and toes-down, the shoulder points down the arm. Hips keep
+/// the default body-Y frame (leg and spine near-parallel, cone already opens
+/// down the leg). (`character` prefixes keep the names off the
+/// shader-import scan list.)
+fn framed_limb_joint_for(
+    character_limb: ColliderBone,
     character_anchor: Vec3,
     character_parent_seated: Quat,
     character_child_seated: Quat,
-    character_foot_world: Vec3,
-    character_shin_world: Vec3,
+    character_cone_center_world: Vec3,
+    character_plane_reference_world: Vec3,
 ) -> RagdollJoint {
-    let limit = joint_limit(ColliderBone::LeftFoot);
+    let limit = joint_limit(character_limb);
     let character_axis_in_frame = |character_seated: Quat,
                                    character_world_axis: Vec3,
                                    character_fallback: Vec3| {
@@ -218,33 +230,21 @@ fn ankle_joint_for(
             .try_normalize()
             .unwrap_or(character_fallback)
     };
-    let character_foot_long =
-        character_foot_world.try_normalize().unwrap_or(Vec3::NEG_Y);
-    let character_shin_up = character_shin_world.try_normalize().unwrap_or(Vec3::Y);
-    // Bisector of toes-forward and toes-down (-shin runs down the leg, the
-    // direction the toes point at full plantarflexion).
-    let character_cone_center_world = (character_foot_long - character_shin_up)
+    let character_center_long = character_cone_center_world
         .try_normalize()
-        .unwrap_or(character_foot_long);
+        .unwrap_or(Vec3::NEG_Y);
     // Strip the twist-parallel part out of the plane axis in world space
     // (unit vectors there) before carrying it into the seated local frame.
-    let character_plane_world = |character_twist_world: Vec3| {
-        character_shin_world - character_twist_world * character_shin_world.dot(character_twist_world)
-    };
+    let character_plane_world = character_plane_reference_world
+        - character_center_long * character_plane_reference_world.dot(character_center_long);
     let character_parent_twist =
-        character_axis_in_frame(character_parent_seated, character_cone_center_world, Vec3::Y);
-    let character_parent_plane = character_axis_in_frame(
-        character_parent_seated,
-        character_plane_world(character_cone_center_world),
-        Vec3::X,
-    );
+        character_axis_in_frame(character_parent_seated, character_center_long, Vec3::Y);
+    let character_parent_plane =
+        character_axis_in_frame(character_parent_seated, character_plane_world, Vec3::X);
     let character_child_twist =
-        character_axis_in_frame(character_child_seated, character_cone_center_world, Vec3::Y);
-    let character_child_plane = character_axis_in_frame(
-        character_child_seated,
-        character_plane_world(character_cone_center_world),
-        Vec3::X,
-    );
+        character_axis_in_frame(character_child_seated, character_center_long, Vec3::Y);
+    let character_child_plane =
+        character_axis_in_frame(character_child_seated, character_plane_world, Vec3::X);
     RagdollJoint::SwingTwistFramed {
         anchor: character_anchor,
         parent_twist: character_parent_twist,
@@ -256,6 +256,17 @@ fn ankle_joint_for(
         twist_min: -limit.twist,
         twist_max: limit.twist,
     }
+}
+
+/// Ankle cone center: bisector of toes-forward and toes-down (`-shin` runs
+/// down the leg, the direction the toes point at full plantarflexion). The
+/// seated pose still reads zero, but now sits mid-cone instead of at its edge.
+fn ankle_cone_center_world(character_foot_world: Vec3, character_shin_world: Vec3) -> Vec3 {
+    let character_foot_long = character_foot_world.try_normalize().unwrap_or(Vec3::NEG_Y);
+    let character_shin_up = character_shin_world.try_normalize().unwrap_or(Vec3::Y);
+    (character_foot_long - character_shin_up)
+        .try_normalize()
+        .unwrap_or(character_foot_long)
 }
 
 /// Toe tip in model space: midpoint of the two foot-helper verts furthest
@@ -456,8 +467,13 @@ pub(crate) fn spawn_colliders(
             part_index_of.insert(collider, parts.len());
             part_order.push(collider);
             offsets.push(offset);
-            // Ankles aim the cone down the foot (ankle → toe) instead of the
-            // shin/foot-box Y: measure both directions at the bind pose.
+            // Framed joints aim the cone along the anatomical axis instead of
+            // body-local Y: ankles bisect toes-forward/toes-down, shoulders
+            // point down the arm (laterally outward, not down like the hips).
+            let character_parent_seated = parent_part
+                .and_then(|character_parent_index| parts.get(character_parent_index))
+                .map(|character_parent_part| character_parent_part.part_rotation)
+                .unwrap_or(character_world.rotation);
             let joint = match collider {
                 ColliderBone::LeftFoot | ColliderBone::RightFoot => {
                     let character_foot_world = character_world.rotation
@@ -470,18 +486,32 @@ pub(crate) fn spawn_colliders(
                             character_parent_part.part_rotation * Vec3::Y
                         })
                         .unwrap_or(character_world.rotation * Vec3::Y);
-                    let character_parent_seated = parent_part
-                        .and_then(|character_parent_index| {
-                            parts.get(character_parent_index)
-                        })
-                        .map(|character_parent_part| character_parent_part.part_rotation)
-                        .unwrap_or(character_world.rotation);
-                    ankle_joint_for(
+                    framed_limb_joint_for(
+                        collider,
                         anchor,
                         character_parent_seated,
                         part_world.rotation,
-                        character_foot_world,
+                        ankle_cone_center_world(character_foot_world, character_shin_world),
                         character_shin_world,
+                    )
+                }
+                ColliderBone::UpperLeftArm | ColliderBone::UpperRightArm => {
+                    // Straight out sideways in world: down the arm with the
+                    // vertical stripped out, so the cone opens horizontally
+                    // (arms rest ~37° off vertical at the bind pose, but the
+                    // socket's mid-range points laterally outward).
+                    let character_arm_world = part_world.rotation * Vec3::Y;
+                    let character_outward_world = (character_arm_world
+                        - Vec3::Y * character_arm_world.dot(Vec3::Y))
+                    .try_normalize()
+                    .unwrap_or(character_arm_world);
+                    framed_limb_joint_for(
+                        collider,
+                        anchor,
+                        character_parent_seated,
+                        part_world.rotation,
+                        character_outward_world,
+                        character_world.rotation * Vec3::Y,
                     )
                 }
                 _ => ragdoll_joint_for(collider, anchor),
@@ -521,13 +551,13 @@ pub(crate) fn spawn_colliders(
 /// Flips ragdoll motion without respawning: `Full` simulates (dynamic),
 /// anything else rides the bones (kinematic hitboxes).
 pub(crate) fn set_ragdoll_state(
-    characters: Query<(&CharacterRagdoll, &CharacterColliders), Changed<CharacterRagdoll>>,
+    characters: Query<(Entity, &CharacterRagdoll, &CharacterColliders), Changed<CharacterRagdoll>>,
     handles: Query<&bevy_jolt::JoltRagdollHandle>,
     ragdoll_parts: Query<&bevy_jolt::JoltRagdollParts>,
     mut commands: Commands,
     mut physics_world: ResMut<bevy_jolt::JoltPhysicsWorld>,
 ) {
-    for (ragdoll, colliders) in characters.iter() {
+    for (character_entity, ragdoll, colliders) in characters.iter() {
         let Some(spec_entity) = colliders.ragdoll_entity else {
             continue; // Transient: spec still baking, retry next flip.
         };
@@ -552,6 +582,10 @@ pub(crate) fn set_ragdoll_state(
                 world.ragdoll_set_motion(handle.id(), bevy_jolt::JoltMotion::Kinematic);
             }
         }
+        commands.trigger(RagdollStateChanged {
+            character: character_entity,
+            state: ragdoll.clone(),
+        });
     }
 }
 
