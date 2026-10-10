@@ -56,7 +56,6 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
         "targets",
         "rigs/rig.default.json",
         "rigs/weights.default.json",
-        "skeletons/default.glb",
     );
 }
 
@@ -153,7 +152,7 @@ fn attach_mesh(
 
 1. **Configure** — Insert a `SkeletonLodConfig` resource with up to `MAX_LODS` (4) `BoneMergeConfig` entries. Each entry defines one LOD level by naming which bone subtrees to remove and merge into their parents (`without_children_of`), or into one surviving child bone so posing still works through it (`merge_into_kept_bone`, e.g. `merge_default_rig_toes` for the default rig). Upload once before the rig build and never change it afterwards — a post-build change panics, because mesh weights are baked from the build-time config. Every `CharacterPart.skeleton_lod`, `MeshBuildLod::Cpu(lod)`, and `SkeletonLodState` level must name a built LOD; out-of-range indices panic instead of silently clamping.
 
-2. **Load** — Call `load_and_insert_humentity_assets` to load the MakeHuman basemesh, vertex groups, morph targets, rig config, and reference rig as ECS resources. Gate the rest on `HumentityAssetsReady`.
+2. **Load** — Call `load_and_insert_humentity_assets` to load the MakeHuman basemesh, vertex groups, morph targets, rig config, and rig weights. The reference skeleton hierarchy and bind poses are built from the rig JSON and helper vertices. MPFB roll angles are converted from Blender's Z-up frame to the MakeHuman model's Y-up frame; no reference skeleton GLB is required. Gate the rest on `HumentityAssetsReady`.
 
 3. **Morph** — Create a `CharacterTemplate` with one or more `CharacterMorphShape` entries. Each shape maps named MakeHuman morphs to float weights. The template system bakes hundreds of underlying MakeHuman shape keys into a compact set of morph targets.
 
@@ -254,10 +253,19 @@ anims.set_target(i, &[walk_weight, strafe_weight]);
 The GPU mesh keeps its morph targets, so per-entity `MeshMorphWeights` work through the GPU vertex shader. Skeletons need the same treatment: fit one `GpuShapeSkeleton` per template shape (`fit_shape_skeleton` / `fit_shape_skeleton_from_helpers`), register it on `GpuCrowdShapes` (slot `i` = `shapes[i]`, slice `i + 1` on the GPU, slice 0 is always reference), and drive matching per-instance weights plus a root-scale correction:
 
 ```rust
-shapes.register(fit_shape_skeleton_from_helpers("baby", &helpers, &bank.bones, &rig, &vg));
+shapes.register(fit_shape_skeleton_from_helpers(
+    "baby",
+    &helpers,
+    &bank.bones,
+    &rig,
+    &vg,
+    lod_config.skeleton_merge_config(),
+));
 anims.set_shape_weights(index, &[bodybuilder_w, baby_w]);
 anims.set_root_scale(index, scale);
 ```
+
+`merge_config` is the crowd's `SkeletonLodConfig` entry — index it with `GpuSkeletonLod`, or pass `lod_config.skeleton_merge_config()` for the same shared-skeleton rule the CPU fit uses. It decides the kept-toe frame: a config that merges each foot's toes into one bone follows the no-toes clip frame (bind rotation and toe translation), while a full config keeps the reference pose for every toe bone.
 
 `gpu_morphs.rs` (baby / bodybuilder / hybrids sharing one mesh) is the reference. Keep the entity morph-weight order and the shape registration order the same or the skeleton won't match the mesh.
 

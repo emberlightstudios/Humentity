@@ -20,7 +20,7 @@ pub use obj_verts::{
     ObjVertsAsset, ObjVertsAssetLoader, ObjVertsSettings, VertexGroupsAsset,
     VertexGroupsAssetLoader,
 };
-pub use reference_rig::{ReferenceRigAsset, ReferenceRigAssetLoader};
+pub use reference_rig::ReferenceRigAsset;
 pub use rig_config::{BoneJsonConfig, BoneTransformSpec, RigConfigAsset, RigConfigAssetLoader};
 pub use rig_weights::{RigWeightsAsset, RigWeightsAssetLoader};
 pub use rotation_only_animation::{

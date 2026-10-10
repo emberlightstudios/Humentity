@@ -4,7 +4,10 @@ use crate::{
     helpers::{RefitCharacter, TeardownCharacter},
     prelude::*,
     rigs::{BuiltRigs, RigBundleRes, RigData, SkeletonRootBone},
-    skeleton_lod::{MAX_LODS, MergeIntoKeptBone, SkeletonLodConfig, all_children_of},
+    skeleton_lod::{
+        MAX_LODS, MergeIntoKeptBone, SkeletonLodConfig, all_children_of,
+        skeleton_merge_config_for,
+    },
 };
 use ahash::{AHashMap, AHashSet};
 use bevy::{
@@ -181,6 +184,7 @@ pub(crate) fn fit_skeleton_to_shape(
     >,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
+    lod_config: Option<Res<SkeletonLodConfig>>,
 ) {
     for (entity, character_shape, animation_player, skeleton, scale) in characters.iter_mut() {
         let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
@@ -242,8 +246,12 @@ pub(crate) fn fit_skeleton_to_shape(
         }
 
         // Re-fit skeleton to mesh shape (shared with the GPU shape fit).
-        let model_space_bindposes =
-            crate::rigs::fitted_model_space_bindposes(&helpers, rig_spec, &vg);
+        let model_space_bindposes = crate::rigs::fitted_model_space_bindposes(
+            &helpers,
+            rig_spec,
+            &vg,
+            skeleton_merge_config_for(lod_config.as_deref()),
+        );
 
         let bone_config = &rig_spec.config;
 
@@ -302,6 +310,7 @@ pub(crate) fn fit_skeleton_to_shape(
                     &bone_config_entry.parent,
                     bone_name,
                     &model_space_bindposes,
+                    skeleton_merge_config_for(lod_config.as_deref()),
                 )
             else {
                 continue;
@@ -737,6 +746,7 @@ pub(crate) fn on_reset_to_bind_pose(
     >,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
+    lod_config: Option<Res<SkeletonLodConfig>>,
 ) {
     let character = trigger.event().0;
     let Ok((character_shape, skeleton)) = characters.get(character) else {
@@ -761,8 +771,12 @@ pub(crate) fn on_reset_to_bind_pose(
     let Some(rig_spec) = rig_data.0.as_ref() else {
         return;
     };
-    let model_space_bindposes =
-        crate::rigs::fitted_model_space_bindposes(&blended_helpers, rig_spec, &vg);
+    let model_space_bindposes = crate::rigs::fitted_model_space_bindposes(
+        &blended_helpers,
+        rig_spec,
+        &vg,
+        skeleton_merge_config_for(lod_config.as_deref()),
+    );
     let bone_config = &rig_spec.config;
     for &bone in &rig_spec.reference_rig.bone_names {
         let Some(bone_data) = bone_config.bones.get(bone) else {

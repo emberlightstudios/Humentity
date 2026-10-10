@@ -20,14 +20,20 @@ use humentity::prelude::*;
 
 /// Default skeleton LOD configurations.
 ///
-/// LOD 0: Merge toes into a single toe bone per foot.
+/// LOD 0: Full default rig (with toes)
 /// LOD 1: Remove face,
 /// LOD 2: Remove hands, fingers, feet
 pub fn default_skeleton_lods() -> Vec<BoneMergeConfig> {
     // Merge toe bones into a single posable toe per foot
-    let lod0 = BoneMergeConfig::full().merge_default_rig_toes();
+    let lod0 = BoneMergeConfig::full();
+        // if you author clips on the default rig with toes (like idle.glb), then don't use the below fn.
+        // if you used the no toes rig, then you will want to call this fn.
+        //.merge_default_rig_toes();
 
-    let lod1 = lod0.clone().without_children_of(&["head"]);
+    let lod1 = lod0.clone()
+        .without_children_of(&["foot.L"])
+        .without_children_of(&["foot.R"])
+        .without_children_of(&["head"]);
 
     let lod2 = lod1.clone().without_children_of(&[
         "lowerarm02.L",
@@ -110,7 +116,6 @@ fn load_core_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
         "targets",
         "rigs/rig.default.json",
         "rigs/weights.default.json",
-        "skeletons/default.glb",
     );
 }
 
@@ -187,7 +192,6 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
         "targets",
         "rigs/rig.default.json",
         "rigs/weights.default.json",
-        "skeletons/default.glb",
     );
 }
 

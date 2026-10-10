@@ -122,6 +122,7 @@ fn fit_shape_skeletons(
     vertex_groups: Res<VertexGroups>,
     mut shapes: ResMut<GpuCrowdShapes>,
     asset_server: Res<AssetServer>,
+    lod_config: Res<SkeletonLodConfig>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -155,8 +156,14 @@ fn fit_shape_skeletons(
     for shape in template.shapes.iter() {
         let helpers =
             template.blend_helpers(&single_shape_weights(shape.name), &base_mesh.vertices);
-        let fitted =
-            fit_shape_skeleton_from_helpers(shape.name, &helpers, &bank.bones, rig, &vertex_groups);
+        let fitted = fit_shape_skeleton_from_helpers(
+            shape.name,
+            &helpers,
+            &bank.bones,
+            rig,
+            &vertex_groups,
+            lod_config.skeleton_merge_config(),
+        );
         shapes.register(fitted);
     }
     *done = true;

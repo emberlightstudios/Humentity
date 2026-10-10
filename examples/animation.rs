@@ -247,6 +247,7 @@ fn load_baked_clip(
     shape_assets: Res<Assets<CharacterShapeAsset>>,
     rig_data: Option<Res<RigData>>,
     vertex_groups: Option<Res<VertexGroups>>,
+    lod_config: Option<Res<SkeletonLodConfig>>,
     animations: Option<ResMut<ShowcaseAnimations>>,
 ) {
     let Some(mut animations) = animations else {
@@ -275,6 +276,7 @@ fn load_baked_clip(
         &basemesh_vertices,
         rig_spec,
         &vertex_groups,
+        skeleton_merge_config_for(lod_config.as_deref()),
     ) else {
         return;
     };

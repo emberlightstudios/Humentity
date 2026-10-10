@@ -70,6 +70,22 @@ impl BoneMergeConfig {
         self.merge_into_kept_bone("foot.L", "toe1-1.L")
             .merge_into_kept_bone("foot.R", "toe1-1.R")
     }
+
+    /// Whether a `merge_into_kept_bone` entry keeps exactly `bone_name` as the
+    /// single surviving bone of its merged subtree.
+    pub fn keeps_merged_bone(&self, bone_name: &str) -> bool {
+        self.merge_into_kept_bone
+            .iter()
+            .any(|merge_entry| merge_entry.kept_bone_name == bone_name)
+    }
+
+    /// Whether this config keeps a single toe per foot via the default-rig toe
+    /// merge ([`Self::merge_default_rig_toes`]). Kept-toe bind poses follow the
+    /// no-toes clip frame only for these configs; full (unmerged) configs keep
+    /// the reference frame built from the rig JSON, separate toe bones and all.
+    pub fn merges_default_rig_toes(&self) -> bool {
+        self.keeps_merged_bone("toe1-1.L") || self.keeps_merged_bone("toe1-1.R")
+    }
 }
 
 /// Returns all descendant bones of `parent_bone` (BFS through bone_parents).
@@ -106,21 +122,25 @@ pub fn all_children_of(
 /// forefoot; the absorbed toes' skin weights still fold into the kept toe,
 /// so mesh coverage never depended on the bone position.)
 ///
-/// The rotation half matters more than it looks. Our reference rig
-/// (`skeletons/default.glb`, full toes) disagrees with the no-toes animation
-/// rig (`movement.glb`, the one the walk clips play on) by a ~110-degree twist
+/// The rotation half matters more than it looks. The full-toe reference pose
+/// built from `rig.default.json` disagrees with the no-toes animation rig
+/// (`movement.glb`, the one the walk clips play on) by a ~110-degree twist
 /// about the toe's own length axis. Clips overwrite local rotations, but the
 /// skinned mesh multiplies by the inverse bindpose built from this rest pose,
 /// so a wrong rest roll twists the toe mesh in every pose. The constants below
-/// are that measured twist (local-frame, per side). If `skeletons/default.glb`
-/// is ever re-exported from the fixed Blender rig, re-measure: if the two
-/// bind poses agree again, delete the correction.
+/// are that measured twist (local-frame, per side); keep them until the
+/// no-toes animation source has a matching rig JSON definition.
 ///
 /// Runs inside `fitted_model_space_bindposes`, so the CPU fit, the
-/// reset-to-bind-pose observer, and the GPU shape fit all agree. Other rigs
-/// are untouched, and missing bones are skipped without panicking.
+/// reset-to-bind-pose observer, and the GPU shape fit all agree. The untwist
+/// is keyed on `merge_config`: it applies only to toe bones a
+/// `merge_into_kept_bone` entry actually keeps, so a full (unmerged) config —
+/// separate toe bones, full-toe clips — keeps the reference rotation for every
+/// bone. Other rigs are untouched, and missing bones are skipped without
+/// panicking.
 pub(crate) fn fit_default_rig_single_toes(
     rig_name: &str,
+    merge_config: &BoneMergeConfig,
     model_space: &mut AHashMap<&'static str, Transform>,
 ) {
     /// Measured local-frame twist from the full-toes reference bindpose to the
@@ -134,6 +154,9 @@ pub(crate) fn fit_default_rig_single_toes(
         ("toe1-1.L", LEFT_TOE_ROLL_FIX),
         ("toe1-1.R", RIGHT_TOE_ROLL_FIX),
     ] {
+        if !merge_config.keeps_merged_bone(kept_toe_bone_name) {
+            continue;
+        }
         let kept_toe_leaked: &'static str = NAME_INTERNER.intern(kept_toe_bone_name).leak();
         if let Some(kept_toe_pose) = model_space.get_mut(kept_toe_leaked) {
             kept_toe_pose.rotation =
@@ -178,6 +201,22 @@ impl Default for SkeletonLodConfig {
 }
 
 impl SkeletonLodConfig {
+    /// The merge config the single shared skeleton scene follows.
+    ///
+    /// One skeleton serves every configured LOD (LODs only disable bone
+    /// subtrees), so the kept-toe bind frame is a property of the whole
+    /// config: if any LOD keeps a single toe per foot, the clips driving that
+    /// skeleton are no-toes clips and the kept toe follows that frame. A
+    /// config with no toe merge (full only) keeps the reference frame for
+    /// every bone, separate toe bones and all.
+    pub fn skeleton_merge_config(&self) -> &BoneMergeConfig {
+        static FULL_MERGE_CONFIG: BoneMergeConfig = BoneMergeConfig::full();
+        self.0[..self.1]
+            .iter()
+            .find(|merge_config| merge_config.merges_default_rig_toes())
+            .unwrap_or(&FULL_MERGE_CONFIG)
+    }
+
     /// Create a config from a slice of merge configs. Panics if more than
     /// [`MAX_LODS`] configs are provided.
     pub fn new(configs: &[BoneMergeConfig]) -> Self {
@@ -194,6 +233,17 @@ impl SkeletonLodConfig {
         }
         Self(lods, count)
     }
+}
+
+/// The merge config a skeleton fit follows when the `SkeletonLodConfig`
+/// resource may be absent. A fit can run before the config is uploaded, and
+/// the rig build itself defaults to full, so absent means no toe merge and
+/// the reference bind frame survives.
+pub fn skeleton_merge_config_for(
+    lod_config: Option<&SkeletonLodConfig>,
+) -> &BoneMergeConfig {
+    static FULL_MERGE_CONFIG: BoneMergeConfig = BoneMergeConfig::full();
+    lod_config.map_or(&FULL_MERGE_CONFIG, SkeletonLodConfig::skeleton_merge_config)
 }
 
 // ─── Merge Algorithm ──────────────────────────────────────────────────

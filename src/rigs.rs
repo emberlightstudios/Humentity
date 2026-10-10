@@ -9,13 +9,22 @@ use bevy::{
 use std::sync::Arc;
 
 use crate::{
-    basemesh::VertexGroups,
+    basemesh::{BaseMesh, VertexGroups},
     loaders::{ReferenceRigAsset, RigConfigAsset, RigWeightsAsset},
     prelude::*,
     skeleton_lod::{
-        RigBundle, SkeletonLodConfig, build_lod_data, fit_default_rig_single_toes,
+        BoneMergeConfig, RigBundle, SkeletonLodConfig, build_lod_data,
+        fit_default_rig_single_toes,
     },
 };
+
+/// Converts Blender's Z-up rig frame into the MakeHuman OBJ model frame.
+const BLENDER_TO_MAKEHUMAN_MODEL_ROTATION: Quat = Quat::from_xyzw(
+    -std::f32::consts::FRAC_1_SQRT_2,
+    0.0,
+    0.0,
+    std::f32::consts::FRAC_1_SQRT_2,
+);
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
@@ -108,65 +117,64 @@ impl RigSpec {
     }
 }
 
-/// Tracks which rig assets have loaded, for event-driven sync.
+/// Tracks config and weight assets while they load.
 #[derive(Default)]
 pub(crate) struct RigLoadTracker {
     config: Option<RigConfigAsset>,
     weights: Option<RigWeightsAsset>,
-    reference_rig: Option<ReferenceRigAsset>,
 }
 
-/// Syncs rig assets reactively as they load. Once all 3 asset types have reported
-/// a `LoadedWithDependencies` event, matches them by `rig_name` and inserts into `RigData`.
+/// Syncs rig assets reactively as they load. The reference bind pose is built
+/// after the config, weights, base-mesh helpers, and vertex groups are available.
 pub(crate) fn sync_and_build_rig_data(
     mut rig_data: ResMut<RigData>,
     config_assets: Res<Assets<RigConfigAsset>>,
     weights_assets: Res<Assets<RigWeightsAsset>>,
-    reference_rig_assets: Res<Assets<ReferenceRigAsset>>,
+    base_mesh: Option<Res<BaseMesh>>,
+    vertex_groups: Option<Res<VertexGroups>>,
     mut config_events: MessageReader<AssetEvent<RigConfigAsset>>,
     mut weights_events: MessageReader<AssetEvent<RigWeightsAsset>>,
-    mut ref_rig_events: MessageReader<AssetEvent<ReferenceRigAsset>>,
     mut tracker: Local<RigLoadTracker>,
 ) {
     if rig_data.is_loaded() {
         return;
     }
 
-    for ev in config_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = ev
-            && let Some(asset) = config_assets.get(*id)
+    for asset_event in config_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = asset_event
+            && let Some(loaded_rig_config) = config_assets.get(*id)
         {
-            tracker.config = Some(asset.clone());
+            tracker.config = Some(loaded_rig_config.clone());
         }
     }
-    for ev in weights_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = ev
-            && let Some(asset) = weights_assets.get(*id)
+    for asset_event in weights_events.read() {
+        if let AssetEvent::LoadedWithDependencies { id } = asset_event
+            && let Some(loaded_rig_weights) = weights_assets.get(*id)
         {
-            tracker.weights = Some(asset.clone());
-        }
-    }
-    for ev in ref_rig_events.read() {
-        if let AssetEvent::LoadedWithDependencies { id } = ev
-            && let Some(asset) = reference_rig_assets.get(*id)
-        {
-            tracker.reference_rig = Some(asset.clone());
+            tracker.weights = Some(loaded_rig_weights.clone());
         }
     }
 
-    let (Some(config), Some(weights), Some(reference_rig)) = (
-        tracker.config.as_ref(),
-        tracker.weights.as_ref(),
-        tracker.reference_rig.as_ref(),
-    ) else {
+    let (Some(config), Some(weights)) = (tracker.config.as_ref(), tracker.weights.as_ref()) else {
+        // The config and weight assets load independently; wait for both events.
         return;
     };
+    let (Some(base_mesh), Some(vertex_groups)) = (base_mesh, vertex_groups) else {
+        // The asset setup inserts helper resources during startup; wait for that setup.
+        return;
+    };
+    if base_mesh.vertices.is_empty() || vertex_groups.is_empty() {
+        // Reference bind-pose positions use the same helper-space inputs as character fitting.
+        return;
+    }
 
-    if config.rig_name == weights.rig_name && config.rig_name == reference_rig.rig_name {
+    if config.rig_name == weights.rig_name {
+        let reference_rig =
+            ReferenceRigAsset::from_rig_config(config, &base_mesh.vertices, &vertex_groups);
         rig_data.0 = Some(RigSpec {
             weights: Arc::new(weights.clone()),
             config: Arc::new(config.clone()),
-            reference_rig: Arc::new(reference_rig.clone()),
+            reference_rig: Arc::new(reference_rig),
         });
     }
 }
@@ -276,7 +284,7 @@ pub(crate) fn build_skeleton_scene(
     for &name in bone_order.iter() {
         let &child = bone_entities.get(&name).unwrap_or_else(|| {
             panic!(
-                "reference rig bone '{name}' was never spawned: bone_order and spawned entities diverged (check the reference rig GLB joint list)"
+                "reference rig bone '{name}' was never spawned: JSON bone order and spawned entities diverged (check the rig config hierarchy)"
             )
         });
         let parent_name = ref_bone_parents.get(name).cloned().unwrap_or_default();
@@ -301,19 +309,19 @@ pub(crate) fn build_skeleton_scene(
         .peekable();
     let Some(&root_bone_name) = rig_root_children.next() else {
         panic!(
-            "reference rig '{}' has no bone parented to 'Human.rig': the MPFB rig is single-root under Human.rig (check the reference rig GLB joint list)",
+            "reference rig '{}' has no bone parented to 'Human.rig': the MPFB rig JSON must define one root bone (check the parent fields)",
             reference_rig.rig_name,
         );
     };
     if let Some(&second_root_name) = rig_root_children.next() {
         panic!(
-            "reference rig '{}' has multiple bones parented to 'Human.rig' ('{root_bone_name}' and '{second_root_name}'): the MPFB rig is single-root (check the reference rig GLB joint list)",
+            "reference rig '{}' has multiple bones parented to 'Human.rig' ('{root_bone_name}' and '{second_root_name}'): the MPFB rig JSON must define one root bone",
             reference_rig.rig_name,
         );
     }
     let &root_bone = bone_entities.get(&root_bone_name).unwrap_or_else(|| {
         panic!(
-            "reference rig root bone '{root_bone_name}' was never spawned: bone_order and spawned entities diverged (check the reference rig GLB joint list)"
+            "reference rig root bone '{root_bone_name}' was never spawned: JSON bone order and spawned entities diverged (check the rig config hierarchy)"
         )
     });
     scene_world.entity_mut(rig_entity).add_child(root_bone);
@@ -358,110 +366,128 @@ pub(crate) fn build_skeleton_scene(
     ds.add(DynamicWorld::from_world(&scene_world))
 }
 
-pub(crate) fn get_model_space_skeleton_transforms(
-    bone_order: &Vec<&'static str>,
-    helpers: &[Vec3],
-    rig_spec: &RigSpec,
-    vg: &VertexGroups,
-) -> AHashMap<&'static str, Transform> {
-    let mh_config = &rig_spec.config;
-    // Compute global transforms from basemesh + roll in config (no GLB reference)
-    let mut global_transforms = AHashMap::<&'static str, Transform>::default();
-    for &name in bone_order.iter() {
-        let bone = &mh_config.bones[name];
-        global_transforms.insert(name, get_bone_transform(bone, vg, helpers));
-    }
-    global_transforms
-}
-
-/// Model-space bindpose with reference rotations restored (CPU fit pass 1).
+/// Model-space bind pose with reference rotations restored from the JSON-built rig.
+/// Positions come from each character's helper vertices; rotations use the base
+/// rig's MPFB roll values so morphing cannot change the animation rest frame.
 ///
-/// Positions come from the morphed helpers; every rotation is replaced with the
-/// reference rig's model-space rotation, so retargeted clips (authored for
-/// reference rotations) play correctly on any shape. Shared by the CPU fit
-/// (`fit_skeleton_to_shape`) and the GPU shape fit (`fit_shape_skeleton`).
+/// `merge_config` is the merge the fitted skeleton belongs to. When it keeps a
+/// single toe per foot ([`BoneMergeConfig::merge_default_rig_toes`]) the kept
+/// toe follows the no-toes clip frame; a full (unmerged) config keeps the
+/// reference rotation for every bone, toe included.
 pub(crate) fn fitted_model_space_bindposes(
     helpers: &[Vec3],
     rig: &RigSpec,
-    vg: &VertexGroups,
+    vertex_groups: &AHashMap<String, Vec<[usize; 2]>>,
+    merge_config: &BoneMergeConfig,
 ) -> AHashMap<&'static str, Transform> {
-    let mut model_space =
-        get_model_space_skeleton_transforms(&rig.reference_rig.bone_names, helpers, rig, vg);
-    let bone_config = &rig.config;
-    // Pass 1: replace all model-space rotations with reference rig rotations.
-    // This must happen before any local computation so parent lookups are correct.
-    for &bone in &rig.reference_rig.bone_names {
-        if bone_config.bones.contains_key(bone) {
-            let old_global = model_space[bone];
-            let reference_rot = rig.reference_rig.model_space_bindpose[bone].rotation;
-            model_space.insert(
-                bone,
-                Transform {
-                    translation: old_global.translation,
-                    rotation: reference_rot,
-                    scale: old_global.scale,
-                },
-            );
-        }
+    let mut model_space_bindposes = AHashMap::default();
+    for &bone_name in &rig.reference_rig.bone_names {
+        let bone_config = rig.config.bones.get(bone_name).unwrap_or_else(|| {
+            panic!("reference rig bone '{bone_name}' has no MPFB rig JSON configuration")
+        });
+        let head_position = get_bone_position(&bone_config.head, vertex_groups, helpers);
+        let reference_rotation = rig.reference_rig.model_space_bindpose[bone_name].rotation;
+        model_space_bindposes.insert(
+            bone_name,
+            Transform::from_translation(head_position).with_rotation(reference_rotation),
+        );
     }
-    fit_default_rig_single_toes(&rig.reference_rig().rig_name, &mut model_space);
-    model_space
+    fit_default_rig_single_toes(
+        &rig.reference_rig().rig_name,
+        merge_config,
+        &mut model_space_bindposes,
+    );
+    model_space_bindposes
 }
-
 
 pub(crate) fn get_bone_transform(
-    bone: &BoneJsonConfig,
-    vg: &VertexGroups,
+    bone_name: &'static str,
+    bone_config: &BoneJsonConfig,
+    vertex_groups: &AHashMap<String, Vec<[usize; 2]>>,
     helpers: &[Vec3],
 ) -> Transform {
-    let start = get_bone_position(&bone.head, vg, helpers);
-    let end = get_bone_position(&bone.tail, vg, helpers);
-
-    let orientation = (end - start).normalize();
-    // Align bone axis (Y in local) with head->tail, then apply roll around that axis (Blender convention)
-    let r_align = Quat::from_rotation_arc(Vec3::Y, orientation);
-    let base_rot = r_align * Quat::from_rotation_y(bone.roll);
-
-    Transform::from_translation(start).with_rotation(base_rot)
+    let head_position = get_bone_position(&bone_config.head, vertex_groups, helpers);
+    let tail_position = get_bone_position(&bone_config.tail, vertex_groups, helpers);
+    bone_transform_from_endpoints(bone_name, head_position, tail_position, bone_config.roll)
 }
 
-fn get_bone_position(bone: &BoneTransformSpec, vg: &VertexGroups, helpers: &[Vec3]) -> Vec3 {
-    if bone.strategy == "MEAN" {
-        let indices = bone.vertex_indices.as_ref().unwrap_or_else(|| {
+pub(crate) fn bone_transform_from_endpoints(
+    bone_name: &'static str,
+    head_position: Vec3,
+    tail_position: Vec3,
+    roll_radians: f32,
+) -> Transform {
+    let bone_direction = (tail_position - head_position)
+        .try_normalize()
+        .unwrap_or_else(|| {
             panic!(
-                "rig config bone uses MEAN strategy but has no vertex_indices: each MEAN bone needs exactly 2 helper vertex ids (check the rig config asset)"
+                "rig config bone '{bone_name}' has coincident head and tail positions; Blender bones must have a non-zero length"
             )
         });
-        let (v1, v2) = (indices[0], indices[1]);
-        (helpers[v2 as usize] + helpers[v1 as usize]) / 2.
-    } else if bone.strategy == "CUBE" {
-        let joint = bone.cube_name.as_ref().unwrap_or_else(|| {
+    // MPFB roll angles are defined in Blender's Z-up frame. Align the local
+    // bone Y axis using the Blender-frame direction, apply roll there, and
+    // convert the resulting frame to the Y-up MakeHuman model coordinates.
+    let blender_bone_direction =
+        BLENDER_TO_MAKEHUMAN_MODEL_ROTATION.inverse() * bone_direction;
+    let align_blender_local_y_to_bone =
+        Quat::from_rotation_arc(Vec3::Y, blender_bone_direction);
+    let blender_bone_rotation =
+        align_blender_local_y_to_bone * Quat::from_rotation_y(roll_radians);
+    let model_bone_rotation =
+        (BLENDER_TO_MAKEHUMAN_MODEL_ROTATION * blender_bone_rotation).normalize();
+    Transform::from_translation(head_position).with_rotation(model_bone_rotation)
+}
+
+fn get_bone_position(
+    bone_position_spec: &BoneTransformSpec,
+    vertex_groups: &AHashMap<String, Vec<[usize; 2]>>,
+    helpers: &[Vec3],
+) -> Vec3 {
+    if bone_position_spec.strategy == "MEAN" {
+        let helper_vertex_indices = bone_position_spec
+            .vertex_indices
+            .as_ref()
+            .unwrap_or_else(|| {
+                panic!(
+                    "rig config bone uses MEAN strategy but has no vertex_indices: each MEAN bone needs exactly 2 helper vertex ids (check the rig config asset)"
+                )
+            });
+        let (first_helper_vertex_index, second_helper_vertex_index) =
+            (helper_vertex_indices[0], helper_vertex_indices[1]);
+        (helpers[second_helper_vertex_index as usize]
+            + helpers[first_helper_vertex_index as usize])
+            / 2.0
+    } else if bone_position_spec.strategy == "CUBE" {
+        let vertex_group_name = bone_position_spec.cube_name.as_ref().unwrap_or_else(|| {
             panic!(
                 "rig config bone uses CUBE strategy but has no cube_name: each CUBE bone must name a vertex group (check the rig config asset)"
             )
         });
-        let group = vg.get(joint).unwrap_or_else(|| {
+        let vertex_group_ranges = vertex_groups.get(vertex_group_name).unwrap_or_else(|| {
             panic!(
-                "rig config CUBE bone names vertex group '{joint}' which is missing from the vertex-groups asset"
+                "rig config CUBE bone names vertex group '{vertex_group_name}' which is missing from the vertex-groups asset"
             )
         });
-        let (v1, v2) = (group[0][0] as u16, group[0][1] as u16);
-        let mut pos = Vec3::ZERO;
-        for v in v1..v2 + 1 {
-            pos += helpers[v as usize];
+        let (first_helper_vertex_index, last_helper_vertex_index) = (
+            vertex_group_ranges[0][0] as u16,
+            vertex_group_ranges[0][1] as u16,
+        );
+        let mut helper_position_sum = Vec3::ZERO;
+        for helper_vertex_index in first_helper_vertex_index..last_helper_vertex_index + 1 {
+            helper_position_sum += helpers[helper_vertex_index as usize];
         }
-        pos / (v2 - v1 + 1) as f32
-    } else if bone.strategy == "VERTEX" {
-        let index = bone.vertex_index.unwrap_or_else(|| {
+        helper_position_sum / (last_helper_vertex_index - first_helper_vertex_index + 1) as f32
+    } else if bone_position_spec.strategy == "VERTEX" {
+        let helper_vertex_index = bone_position_spec.vertex_index.unwrap_or_else(|| {
             panic!(
                 "rig config bone uses VERTEX strategy but has no vertex_index: each VERTEX bone needs one helper vertex id (check the rig config asset)"
             )
         });
-        helpers[index as usize]
+        helpers[helper_vertex_index as usize]
     } else {
         unimplemented!(
             "rig config bone has unrecognized strategy '{}': expected MEAN, CUBE, or VERTEX (check the rig config asset)",
-            bone.strategy
+            bone_position_spec.strategy
         )
     }
 }
@@ -471,6 +497,11 @@ mod default_rig_toe_average_tests {
     use crate::skeleton_lod::fit_default_rig_single_toes;
 
     use super::*;
+
+    /// A config that keeps one toe per foot via the default-rig toe merge.
+    fn merged_toes_config() -> BoneMergeConfig {
+        BoneMergeConfig::full().merge_default_rig_toes()
+    }
 
     fn toe_test_pose() -> AHashMap<&'static str, Transform> {
         [
@@ -487,7 +518,7 @@ mod default_rig_toe_average_tests {
     #[test]
     fn kept_toe_position_never_moves() {
         let mut model_space = toe_test_pose();
-        fit_default_rig_single_toes("default", &mut model_space);
+        fit_default_rig_single_toes("default", &merged_toes_config(), &mut model_space);
         // The rig config already plants the kept toe on the big-toe joint;
         // centroid averaging used to drag it ~3cm sideways. Position is exact
         // and must survive the fit untouched.
@@ -504,7 +535,7 @@ mod default_rig_toe_average_tests {
     #[test]
     fn kept_toe_rest_roll_matches_no_toes_bind_pose() {
         let mut model_space = toe_test_pose();
-        fit_default_rig_single_toes("default", &mut model_space);
+        fit_default_rig_single_toes("default", &merged_toes_config(), &mut model_space);
         // Identity rest rotated by the fix must equal the measured no-toes
         // bind-pose twist (xyzw), not identity: the full-toes reference roll
         // would otherwise twist the skinned toe mesh in every pose.
@@ -520,7 +551,19 @@ mod default_rig_toe_average_tests {
     #[test]
     fn other_rigs_keep_original_toe_pose() {
         let mut model_space = toe_test_pose();
-        fit_default_rig_single_toes("mixamo", &mut model_space);
+        fit_default_rig_single_toes("mixamo", &merged_toes_config(), &mut model_space);
+        assert_eq!(
+            model_space["toe1-1.L"],
+            Transform::from_translation(Vec3::new(0.1, 0.2, 0.3))
+        );
+    }
+
+    #[test]
+    fn full_config_keeps_reference_toe_pose() {
+        let mut model_space = toe_test_pose();
+        fit_default_rig_single_toes("default", &BoneMergeConfig::full(), &mut model_space);
+        // Unmerged configs pose every toe bone, so no kept-toe frame exists
+        // and the reference rotation must survive untouched.
         assert_eq!(
             model_space["toe1-1.L"],
             Transform::from_translation(Vec3::new(0.1, 0.2, 0.3))
@@ -530,7 +573,156 @@ mod default_rig_toe_average_tests {
     #[test]
     fn missing_toe_bones_skip_without_panic() {
         let mut model_space: AHashMap<&'static str, Transform> = AHashMap::default();
-        fit_default_rig_single_toes("default", &mut model_space);
+        fit_default_rig_single_toes("default", &merged_toes_config(), &mut model_space);
         assert!(model_space.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod mpfb_bind_pose_tests {
+    use super::*;
+
+    #[test]
+    fn upperarm_roll_matches_converted_blender_edit_bone_basis() {
+        let upperarm_bind_transform = bone_transform_from_endpoints(
+            "upperarm01.L",
+            Vec3::new(0.167713, -0.014605, 1.342323),
+            Vec3::new(0.215755, -0.019590, 1.286708),
+            2.3827133,
+        );
+        let computed_model_local_x_axis = upperarm_bind_transform.rotation * Vec3::X;
+        let computed_model_local_z_axis = upperarm_bind_transform.rotation * Vec3::Z;
+        // Blender EditBone axes transformed from its Z-up frame into the OBJ model frame.
+        let expected_model_local_x_axis = Vec3::new(-0.567044, -0.704562, -0.426678);
+        let expected_model_local_z_axis = Vec3::new(0.503079, -0.706408, 0.497894);
+
+        assert!(
+            (computed_model_local_x_axis - expected_model_local_x_axis).length() < 2e-4,
+            "computed model-local X axis {computed_model_local_x_axis:?} did not match Blender {expected_model_local_x_axis:?}"
+        );
+        assert!(
+            (computed_model_local_z_axis - expected_model_local_z_axis).length() < 2e-4,
+            "computed model-local Z axis {computed_model_local_z_axis:?} did not match Blender {expected_model_local_z_axis:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod full_toe_shape_fit_tests {
+    use super::*;
+    use crate::loaders::{BoneJsonConfig, BoneTransformSpec};
+
+    fn helper_vertex_spec(vertex_index: u16) -> BoneTransformSpec {
+        BoneTransformSpec {
+            cube_name: None,
+            strategy: "VERTEX".to_string(),
+            vertex_indices: None,
+            vertex_index: Some(vertex_index),
+        }
+    }
+
+    fn test_bone_config(
+        parent_bone_name: &str,
+        head_vertex_index: u16,
+        tail_vertex_index: u16,
+        roll_radians: f32,
+    ) -> BoneJsonConfig {
+        BoneJsonConfig {
+            parent: parent_bone_name.to_string(),
+            head: helper_vertex_spec(head_vertex_index),
+            tail: helper_vertex_spec(tail_vertex_index),
+            roll: roll_radians,
+        }
+    }
+
+    #[test]
+    fn full_rig_shape_fit_preserves_reference_toe_rotation() {
+        let rig_spec = two_bone_toe_rig();
+        let reference_toe_rotation =
+            rig_spec.reference_rig.model_space_bindpose["toe1-1.L"].rotation;
+
+        let fitted_model_space = fitted_model_space_bindposes(
+            &toe_test_helpers(),
+            &rig_spec,
+            &AHashMap::default(),
+            &BoneMergeConfig::full(),
+        );
+
+        assert!(
+            fitted_model_space["toe1-1.L"]
+                .rotation
+                .angle_between(reference_toe_rotation)
+                < 1e-6,
+            "unmerged GPU shape fit must keep the reference toe bind rotation"
+        );
+    }
+
+    #[test]
+    fn merged_toe_shape_fit_uses_no_toes_clip_frame() {
+        let rig_spec = two_bone_toe_rig();
+        let reference_toe_rotation =
+            rig_spec.reference_rig.model_space_bindpose["toe1-1.L"].rotation;
+        let merged_toes = BoneMergeConfig::full().merge_default_rig_toes();
+
+        let fitted_model_space = fitted_model_space_bindposes(
+            &toe_test_helpers(),
+            &rig_spec,
+            &AHashMap::default(),
+            &merged_toes,
+        );
+
+        // The kept toe carries the measured no-toes twist on top of the
+        // reference rotation: a real difference from the reference frame, not
+        // identity and not the reference pose.
+        let merged_toe_rotation = fitted_model_space["toe1-1.L"].rotation;
+        assert!(
+            merged_toe_rotation.angle_between(reference_toe_rotation) > 1.0,
+            "merged kept toe must carry the no-toes twist, got {merged_toe_rotation:?}"
+        );
+        let expected_toe_rotation =
+            (reference_toe_rotation * Quat::from_array([-0.0412228, -0.8170496, -0.0755843, 0.5701033]))
+                .normalize();
+        assert!(
+            merged_toe_rotation.angle_between(expected_toe_rotation) < 1e-6,
+            "merged kept toe must be the reference rotation times the twist fix"
+        );
+        // Only the kept toe changes frame; its parent foot is untouched.
+        assert!(
+            fitted_model_space["foot.L"]
+                .rotation
+                .angle_between(rig_spec.reference_rig.model_space_bindpose["foot.L"].rotation)
+                < 1e-6,
+            "the foot must keep the reference rotation in both modes"
+        );
+    }
+
+    /// Two-bone default rig (`foot.L` -> `toe1-1.L`) over helper vertices that
+    /// stand in for a morphed body slightly longer than the reference.
+    fn two_bone_toe_rig() -> RigSpec {
+        let rig_config = RigConfigAsset {
+            bones: [
+                ("foot.L", test_bone_config("", 0, 1, 0.0)),
+                ("toe1-1.L", test_bone_config("foot.L", 1, 2, 0.3)),
+            ]
+            .into_iter()
+            .collect(),
+            rig_name: "default".to_string(),
+        };
+        let helpers = toe_test_helpers();
+        let vertex_groups = AHashMap::default();
+        let reference_rig =
+            ReferenceRigAsset::from_rig_config(&rig_config, &helpers, &vertex_groups);
+        RigSpec {
+            weights: Arc::new(RigWeightsAsset {
+                weights: AHashMap::default(),
+                rig_name: "default".to_string(),
+            }),
+            config: Arc::new(rig_config),
+            reference_rig: Arc::new(reference_rig),
+        }
+    }
+
+    fn toe_test_helpers() -> [Vec3; 3] {
+        [Vec3::ZERO, Vec3::Y, Vec3::new(0.25, 1.8, 0.1)]
     }
 }

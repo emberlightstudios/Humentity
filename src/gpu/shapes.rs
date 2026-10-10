@@ -21,6 +21,7 @@ use crate::{
     animation::bone_translation_correction,
     basemesh::VertexGroups,
     rigs::{RigSpec, fitted_model_space_bindposes},
+    skeleton_lod::BoneMergeConfig,
 };
 
 /// Fit one template shape's morphed body to a GPU shape skeleton.
@@ -37,11 +38,18 @@ use crate::{
 /// The corrections are true-parent-relative and exact for full skeletons
 /// (what [`GpuSkeletonLod`](super::config::GpuSkeletonLod) crowds use: no
 /// merged bones, so the survivor parent below always equals the true parent).
+///
+/// `merge_config` is the crowd's [`SkeletonLodConfig`](crate::prelude::SkeletonLodConfig)
+/// entry (the one indexed by [`GpuSkeletonLod`](super::config::GpuSkeletonLod),
+/// the same one that produced `bones`). It decides whether the kept single
+/// toes follow the no-toes clip frame (bind rotation and toe translation
+/// constants) or keep the reference frame — the same rule the CPU fit uses.
 pub fn fit_shape_skeleton(
     shape: &'static str,
     bones: &[&'static str],
     model_space: &AHashMap<&'static str, Transform>,
     rig: &RigSpec,
+    merge_config: &BoneMergeConfig,
 ) -> GpuShapeSkeleton {
     let reference_rig = rig.reference_rig();
     let bone_parents = &reference_rig.bone_parents;
@@ -95,7 +103,8 @@ pub fn fit_shape_skeleton(
         // rotate it from the reference direction into the fitted direction.
         // Root, zero-length, and unknown bones stay identity so the offset
         // passes through untouched.
-        let (length_ratio, direction_fix) = dynamic_correction_for_bone(bone, model_space, rig);
+        let (length_ratio, direction_fix) =
+            dynamic_correction_for_bone(bone, model_space, rig, merge_config);
         translation_ratios.push(length_ratio);
         translation_direction_adjust.push(Vec4::new(
             direction_fix.x,
@@ -131,6 +140,7 @@ fn dynamic_correction_for_bone(
     bone_name: &'static str,
     fitted_model_space: &AHashMap<&'static str, Transform>,
     rig: &RigSpec,
+    merge_config: &BoneMergeConfig,
 ) -> (f32, Quat) {
     let reference_rig = rig.reference_rig();
     let Some(bone_config_entry) = rig.config.bones.get(bone_name) else {
@@ -144,6 +154,7 @@ fn dynamic_correction_for_bone(
         &bone_config_entry.parent,
         bone_name,
         fitted_model_space,
+        merge_config,
     )
     .unwrap_or((1.0, Quat::IDENTITY))
 }
@@ -155,7 +166,8 @@ pub fn fit_shape_skeleton_from_helpers(
     bones: &[&'static str],
     rig: &RigSpec,
     vg: &VertexGroups,
+    merge_config: &BoneMergeConfig,
 ) -> GpuShapeSkeleton {
-    let model_space = fitted_model_space_bindposes(helpers, rig, vg);
-    fit_shape_skeleton(shape, bones, &model_space, rig)
+    let model_space = fitted_model_space_bindposes(helpers, rig, vg, merge_config);
+    fit_shape_skeleton(shape, bones, &model_space, rig, merge_config)
 }

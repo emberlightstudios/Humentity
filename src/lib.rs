@@ -67,7 +67,7 @@ pub mod prelude {
             CharacterShapeConfigLoader, CharacterTemplateAssetLoader, CompositeTarget,
             CompositeTargetsAsset, MacroBounds, MacroDataAsset, MacroDataAssetLoader, MhcloAsset,
             MhcloAssetLoader, ObjVertsAsset, ObjVertsAssetLoader, ObjVertsSettings, OppositesAsset,
-            ReferenceRigAsset, ReferenceRigAssetLoader, RigConfigAsset, RigConfigAssetLoader,
+            ReferenceRigAsset, RigConfigAsset, RigConfigAssetLoader,
             RigWeightsAsset, RigWeightsAssetLoader, RotationOnlyAnimationAsset,
             RotationOnlyAnimationAssetLoader, RotationOnlyAnimationSettings, ShapeBakeRequest,
             ShapeBakedAnimationAsset, ShapeBakedAnimationAssetLoader, ShapeBakedAnimationSettings,
@@ -79,7 +79,7 @@ pub mod prelude {
         rigs::{RigData, RigSpec, SkeletalBone, SkeletonRootBone},
         skeleton_lod::{
             BoneMergeConfig, MAX_LODS, MergeIntoKeptBone, RigBundle, SkeletonLodConfig,
-            SkeletonLodData,
+            SkeletonLodData, skeleton_merge_config_for,
         },
         spawn_mesh::{
             CachedMhcloMeshHandles, CharacterPart, CharacterShape, GpuCharacterPart,
@@ -101,12 +101,10 @@ pub(crate) struct RigAssetHandles {
     pub config: Handle<loaders::RigConfigAsset>,
     #[allow(dead_code)]
     pub weights: Handle<loaders::RigWeightsAsset>,
-    #[allow(dead_code)]
-    pub reference_rig: Handle<loaders::ReferenceRigAsset>,
 }
 
-/// Loads and inserts all core resources (BaseMesh, VertexGroups, MakeHumanMorphs, RigData)
-/// as separate ECS resources. Each asset path must be explicitly specified — nothing is inferred.
+/// Loads and inserts the core humentity assets, including the rig JSON and weights.
+/// The reference skeleton and bind poses are derived from these assets and the base-mesh helpers.
 pub fn load_and_insert_humentity_assets(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -117,7 +115,6 @@ pub fn load_and_insert_humentity_assets(
     targets_folder_path: impl Into<AssetPath<'static>>,
     rig_config_path: impl Into<AssetPath<'static>>,
     rig_weights_path: impl Into<AssetPath<'static>>,
-    ref_rig_path: impl Into<AssetPath<'static>>,
 ) {
     commands.insert_resource(basemesh::BaseMesh::new(asset_server, base_mesh_path));
     commands.insert_resource(basemesh::VertexGroups::new(
@@ -136,12 +133,9 @@ pub fn load_and_insert_humentity_assets(
     // Store handles in a resource to prevent eviction.
     let config_handle: Handle<loaders::RigConfigAsset> = asset_server.load(rig_config_path);
     let weights_handle: Handle<loaders::RigWeightsAsset> = asset_server.load(rig_weights_path);
-    let ref_rig_handle: Handle<loaders::ReferenceRigAsset> = asset_server.load(ref_rig_path);
-
     commands.insert_resource(RigAssetHandles {
         config: config_handle,
         weights: weights_handle,
-        reference_rig: ref_rig_handle,
     });
 }
 
@@ -218,8 +212,6 @@ impl Plugin for HumentityPlugin {
             .register_asset_loader(RigWeightsAssetLoader)
             .init_asset::<RigConfigAsset>()
             .register_asset_loader(RigConfigAssetLoader)
-            .init_asset::<ReferenceRigAsset>()
-            .register_asset_loader(ReferenceRigAssetLoader)
             .init_asset::<template::CharacterTemplate>()
             .register_asset_loader(loaders::CharacterTemplateAssetLoader)
             .init_asset::<loaders::CharacterShapeAsset>()

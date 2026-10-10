@@ -4,6 +4,7 @@ use crate::{
     loaders::{BoneJsonConfig, CharacterShapeAsset, ReferenceRigAsset},
     morphs::MorphError,
     rigs::{RigSpec, SkeletonRootBone, fitted_model_space_bindposes},
+    skeleton_lod::BoneMergeConfig,
     spawn_mesh::CharacterShape,
     spawn_skeleton::{CharacterSkeleton, SkeletonLodDisabled},
     template::CharacterTemplate,
@@ -138,6 +139,7 @@ pub fn shape_baked_corrections_for_shape(
     basemesh_vertices: &BaseMesh,
     rig_spec: &RigSpec,
     vertex_groups: &VertexGroups,
+    merge_config: &BoneMergeConfig,
 ) -> Result<ShapeBakedCorrections, MorphError> {
     let template = templates
         .get(&shape_asset.template)
@@ -154,12 +156,14 @@ pub fn shape_baked_corrections_for_shape(
         &shape_asset.template_morph_targets,
         &basemesh_vertices.vertices,
     );
-    let fitted_model_space = fitted_model_space_bindposes(&helpers, rig_spec, vertex_groups);
+    let fitted_model_space =
+        fitted_model_space_bindposes(&helpers, rig_spec, vertex_groups, merge_config);
     let reference_rig = rig_spec.reference_rig();
     Ok(shape_corrections_from_model_space(
         reference_rig,
         &rig_spec.config.bones,
         &fitted_model_space,
+        merge_config,
     ))
 }
 /// Length ratio + parent-space direction fix for one bone, shared by the CPU
@@ -173,6 +177,7 @@ pub(crate) fn bone_translation_correction(
     parent_name: &str,
     bone_name: &'static str,
     fitted_model_space: &AHashMap<&'static str, Transform>,
+    merge_config: &BoneMergeConfig,
 ) -> Option<(f32, Quat)> {
     let reference_local = reference_rig.local_bindpose.get(bone_name)?;
     let fitted_local = local_from_model_space(bone_name, parent_name, fitted_model_space)?;
@@ -187,7 +192,10 @@ pub(crate) fn bone_translation_correction(
     const NO_TOES_TOE_LOCAL_LEN: f32 = 0.1381916;
     const NO_TOES_TOE_MODEL_SEGMENT: Vec3 = Vec3::new(0.0002, -0.0654, 0.1218);
     let (reference_length, translation_direction_adjust) = match bone_name {
-        "toe1-1.L" | "toe1-1.R" => (
+        // Only when a merge actually keeps this toe as the single surviving
+        // toe: full (unmerged) configs play full-toe clips, whose toe tracks
+        // follow the reference segment like every other bone.
+        "toe1-1.L" | "toe1-1.R" if merge_config.keeps_merged_bone(bone_name) => (
             NO_TOES_TOE_LOCAL_LEN,
             parent_space_direction_fix_for_segment(
                 NO_TOES_TOE_MODEL_SEGMENT,
@@ -217,6 +225,7 @@ pub(crate) fn shape_corrections_from_model_space(
     reference_rig: &ReferenceRigAsset,
     bone_config: &AHashMap<&'static str, BoneJsonConfig>,
     fitted_model_space: &AHashMap<&'static str, Transform>,
+    merge_config: &BoneMergeConfig,
 ) -> ShapeBakedCorrections {
     let root_bone_name = reference_rig.bone_names.first().copied().unwrap_or("");
     let reference_root_y = reference_rig.model_space_bindpose[root_bone_name]
@@ -244,6 +253,7 @@ pub(crate) fn shape_corrections_from_model_space(
                 &bone_config_entry.parent,
                 bone_name,
                 fitted_model_space,
+                merge_config,
             )
         else {
             continue;
@@ -397,10 +407,10 @@ mod kept_toe_correction_tests {
     /// fitted toe — forward of the foot, on its axis, at fitted length.
     #[test]
     fn kept_toe_translation_stays_forward_on_its_axis() {
-        // Real bind-pose numbers: skeleton foot model rotation straight from
-        // `skeletons/default.glb`, same shape at 3x scale. The foot is really
-        // rotated here — an identity foot puts the skeleton-local vector into
-        // a model slot and reads a phantom twist (that mistake failed twice).
+        // Real bind-pose numbers captured from the exported reference skeleton,
+        // for the same shape at 3x scale. The foot is really rotated here — an
+        // identity foot puts the skeleton-local vector into a model slot and
+        // reads a phantom twist (that mistake failed twice).
         let fitted_foot_rotation =
             Quat::from_array([0.84357, -0.02196, -0.0354, 0.5354]).normalize();
         let fitted_toe_local = Vec3::new(-0.0314, 0.1472, -0.0052).normalize() * 0.4517;
@@ -437,7 +447,13 @@ mod kept_toe_correction_tests {
         let fitted_model_space: AHashMap<&'static str, Transform> =
             AHashMap::from_iter([("foot.L", fitted_foot), ("toe1-1.L", fitted_toe)]);
         let Some((translation_length_ratio, translation_direction_adjust)) =
-            bone_translation_correction(&reference_rig, "foot.L", "toe1-1.L", &fitted_model_space)
+            bone_translation_correction(
+                &reference_rig,
+                "foot.L",
+                "toe1-1.L",
+                &fitted_model_space,
+                &BoneMergeConfig::full().merge_default_rig_toes(),
+            )
         else {
             panic!("kept toe must produce a correction");
         };
