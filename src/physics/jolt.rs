@@ -125,6 +125,15 @@ pub struct ColliderList(Vec<Entity>);
 #[derive(Component)]
 pub(crate) struct NeedsColliders;
 
+/// Pending flip: `CharacterRagdoll` changed but its spec entity did not exist
+/// yet, or the spec had no `JoltRagdollHandle` yet. Both are written through
+/// `Commands` (the bake observer inserts the handle), so they can only be
+/// observed a frame or two after the flip is asked for. This marker persists
+/// the intent across frames so the motion/layer change is retried once the
+/// bake lands, instead of being dropped with the one-frame `Changed` window.
+#[derive(Component)]
+pub(crate) struct PendingRagdollApply;
+
 /// Which character owns a ragdoll spec entity (set at spawn, read by the
 /// bake tagger).
 #[derive(Component, Clone, Copy, Debug)]
@@ -563,13 +572,20 @@ pub(crate) fn spawn_colliders(
 
 /// Flips ragdoll motion without respawning: `Full` simulates (dynamic),
 /// anything else rides the bones (kinematic hitboxes).
+///
+/// A flip is asked for once but cannot always be answered immediately: the
+/// spec entity and its `JoltRagdollHandle` are both written through `Commands`
+/// (the spawn in `spawn_colliders`, the handle in the `bake_jolt_ragdoll`
+/// observer), so neither is visible until the next flush. The query therefore
+/// also matches characters carrying [`PendingRagdollApply`], which the drop
+/// paths insert, so the flip survives until the bake lands.
 pub(crate) fn set_ragdoll_state(
     characters: Query<(
         Entity,
         &CharacterRagdoll,
         &CharacterColliders,
         Option<&RagdollCollisionLayers>,
-    ), Changed<CharacterRagdoll>>,
+    ), Or<(Changed<CharacterRagdoll>, With<PendingRagdollApply>)>>,
     handles: Query<&bevy_jolt::JoltRagdollHandle>,
     ragdoll_parts: Query<&bevy_jolt::JoltRagdollParts>,
     mut commands: Commands,
@@ -577,9 +593,15 @@ pub(crate) fn set_ragdoll_state(
 ) {
     for (character_entity, ragdoll, colliders, collision_layers) in characters.iter() {
         let Some(spec_entity) = colliders.ragdoll_entity else {
-            continue; // Transient: spec still baking, retry next flip.
+            commands
+                .entity(character_entity)
+                .insert(PendingRagdollApply);
+            continue; // Transient: spec still baking, retry once it lands.
         };
         let Ok(handle) = handles.get(spec_entity) else {
+            commands
+                .entity(character_entity)
+                .insert(PendingRagdollApply);
             continue; // Transient: bake observer hasn't run yet.
         };
         let follow_team = collision_layers.map_or(0, |layers| layers.membership);
@@ -608,6 +630,12 @@ pub(crate) fn set_ragdoll_state(
                 world.ragdoll_set_motion(handle.id(), bevy_jolt::JoltMotion::Kinematic);
             }
         }
+        // Drop the pending marker before the trigger so a character that
+        // matched this frame via `Changed` while still carrying a stale
+        // marker cannot have `RagdollStateChanged` fire twice.
+        commands
+            .entity(character_entity)
+            .remove::<PendingRagdollApply>();
         commands.trigger(RagdollStateChanged {
             character: character_entity,
             state: ragdoll.clone(),
@@ -985,5 +1013,6 @@ fn teardown_character_physics(
     commands
         .entity(character_entity)
         .remove::<CharacterColliders>()
-        .remove::<NeedsColliders>();
+        .remove::<NeedsColliders>()
+        .remove::<PendingRagdollApply>();
 }
