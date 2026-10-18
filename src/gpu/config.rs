@@ -62,7 +62,7 @@ pub struct GpuSkeletonLod(pub usize);
 /// must stay in sync with the hardcoded table sizes and loop bounds in
 /// `pose.wgsl`. The active sizes live on [`GpuCrowdConfig`] and are clamped
 /// to these ceilings at bake time.
-pub(crate) const BLEND_CAP: usize = 4;
+pub(crate) const BLEND_CAP: usize = 5;
 pub(crate) const CLIP_CAP: usize = 64;
 pub(crate) const SHAPE_CAP: usize = 8;
 

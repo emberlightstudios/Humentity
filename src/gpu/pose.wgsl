@@ -54,18 +54,17 @@ struct RootBindInfo {
 @group(0) @binding(12) var<storage, read> shape_direction_adjust: array<vec4f>;
 
 fn instance_weight(instance: u32, slot: u32) -> f32 {
-    return instance_data[instance * 12u + slot];
+    return instance_data[instance * 15u + slot];
 }
 
 fn instance_time(instance: u32, slot: u32) -> f32 {
-    return instance_data[instance * 12u + 4u + slot];
+    return instance_data[instance * 15u + 5u + slot];
 }
 
 // Blend slot -> global bank clip. Clamped so a stale slot can never read OOB.
 fn instance_bank(instance: u32, slot: u32) -> u32 {
-    return min(u32(instance_data[instance * 12u + 8u + slot]), 63u);
+    return min(u32(instance_data[instance * 15u + 10u + slot]), 63u);
 }
-
 fn instance_shape_weight(instance: u32, shape: u32) -> f32 {
     return shape_weights[instance * 8u + shape];
 }
@@ -223,7 +222,7 @@ fn clip_local(slot: u32, bone: u32, instance: u32, fitted: vec3f, is_root: bool)
 
 fn blended_local(bone: u32, instance: u32, fitted: vec3f, wsum: f32, is_root: bool) -> mat4x4f {
     var local = mat4x4f(vec4f(0.0), vec4f(0.0), vec4f(0.0), vec4f(0.0));
-    for (var s = 0u; s < 4u; s++) {
+    for (var s = 0u; s < 5u; s++) {
         local += clip_local(s, bone, instance, fitted, is_root) * (instance_weight(instance, s) / wsum);
     }
     return local;
@@ -244,7 +243,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let is_root = bone == 0u;
 
     var wsum = 0.0;
-    for (var s = 0u; s < 4u; s++) {
+    for (var s = 0u; s < 5u; s++) {
         wsum += instance_weight(instance, s);
     }
     wsum = max(wsum, 0.00001);
