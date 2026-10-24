@@ -1,5 +1,5 @@
 use crate::{
-    loaders::{MhcloAsset, MhcloVertexMap},
+    loaders::{CharacterShape, MhcloAsset, MhcloVertexMap},
     mesh_ops::{
         fix_normals, fix_normals_multiple, generate_mhid_lookup, generate_vertex_map,
         get_uv_coords, get_vertex_normals, get_vertex_positions, get_vertex_tangents,
@@ -105,7 +105,7 @@ pub(crate) fn build_final_mesh_mhclo(
     mhclo: &MhcloAsset,
     input_mesh: &Mesh,
     mesh_verts: &ObjVertsAsset,
-    template: &CharacterTemplate,
+    shapes: &[CharacterShape],
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     _rig_spec: &RigSpec,
@@ -120,16 +120,16 @@ pub(crate) fn build_final_mesh_mhclo(
         shape_mesh_from_helpers_mhclo(input_mesh, mhclo, &basemesh, &mhid_lookup, &vertex_map);
 
     let mut meshes = vec![];
-    for shape in template.shapes.iter() {
+    for shape in shapes.iter() {
         let helpers = adjust_helpers_to_morphs(&shape.morphs, &mh_morphs, &basemesh)
-            .unwrap_or_else(|e| panic!("mesh build for template shape '{}': {e} (check the shape's morph names against the morph targets and manifest)", shape.name));
+            .unwrap_or_else(|e| panic!("mesh build for shape '{}': {e} (check the shape's morph names against the morph targets and manifest)", shape.name()));
         let mesh =
             shape_mesh_from_helpers_mhclo(&input_mesh, mhclo, &helpers, &mhid_lookup, &vertex_map);
         meshes.push(mesh);
     }
 
     let mut morph_names = vec![];
-    if !template.shapes.is_empty() {
+    if !shapes.is_empty() {
         let base_positions = get_vertex_positions(&input_mesh);
         let base_normals = get_vertex_normals(&input_mesh);
         let base_tangents = get_vertex_tangents(&input_mesh).expect("Failed to get tangents");
@@ -150,7 +150,7 @@ pub(crate) fn build_final_mesh_mhclo(
                 ]));
             }
 
-            morph_names.push(template.shapes[is].name.to_string());
+            morph_names.push(shapes[is].name().to_string());
             morphs.push(morph.into_iter());
         }
         let morph_attributes: Vec<MorphAttributes> = morphs.into_iter().flatten().collect();
@@ -172,7 +172,7 @@ pub(crate) fn build_final_meshes_mhclo(
     mhclos: &[MhcloAsset],
     input_meshes: &mut [Mesh],
     mesh_verts: &[ObjVertsAsset],
-    templates: &[CharacterTemplate],
+    shapes_per_mesh: &[Vec<CharacterShape>],
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     _rig_spec: &RigSpec,
@@ -201,13 +201,13 @@ pub(crate) fn build_final_meshes_mhclo(
     // name with different morph maps, and each mesh needs its own fitted
     // variant. A bare shape-name key would share the first-built entry across
     // templates and meshes with different geometry.
-    let mut shape_meshes: AHashMap<(usize, &'static str), Option<Mesh>> = AHashMap::default();
+    let mut shape_meshes: AHashMap<(usize, String), Option<Mesh>> = AHashMap::default();
     for (i_mesh, mesh) in input_meshes.iter().enumerate() {
-        let template = &templates[i_mesh];
+        let mesh_template_shapes = &shapes_per_mesh[i_mesh];
         let mut mesh_shapes = vec![];
-        for mesh_shape in template.shapes.iter() {
+        for mesh_shape in mesh_template_shapes.iter() {
             let helpers = adjust_helpers_to_morphs(&mesh_shape.morphs, &mh_morphs, &basemesh)
-                .unwrap_or_else(|e| panic!("stitched mesh {i_mesh} shape '{}': {e} (check the shape's morph names against the morph targets and manifest)", mesh_shape.name));
+                .unwrap_or_else(|e| panic!("stitched mesh {i_mesh} shape '{}': {e} (check the shape's morph names against the morph targets and manifest)", mesh_shape.name()));
             mesh_shapes.push(Some(shape_mesh_from_helpers_mhclo(
                 mesh,
                 &mhclos[i_mesh],
@@ -221,8 +221,8 @@ pub(crate) fn build_final_meshes_mhclo(
             .filter_map(|m| m.as_mut())
             .collect::<Vec<_>>();
         fix_normals_multiple(&mut tmp_mesh_vec);
-        for (mesh_shape, fitted) in template.shapes.iter().zip(mesh_shapes) {
-            shape_meshes.insert((i_mesh, mesh_shape.name), fitted);
+        for (mesh_shape, fitted) in mesh_template_shapes.iter().zip(mesh_shapes) {
+            shape_meshes.insert((i_mesh, mesh_shape.name().to_string()), fitted);
         }
     }
 
@@ -230,17 +230,17 @@ pub(crate) fn build_final_meshes_mhclo(
 
     for i_mesh in 0..n_meshes {
         let mut names = vec![];
-        let template = &templates[i_mesh];
+        let mesh_template_shapes = &shapes_per_mesh[i_mesh];
 
-        if !template.shapes.is_empty() {
+        if !mesh_template_shapes.is_empty() {
             let base_positions = get_vertex_positions(&input_meshes[i_mesh]);
             let base_normals = get_vertex_normals(&input_meshes[i_mesh]);
             let base_tangents =
                 get_vertex_tangents(&input_meshes[i_mesh]).expect("Failed to get tangents");
             let mut morph_attrs = vec![];
 
-            for shape in template.shapes.iter() {
-                let Some(Some(shape_mesh)) = shape_meshes.get(&(i_mesh, shape.name)) else {
+            for shape in mesh_template_shapes.iter() {
+                let Some(Some(shape_mesh)) = shape_meshes.get(&(i_mesh, shape.name().to_string())) else {
                     continue;
                 };
                 let mut morph = Vec::<MorphAttributes>::new();
@@ -258,7 +258,7 @@ pub(crate) fn build_final_meshes_mhclo(
                     ]));
                 }
 
-                names.push(shape.name.to_string());
+                names.push(shape.name().to_string());
                 morph_attrs.push(morph.into_iter());
             }
             let morph_attributes: Vec<MorphAttributes> =

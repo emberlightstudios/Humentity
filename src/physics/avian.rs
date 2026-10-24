@@ -3,12 +3,14 @@ use crate::{
     NAME_INTERNER,
     helpers::{RefitCharacter, TeardownCharacter},
     prelude::{
-        CharacterShape, CharacterShapeAsset, CharacterSkeleton, SkeletonLodDisabled, SkeletonReady,
+        CharacterRef, CharacterProfile, CharacterSkeleton, SkeletonLodDisabled, SkeletonReady,
     },
     rigs::{RigData, SkeletalBone},
     spawn_skeleton::CharacterScale,
 };
 use ahash::AHashMap;
+
+use crate::loaders::{CharacterProfile, CharacterShape, CharacterTemplate};
 use avian3d::prelude::*;
 use bevy::ecs::intern::Internable;
 use bevy::math::{Quat, Vec3};
@@ -247,7 +249,7 @@ pub(crate) fn spawn_colliders(
     mut characters: Query<
         (
             Entity,
-            &CharacterShape,
+            &CharacterRef,
             &CharacterSkeleton,
             &mut CharacterColliders,
             &RagdollDensity,
@@ -256,8 +258,9 @@ pub(crate) fn spawn_colliders(
         ),
         (With<NeedsColliders>, With<SkeletonReady>),
     >,
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
-    templates: Res<Assets<crate::template::CharacterTemplate>>,
+    shape_assets: Res<Assets<CharacterProfile>>,
+    templates: Res<Assets<CharacterTemplate>>,
+    character_shapes: Res<Assets<CharacterShape>>,
     basemesh: Res<crate::basemesh::BaseMesh>,
     rig_data: Res<RigData>,
     container: Option<Res<CharacterPhysicsContainer>>,
@@ -298,19 +301,14 @@ pub(crate) fn spawn_colliders(
         let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
-        let Some(template) = templates.get(&shape_asset.template) else {
+        let Some(blended_helpers) = crate::shape_bake::blend_helpers_for_profile(
+            shape_asset,
+            &templates,
+            &character_shapes,
+            &basemesh.vertices,
+        ) else {
             continue;
         };
-        if basemesh.vertices.is_empty()
-            || template
-                .shapes
-                .iter()
-                .any(|shape| shape.helper_deltas.is_none())
-        {
-            continue;
-        }
-        let blended_helpers =
-            template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
         let helpers = &blended_helpers;
 
         let Some(rig_spec) = rig_data.0.as_ref() else {
@@ -1034,7 +1032,7 @@ pub(crate) fn on_disable_physics(
 /// the character can be re-activated later.
 pub(crate) fn on_teardown_character(
     trigger: On<TeardownCharacter>,
-    characters: Query<(), With<CharacterShape>>,
+    characters: Query<(), With<CharacterRef>>,
     collider_lists: Query<&ColliderList>,
     joint_lists: Query<&JointList>,
     mut commands: Commands,
@@ -1052,7 +1050,7 @@ pub(crate) fn on_teardown_character(
 /// spawn re-runs from current morph weights after the fit rebuilds.
 pub(crate) fn on_refit_character(
     trigger: On<RefitCharacter>,
-    characters: Query<(), With<CharacterShape>>,
+    characters: Query<(), With<CharacterRef>>,
     collider_lists: Query<&ColliderList>,
     joint_lists: Query<&JointList>,
     mut commands: Commands,
@@ -1068,7 +1066,7 @@ pub(crate) fn on_refit_character(
 
 fn teardown_character_physics(
     entity: Entity,
-    characters: &Query<(), With<CharacterShape>>,
+    characters: &Query<(), With<CharacterRef>>,
     collider_lists: &Query<&ColliderList>,
     joint_lists: &Query<&JointList>,
     commands: &mut Commands,

@@ -97,7 +97,7 @@ impl MakeHumanMorphs {
         )
     }
 
-    pub fn has_targets_for_shapes(&self, shapes: &[CharacterMorphShape]) -> bool {
+    pub fn has_targets_for_shapes(&self, shapes: &[&CharacterShape]) -> bool {
         let targets = self.targets.read().unwrap();
         shapes
             .iter()

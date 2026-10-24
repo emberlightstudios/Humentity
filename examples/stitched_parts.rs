@@ -33,7 +33,8 @@ fn add_humans(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut shape_assets: ResMut<Assets<CharacterShape>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -42,12 +43,12 @@ fn add_humans(
     *done = true;
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.0);
-    let shape = CharacterMorphShape::new("woman", morph_targets);
+    let shape = shape_assets.add(CharacterShape::new("woman", morph_targets));
 
     // Expression morph — only defined on the head-portion template so it never touches the body mesh
     let mut expression_targets = MorphTargets::default();
     expression_targets.insert("jawOpen", 1.0);
-    let expression_shape = CharacterMorphShape::new("jawOpen", expression_targets);
+    let expression_shape = shape_assets.add(CharacterShape::new("jawOpen", expression_targets));
 
     let body_template_handle = template_assets.add(CharacterTemplate::new([shape.clone()]));
     let head_template_handle =
@@ -72,12 +73,15 @@ fn add_humans(
 
     let mut morphs = MorphTargets::default();
     morphs.insert("woman", 1.);
-    morphs.insert("jawOpen", 0.5);
+    // Weights resolve against the profile's template, so only shapes on the
+    // body template may be weighted here. The head-only `jawOpen` shape is
+    // still a morph target on the head mesh, at weight 0.
+    let profile_handle = profile_assets.add(CharacterProfile::new(body_template_handle, morphs));
 
     commands.spawn((
         Name::new("Stitched"),
         Transform::from_translation(Vec3::new(0., 0., -1.)),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(body_template_handle, morphs))),
+        CharacterRef(profile_handle),
         BuildCpuSkeleton,
         InheritedVisibility::default(),
         children![

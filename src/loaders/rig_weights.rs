@@ -63,9 +63,4 @@ impl AssetLoader for RigWeightsAssetLoader {
         Ok(RigWeightsAsset { weights, rig_name })
     }
 
-    fn extensions(&self) -> &[&str] {
-        // No extension: see TargetManifestAssetLoader — JSON is claimed by four
-        // loaders, so typed loads are required.
-        &[]
-    }
 }

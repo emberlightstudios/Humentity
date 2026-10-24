@@ -1,13 +1,14 @@
 use crate::{
     NAME_INTERNER,
     basemesh::{BaseMesh, VertexGroups},
-    loaders::{BoneJsonConfig, CharacterShapeAsset, ReferenceRigAsset},
+    loaders::{BoneJsonConfig, CharacterProfile, CharacterShape, ReferenceRigAsset},
     morphs::MorphError,
     rigs::{RigSpec, SkeletonRootBone, fitted_model_space_bindposes},
     skeleton_lod::BoneMergeConfig,
-    spawn_mesh::CharacterShape,
+    shape_bake::blend_helpers,
+    spawn_mesh::CharacterRef,
     spawn_skeleton::{CharacterSkeleton, SkeletonLodDisabled},
-    template::CharacterTemplate,
+    loaders::CharacterTemplate,
 };
 use ahash::AHashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
@@ -21,8 +22,8 @@ use serde::{Deserialize, Serialize};
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HumentitySkeletonSystemSet;
 
-/// Per-character retargeting markers. Put one on the `CharacterShape` entity
-/// alongside `CharacterShape`; the matching system runs only for characters
+/// Per-character retargeting markers. Put one on the `CharacterRef` entity
+/// alongside `CharacterRef`; the matching system runs only for characters
 /// that carry it, so different characters can mix styles freely:
 ///
 /// - [`RootOnlyRetargeting`]: clips carry root translation only (rotation +
@@ -134,28 +135,28 @@ pub struct ShapeBakedCorrections {
     pub baked_bone_corrections: Vec<BakedBoneCorrection>,
 }
 pub fn shape_baked_corrections_for_shape(
-    shape_asset: &CharacterShapeAsset,
+    profile: &CharacterProfile,
     templates: &Assets<CharacterTemplate>,
+    shapes: &Assets<CharacterShape>,
     basemesh_vertices: &BaseMesh,
     rig_spec: &RigSpec,
     vertex_groups: &VertexGroups,
     merge_config: &BoneMergeConfig,
 ) -> Result<ShapeBakedCorrections, MorphError> {
     let template = templates
-        .get(&shape_asset.template)
+        .get(&profile.template)
         .ok_or(MorphError::TargetNotFound("template missing for shape"))?;
-    if basemesh_vertices.vertices.is_empty()
-        || template
-            .shapes
-            .iter()
-            .any(|shape| shape.helper_deltas.is_none())
+    let resolved_shapes = template
+        .resolved_shapes(shapes)
+        .ok_or(MorphError::TargetNotFound("template shapes not loaded yet"))?;
+    let weights = profile
+        .resolve_weights(templates, shapes)
+        .map_err(|_| MorphError::TargetNotFound("profile weights do not resolve"))?;
+    if basemesh_vertices.vertices.is_empty() || resolved_shapes.iter().any(|shape| !shape.is_baked())
     {
-        return Err(MorphError::TargetNotFound("template deltas not baked yet"));
+        return Err(MorphError::TargetNotFound("shape deltas not baked yet"));
     }
-    let helpers = template.blend_helpers(
-        &shape_asset.template_morph_targets,
-        &basemesh_vertices.vertices,
-    );
+    let helpers = blend_helpers(&resolved_shapes, &weights, &basemesh_vertices.vertices);
     let fitted_model_space =
         fitted_model_space_bindposes(&helpers, rig_spec, vertex_groups, merge_config);
     let reference_rig = rig_spec.reference_rig();
@@ -345,7 +346,7 @@ pub(crate) fn rescale_dynamic_retargeting(
     root_bones: Query<&SkeletonRootBone>,
     mut bone_transforms: Query<
         &mut Transform,
-        (Without<CharacterShape>, Allow<SkeletonLodDisabled>),
+        (Without<CharacterRef>, Allow<SkeletonLodDisabled>),
     >,
 ) {
     for (character_skeleton, character_animation_player) in &characters {

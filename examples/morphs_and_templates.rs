@@ -57,7 +57,8 @@ fn add_humans(
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut shape_assets: ResMut<Assets<CharacterShape>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -71,11 +72,12 @@ fn add_humans(
     bodybuilder_targets.insert("muscle", 1.);
     bodybuilder_targets.insert("weight", 1.);
 
-    // Templates can be created at runtime or loaded from toml
-    let template_handle = template_assets.add(CharacterTemplate::new([
-        CharacterMorphShape::new(BODYBUILDER, bodybuilder_targets),
-        CharacterMorphShape::new(BABY, baby_targets),
-    ]));
+    // Templates can be created at runtime or loaded from toml. A template holds
+    // shape handles; its shape order is the morph-target and weight order.
+    let bodybuilder_shape = shape_assets.add(CharacterShape::new(BODYBUILDER, bodybuilder_targets));
+    let baby_shape = shape_assets.add(CharacterShape::new(BABY, baby_targets));
+    let template_handle =
+        template_assets.add(CharacterTemplate::new([bodybuilder_shape, baby_shape]));
 
     // Previously defined shapes will now appear as morph targets on the template's mesh
     // The HumanShapeConfig type controls template access and applies our morph targets.
@@ -89,14 +91,15 @@ fn add_humans(
     });
 
     // Spawn some characters with different morph values.  They will all share the same mesh handle, but look different!
-    // CharacterShapeCOnfig can be loaded from toml or created at runtime
+    // A profile can be loaded from a `*.profile.toml` or, as here, created at
+    // runtime; its weights are keyed by shape name.
 
     // The base mesh
     commands.spawn((
         Name::new("Basemesh"),
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShape(shape_assets.add(template_handle.clone())),
+        CharacterRef(profile_assets.add(CharacterProfile::unshaped(template_handle.clone()))),
         BuildCpuSkeleton,
         children![
             (CharacterPart {
@@ -114,7 +117,7 @@ fn add_humans(
         Name::new("Baby"),
         Transform::from_translation(Vec3::new(-1., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+        CharacterRef(profile_assets.add(CharacterProfile::new(
             template_handle.clone(),
             morphs.clone(),
         ))),
@@ -135,7 +138,7 @@ fn add_humans(
         Name::new("Bodybuilder"),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+        CharacterRef(profile_assets.add(CharacterProfile::new(
             template_handle.clone(),
             morphs.clone(),
         ))),
@@ -157,7 +160,7 @@ fn add_humans(
         Name::new("Hybrid normalized"),
         Transform::from_translation(Vec3::new(1., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+        CharacterRef(profile_assets.add(CharacterProfile::new(
             template_handle.clone(),
             morphs.clone(),
         ))),
@@ -180,7 +183,7 @@ fn add_humans(
         Name::new("Hybrid unnormalized"),
         Transform::from_translation(Vec3::new(2., 0., 0.)),
         InheritedVisibility::default(),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template_handle, morphs))),
+        CharacterRef(profile_assets.add(CharacterProfile::new(template_handle, morphs))),
         BuildCpuSkeleton,
         children![(
             CharacterPart {

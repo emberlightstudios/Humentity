@@ -74,7 +74,7 @@ fn add_human(
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -97,7 +97,7 @@ fn add_human(
     commands.spawn((
         Transform::from_xyz(0.0, 0.0, 0.0),
         AnimationPlayer::default(),
-        CharacterShape(shape_assets.add(template_handle)),
+        CharacterRef(profile_assets.add(CharacterProfile::unshaped(template_handle))),
         BuildCpuSkeleton,
         RootOnlyRetargeting,
         CharacterRagdoll::None,

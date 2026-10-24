@@ -58,7 +58,8 @@ fn add_humans(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut shape_assets: ResMut<Assets<CharacterShape>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -68,7 +69,7 @@ fn add_humans(
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 1.0);
 
-    let shape = CharacterMorphShape::new("bigboobs", morph_targets);
+    let shape = shape_assets.add(CharacterShape::new("bigboobs", morph_targets));
     let template_handle = template_assets.add(CharacterTemplate::new([shape]));
 
     let lod0 = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
@@ -113,7 +114,7 @@ fn add_humans(
             commands.spawn((
                 Name::new(format!("Char {row},{col}")),
                 Transform::from_translation(Vec3::new(x, 0., z)),
-                CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+                CharacterRef(profile_assets.add(CharacterProfile::new(
                     template_handle.clone(),
                     morphs.clone(),
                 ))),
@@ -260,7 +261,7 @@ fn setup_graph(
         (
             With<AnimationPlayer>,
             Without<AnimationGraphHandle>,
-            With<CharacterShape>,
+            With<CharacterRef>,
         ),
     >,
 ) {

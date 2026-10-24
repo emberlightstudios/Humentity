@@ -10,6 +10,8 @@
 //! lives in `bevy_jolt`.
 
 use ahash::AHashMap;
+
+use crate::loaders::{CharacterShape, CharacterTemplate};
 use bevy::ecs::intern::Internable;
 use bevy::math::{Mat3, Quat, Vec3};
 use bevy::prelude::*;
@@ -26,7 +28,7 @@ use crate::{
     NAME_INTERNER,
     helpers::{RefitCharacter, TeardownCharacter},
     prelude::{
-        CharacterShape, CharacterShapeAsset, CharacterSkeleton, SkeletonLodDisabled, SkeletonReady,
+        CharacterRef, CharacterProfile, CharacterSkeleton, SkeletonLodDisabled, SkeletonReady,
     },
     rigs::{RigData, SkeletalBone},
     spawn_skeleton::CharacterScale,
@@ -353,7 +355,7 @@ pub(crate) fn spawn_colliders(
     mut characters: Query<
         (
             Entity,
-            &CharacterShape,
+            &CharacterRef,
             &CharacterSkeleton,
             &mut CharacterColliders,
             &GlobalTransform,
@@ -362,8 +364,9 @@ pub(crate) fn spawn_colliders(
         ),
         (With<NeedsColliders>, With<SkeletonReady>),
     >,
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
-    templates: Res<Assets<crate::template::CharacterTemplate>>,
+    shape_assets: Res<Assets<CharacterProfile>>,
+    templates: Res<Assets<CharacterTemplate>>,
+    character_shapes: Res<Assets<CharacterShape>>,
     basemesh: Res<crate::basemesh::BaseMesh>,
     rig_data: Res<RigData>,
     container: Option<Res<CharacterPhysicsContainer>>,
@@ -399,19 +402,14 @@ pub(crate) fn spawn_colliders(
         let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
-        let Some(template) = templates.get(&shape_asset.template) else {
+        let Some(blended_helpers) = crate::shape_bake::blend_helpers_for_profile(
+            shape_asset,
+            &templates,
+            &character_shapes,
+            &basemesh.vertices,
+        ) else {
             continue;
         };
-        if basemesh.vertices.is_empty()
-            || template
-                .shapes
-                .iter()
-                .any(|shape| shape.helper_deltas.is_none())
-        {
-            continue;
-        }
-        let blended_helpers =
-            template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
         let helpers = &blended_helpers;
 
         let Some(rig_spec) = rig_data.0.as_ref() else {
@@ -959,7 +957,7 @@ fn extremity_shape(helpers: &[Vec3], joint: ColliderBone, scale: f32) -> (Ragdol
 /// humentity-owned physics state so only a bare state blob remains.
 pub(crate) fn on_teardown_character(
     trigger: On<TeardownCharacter>,
-    characters: Query<(), With<CharacterShape>>,
+    characters: Query<(), With<CharacterRef>>,
     mut colliders: Query<&mut CharacterColliders>,
     mut commands: Commands,
 ) {
@@ -975,7 +973,7 @@ pub(crate) fn on_teardown_character(
 /// spawn re-runs from current morph weights after the fit rebuilds.
 pub(crate) fn on_refit_character(
     trigger: On<RefitCharacter>,
-    characters: Query<(), With<CharacterShape>>,
+    characters: Query<(), With<CharacterRef>>,
     mut colliders: Query<&mut CharacterColliders>,
     mut commands: Commands,
 ) {
@@ -989,7 +987,7 @@ pub(crate) fn on_refit_character(
 
 fn teardown_character_physics(
     character_entity: Entity,
-    characters: &Query<(), With<CharacterShape>>,
+    characters: &Query<(), With<CharacterRef>>,
     colliders: &mut Query<&mut CharacterColliders>,
     commands: &mut Commands,
 ) {

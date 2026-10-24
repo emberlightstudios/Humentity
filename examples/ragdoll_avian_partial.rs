@@ -107,7 +107,7 @@ fn add_human(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -137,7 +137,7 @@ fn add_human(
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.))
             .with_translation(Vec3::new(1., 0., 0.)),
         AnimationPlayer::default(),
-        CharacterShape(shape_assets.add(template_handle)),
+        CharacterRef(profile_assets.add(CharacterProfile::unshaped(template_handle))),
         BuildCpuSkeleton,
         RootOnlyRetargeting,
         CharacterRagdoll::None,

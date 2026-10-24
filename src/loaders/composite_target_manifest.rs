@@ -122,12 +122,4 @@ impl AssetLoader for TargetManifestAssetLoader {
         Ok(CompositeTargetsAsset(interned))
     }
 
-    fn extensions(&self) -> &[&str] {
-        // No extension: four loaders accept JSON (composite manifest, vertex
-        // groups, rig config, rig weights) and extension matching cannot tell
-        // them apart. Callers must use typed loads
-        // (`asset_server.load::<CompositeTargetsAsset>(path)`); untyped
-        // loads and folder discovery resolve by extension and would be roulette.
-        &[]
-    }
 }

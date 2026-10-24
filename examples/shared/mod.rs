@@ -224,28 +224,28 @@ fn update_mesh_when_ready(
         Without<Mesh3d>,
     >,
     parents: Query<&ChildOf>,
-    characters: Query<&CharacterShape>,
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    characters: Query<&CharacterRef>,
+    profile_assets: Res<Assets<CharacterProfile>>,
     template_overrides: Query<&TemplateOverride>,
     cached_meshes: Res<CachedMhcloMeshHandles>,
     meshes: Res<Assets<Mesh>>,
     template_assets: Res<Assets<CharacterTemplate>>,
+    shape_assets: Res<Assets<CharacterShape>>,
     mut commands: Commands,
 ) {
     for (entity, _, part, part_skm, xform) in character_parts.iter() {
         // Parts may sit under intermediate grouping nodes (e.g. a "CPU Meshes"
-        // or "GPU Meshes" child), so walk up until the CharacterShape owner.
+        // or "GPU Meshes" child), so walk up until the CharacterRef owner.
         // `iter_ancestors` yields the direct parent first, so flat parts work too.
-        let character_shape = parents
+        let character_ref = parents
             .iter_ancestors::<ChildOf>(entity)
             .find_map(|ancestor| characters.get(ancestor).ok());
-        let Some(character_shape) = character_shape else {
+        let Some(character_ref) = character_ref else {
             continue;
         };
-        let Some(asset) = shape_assets.get(&character_shape.0) else {
+        let Some(profile) = profile_assets.get(&character_ref.0) else {
             continue;
         };
-        let template = &asset.template;
 
         // SkinnedMesh must be placed on the CharacterPart by setup_part_skinning first
         let Some(skm) = part_skm else {
@@ -255,7 +255,7 @@ fn update_mesh_when_ready(
         // Stitched parts may carry a TemplateOverride: the builder caches under
         // the effective template, so the lookup must use it too.
         let effective_template = template_overrides.get(entity).ok().map_or_else(
-            || template.clone(),
+            || profile.template.clone(),
             |override_template| override_template.0.clone(),
         );
         if let Some(mesh_handle) = cached_meshes.get(&(
@@ -270,16 +270,27 @@ fn update_mesh_when_ready(
             ));
             let mesh = meshes.get(mesh_handle).unwrap();
             if mesh.has_morph_targets() {
-                let active_template = effective_template.clone();
-                if let Some(template_data) = template_assets.get(&active_template) {
-                    let morph_weights = template_data
-                        .shapes
-                        .iter()
-                        .map(|s| *asset.template_morph_targets.get(s.name).unwrap_or(&0.))
-                        .collect::<Vec<_>>();
-                    commands.entity(entity).insert(MeshMorphWeights::Value {
-                        weights: morph_weights,
-                    });
+                // Profile weights are keyed by shape name, so order them by the
+                // template this part was built with. A stitched part's override
+                // template can add shapes the profile does not weight (they
+                // read 0) or list them in a different order.
+                let mesh_weights = if effective_template == profile.template {
+                    profile.mesh_morph_weights(&template_assets, &shape_assets)
+                } else {
+                    let override_weights = || {
+                        let template = template_assets.get(&effective_template)?;
+                        let resolved = template.resolved_shapes(&shape_assets)?;
+                        Some(MeshMorphWeights::Value {
+                            weights: resolved
+                                .iter()
+                                .map(|shape| *profile.weights.get(shape.name()).unwrap_or(&0.))
+                                .collect(),
+                        })
+                    };
+                    override_weights()
+                };
+                if let Some(mesh_weights) = mesh_weights {
+                    commands.entity(entity).insert(mesh_weights);
                 }
             }
         }
@@ -345,7 +356,7 @@ pub fn add_material(
 }
 
 fn debug_forward_gizmo(
-    characters: Query<&GlobalTransform, With<CharacterShape>>,
+    characters: Query<&GlobalTransform, With<CharacterRef>>,
     mut gizmos: Gizmos,
 ) {
     for gt in &characters {

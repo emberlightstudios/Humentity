@@ -45,7 +45,7 @@ use crate::{
 /// toes follow the no-toes clip frame (bind rotation and toe translation
 /// constants) or keep the reference frame — the same rule the CPU fit uses.
 pub fn fit_shape_skeleton(
-    shape: &'static str,
+    shape: impl Into<String>,
     bones: &[&'static str],
     model_space: &AHashMap<&'static str, Transform>,
     rig: &RigSpec,
@@ -122,7 +122,7 @@ pub fn fit_shape_skeleton(
         1.0
     };
     GpuShapeSkeleton {
-        shape,
+        shape: shape.into(),
         translations,
         inv_binds,
         root_scale,
@@ -161,7 +161,7 @@ fn dynamic_correction_for_bone(
 /// Convenience wrapper: fit directly from morphed helper verts (same inputs
 /// as the CPU fit: helpers + rig + vertex groups).
 pub fn fit_shape_skeleton_from_helpers(
-    shape: &'static str,
+    shape: impl Into<String>,
     helpers: &[Vec3],
     bones: &[&'static str],
     rig: &RigSpec,

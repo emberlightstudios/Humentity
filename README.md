@@ -64,16 +64,17 @@ fn spawn_character(
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut shape_assets: ResMut<Assets<CharacterShape>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // 1. Define a template and trigger a mesh build
+    // 1. A shape is a reusable asset: MakeHuman sliders, no template, no part
     let mut morphs = MorphTargets::default();
     morphs.insert("gender", 0.0);
+    let woman_shape = shape_assets.add(CharacterShape::new("female", morphs));
 
-    let template = template_assets.add(CharacterTemplate::new([
-        CharacterMorphShape::new("woman", morphs),
-    ]));
+    // 2. A template is an ordered list of shape handles, and the mesh build key
+    let template = template_assets.add(CharacterTemplate::new([woman_shape]));
 
     let mesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
 
@@ -83,14 +84,14 @@ fn spawn_character(
         skeleton_lod: MeshBuildLod::Cpu(0),
     });
 
-    // 2. Spawn the character entity using the template
+    // 3. A profile selects weights over the template's shapes, by shape name
     let mut weights = MorphTargets::default();
-    weights.insert("woman", 1.0);
+    weights.insert("female", 1.0);
 
     let mat = materials.add(StandardMaterial::from_color(Color::WHITE));
 
     commands.spawn((
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(template, weights))),
+        CharacterRef(profile_assets.add(CharacterProfile::new(template, weights))),
         RootOnlyRetargeting,
         InheritedVisibility::default(),
         children![(
@@ -105,22 +106,23 @@ fn spawn_character(
 fn attach_mesh(
     parts: Query<(Entity, &ChildOf, &CharacterPart, Option<&SkinnedMesh>), Without<Mesh3d>>,
     parents: Query<&ChildOf>,
-    characters: Query<&CharacterShape>,
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    characters: Query<&CharacterRef>,
+    profile_assets: Res<Assets<CharacterProfile>>,
     template_assets: Res<Assets<CharacterTemplate>>,
+    shape_assets: Res<Assets<CharacterShape>>,
     meshes: Res<Assets<Mesh>>,
     cached_meshes: Res<CachedMhcloMeshHandles>,
     mut commands: Commands,
 ) {
     for (entity, _, part, skm) in &parts {
-        // Parts may sit under grouping nodes, so walk up to the CharacterShape owner.
+        // Parts may sit under grouping nodes, so walk up to the CharacterRef owner.
         let Some(shape) = parents
             .iter_ancestors::<ChildOf>(entity)
             .find_map(|ancestor| characters.get(ancestor).ok())
         else {
             continue;
         };
-        let Some(asset) = shape_assets.get(&shape.0) else {
+        let Some(profile) = profile_assets.get(&shape.0) else {
             continue;
         };
         let Some(skm) = skm else {
@@ -139,7 +141,8 @@ fn attach_mesh(
             if meshes
                 .get(handle)
                 .is_some_and(|mesh| mesh.has_morph_targets())
-                && let Some(weights) = asset.get_morph_weights_component(&template_assets)
+                && let Some(weights) =
+                    profile.mesh_morph_weights(&template_assets, &shape_assets)
             {
                 commands.entity(entity).insert(weights);
             }
@@ -154,13 +157,13 @@ fn attach_mesh(
 
 2. **Load** — Call `load_and_insert_humentity_assets` to load the MakeHuman basemesh, vertex groups, morph targets, rig config, and rig weights. The reference skeleton hierarchy and bind poses are built from the rig JSON and helper vertices. MPFB roll angles are converted from Blender's Z-up frame to the MakeHuman model's Y-up frame; no reference skeleton GLB is required. Gate the rest on `HumentityAssetsReady`.
 
-3. **Morph** — Create a `CharacterTemplate` with one or more `CharacterMorphShape` entries. Each shape maps named MakeHuman morphs to float weights. The template system bakes hundreds of underlying MakeHuman shape keys into a compact set of morph targets.
+3. **Morph** — Create `CharacterShape` assets: named MakeHuman morph slider values, baked once into a sparse delta over basemesh vertices. A shape holds no template and no part, so it is reusable. Then create a `CharacterTemplate` listing those shape handles in order; the template is the mesh-build key and its shape order is the order of the baked morph targets. The template system bakes hundreds of underlying MakeHuman shape keys into a compact set of morph targets. Finally a `CharacterProfile` (template handle + one weight per shape) says which shapes this character shows.
 
 4. **Build** — Trigger a `LoadAssetMeshJob` (single or stitched) via the `MhcloMeshBuilder` resource. The job loads OBJ data and morph targets, then spawns a background thread to build the final mesh with the correct bone weights for the requested LOD. The result is sent back over a channel and cached in `CachedMhcloMeshHandles`. This is non-blocking — the main thread continues while the mesh is built asynchronously. CPU meshes use `MeshBuildLod::Cpu(lod)`; GPU crowd meshes use `MeshBuildLod::Gpu`.
 
-5. **Spawn** — Create a `CharacterShape` entity with `CharacterPart` children (CPU) or `GpuCharacterPart` children (GPU crowd). CPU parts name their skeleton LOD; GPU parts always build on the single `GpuSkeletonLod` skeleton.
+5. **Spawn** — Create a `CharacterRef` entity (a `CharacterProfile` handle) with `CharacterPart` children (CPU) or `GpuCharacterPart` children (GPU crowd). CPU parts name their skeleton LOD; GPU parts always build on the single `GpuSkeletonLod` skeleton.
 
-6. **Rig** — The plugin spawns one full skeleton per CPU character, fits its bone transforms to the morphed shape, computes the inverse bindposes, and sets up `SkinnedMesh` on each part over the surviving bone subset for its LOD level. `CharacterScale` on the `CharacterShape` scales the skeleton root (bones and skinned mesh follow).
+6. **Rig** — The plugin spawns one full skeleton per CPU character, fits its bone transforms to the morphed shape, computes the inverse bindposes, and sets up `SkinnedMesh` on each part over the surviving bone subset for its LOD level. `CharacterScale` on the `CharacterRef` scales the skeleton root (bones and skinned mesh follow).
 
 7. **Activate** — Write `SkeletonLodState { active: [...] }` on the character to set the active LOD levels. The reconcile system disables every bone sub-tree removed by all active LODs, so unneeded bones stop propagating transforms. If no LOD is active (no mesh in range), the whole skeleton parks — every bone disables until a mesh comes back into range.
 
@@ -337,7 +340,7 @@ Custom meshes, morph targets, and rig data can be authored in Blender using [MPF
 
 ## Animation retargeting markers
 
-Retargeting is per character. Put a marker on the `CharacterShape` entity;
+Retargeting is per character. Put a marker on the `CharacterRef` entity;
 both systems are always registered but each runs only for its marker, so
 mixed styles work side by side:
 

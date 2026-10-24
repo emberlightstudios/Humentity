@@ -114,8 +114,8 @@ pub fn pose_grid_side(instances: u32) -> u32 {
 /// Weight slot `i` addresses `shapes[i]` (slice `i + 1` on the GPU; slice 0
 /// is always the reference skeleton).
 pub struct GpuShapeSkeleton {
-    /// Shape name, matching the `CharacterTemplate` shape it was fitted from.
-    pub shape: &'static str,
+    /// Shape name, matching the `CharacterShape` it was fitted from.
+    pub shape: String,
     /// Fitted local rest translations in LOD bone order, padded to `Vec4`
     /// (w unused). The pose shader blends these by the instance shape weights
     /// and re-anchors the clip's translation offsets onto them (same math as

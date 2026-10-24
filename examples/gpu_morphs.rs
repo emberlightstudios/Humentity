@@ -48,6 +48,7 @@ fn trigger_morph_build(
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut templates: ResMut<Assets<CharacterTemplate>>,
+    mut shape_assets: ResMut<Assets<CharacterShape>>,
 ) {
     let mut baby_targets = MorphTargets::default();
     baby_targets.insert("age", 0.);
@@ -56,10 +57,10 @@ fn trigger_morph_build(
     bodybuilder_targets.insert("muscle", 1.);
     bodybuilder_targets.insert("weight", 1.);
 
-    let template = templates.add(CharacterTemplate::new([
-        CharacterMorphShape::new(BODYBUILDER, bodybuilder_targets),
-        CharacterMorphShape::new(BABY, baby_targets),
-    ]));
+    // Template order is the morph-weight order: [bodybuilder, baby].
+    let bodybuilder_shape = shape_assets.add(CharacterShape::new(BODYBUILDER, bodybuilder_targets));
+    let baby_shape = shape_assets.add(CharacterShape::new(BABY, baby_targets));
+    let template = templates.add(CharacterTemplate::new([bodybuilder_shape, baby_shape]));
     let part = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     mesh_builder.trigger(LoadAssetMeshJob::Single {
         part: part.clone(),
@@ -116,6 +117,7 @@ fn fit_shape_skeletons(
     build: Option<Res<MorphBuild>>,
     bank: Option<Res<GpuAnimationBank>>,
     templates: Res<Assets<CharacterTemplate>>,
+    shape_assets: Res<Assets<CharacterShape>>,
     base_mesh: Res<BaseMesh>,
     morphs: Res<MakeHumanMorphs>,
     rig_data: Res<RigData>,
@@ -143,21 +145,19 @@ fn fit_shape_skeletons(
     if base_mesh.vertices.is_empty() || vertex_groups.is_empty() {
         return;
     }
-    for shape in template.shapes.iter() {
-        if !morphs.has_targets_for_shapes(std::slice::from_ref(shape)) {
-            return;
-        }
+    let Some(resolved_shapes) = template.resolved_shapes(&shape_assets) else {
+        return;
+    };
+    if !morphs.has_targets_for_shapes(&resolved_shapes) {
+        return;
     }
-    for shape in template.shapes.iter() {
-        if shape.helper_deltas.is_none() {
-            return;
-        }
+    if resolved_shapes.iter().any(|shape| !shape.is_baked()) {
+        return;
     }
-    for shape in template.shapes.iter() {
-        let helpers =
-            template.blend_helpers(&single_shape_weights(shape.name), &base_mesh.vertices);
+    for shape in resolved_shapes {
+        let helpers = blend_helpers(&[shape], &[1.0], &base_mesh.vertices);
         let fitted = fit_shape_skeleton_from_helpers(
-            shape.name,
+            shape.name(),
             &helpers,
             &bank.bones,
             rig,
@@ -168,13 +168,6 @@ fn fit_shape_skeletons(
     }
     *done = true;
     info!("gpu_morphs: fitted {} shape skeleton(s)", shapes.len());
-}
-
-/// Weight vector selecting exactly one template shape at weight 1.
-fn single_shape_weights(shape: &'static str) -> MorphTargets {
-    let mut weights = MorphTargets::default();
-    weights.insert(shape, 1.0);
-    weights
 }
 
 fn spawn_crowd(

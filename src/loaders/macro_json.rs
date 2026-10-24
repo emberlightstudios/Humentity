@@ -106,8 +106,6 @@ impl AssetLoader for MacroDataAssetLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        // Use .macro to avoid conflict with RigConfigAssetLoader when load_folder discovers files
-        // (load_folder has no type, so extension is the only loader hint)
         &["macro"]
     }
 }

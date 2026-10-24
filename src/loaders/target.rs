@@ -96,6 +96,8 @@ impl AssetLoader for TargetAssetLoader {
     }
 
     fn extensions(&self) -> &[&str] {
+        // `MakeHumanMorphs` discovers the ~1400 target files with
+        // `AssetServer::load_folder`, which has no asset type to resolve by.
         &["target"]
     }
 }

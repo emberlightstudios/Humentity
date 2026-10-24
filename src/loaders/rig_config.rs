@@ -86,9 +86,4 @@ impl AssetLoader for RigConfigAssetLoader {
         Ok(RigConfigAsset { bones, rig_name })
     }
 
-    fn extensions(&self) -> &[&str] {
-        // No extension: see TargetManifestAssetLoader — JSON is claimed by four
-        // loaders, so typed loads are required.
-        &[]
-    }
 }

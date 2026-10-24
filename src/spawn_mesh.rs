@@ -4,19 +4,20 @@ use crate::{
     assets::{StitchedPart, StitchedParts, build_final_mesh_mhclo, build_final_meshes_mhclo},
     basemesh::BaseMesh,
     gpu::{GpuSkeletonLod, make_gpu_mesh},
-    loaders::{CharacterShapeAsset, MhcloAsset, ObjVertsAsset, TargetAsset},
+    loaders::{
+        CharacterProfile, CharacterShape, CharacterTemplate, MhcloAsset, ObjVertsAsset, TargetAsset,
+    },
     morphs::MakeHumanMorphs,
     rigs::{RigBundleRes, RigData, RigSpec},
-    template::CharacterTemplate,
 };
 use ahash::{AHashMap, AHashSet};
 use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
 
-/// Component that references a [`CharacterShapeAsset`].  Place it on the root entity of a character.
+/// Component that references a [`CharacterProfile`].  Place it on the root entity of a character.
 #[derive(Component, Clone, Debug)]
 #[require(Visibility)]
-pub struct CharacterShape(pub Handle<CharacterShapeAsset>);
+pub struct CharacterRef(pub Handle<CharacterProfile>);
 
 /// Which skeleton a cached mesh was built for.
 ///
@@ -36,7 +37,7 @@ pub enum MeshBuildLod {
 }
 
 /// Marks an entity as representing a character mesh piece.
-/// Place as children of a [`CharacterShape`] entity.
+/// Place as children of a [`CharacterRef`] entity.
 #[derive(Component, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct CharacterPart {
     pub mesh: Handle<MhcloAsset>,
@@ -46,7 +47,7 @@ pub struct CharacterPart {
 /// Marks an entity as a GPU-pipeline mesh piece: the same proxy mesh as a
 /// [`CharacterPart`], but always built on skeleton LOD 0 and rendered without
 /// `SkinnedMesh` (static bind pose until the GPU pose pipeline drives it).
-/// Place as children of a [`CharacterShape`] entity (e.g. under `GPUMeshes`).
+/// Place as children of a [`CharacterRef`] entity (e.g. under `GPUMeshes`).
 /// Carries no skeleton LOD: the GPU bake poses a single skeleton.
 #[derive(Component, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct GpuCharacterPart {
@@ -177,6 +178,7 @@ pub(crate) struct MeshConstructedMsg {
 /// State is tracked by [`AssetLoadState`]
 pub(crate) fn mesh_build(
     templates: Res<Assets<CharacterTemplate>>,
+    shape_assets: Res<Assets<CharacterShape>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mesh_verts: Res<Assets<ObjVertsAsset>>,
     mhclo_assets: Res<Assets<MhcloAsset>>,
@@ -214,6 +216,7 @@ pub(crate) fn mesh_build(
                     part,
                     template_handle,
                     template,
+                    &shape_assets,
                     &mut meshes,
                     &mesh_verts,
                     &mhclo_assets,
@@ -263,6 +266,7 @@ pub(crate) fn mesh_build(
                     template_handle,
                     template,
                     &templates,
+                    &shape_assets,
                     &mut meshes,
                     &mesh_verts,
                     &mhclo_assets,
@@ -323,7 +327,7 @@ pub fn build_single_mesh_direct(
     mhclo: &MhcloAsset,
     input_mesh: &Mesh,
     mesh_verts: &ObjVertsAsset,
-    template: &CharacterTemplate,
+    shapes: &[CharacterShape],
     mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_spec: &RigSpec,
@@ -334,7 +338,7 @@ pub fn build_single_mesh_direct(
         mhclo,
         input_mesh,
         mesh_verts,
-        template,
+        shapes,
         mh_morphs,
         basemesh,
         rig_spec,
@@ -344,7 +348,7 @@ pub fn build_single_mesh_direct(
     let msg = MeshConstructedMsg {
         final_meshes: vec![mesh],
         morph_names: vec![morph_names],
-        templates: vec![template.clone()],
+        templates: Vec::new(),
     };
     handle_single_mesh_complete(msg)
 }
@@ -377,6 +381,7 @@ pub(crate) fn build_single_mesh_process(
     part: &Handle<MhcloAsset>,
     _template_handle: &Handle<CharacterTemplate>,
     template: &CharacterTemplate,
+    shape_assets: &Assets<CharacterShape>,
     meshes: &mut Assets<Mesh>,
     mesh_verts: &Assets<ObjVertsAsset>,
     mhclo_assets: &Assets<MhcloAsset>,
@@ -418,7 +423,10 @@ pub(crate) fn build_single_mesh_process(
         if !morphs.is_ready(asset_server) {
             return;
         }
-        if !morphs.has_targets_for_shapes(&template.shapes) {
+        let Some(resolved_shapes) = template.resolved_shapes(shape_assets) else {
+            return;
+        };
+        if !morphs.has_targets_for_shapes(&resolved_shapes) {
             return;
         }
         if basemesh.is_empty() {
@@ -436,6 +444,8 @@ pub(crate) fn build_single_mesh_process(
         // and no retry. Handles are cheap; the entry is reused by later jobs.
 
         let template = template.clone();
+        let shapes_for_build: Vec<CharacterShape> =
+            resolved_shapes.iter().map(|shape| (*shape).clone()).collect();
         let mh_morphs = morphs.targets.clone();
 
         let (lod_bone_names, lod_weights) = rig_bundle
@@ -463,7 +473,7 @@ pub(crate) fn build_single_mesh_process(
                 &mhclo,
                 &input_mesh,
                 &mesh_verts,
-                &template,
+                &shapes_for_build,
                 mh_morphs,
                 basemesh,
                 &rig_spec,
@@ -488,6 +498,7 @@ fn build_stitched_meshes_process(
     template_handle: &Handle<CharacterTemplate>,
     parent_template: &CharacterTemplate,
     templates: &Assets<CharacterTemplate>,
+    shape_assets: &Assets<CharacterShape>,
     meshes: &mut Assets<Mesh>,
     mesh_verts: &Assets<ObjVertsAsset>,
     mhclo_assets: &Assets<MhcloAsset>,
@@ -559,12 +570,15 @@ fn build_stitched_meshes_process(
             })
             .cloned()
             .collect();
-        if !morphs.has_targets_for_shapes(&parent_template.shapes)
-            || templates_for_build
-                .iter()
-                .any(|t| !morphs.has_targets_for_shapes(&t.shapes))
-        {
-            return;
+        let mut shapes_per_mesh: Vec<Vec<CharacterShape>> = Vec::with_capacity(parts.len());
+        for template in templates_for_build.iter() {
+            let Some(resolved) = template.resolved_shapes(shape_assets) else {
+                return;
+            };
+            if !morphs.has_targets_for_shapes(&resolved) {
+                return;
+            }
+            shapes_per_mesh.push(resolved.iter().map(|shape| (*shape).clone()).collect());
         }
 
         // Bulletproof ordering: every async dependency must be proven loaded
@@ -623,7 +637,7 @@ fn build_stitched_meshes_process(
                 &mhclos,
                 &mut input_meshes,
                 &mesh_verts,
-                &templates_for_build,
+                &shapes_per_mesh,
                 mh_morphs,
                 basemesh,
                 &rig_spec,

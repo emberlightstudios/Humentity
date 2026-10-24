@@ -70,9 +70,6 @@ impl AssetLoader for ObjVertsAssetLoader {
         })
     }
 
-    fn extensions(&self) -> &[&str] {
-        &["obj"]
-    }
 }
 
 #[derive(Asset, TypePath, Clone, Debug, Deserialize, Deref)]
@@ -98,9 +95,4 @@ impl AssetLoader for VertexGroupsAssetLoader {
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))
     }
 
-    fn extensions(&self) -> &[&str] {
-        // No extension: see TargetManifestAssetLoader — JSON is claimed by four
-        // loaders, so typed loads are required.
-        &[]
-    }
 }

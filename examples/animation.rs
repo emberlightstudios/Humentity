@@ -41,7 +41,7 @@
 //!
 //! A raw GLB scene spawns behind as the unretargeted reference. The baked baby
 //! needs the shape's corrections before its clip can load: this example
-//! derives them from `CharacterShapeAsset` + `CharacterTemplate` (baked deltas)
+//! derives them from `CharacterProfile` + `CharacterTemplate` (baked deltas)
 //! + `BaseMesh` + `RigData` + `VertexGroups`, retrying until the core assets
 //!   are ready and the template deltas are baked.
 //!
@@ -75,14 +75,14 @@ fn main() {
 
 // Hold handle refs to keep the clip assets alive. One entry per path: each
 // baby plays a different clip asset, and its marker decides which fixup (if
-// any) runs for it. `baked_shape` remembers the baked baby's shape so the
+// any) runs for it. `baked_profile` remembers the baked baby's profile so the
 // corrections can be derived on a later frame once template deltas are baked.
 #[derive(Resource, Default)]
 struct ShowcaseAnimations {
     rot_only_clips: Option<Handle<RotationOnlyAnimationAsset>>,
     dynamic_clip: Option<Handle<AnimationClip>>,
     baked_clips: Option<Handle<ShapeBakedAnimationAsset>>,
-    baked_shape: Option<Handle<CharacterShapeAsset>>,
+    baked_profile: Option<Handle<CharacterProfile>>,
 }
 
 #[derive(Component, Clone)]
@@ -103,7 +103,8 @@ fn add_humans(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut templates: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut shape_assets: ResMut<Assets<CharacterShape>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
     animations: Option<ResMut<ShowcaseAnimations>>,
     mut done: Local<bool>,
 ) {
@@ -117,10 +118,8 @@ fn add_humans(
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("age", 0.);
 
-    let template_handle = templates.add(CharacterTemplate::new([CharacterMorphShape::new(
-        BABY,
-        morph_targets,
-    )]));
+    let shape_handle = shape_assets.add(CharacterShape::new(BABY, morph_targets));
+    let template_handle = templates.add(CharacterTemplate::new([shape_handle]));
 
     // Spawn the raw GLB animation scene for comparison, includes basemesh+helpers
     let clip_handle =
@@ -153,22 +152,22 @@ fn add_humans(
     // root only, middle owns root + bones, right owns nothing (baked).
     let mut baby_morphs = MorphTargets::default();
     baby_morphs.insert(BABY, 1.);
-    let rot_only_shape = shape_assets.add(CharacterShapeAsset::new(
+    let rot_only_profile = profile_assets.add(CharacterProfile::new(
         template_handle.clone(),
         baby_morphs.clone(),
     ));
-    let dynamic_shape = shape_assets.add(CharacterShapeAsset::new(
+    let dynamic_profile = profile_assets.add(CharacterProfile::new(
         template_handle.clone(),
         baby_morphs.clone(),
     ));
-    let baked_shape_handle =
-        shape_assets.add(CharacterShapeAsset::new(template_handle, baby_morphs));
+    let baked_profile_handle =
+        profile_assets.add(CharacterProfile::new(template_handle, baby_morphs));
     commands.spawn((
         Transform::from_translation(Vec3::new(-2., 0., 0.)),
         Name::new("RotationOnly"),
         InheritedVisibility::default(),
         AnimationPlayer::default(),
-        CharacterShape(rot_only_shape),
+        CharacterRef(rot_only_profile),
         BuildCpuSkeleton,
         RootOnlyRetargeting,
         ShowcaseBaby::RotationOnly,
@@ -185,7 +184,7 @@ fn add_humans(
         Name::new("Dynamic"),
         InheritedVisibility::default(),
         AnimationPlayer::default(),
-        CharacterShape(dynamic_shape),
+        CharacterRef(dynamic_profile),
         BuildCpuSkeleton,
         DynamicRetargeting,
         ShowcaseBaby::Dynamic,
@@ -204,7 +203,7 @@ fn add_humans(
         Name::new("Baked"),
         InheritedVisibility::default(),
         AnimationPlayer::default(),
-        CharacterShape(baked_shape_handle.clone()),
+        CharacterRef(baked_profile_handle.clone()),
         BuildCpuSkeleton,
         ShowcaseBaby::Baked,
         children![(
@@ -229,7 +228,7 @@ fn add_humans(
         animations.dynamic_clip =
             Some(asset_server.load(GltfAssetLabel::Animation(0).from_asset("animation/idle.glb")));
     }
-    animations.baked_shape = Some(baked_shape_handle);
+    animations.baked_profile = Some(baked_profile_handle);
 
     *done = true;
     info!("Babies created");
@@ -244,7 +243,8 @@ fn load_baked_clip(
     asset_server: Res<AssetServer>,
     basemesh_vertices: Option<Res<BaseMesh>>,
     templates: Res<Assets<CharacterTemplate>>,
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    profile_assets: Res<Assets<CharacterProfile>>,
+    shape_assets: Res<Assets<CharacterShape>>,
     rig_data: Option<Res<RigData>>,
     vertex_groups: Option<Res<VertexGroups>>,
     lod_config: Option<Res<SkeletonLodConfig>>,
@@ -256,7 +256,7 @@ fn load_baked_clip(
     if animations.baked_clips.is_some() {
         return;
     }
-    let Some(baked_shape_handle) = animations.baked_shape.clone() else {
+    let Some(baked_profile_handle) = animations.baked_profile.clone() else {
         return;
     };
     let (Some(basemesh_vertices), Some(rig_data), Some(vertex_groups)) =
@@ -264,15 +264,16 @@ fn load_baked_clip(
     else {
         return;
     };
-    let Some(shape_asset) = shape_assets.get(&baked_shape_handle).cloned() else {
+    let Some(profile) = profile_assets.get(&baked_profile_handle).cloned() else {
         return;
     };
     let Some(rig_spec) = rig_data.0.as_ref() else {
         return;
     };
     let Ok(corrections) = shape_baked_corrections_for_shape(
-        &shape_asset,
+        &profile,
         &templates,
+        &shape_assets,
         &basemesh_vertices,
         rig_spec,
         &vertex_groups,

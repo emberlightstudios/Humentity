@@ -9,10 +9,10 @@ mod mesh_ops;
 mod morphs;
 mod physics;
 mod rigs;
+mod shape_bake;
 mod skeleton_lod;
 mod spawn_mesh;
 mod spawn_skeleton;
-mod template;
 
 use bevy::asset::AssetPath;
 use bevy::ecs::intern::Interner;
@@ -63,8 +63,9 @@ pub mod prelude {
         helpers::{RefitCharacter, TeardownCharacter},
         load_and_insert_humentity_assets,
         loaders::{
-            BoneJsonConfig, BoneTransformSpec, CategoryMorphsAsset, CharacterShapeAsset,
-            CharacterShapeConfigLoader, CharacterTemplateAssetLoader, CompositeTarget,
+            BoneJsonConfig, BoneTransformSpec, CategoryMorphsAsset, CharacterProfile,
+            CharacterProfileAssetLoader, CharacterShape, CharacterShapeAssetLoader, CharacterTemplate,
+            CharacterTemplateAssetLoader, CompositeTarget, ProfileError,
             CompositeTargetsAsset, MacroBounds, MacroDataAsset, MacroDataAssetLoader, MhcloAsset,
             MhcloAssetLoader, ObjVertsAsset, ObjVertsAssetLoader, ObjVertsSettings, OppositesAsset,
             ReferenceRigAsset, RigConfigAsset, RigConfigAssetLoader, RigWeightsAsset,
@@ -82,7 +83,7 @@ pub mod prelude {
             SkeletonLodData, skeleton_merge_config_for,
         },
         spawn_mesh::{
-            CachedMhcloMeshHandles, CharacterPart, CharacterShape, GpuCharacterPart,
+            CachedMhcloMeshHandles, CharacterPart, CharacterRef, GpuCharacterPart,
             LoadAssetMeshJob, MeshBuildLod, MhcloMeshBuilder, build_single_mesh_direct,
             request_gpu_mesh,
         },
@@ -90,7 +91,7 @@ pub mod prelude {
             BuildCpuSkeleton, CharacterScale, CharacterSkeleton, ResetToBindPose,
             SkeletonLodDisabled, SkeletonLodState, SkeletonReady,
         },
-        template::{CharacterMorphShape, CharacterTemplate},
+        shape_bake::{blend_helpers, blend_helpers_for_profile},
     };
 }
 
@@ -212,10 +213,12 @@ impl Plugin for HumentityPlugin {
             .register_asset_loader(RigWeightsAssetLoader)
             .init_asset::<RigConfigAsset>()
             .register_asset_loader(RigConfigAssetLoader)
-            .init_asset::<template::CharacterTemplate>()
+            .init_asset::<CharacterTemplate>()
             .register_asset_loader(loaders::CharacterTemplateAssetLoader)
-            .init_asset::<loaders::CharacterShapeAsset>()
-            .register_asset_loader(loaders::CharacterShapeConfigLoader)
+            .init_asset::<CharacterShape>()
+            .register_asset_loader(CharacterShapeAssetLoader)
+            .init_asset::<CharacterProfile>()
+            .register_asset_loader(CharacterProfileAssetLoader)
             .add_systems(
                 Update,
                 (
@@ -238,7 +241,7 @@ impl Plugin for HumentityPlugin {
                         .run_if(not(resource_exists::<BuiltRigs>)),
                     (
                         (
-                            template::bake_template_deltas,
+                            shape_bake::bake_shape_deltas,
                             spawn_skeleton::spawn_rig_skeleton,
                             spawn_skeleton::fit_skeleton_to_shape,
                             spawn_skeleton::check_skeleton_ready,
@@ -265,10 +268,11 @@ impl Plugin for HumentityPlugin {
             .add_systems(
                 Update,
                 (
-                    template::resolve_template_morphs
+                    shape_bake::resolve_shape_morphs
                         .before(spawn_mesh::mesh_build)
                         .run_if(resource_exists::<morphs::MakeHumanMorphs>),
-                    template::enforce_template_frozen.after(template::resolve_template_morphs),
+                    shape_bake::enforce_shapes_frozen.after(shape_bake::resolve_shape_morphs),
+                    shape_bake::enforce_template_frozen,
                 ),
             )
             .add_systems(

@@ -57,7 +57,8 @@ fn add_humans(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut shape_assets: ResMut<Assets<CharacterShape>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -68,7 +69,7 @@ fn add_humans(
     morph_targets.insert("gender", 0.0);
     morph_targets.insert("cupsize", 1.0);
 
-    let shape = CharacterMorphShape::new(SHAPE_NAME, morph_targets);
+    let shape = shape_assets.add(CharacterShape::new(SHAPE_NAME, morph_targets));
 
     let template_handle = template_assets.add(CharacterTemplate::new([shape]));
 
@@ -111,7 +112,7 @@ fn add_humans(
     commands.spawn((
         Name::new("LOD Character"),
         Transform::from_translation(Vec3::new(0., 0., -1.)),
-        CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+        CharacterRef(profile_assets.add(CharacterProfile::new(
             template_handle.clone(),
             morphs.clone(),
         ))),
@@ -185,7 +186,7 @@ fn add_humans(
         commands.spawn((
             Name::new(name),
             Transform::from_translation(Vec3::new(x, 0., 0.)),
-            CharacterShape(shape_assets.add(CharacterShapeAsset::new(
+            CharacterRef(profile_assets.add(CharacterProfile::new(
                 template_handle.clone(),
                 morphs.clone(),
             ))),
@@ -311,7 +312,7 @@ fn setup_graph(
         (
             With<AnimationPlayer>,
             Without<AnimationGraphHandle>,
-            With<CharacterShape>,
+            With<CharacterRef>,
         ),
     >,
 ) {

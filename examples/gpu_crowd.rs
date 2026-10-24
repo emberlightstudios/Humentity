@@ -48,11 +48,10 @@ fn trigger_crowd_build(
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut templates: ResMut<Assets<CharacterTemplate>>,
+    mut shape_assets: ResMut<Assets<CharacterShape>>,
 ) {
-    let template = templates.add(CharacterTemplate::new([CharacterMorphShape::new(
-        "neutral",
-        MorphTargets::default(),
-    )]));
+    let shape = shape_assets.add(CharacterShape::new("neutral", MorphTargets::default()));
+    let template = templates.add(CharacterTemplate::new([shape]));
     let lod_part_handles = [
         asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy"),
         asset_server.load::<MhcloAsset>("proxymeshes/proxy4817/proxy4817.proxy"),

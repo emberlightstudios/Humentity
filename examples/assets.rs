@@ -10,6 +10,7 @@ const EYELASH: &str = "body_parts/Eyelashes/false_eyelashes/false_eyelashes.mhcl
 const HAIR: &str = "body_parts/Hair/ponytail01/ponytail01.mhclo";
 const BRA: &str = "clothes/underwear/simple_bra/simple_bra.mhclo";
 const PANTIES: &str = "clothes/underwear/simple_briefs/simple_briefs.mhclo";
+const FEMALE_SHAPE: &str = "female";
 
 fn main() {
     let mut app = setup_app();
@@ -17,7 +18,7 @@ fn main() {
     app.add_systems(Startup, spawn_front_of_character_light)
         .add_systems(
             Update,
-            add_human.run_if(resource_exists::<HumentityAssetsReady>),
+            add_human.run_if(resource_added::<HumentityAssetsReady>),
         )
         .run();
 }
@@ -44,19 +45,15 @@ fn add_human(
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
-    mut done: Local<bool>,
+    mut shape_assets: ResMut<Assets<CharacterShape>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
 ) {
-    if *done {
-        return;
-    }
-    *done = true;
     let mut morph_targets = MorphTargets::default();
     morph_targets.insert("gender", 0.);
 
-    let shape = CharacterMorphShape::new("female", morph_targets);
+    let shape_handle = shape_assets.add(CharacterShape::new(FEMALE_SHAPE, morph_targets));
 
-    let template_handle = template_assets.add(CharacterTemplate::new([shape]));
+    let template_handle = template_assets.add(CharacterTemplate::new([shape_handle]));
 
     let basemesh = asset_server.load::<MhcloAsset>("proxymeshes/basemesh/basemesh.proxy");
     let eyes = asset_server.load::<MhcloAsset>(EYES);
@@ -87,9 +84,15 @@ fn add_human(
         base_color_texture: Some(skin_albedo),
         ..default()
     });
+    // Wet look: the cornea is a tight, bright highlight, so almost no
+    // roughness. A matte iris reads as a painted ball. `ior` is not a knob
+    // here — 0.20 takes dielectric F0 from `reflectance` alone
+    // (`calculate_F0_dielectric`) and reads `ior` only for transmission.
     let eyes_mat = materials.add(StandardMaterial {
         base_color_texture: Some(eyes_albedo),
         alpha_mode: AlphaMode::Blend,
+        perceptual_roughness: 0.02,
+        reflectance: 0.6,
         ..default()
     });
     let eyebrow_mat = materials.add(StandardMaterial {
@@ -104,13 +107,13 @@ fn add_human(
         alpha_mode: AlphaMode::Blend,
         ..default()
     });
+    // Hair is not a dielectric shell: no clearcoat, high roughness and almost
+    // no reflectance, so it reads as strands rather than moulded plastic.
     let hair_mat = materials.add(StandardMaterial {
         base_color_texture: Some(hair_albedo),
         alpha_mode: AlphaMode::Blend,
-        clearcoat_perceptual_roughness: 0.1,
-        clearcoat: 0.2,
-        perceptual_roughness: 0.3,
-        reflectance: 0.1,
+        perceptual_roughness: 0.75,
+        reflectance: 0.04,
         metallic: 0.,
         ..default()
     });
@@ -120,15 +123,18 @@ fn add_human(
         ..default()
     });
 
-    // A CharacterShapeAsset can be constructed from just a template handle without specifying morph
-    // targets.  Single-shape templates like this one bake that shape down into the base mesh.
-    // In that case there are no morph targets on the final mesh.
-    let shape_handle = shape_assets.add(template_handle);
+    // A template's shapes are baked as morph-target deltas against the rest body,
+    // so a shape must be weighted to show at all: an unshaped profile leaves the
+    // weight map empty, and every missing weight reads as 0, which renders the
+    // unshaped rest body.
+    let mut shape_weights = MorphTargets::default();
+    shape_weights.insert(FEMALE_SHAPE, 1.);
+    let profile_handle = profile_assets.add(CharacterProfile::new(template_handle, shape_weights));
 
     commands.spawn((
         Name::new("Character"),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
-        CharacterShape(shape_handle),
+        CharacterRef(profile_handle),
         BuildCpuSkeleton,
         InheritedVisibility::default(),
         children![

@@ -185,32 +185,28 @@ fn main() {
 
 /// Offsets the character by its bind-pose lowest vertex height so it sits at a
 /// fixed, known height (y = 0 at the feet). Blends the morphed helpers on
-/// demand from the template's baked deltas once they land. Idempotent: it
+/// demand from the profile's shape deltas once they land. Idempotent: it
 /// just re-asserts the (constant) transform once the vertices are known.
 fn ground_character(
     mut commands: Commands,
-    characters: Query<(Entity, &CharacterShape)>,
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    characters: Query<(Entity, &CharacterRef)>,
+    profile_assets: Res<Assets<CharacterProfile>>,
     templates: Res<Assets<CharacterTemplate>>,
+    shapes: Res<Assets<CharacterShape>>,
     basemesh: Res<BaseMesh>,
 ) {
-    for (entity, character_shape) in &characters {
-        let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
+    for (entity, character_ref) in &characters {
+        let Some(profile) = profile_assets.get(&character_ref.0) else {
             continue;
         };
-        let Some(template) = templates.get(&shape_asset.template) else {
-            continue;
-        };
-        if basemesh.vertices.is_empty()
-            || template
-                .shapes
-                .iter()
-                .any(|shape| shape.helper_deltas.is_none())
-        {
+        if basemesh.vertices.is_empty() {
             continue;
         }
-        let blended_helpers =
-            template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
+        let Some(blended_helpers) =
+            blend_helpers_for_profile(profile, &templates, &shapes, &basemesh.vertices)
+        else {
+            continue;
+        };
         if blended_helpers.is_empty() {
             continue;
         }
@@ -641,7 +637,7 @@ fn add_human(
     asset_server: Res<AssetServer>,
     mut mesh_builder: ResMut<MhcloMeshBuilder>,
     mut template_assets: ResMut<Assets<CharacterTemplate>>,
-    mut shape_assets: ResMut<Assets<CharacterShapeAsset>>,
+    mut profile_assets: ResMut<Assets<CharacterProfile>>,
     mut done: Local<bool>,
 ) {
     if *done {
@@ -662,7 +658,7 @@ fn add_human(
     // ready (see `ground_character`); it starts at the origin.
     commands.spawn((
         Transform::IDENTITY,
-        CharacterShape(shape_assets.add(template_handle)),
+        CharacterRef(profile_assets.add(CharacterProfile::unshaped(template_handle))),
         BuildCpuSkeleton,
         CharacterRagdoll::None,
         CharacterColliders::new(None),

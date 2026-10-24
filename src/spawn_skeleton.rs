@@ -4,6 +4,8 @@ use crate::{
     helpers::{RefitCharacter, TeardownCharacter},
     prelude::*,
     rigs::{BuiltRigs, RigBundleRes, RigData, SkeletonRootBone},
+    shape_bake::blend_helpers_for_profile,
+    spawn_mesh::CharacterRef,
     skeleton_lod::{
         MAX_LODS, MergeIntoKeptBone, SkeletonLodConfig, all_children_of, skeleton_merge_config_for,
     },
@@ -19,13 +21,13 @@ use bevy::{
 
 /// Describes a character's single fixed skeleton.
 ///
-/// Placed on the `CharacterShape` entity once the skeleton has been fitted.
+/// Placed on the `CharacterRef` entity once the skeleton has been fitted.
 /// All bones exist as entities in `skeleton_entity`'s scene; skeleton LOD is
 /// expressed purely by enabling/disabling bone sub-trees within it (via
 /// `SkeletonLodDisabled`).
 #[derive(Component, Debug)]
 pub struct CharacterSkeleton {
-    /// The one full skeleton scene entity, a child of the `CharacterShape`.
+    /// The one full skeleton scene entity, a child of the `CharacterRef`.
     pub skeleton_entity: Entity,
     /// Bone name → bone entity in the fixed skeleton (full reference rig).
     pub bone_map: AHashMap<&'static str, Entity>,
@@ -49,13 +51,13 @@ pub struct ResetToBindPose(pub Entity);
 
 /// Opt-in marker: build a CPU skeleton for this character.
 ///
-/// Place on the `CharacterShape` entity alongside `CharacterShape`. Only
+/// Place on the `CharacterRef` entity alongside `CharacterRef`. Only
 /// marked characters grow bone entities, run the fit pass, and receive
 /// [`SkeletonReady`]. GPU-only crowd members omit it and pose in the shader.
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct BuildCpuSkeleton;
 
-/// Placed on `CharacterShape` once its single skeleton has been fitted.
+/// Placed on `CharacterRef` once its single skeleton has been fitted.
 #[derive(Component, Debug)]
 pub struct SkeletonReady;
 
@@ -68,7 +70,7 @@ pub struct SkeletonLodState {
     pub active: [bool; MAX_LODS],
 }
 
-/// Uniform visual scale for a character. Place on the `CharacterShape`
+/// Uniform visual scale for a character. Place on the `CharacterRef`
 /// entity; the skeleton root copies it at spawn (and keeps it across fits),
 /// so bones spread out and the skinned mesh follows. Defaults to 1.
 #[derive(Component, Debug, Clone, Copy)]
@@ -80,7 +82,7 @@ impl Default for CharacterScale {
     }
 }
 
-/// Internal marker on a `CharacterShape` that has spawned a skeleton but not yet
+/// Internal marker on a `CharacterRef` that has spawned a skeleton but not yet
 /// fitted it to morphs.
 #[derive(Component, Debug)]
 pub(crate) struct FitSkeleton;
@@ -105,7 +107,7 @@ fn skeleton_root_transform(rig_name: &str, character_scale: Vec3) -> Transform {
 }
 
 /// Spawns the single full skeleton scene as a child of each opted-in
-/// `CharacterShape`, and marks the character as needing a fit.
+/// `CharacterRef`, and marks the character as needing a fit.
 pub(crate) fn spawn_rig_skeleton(
     characters: Query<
         (Entity, Option<&CharacterScale>),
@@ -113,7 +115,7 @@ pub(crate) fn spawn_rig_skeleton(
             With<BuildCpuSkeleton>,
             Without<SkeletonReady>,
             Without<FitSkeleton>,
-            With<CharacterShape>,
+            With<CharacterRef>,
         ),
     >,
     rig_bundle: Res<RigBundleRes>,
@@ -158,8 +160,9 @@ pub(crate) fn spawn_rig_skeleton(
 #[allow(clippy::type_complexity)]
 pub(crate) fn fit_skeleton_to_shape(
     mut commands: Commands,
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    shape_assets: Res<Assets<CharacterProfile>>,
     templates: Res<Assets<CharacterTemplate>>,
+    character_shapes: Res<Assets<CharacterShape>>,
     basemesh: Res<BaseMesh>,
     skinned_meshes: Query<
         &SkinnedMesh,
@@ -170,7 +173,7 @@ pub(crate) fn fit_skeleton_to_shape(
     mut characters: Query<
         (
             Entity,
-            &CharacterShape,
+            &CharacterRef,
             Option<&AnimationPlayer>,
             &mut CharacterSkeleton,
             Option<&CharacterScale>,
@@ -179,7 +182,7 @@ pub(crate) fn fit_skeleton_to_shape(
     >,
     mut local_transforms: Query<
         &mut Transform,
-        (Without<CharacterShape>, Allow<SkeletonLodDisabled>),
+        (Without<CharacterRef>, Allow<SkeletonLodDisabled>),
     >,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
@@ -189,26 +192,19 @@ pub(crate) fn fit_skeleton_to_shape(
         let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
             continue;
         };
-        let Some(template) = templates.get(&shape_asset.template) else {
-            continue;
-        };
         if basemesh.vertices.is_empty() {
             continue;
         }
         // All shapes must carry baked deltas before blending; the template
         // bake retries until they do, so this waits for it.
-        if template
-            .shapes
-            .iter()
-            .any(|shape| shape.helper_deltas.is_none())
-        {
-            continue;
-        }
         // Blend this character's morphed helpers on demand: base plus each
         // shape's baked delta times the character's weight. Cheap (~13k
         // verts), synchronous, no per-character background task or cache.
-        let helpers =
-            template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
+        let Some(helpers) =
+            blend_helpers_for_profile(shape_asset, &templates, &character_shapes, &basemesh.vertices)
+        else {
+            continue;
+        };
         let Some(rig_spec) = rig_data.0.as_ref() else {
             continue;
         };
@@ -369,7 +365,7 @@ pub(crate) fn fit_skeleton_to_shape(
                 bind_pose_y: fitted_root_y,
                 reference_bind_pose_y: reference_root_y,
             });
-        // `FitSkeleton` lives on the CharacterShape (the query filter), so remove
+        // `FitSkeleton` lives on the CharacterRef (the query filter), so remove
         // it there. This is what allows `check_skeleton_ready` to fire.
         commands.entity(entity).remove::<FitSkeleton>();
     }
@@ -645,7 +641,7 @@ pub(crate) fn setup_part_skinning(
 /// material handles.
 pub(crate) fn on_teardown_character(
     trigger: On<TeardownCharacter>,
-    characters: Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
+    characters: Query<Option<&CharacterSkeleton>, With<CharacterRef>>,
     parts: Query<Entity, With<CharacterPart>>,
     gpu_parts: Query<Entity, With<GpuCharacterPart>>,
     descendants: Query<&Children>,
@@ -668,7 +664,7 @@ pub(crate) fn on_teardown_character(
 /// to re-enter the chain.
 pub(crate) fn on_refit_character(
     trigger: On<RefitCharacter>,
-    characters: Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
+    characters: Query<Option<&CharacterSkeleton>, With<CharacterRef>>,
     cpu_skeletons: Query<(), With<BuildCpuSkeleton>>,
     parts: Query<Entity, With<CharacterPart>>,
     gpu_parts: Query<Entity, With<GpuCharacterPart>>,
@@ -691,7 +687,7 @@ pub(crate) fn on_refit_character(
 
 fn teardown_character_state(
     entity: Entity,
-    characters: &Query<Option<&CharacterSkeleton>, With<CharacterShape>>,
+    characters: &Query<Option<&CharacterSkeleton>, With<CharacterRef>>,
     parts: &Query<Entity, With<CharacterPart>>,
     gpu_parts: &Query<Entity, With<GpuCharacterPart>>,
     descendants: &Query<&Children>,
@@ -735,13 +731,14 @@ fn teardown_character_state(
 /// inverse bindposes — those don't change after the first fit.
 pub(crate) fn on_reset_to_bind_pose(
     trigger: On<ResetToBindPose>,
-    characters: Query<(&CharacterShape, &CharacterSkeleton)>,
-    shape_assets: Res<Assets<CharacterShapeAsset>>,
+    characters: Query<(&CharacterRef, &CharacterSkeleton)>,
+    shape_assets: Res<Assets<CharacterProfile>>,
     templates: Res<Assets<CharacterTemplate>>,
+    character_shapes: Res<Assets<CharacterShape>>,
     basemesh: Res<BaseMesh>,
     mut local_transforms: Query<
         &mut Transform,
-        (Without<CharacterShape>, Allow<SkeletonLodDisabled>),
+        (Without<CharacterRef>, Allow<SkeletonLodDisabled>),
     >,
     rig_data: Res<RigData>,
     vg: Res<VertexGroups>,
@@ -754,19 +751,11 @@ pub(crate) fn on_reset_to_bind_pose(
     let Some(shape_asset) = shape_assets.get(&character_shape.0) else {
         return;
     };
-    let Some(template) = templates.get(&shape_asset.template) else {
+    let Some(blended_helpers) =
+        blend_helpers_for_profile(shape_asset, &templates, &character_shapes, &basemesh.vertices)
+    else {
         return;
     };
-    if basemesh.vertices.is_empty()
-        || template
-            .shapes
-            .iter()
-            .any(|shape| shape.helper_deltas.is_none())
-    {
-        return;
-    };
-    let blended_helpers =
-        template.blend_helpers(&shape_asset.template_morph_targets, &basemesh.vertices);
     let Some(rig_spec) = rig_data.0.as_ref() else {
         return;
     };
