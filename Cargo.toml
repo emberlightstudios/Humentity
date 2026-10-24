@@ -16,7 +16,7 @@ crossbeam-channel = ">=0.5.15"
 toml = ">=1.1.2"
 thiserror = ">=2.0.18"
 avian3d = { optional = true, version = "0.7.0" }
-bevy_jolt = { workspace = true, optional = true }
+bevy_jolt = { git = "https://github.com/emberlightstudios/bevy_jolt", rev = "db524058878d543e64b55ac25c1c12ce2b0180eb", optional = true }
 
 [dev-dependencies]
 bevy = { version = "0.20.0", features = ["bevy_feathers", "bevy_dev_tools", "render_dev_tools"] }
