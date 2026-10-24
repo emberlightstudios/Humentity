@@ -22,7 +22,17 @@ fn main() {
         Update,
         add_human.run_if(resource_exists::<HumentityAssetsReady>),
     )
-    .add_systems(Update, (toggle, sleep_ragdoll, setup_graph, start_clip, dump_collider_states, draw_joint_anchors))
+    .add_systems(
+        Update,
+        (
+            toggle,
+            sleep_ragdoll,
+            setup_graph,
+            start_clip,
+            dump_collider_states,
+            draw_joint_anchors,
+        ),
+    )
     .run();
 }
 
@@ -445,7 +455,10 @@ fn preview_joint_anchor(
         let parent_bone = get_collider_parent(joint_bone)?;
         let &parent_collider = character_colliders.collider_entities.get(&parent_bone)?;
         let parent_shape = collider_shapes.get(parent_collider).ok()?;
-        let half_up = parent_shape.shape().as_cuboid().map(|cuboid| cuboid.half_extents.y)?;
+        let half_up = parent_shape
+            .shape()
+            .as_cuboid()
+            .map(|cuboid| cuboid.half_extents.y)?;
         return Some(parent_pose.transform_point(Vec3::new(0.0, half_up, 0.0)));
     }
     let &child_bone_entity = character_colliders.bone_entities.get(&joint_bone)?;
@@ -546,11 +559,7 @@ fn draw_swing_twist_shapes(
     if child_twist.dot(child_center - live_anchor) < 0.0 {
         child_twist = -child_twist;
     }
-    gizmos.arrow(
-        live_anchor,
-        live_anchor + child_twist * 0.15,
-        Color::WHITE,
-    );
+    gizmos.arrow(live_anchor, live_anchor + child_twist * 0.15, Color::WHITE);
     // Elliptical rim: clean orthonormal frame off the cone axis, semi-axes
     // from each half-cone angle. Sized by slant (anchor → rim stays
     // `cone_length`), so wide cones read as wider fans, not funnels.
@@ -558,12 +567,11 @@ fn draw_swing_twist_shapes(
     let cone_length = 0.2;
     let parent_plane_axis = parent_pose.rotation * Vec3::X;
     let rim_center = live_anchor + cone_axis * cone_length * swing_half_angle.cos();
-    let rim_u = (parent_plane_axis - cone_axis * parent_plane_axis.dot(cone_axis))
-        .normalize_or_zero();
+    let rim_u =
+        (parent_plane_axis - cone_axis * parent_plane_axis.dot(cone_axis)).normalize_or_zero();
     let rim_v = cone_axis.cross(rim_u).normalize_or_zero();
     let rim_steps = 24;
-    let mut previous_rim_point =
-        rim_center + rim_u * (swing_half_angle.sin() * cone_length);
+    let mut previous_rim_point = rim_center + rim_u * (swing_half_angle.sin() * cone_length);
     for rim_step in 0..=rim_steps {
         let rim_angle = rim_step as f32 / rim_steps as f32 * std::f32::consts::TAU;
         let rim_point = rim_center
@@ -572,11 +580,7 @@ fn draw_swing_twist_shapes(
         gizmos.line(previous_rim_point, rim_point, joint_color);
         // Spokes at the four cardinal points tie rim to apex.
         if rim_step % (rim_steps / 4) == 0 {
-            gizmos.line(
-                live_anchor,
-                rim_point,
-                joint_color.with_alpha(0.6),
-            );
+            gizmos.line(live_anchor, rim_point, joint_color.with_alpha(0.6));
         }
         previous_rim_point = rim_point;
     }

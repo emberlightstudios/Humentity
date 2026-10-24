@@ -195,7 +195,7 @@ fn spawn_crowd(
                 crowd_transform,
                 Mesh3d(lod_mesh_handle.clone()),
                 MeshMaterial3d(crowd_material_handle.clone()),
-                MeshTag(index as u32),
+                MeshTag::new(index as u32),
                 // Neutral morph entry: the GPU meshes carry morph targets via
                 // `make_gpu_mesh`, and `SetMeshBindGroup` derives the bind group
                 // key per entity — without this it resolves to `NoMorphTargets`

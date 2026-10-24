@@ -14,11 +14,28 @@ const PANTIES: &str = "clothes/underwear/simple_briefs/simple_briefs.mhclo";
 fn main() {
     let mut app = setup_app();
 
-    app.add_systems(
-        Update,
-        add_human.run_if(resource_exists::<HumentityAssetsReady>),
-    )
-    .run();
+    app.add_systems(Startup, spawn_front_of_character_light)
+        .add_systems(
+            Update,
+            add_human.run_if(resource_exists::<HumentityAssetsReady>),
+        )
+        .run();
+}
+
+/// A point light on the camera side of the character, so the face is lit from
+/// the front rather than only by the shared directional sun in `setup_env`.
+/// The character stands at the origin and `CameraFraming::Close` looks at it
+/// from `z = -4`, so the light sits at negative `z`.
+fn spawn_front_of_character_light(mut commands: Commands) {
+    commands.spawn((
+        Name::new("Front of character point light"),
+        PointLight {
+            intensity: 200_000.0,
+            range: 8.0,
+            ..default()
+        },
+        Transform::from_xyz(0.5, 1.6, -1.8),
+    ));
 }
 
 fn add_human(

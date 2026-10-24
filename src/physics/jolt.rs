@@ -77,8 +77,7 @@ pub enum CharacterRagdoll {
 
 /// Fired from [`set_ragdoll_state`](crate::physics::jolt::set_ragdoll_state)
 /// after the native bodies have switched, so observers (e.g. the entry
-/// impulse) land on bodies already in their new state. Same shape as the
-/// boxddd backend's event.
+/// impulse) land on bodies already in their new state.
 #[derive(Event, Debug, Clone)]
 pub struct RagdollStateChanged {
     pub character: Entity,
@@ -245,13 +244,12 @@ fn framed_limb_joint_for(
     character_plane_reference_world: Vec3,
 ) -> RagdollJoint {
     let limit = joint_limit(character_limb);
-    let character_axis_in_frame = |character_seated: Quat,
-                                   character_world_axis: Vec3,
-                                   character_fallback: Vec3| {
-        (character_seated.inverse() * character_world_axis)
-            .try_normalize()
-            .unwrap_or(character_fallback)
-    };
+    let character_axis_in_frame =
+        |character_seated: Quat, character_world_axis: Vec3, character_fallback: Vec3| {
+            (character_seated.inverse() * character_world_axis)
+                .try_normalize()
+                .unwrap_or(character_fallback)
+        };
     let character_center_long = character_cone_center_world
         .try_normalize()
         .unwrap_or(Vec3::NEG_Y);
@@ -465,8 +463,7 @@ pub(crate) fn spawn_colliders(
             let Some(&joint_to_model) = joint_to_model_map.get(joint_name) else {
                 panic!("collider bone {joint_name} missing from reference rig");
             };
-            let (shape, collider_to_model) =
-                collider_shape(collider, helpers, collider_scale);
+            let (shape, collider_to_model) = collider_shape(collider, helpers, collider_scale);
             let collider_to_joint = Transform::from_matrix(
                 joint_to_model.to_matrix().inverse() * collider_to_model.to_matrix(),
             );
@@ -501,12 +498,8 @@ pub(crate) fn spawn_colliders(
                     let character_foot_world = character_world.rotation
                         * (foot_toe_model(helpers, collider) - joint_to_model.translation);
                     let character_shin_world = parent_part
-                        .and_then(|character_parent_index| {
-                            parts.get(character_parent_index)
-                        })
-                        .map(|character_parent_part| {
-                            character_parent_part.part_rotation * Vec3::Y
-                        })
+                        .and_then(|character_parent_index| parts.get(character_parent_index))
+                        .map(|character_parent_part| character_parent_part.part_rotation * Vec3::Y)
                         .unwrap_or(character_world.rotation * Vec3::Y);
                     framed_limb_joint_for(
                         collider,
@@ -580,12 +573,15 @@ pub(crate) fn spawn_colliders(
 /// also matches characters carrying [`PendingRagdollApply`], which the drop
 /// paths insert, so the flip survives until the bake lands.
 pub(crate) fn set_ragdoll_state(
-    characters: Query<(
-        Entity,
-        &CharacterRagdoll,
-        &CharacterColliders,
-        Option<&RagdollCollisionLayers>,
-    ), Or<(Changed<CharacterRagdoll>, With<PendingRagdollApply>)>>,
+    characters: Query<
+        (
+            Entity,
+            &CharacterRagdoll,
+            &CharacterColliders,
+            Option<&RagdollCollisionLayers>,
+        ),
+        Or<(Changed<CharacterRagdoll>, With<PendingRagdollApply>)>,
+    >,
     handles: Query<&bevy_jolt::JoltRagdollHandle>,
     ragdoll_parts: Query<&bevy_jolt::JoltRagdollParts>,
     mut commands: Commands,
@@ -818,9 +814,7 @@ fn collider_shape(
 ) -> (RagdollShape, Transform) {
     match collider {
         ColliderBone::Head => head_shape(helpers, scale),
-        ColliderBone::Chest | ColliderBone::Pelvis => {
-            midsection_shape(helpers, collider, scale)
-        }
+        ColliderBone::Chest | ColliderBone::Pelvis => midsection_shape(helpers, collider, scale),
         ColliderBone::UpperRightArm
         | ColliderBone::UpperLeftArm
         | ColliderBone::LowerRightArm

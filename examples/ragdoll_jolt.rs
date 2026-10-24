@@ -313,9 +313,7 @@ fn draw_joint_anchors(
             let parent_twist_axis = parent_live_rotation * parent_twist_local;
             let parent_plane_axis = parent_live_rotation * parent_plane_local;
             let child_twist_local = match part_spec.joint {
-                RagdollJoint::SwingTwistFramed {
-                    child_twist, ..
-                } => child_twist,
+                RagdollJoint::SwingTwistFramed { child_twist, .. } => child_twist,
                 _ => Vec3::Y,
             };
             let _ = parent_spec;
@@ -341,10 +339,8 @@ fn draw_joint_anchors(
                     let hinge_radius = 0.15;
                     let parent_hinge_axis = parent_live_rotation * Vec3::Z;
                     let sweep_zero = parent_live_rotation * Vec3::X;
-                    let min_ray =
-                        Quat::from_axis_angle(parent_hinge_axis, min) * sweep_zero;
-                    let max_ray =
-                        Quat::from_axis_angle(parent_hinge_axis, max) * sweep_zero;
+                    let min_ray = Quat::from_axis_angle(parent_hinge_axis, min) * sweep_zero;
+                    let max_ray = Quat::from_axis_angle(parent_hinge_axis, max) * sweep_zero;
                     gizmos.line(
                         live_anchor,
                         live_anchor + min_ray * hinge_radius,
@@ -359,10 +355,9 @@ fn draw_joint_anchors(
                     let mut previous_point = live_anchor + min_ray * hinge_radius;
                     for step in 1..=sweep_steps {
                         let fraction = step as f32 / sweep_steps as f32;
-                        let ray = Quat::from_axis_angle(
-                            parent_hinge_axis,
-                            min + (max - min) * fraction,
-                        ) * sweep_zero;
+                        let ray =
+                            Quat::from_axis_angle(parent_hinge_axis, min + (max - min) * fraction)
+                                * sweep_zero;
                         let arc_point = live_anchor + ray * hinge_radius;
                         gizmos.line(previous_point, arc_point, joint_color);
                         previous_point = arc_point;
@@ -403,11 +398,7 @@ fn draw_joint_anchors(
                     if child_twist.dot(child_center - live_anchor) < 0.0 {
                         child_twist = -child_twist;
                     }
-                    gizmos.arrow(
-                        live_anchor,
-                        live_anchor + child_twist * 0.15,
-                        Color::WHITE,
-                    );
+                    gizmos.arrow(live_anchor, live_anchor + child_twist * 0.15, Color::WHITE);
                     // Elliptical rim: clean orthonormal frame off the cone
                     // axis, semi-axes from each half-cone angle. Sized by slant
                     // (anchor → rim stays `cone_length`), so wide cones read
@@ -428,11 +419,7 @@ fn draw_joint_anchors(
                         gizmos.line(previous_point, rim_point, joint_color);
                         // Spokes at the four cardinal points tie rim to apex.
                         if step % (rim_steps / 4) == 0 {
-                            gizmos.line(
-                                live_anchor,
-                                rim_point,
-                                joint_color.with_alpha(0.6),
-                            );
+                            gizmos.line(live_anchor, rim_point, joint_color.with_alpha(0.6));
                         }
                         previous_point = rim_point;
                     }

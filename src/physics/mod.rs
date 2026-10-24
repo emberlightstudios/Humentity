@@ -2,7 +2,7 @@
 // backend nothing reads them, so silence dead-code there instead of hiding
 // real warnings when a backend is on.
 #![cfg_attr(
-    not(any(feature = "avian", feature = "jolt", feature = "boxddd")),
+    not(any(feature = "avian", feature = "jolt")),
     allow(dead_code)
 )]
 
@@ -175,17 +175,8 @@ impl Default for RagdollMobility {
 #[cfg(feature = "avian")]
 pub mod avian;
 
-#[cfg(feature = "boxddd")]
-pub mod boxddd;
-
 #[cfg(feature = "jolt")]
 pub mod jolt;
 
-#[cfg(any(
-    all(feature = "avian", feature = "jolt"),
-    all(feature = "avian", feature = "boxddd"),
-    all(feature = "jolt", feature = "boxddd"),
-))]
-compile_error!(
-    "humentity physics backends are exclusive: enable only one of `avian`, `jolt`, `boxddd`"
-);
+#[cfg(all(feature = "avian", feature = "jolt"))]
+compile_error!("humentity physics backends are exclusive: enable only one of `avian`, `jolt`");

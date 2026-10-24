@@ -13,8 +13,7 @@ use crate::{
     loaders::{ReferenceRigAsset, RigConfigAsset, RigWeightsAsset},
     prelude::*,
     skeleton_lod::{
-        BoneMergeConfig, RigBundle, SkeletonLodConfig, build_lod_data,
-        fit_default_rig_single_toes,
+        BoneMergeConfig, RigBundle, SkeletonLodConfig, build_lod_data, fit_default_rig_single_toes,
     },
 };
 
@@ -427,12 +426,9 @@ pub(crate) fn bone_transform_from_endpoints(
     // MPFB roll angles are defined in Blender's Z-up frame. Align the local
     // bone Y axis using the Blender-frame direction, apply roll there, and
     // convert the resulting frame to the Y-up MakeHuman model coordinates.
-    let blender_bone_direction =
-        BLENDER_TO_MAKEHUMAN_MODEL_ROTATION.inverse() * bone_direction;
-    let align_blender_local_y_to_bone =
-        Quat::from_rotation_arc(Vec3::Y, blender_bone_direction);
-    let blender_bone_rotation =
-        align_blender_local_y_to_bone * Quat::from_rotation_y(roll_radians);
+    let blender_bone_direction = BLENDER_TO_MAKEHUMAN_MODEL_ROTATION.inverse() * bone_direction;
+    let align_blender_local_y_to_bone = Quat::from_rotation_arc(Vec3::Y, blender_bone_direction);
+    let blender_bone_rotation = align_blender_local_y_to_bone * Quat::from_rotation_y(roll_radians);
     let model_bone_rotation =
         (BLENDER_TO_MAKEHUMAN_MODEL_ROTATION * blender_bone_rotation).normalize();
     Transform::from_translation(head_position).with_rotation(model_bone_rotation)
@@ -454,8 +450,7 @@ fn get_bone_position(
             });
         let (first_helper_vertex_index, second_helper_vertex_index) =
             (helper_vertex_indices[0], helper_vertex_indices[1]);
-        (helpers[second_helper_vertex_index as usize]
-            + helpers[first_helper_vertex_index as usize])
+        (helpers[second_helper_vertex_index as usize] + helpers[first_helper_vertex_index as usize])
             / 2.0
     } else if bone_position_spec.strategy == "CUBE" {
         let vertex_group_name = bone_position_spec.cube_name.as_ref().unwrap_or_else(|| {
@@ -679,9 +674,9 @@ mod full_toe_shape_fit_tests {
             merged_toe_rotation.angle_between(reference_toe_rotation) > 1.0,
             "merged kept toe must carry the no-toes twist, got {merged_toe_rotation:?}"
         );
-        let expected_toe_rotation =
-            (reference_toe_rotation * Quat::from_array([-0.0412228, -0.8170496, -0.0755843, 0.5701033]))
-                .normalize();
+        let expected_toe_rotation = (reference_toe_rotation
+            * Quat::from_array([-0.0412228, -0.8170496, -0.0755843, 0.5701033]))
+        .normalize();
         assert!(
             merged_toe_rotation.angle_between(expected_toe_rotation) < 1e-6,
             "merged kept toe must be the reference rotation times the twist fix"

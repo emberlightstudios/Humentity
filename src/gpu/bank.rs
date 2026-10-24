@@ -20,7 +20,7 @@
 use bevy::{
     animation::{AnimationClip, AnimationTargetId},
     prelude::*,
-    render::{extract_resource::ExtractResource, storage::ShaderBuffer},
+    render::{RenderApp, extract_resource::ExtractResource, storage::ShaderBuffer},
 };
 use crossbeam_channel::{Receiver, Sender};
 
@@ -44,6 +44,9 @@ pub(crate) struct BankSlot {
     pub frame_count: u32,
     pub duration: f32,
     pub mode: GpuClipMode,
+    /// True for an override layer: its masked bones replace the locomotion
+    /// blend instead of averaging with it (an upper-body attack).
+    pub is_layer: bool,
 }
 
 /// A bake request carrying its clip directly (Bevy's native `AnimationClip`
@@ -89,6 +92,11 @@ pub struct GpuAnimationBank {
     /// shadow rebuilt) only when no bake work is pending, so a burst of clips
     /// re-uploads once and bank offsets never lead the GPU buffer.
     pub(crate) staged: Vec<BakedClip>,
+    /// Per bank slot, per bone blend mask (`max_clips * num_bones` floats,
+    /// 1.0 = the clip writes this bone). Static until a caller sets one;
+    /// uploaded by `upload_bone_masks` when `bone_masks_version` changes.
+    pub(crate) bone_masks: Vec<f32>,
+    pub(crate) bone_masks_version: u64,
 }
 
 impl GpuAnimationBank {
@@ -99,8 +107,9 @@ impl GpuAnimationBank {
         sample_rate: f32,
         capacity: usize,
     ) -> Self {
-        let mut slots: Vec<Option<(String, BankSlot)>> =
-            (0..capacity.clamp(2, CLIP_CAP)).map(|_| None).collect();
+        let clip_capacity = capacity.clamp(2, CLIP_CAP);
+        let bones_len = bones.len();
+        let mut slots: Vec<Option<(String, BankSlot)>> = (0..clip_capacity).map(|_| None).collect();
         slots[BIND_POSE_SLOT] = Some((
             BIND_POSE_CLIP.to_string(),
             BankSlot {
@@ -108,6 +117,7 @@ impl GpuAnimationBank {
                 frame_count: 1,
                 duration: 1.0 / sample_rate.max(1.0),
                 mode: GpuClipMode::Loop,
+                is_layer: false,
             },
         ));
         Self {
@@ -122,7 +132,61 @@ impl GpuAnimationBank {
             baking: Vec::new(),
             unload_queue: Vec::new(),
             staged: Vec::new(),
+            bone_masks: vec![1.0; CLIP_CAP * bones_len],
+            bone_masks_version: 0,
         }
+    }
+
+    /// Sets the per-bone blend mask for a resident clip, in `bones` order.
+    /// 1.0 lets the clip write the bone; 0.0 excludes it. Values are clamped
+    /// to 0..1, so soft seams are allowed. Returns false when the clip is not
+    /// resident yet (retry once `slot_of` reports it).
+    pub fn set_bone_mask(&mut self, name: &str, mask: &[f32]) -> bool {
+        let Some(slot) = self.slot_of(name) else {
+            return false;
+        };
+        let bone_count = self.bones.len();
+        let start = slot * bone_count;
+        let Some(row) = self.bone_masks.get_mut(start..start + bone_count) else {
+            return false;
+        };
+        for (slot_weight, mask_weight) in row.iter_mut().zip(mask.iter().copied()) {
+            *slot_weight = mask_weight.clamp(0.0, 1.0);
+        }
+        // A short mask silences the unspecified tail rather than leaving a
+        // stale 1.0 on a bone the caller forgot.
+        for slot_weight in row.iter_mut().skip(mask.len()) {
+            *slot_weight = 0.0;
+        }
+        self.bone_masks_version += 1;
+        true
+    }
+
+    /// Marks a resident clip as an override layer. The shader lets a layer's
+    /// masked bones replace the base blend instead of averaging into it.
+    pub fn set_clip_layer(&mut self, name: &str, is_layer: bool) -> bool {
+        let Some(slot) = self.slot_of(name) else {
+            return false;
+        };
+        let Some((_, meta)) = self.slots[slot].as_mut() else {
+            return false;
+        };
+        meta.is_layer = is_layer;
+        self.bone_masks_version += 1;
+        true
+    }
+
+    /// Two-word bitmask of layer slots for the pose uniforms.
+    pub(crate) fn layer_mask(&self) -> [u32; 2] {
+        let mut mask = [0u32; 2];
+        for (slot, entry) in self.slots.iter().enumerate() {
+            if let Some((_, meta)) = entry {
+                if meta.is_layer {
+                    mask[slot / 32] |= 1 << (slot % 32);
+                }
+            }
+        }
+        mask
     }
 
     /// Queues a background bake of a natively loaded clip (Bevy's glTF loader,
@@ -254,6 +318,7 @@ impl Default for GpuBakeJobs {
 }
 
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(RenderApp)]
 pub struct GpuRenderHandles {
     pub parents: Handle<ShaderBuffer>,
     pub frames: Handle<ShaderBuffer>,
@@ -275,6 +340,9 @@ pub struct GpuRenderHandles {
     pub joints: Handle<ShaderBuffer>,
     pub uniforms: Handle<ShaderBuffer>,
     pub instance_data: Handle<ShaderBuffer>,
+    /// Per bank slot, per bone blend mask: `max_clips * num_bones` floats
+    /// (1.0 = the clip writes the bone). Indexed `bank * num_bones + bone`.
+    pub clip_masks: Handle<ShaderBuffer>,
     /// Per-instance shape weights: one shape-ceiling row per instance with
     /// the same semantics as the entity's morph weights (slot `i` blends
     /// `GpuCrowdShapes.shapes[i]`).

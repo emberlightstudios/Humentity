@@ -20,6 +20,7 @@ use bevy::ui_widgets::Activate;
 use bevy::ui_widgets::Slider;
 use bevy::ui_widgets::SliderPrecision;
 use bevy::ui_widgets::SliderStep;
+use bevy::ui_widgets::SliderValue;
 use bevy::ui_widgets::ValueChange;
 use bevy::ui_widgets::slider_self_update;
 use humentity::prelude::*;
@@ -403,19 +404,18 @@ fn category_selected(
                     width: percent(45),
                 }
                 Children [
-                    (
-                        SliderMetadata::new(category, name)
-                        @FeathersSlider {
-                            @min: min_values[name],
-                            @max: 1.0,
-                            @value: morph,
-                        }
-                        SliderStep(0.1)
-                        SliderPrecision(2)
-                        on(on_slider_value_changed)
-                        on(slider_self_update)
-                    ),
-                    (Text::new(name) ThemedText),
+                    SliderMetadata::new(category, name)
+                    @FeathersSlider {
+                        @min: min_values[name],
+                        @max: 1.0,
+                    }
+                    SliderValue(morph)
+                    SliderStep(0.1)
+                    SliderPrecision(2)
+                    on(on_slider_value_changed)
+                    on(slider_self_update)
+                    --
+                    Text::new(name) ThemedText
                 ]
             })
             .id();

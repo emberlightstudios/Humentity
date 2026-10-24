@@ -200,7 +200,6 @@ mod tests {
                 .angle_between(Quat::from_rotation_y(0.5))
                 < 1e-6
         );
-
     }
 
     #[test]
@@ -239,10 +238,9 @@ mod tests {
                 )
             })
             .collect();
-        let vertex_groups: AHashMap<String, Vec<[usize; 2]>> = serde_json::from_str(
-            include_str!("../../assets/basemesh_vertex_groups.json"),
-        )
-        .expect("default vertex groups must parse");
+        let vertex_groups: AHashMap<String, Vec<[usize; 2]>> =
+            serde_json::from_str(include_str!("../../assets/basemesh_vertex_groups.json"))
+                .expect("default vertex groups must parse");
         let reference_rig =
             ReferenceRigAsset::from_rig_config(&rig_config, &helpers, &vertex_groups);
         // Local XYZW samples copied from the Blender default-rig bind-pose export.
@@ -259,10 +257,7 @@ mod tests {
                 "upperleg02.L",
                 Quat::from_xyzw(0.099648714, 0.02408164, -0.08383419, 0.9911922),
             ),
-            (
-                "spine02",
-                Quat::from_xyzw(-0.16489373, 0.0, 0.0, 0.9863113),
-            ),
+            ("spine02", Quat::from_xyzw(-0.16489373, 0.0, 0.0, 0.9863113)),
             (
                 "wrist.L",
                 Quat::from_xyzw(-0.107333586, -0.6034186, -0.32568642, 0.71992636),

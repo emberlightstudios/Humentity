@@ -3,6 +3,7 @@ use bevy::{
     asset::AssetPlugin,
     dev_tools::fps_overlay::FpsOverlayPlugin,
     input::mouse::MouseMotion,
+    light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap},
     mesh::{MeshVertexBufferLayoutRef, morph::MeshMorphWeights, skinning::SkinnedMesh},
     pbr::{
         ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
@@ -26,11 +27,12 @@ use humentity::prelude::*;
 pub fn default_skeleton_lods() -> Vec<BoneMergeConfig> {
     // Merge toe bones into a single posable toe per foot
     let lod0 = BoneMergeConfig::full();
-        // if you author clips on the default rig with toes (like idle.glb), then don't use the below fn.
-        // if you used the no toes rig, then you will want to call this fn.
-        //.merge_default_rig_toes();
+    // if you author clips on the default rig with toes (like idle.glb), then don't use the below fn.
+    // if you used the no toes rig, then you will want to call this fn.
+    //.merge_default_rig_toes();
 
-    let lod1 = lod0.clone()
+    let lod1 = lod0
+        .clone()
         .without_children_of(&["foot.L"])
         .without_children_of(&["foot.R"])
         .without_children_of(&["head"]);
@@ -363,12 +365,31 @@ pub fn setup_env(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.2, 0.2, 0.25))),
     ));
+    // These examples frame one character at ~4 m, but the default first cascade
+    // reaches 10 m over a 2048 map, so its texels are ~7 mm and shadow edges on
+    // the character stair-step visibly. An 8 m first cascade on a 4096 map gives
+    // ~2.5x finer texels (~3 mm), and the 60 m cap still shadows the wide
+    // `CameraFraming::Far` crowd scenes (camera ~41.6 m from the crowd center).
+    // A 4096 map costs 4x the memory of 2048 per layer (67 MB each); what Bevy's
+    // defaults really buy is coverage, not RAM savings.
+    commands.insert_resource(DirectionalLightShadowMap { size: 4096 });
     commands.spawn((
         DirectionalLight {
             illuminance: 3000.0,
             shadow_maps_enabled: true,
             ..default()
         },
+        CascadeShadowConfigBuilder {
+            // Four cascades over 60 m, not the default 150 m: same layer count
+            // as stock, but each layer is spent on half the depth range, so
+            // every cascade is denser. Desktop target, so the extra fill of a
+            // 4096 map is the trade we take for clean shadow silhouettes.
+            num_cascades: 4,
+            maximum_distance: 60.0,
+            first_cascade_far_bound: 8.0,
+            ..default()
+        }
+        .build(),
         Transform::from_xyz(10.0, 20.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     // Close frames a single character at the origin (same 4m-back, 1m-up

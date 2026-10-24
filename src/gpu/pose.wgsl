@@ -12,6 +12,8 @@ struct PoseUniforms {
     // zero otherwise). Baked from the rig name; mirrors the CPU
     // skeleton-entity translation. Applied post-`fix` in world space.
     root_z_offset: f32,
+    // Bitmask of override-layer bank slots (two words for 64 slots).
+    layer_mask: array<u32, 2>,
 };
 
 // Baked reference bind-pose Y of the root bone, in reference model space.
@@ -52,18 +54,34 @@ struct RootBindInfo {
 // Per-shape translation direction fixes: shape_count * num_bones quats
 // (`xyzw`), same layout as the ratios. Slice 0 holds identity.
 @group(0) @binding(12) var<storage, read> shape_direction_adjust: array<vec4f>;
+// Per bank slot, per bone blend mask: max_clips * num_bones floats. 1.0 lets
+// the clip write the bone; 0.0 excludes it. Indexed bank * num_bones + bone.
+@group(0) @binding(13) var<storage, read> clip_masks: array<f32>;
 
 fn instance_weight(instance: u32, slot: u32) -> f32 {
-    return instance_data[instance * 15u + slot];
+    return instance_data[instance * 24u + slot];
 }
 
 fn instance_time(instance: u32, slot: u32) -> f32 {
-    return instance_data[instance * 15u + 5u + slot];
+    return instance_data[instance * 24u + 8u + slot];
 }
 
 // Blend slot -> global bank clip. Clamped so a stale slot can never read OOB.
 fn instance_bank(instance: u32, slot: u32) -> u32 {
-    return min(u32(instance_data[instance * 15u + 10u + slot]), 63u);
+    return min(u32(instance_data[instance * 24u + 16u + slot]), 63u);
+}
+
+/// How much this clip may write this bone (0..1).
+fn clip_bone_mask(instance: u32, slot: u32, bone: u32) -> f32 {
+    return clip_masks[instance_bank(instance, slot) * uniforms.num_bones + bone];
+}
+
+/// True for an override layer: its masked bones replace the base blend
+/// instead of averaging into it. The bitmask is indexed by *bank* slot, so
+/// resolve the instance's blend slot through `instance_bank` first.
+fn is_layer_slot(instance: u32, slot: u32) -> bool {
+    let bank = instance_bank(instance, slot);
+    return ((uniforms.layer_mask[bank / 32u] >> (bank % 32u)) & 1u) != 0u;
 }
 fn instance_shape_weight(instance: u32, shape: u32) -> f32 {
     return shape_weights[instance * 8u + shape];
@@ -220,10 +238,34 @@ fn clip_local(slot: u32, bone: u32, instance: u32, fitted: vec3f, is_root: bool)
     return mat_mix(a_fitted, b_fitted, f);
 }
 
-fn blended_local(bone: u32, instance: u32, fitted: vec3f, wsum: f32, is_root: bool) -> mat4x4f {
+fn blended_local(bone: u32, instance: u32, fitted: vec3f, is_root: bool) -> mat4x4f {
+    // Base clips (locomotion) blend normally. An override layer whose mask
+    // covers this bone replaces the base instead of averaging with it:
+    // otherwise a weight-1 attack would share the upper body 50/50 with idle.
+    var base_weight = 0.0;
+    var layer_weight = 0.0;
+    for (var s = 0u; s < 8u; s++) {
+        let weighted = instance_weight(instance, s) * clip_bone_mask(instance, s, bone);
+        if (is_layer_slot(instance, s)) {
+            layer_weight += weighted;
+        } else {
+            base_weight += weighted;
+        }
+    }
+    let layer_alpha = min(layer_weight, 1.0);
+    var base_scale = 1.0 - layer_alpha;
+    var denominator = base_weight * base_scale + layer_weight;
+    if (denominator < 0.00001) {
+        // Everything masked out: fall back to the unmasked base blend so the
+        // bone never collapses to a zero matrix.
+        denominator = max(base_weight + layer_weight, 0.00001);
+        base_scale = 1.0;
+    }
     var local = mat4x4f(vec4f(0.0), vec4f(0.0), vec4f(0.0), vec4f(0.0));
-    for (var s = 0u; s < 5u; s++) {
-        local += clip_local(s, bone, instance, fitted, is_root) * (instance_weight(instance, s) / wsum);
+    for (var s = 0u; s < 8u; s++) {
+        let weighted = instance_weight(instance, s) * clip_bone_mask(instance, s, bone);
+        let contribution = select(weighted * base_scale, weighted, is_layer_slot(instance, s));
+        local += clip_local(s, bone, instance, fitted, is_root) * (contribution / denominator);
     }
     return local;
 }
@@ -242,18 +284,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let fitted = blended_translation(instance, bone);
     let is_root = bone == 0u;
 
-    var wsum = 0.0;
-    for (var s = 0u; s < 5u; s++) {
-        wsum += instance_weight(instance, s);
-    }
-    wsum = max(wsum, 0.00001);
-
-    var model = blended_local(bone, instance, fitted, wsum, is_root);
+    var model = blended_local(bone, instance, fitted, is_root);
     var p = parents[bone];
     var guard = 0;
     while (p >= 0 && guard < 128) {
         let pb = u32(p);
-        model = blended_local(pb, instance, blended_translation(instance, pb), wsum, pb == 0u) * model;
+        model = blended_local(pb, instance, blended_translation(instance, pb), pb == 0u) * model;
         p = parents[pb];
         guard += 1;
     }

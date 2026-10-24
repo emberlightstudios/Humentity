@@ -239,9 +239,7 @@ impl SkeletonLodConfig {
 /// resource may be absent. A fit can run before the config is uploaded, and
 /// the rig build itself defaults to full, so absent means no toe merge and
 /// the reference bind frame survives.
-pub fn skeleton_merge_config_for(
-    lod_config: Option<&SkeletonLodConfig>,
-) -> &BoneMergeConfig {
+pub fn skeleton_merge_config_for(lod_config: Option<&SkeletonLodConfig>) -> &BoneMergeConfig {
     static FULL_MERGE_CONFIG: BoneMergeConfig = BoneMergeConfig::full();
     lod_config.map_or(&FULL_MERGE_CONFIG, SkeletonLodConfig::skeleton_merge_config)
 }

@@ -255,7 +255,7 @@ fn spawn_crowd(
             Transform::from_translation(Vec3::new(x, 0., 0.)),
             Mesh3d(mesh.clone()),
             MeshMaterial3d(material.clone()),
-            MeshTag(index as u32),
+            MeshTag::new(index as u32),
             MeshMorphWeights::Value {
                 weights: weights.to_vec(),
             },

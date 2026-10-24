@@ -44,7 +44,7 @@ fn main() {
 
 /// Skeletons start fully enabled by default; here we narrow the active LOD set
 /// to LOD 0 so bone sub-trees it doesn't reference get disabled.
-fn on_skeleton_ready(trigger: On<Add, SkeletonReady>, mut commands: Commands) {
+fn on_skeleton_ready(trigger: On<Add<SkeletonReady>>, mut commands: Commands) {
     let mut active = [false; MAX_LODS];
     active[0] = true;
     commands

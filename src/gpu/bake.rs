@@ -27,6 +27,7 @@ use crate::{
 };
 
 use super::{
+    set_shader_buffer_bytes,
     bank::{
         BIND_POSE_CLIP, BIND_POSE_SLOT, BakedClip, BankSlot, GpuAnimationBank, GpuAnimationReady,
         GpuBakeJobs, GpuRenderHandles,
@@ -215,6 +216,7 @@ pub(super) fn bake_gpu_animation(
     }
 
     let num_bones = bones.len() as u32;
+    let bone_count = bones.len();
     let instances = config.instances as u32;
     let (blend_slots, max_clips, max_shapes) = config.normalized();
     let mut bank =
@@ -223,11 +225,11 @@ pub(super) fn bake_gpu_animation(
     let (offsets, counts, durations, modes) = bank.tables();
 
     let parents_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&parents),
+        bytemuck::cast_slice::<_, u8>(&parents).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     let frames_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&seed),
+        bytemuck::cast_slice::<_, u8>(&seed).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     let inv_bind: Vec<Mat4> = bank
@@ -236,7 +238,7 @@ pub(super) fn bake_gpu_animation(
         .map(|bone| reference.model_space_bindpose[bone].to_matrix().inverse())
         .collect();
     let inv_bind_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&inv_bind),
+        bytemuck::cast_slice::<_, u8>(&inv_bind).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     // Shape slices: slice 0 is the reference skeleton (translations mirror the
@@ -254,11 +256,11 @@ pub(super) fn bake_gpu_animation(
         })
         .collect();
     let shape_translations_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&reference_translations),
+        bytemuck::cast_slice::<_, u8>(&reference_translations).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     let shape_inv_binds_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&inv_bind),
+        bytemuck::cast_slice::<_, u8>(&inv_bind).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     // Dynamic-retarget corrections, slice 0 (reference): length ratios of 1.0
@@ -267,23 +269,23 @@ pub(super) fn bake_gpu_animation(
     // fitted slice per registered shape.
     let reference_ratios = vec![1.0f32; binds.len()];
     let shape_ratios_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&reference_ratios),
+        bytemuck::cast_slice::<_, u8>(&reference_ratios).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     let reference_direction_adjust = vec![Vec4::new(0.0, 0.0, 0.0, 1.0); binds.len()];
     let shape_direction_adjust_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&reference_direction_adjust),
+        bytemuck::cast_slice::<_, u8>(&reference_direction_adjust).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     let joints_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&joints_data),
+        bytemuck::cast_slice::<_, u8>(&joints_data).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     // Skeleton-root rearward Z shift (default rig only): published into the
     // pose uniforms so the GPU crowd sits on the capsule like CPU characters.
     let root_z_offset = skeleton_rear_offset_meters(&reference.rig_name);
     let uniforms_handle = buffers.add(ShaderBuffer::new(
-        &pose_uniform_bytes(
+        pose_uniform_bytes(
             num_bones,
             instances,
             offsets.clone(),
@@ -292,7 +294,9 @@ pub(super) fn bake_gpu_animation(
             modes.clone(),
             1,
             root_z_offset,
-        ),
+            bank.layer_mask(),
+        )
+        .to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     // Per instance: blend_slots weights + clocks + bank indices, padded to
@@ -308,25 +312,32 @@ pub(super) fn bake_gpu_animation(
         instance_floats.extend_from_slice(&[0.0; BLEND_CAP]);
     }
     let instance_data_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&instance_floats),
+        bytemuck::cast_slice::<_, u8>(&instance_floats).to_vec(),
+        RenderAssetUsages::RENDER_WORLD,
+    ));
+    // Per bank slot, per bone: 1.0 = the clip writes the bone. Every clip
+    // starts full-body; a caller masks a clip via `set_bone_mask`.
+    let bone_mask_floats = vec![1.0f32; CLIP_CAP * bone_count];
+    let clip_masks_handle = buffers.add(ShaderBuffer::new(
+        bytemuck::cast_slice::<_, u8>(&bone_mask_floats).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     // Per instance: one shape-ceiling weight row (zeros = reference).
     let shape_weight_floats = vec![0.0f32; config.instances * SHAPE_CAP];
     let shape_weights_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&shape_weight_floats),
+        bytemuck::cast_slice::<_, u8>(&shape_weight_floats).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     // Per instance: one root-bone Y scale (1.0 = reference proportions).
     let root_scale_floats = vec![1.0f32; config.instances];
     let root_scales_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&root_scale_floats),
+        bytemuck::cast_slice::<_, u8>(&root_scale_floats).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     // Reference root bind-pose Y (local == model space: the root has no
     // parent). The shader measures clip-Y deltas from this.
     let root_bind_handle = buffers.add(ShaderBuffer::new(
-        bytemuck::cast_slice(&[binds[0].translation.y]),
+        bytemuck::cast_slice::<_, u8>(&[binds[0].translation.y]).to_vec(),
         RenderAssetUsages::RENDER_WORLD,
     ));
     commands.insert_resource(GpuRenderHandles {
@@ -340,6 +351,7 @@ pub(super) fn bake_gpu_animation(
         joints: joints_handle,
         uniforms: uniforms_handle,
         instance_data: instance_data_handle,
+        clip_masks: clip_masks_handle,
         shape_weights: shape_weights_handle,
         root_scales: root_scales_handle,
         root_bind: root_bind_handle,
@@ -429,6 +441,47 @@ pub(super) fn submit_clip_bakes(
     }
 }
 
+/// Uploads the bank's per-clip bone masks when a caller changed one. Static
+/// otherwise: masks do not change per frame, so this is a version check.
+pub(super) fn upload_bone_masks(
+    bank: Option<Res<GpuAnimationBank>>,
+    handles: Option<Res<GpuRenderHandles>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+    mut uploaded_version: Local<u64>,
+) {
+    let (Some(bank), Some(handles)) = (bank, handles) else {
+        return;
+    };
+    if *uploaded_version == bank.bone_masks_version {
+        return;
+    }
+    {
+        let Some(mut mask_buffer) = buffers.get_mut(&handles.clip_masks) else {
+            return;
+        };
+        set_shader_buffer_bytes(&mut mask_buffer, bytemuck::cast_slice::<_, u8>(&bank.bone_masks).to_vec());
+    }
+    let (offsets, counts, durations, modes) = bank.tables();
+    if let Some(mut uniforms) = buffers.get_mut(&handles.uniforms) {
+        set_shader_buffer_bytes(
+            &mut uniforms,
+            pose_uniform_bytes(
+                handles.num_bones,
+                handles.instance_count,
+                offsets,
+                counts,
+                durations,
+                modes,
+                handles.shape_count,
+                handles.root_z_offset,
+                bank.layer_mask(),
+            )
+            .to_vec(),
+        );
+    }
+    *uploaded_version = bank.bone_masks_version;
+}
+
 /// Appends completed bakes to the packed `frames` shadow, splices unloads out
 /// of it, then re-uploads the whole shadow — deferred while bake work is
 /// still pending so a burst of clips sends once. Publishes the new slots
@@ -494,6 +547,7 @@ pub(super) fn collect_clip_bakes(
                 frame_count,
                 duration: baked.duration,
                 mode: baked.mode,
+                is_layer: false,
             },
         ));
         bank.frames.extend_from_slice(&baked.frames);
@@ -554,10 +608,11 @@ pub(super) fn collect_clip_bakes(
         handles.durations = durations.clone();
         handles.modes = modes.clone();
         if let Some(mut frames) = buffers.get_mut(&handles.frames) {
-            frames.data = Some(bytemuck::cast_slice(&bank.frames).to_vec());
+            set_shader_buffer_bytes(&mut frames, bytemuck::cast_slice::<_, u8>(&bank.frames).to_vec());
         }
         if let Some(mut uniforms) = buffers.get_mut(&handles.uniforms) {
-            uniforms.data = Some(
+            set_shader_buffer_bytes(
+                &mut uniforms,
                 pose_uniform_bytes(
                     handles.num_bones,
                     handles.instance_count,
@@ -567,6 +622,7 @@ pub(super) fn collect_clip_bakes(
                     modes,
                     handles.shape_count,
                     handles.root_z_offset,
+                    bank.layer_mask(),
                 )
                 .to_vec(),
             );
@@ -660,16 +716,16 @@ pub(super) fn upload_shape_buffers(
         direction_adjust.extend_from_slice(&shape.translation_direction_adjust);
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.shape_translations) {
-        buffer.data = Some(bytemuck::cast_slice(&translations).to_vec());
+        set_shader_buffer_bytes(&mut buffer, bytemuck::cast_slice::<_, u8>(&translations).to_vec());
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.shape_inv_binds) {
-        buffer.data = Some(bytemuck::cast_slice(&inv_binds).to_vec());
+        set_shader_buffer_bytes(&mut buffer, bytemuck::cast_slice::<_, u8>(&inv_binds).to_vec());
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.shape_ratios) {
-        buffer.data = Some(bytemuck::cast_slice(&ratios).to_vec());
+        set_shader_buffer_bytes(&mut buffer, bytemuck::cast_slice::<_, u8>(&ratios).to_vec());
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.shape_direction_adjust) {
-        buffer.data = Some(bytemuck::cast_slice(&direction_adjust).to_vec());
+        set_shader_buffer_bytes(&mut buffer, bytemuck::cast_slice::<_, u8>(&direction_adjust).to_vec());
     }
     handles.shape_count = shapes.shapes.len() as u32 + 1;
     // Publish the new shape count so the pose shader can clamp shape indices
@@ -681,7 +737,8 @@ pub(super) fn upload_shape_buffers(
         handles.modes.clone(),
     );
     if let Some(mut uniforms) = buffers.get_mut(&handles.uniforms) {
-        uniforms.data = Some(
+        set_shader_buffer_bytes(
+            &mut uniforms,
             pose_uniform_bytes(
                 handles.num_bones,
                 handles.instance_count,
@@ -691,6 +748,7 @@ pub(super) fn upload_shape_buffers(
                 modes,
                 handles.shape_count,
                 handles.root_z_offset,
+                bank.layer_mask(),
             )
             .to_vec(),
         );
@@ -714,6 +772,7 @@ fn pose_uniform_bytes(
     modes: Vec<u32>,
     shape_count: u32,
     root_z_offset: f32,
+    layer_mask: [u32; 2],
 ) -> [u8; 1088] {
     let mut words = [0u32; 272];
     words[0] = num_bones;
@@ -721,8 +780,10 @@ fn pose_uniform_bytes(
     words[2] = pose_grid_side(instances);
     words[3] = shape_count.max(1);
     // Words 4..260 are the clip tables (4 x CLIP_CAP); word 260 carries the
-    // skeleton-root rearward Z shift, every later word stays reserved zero.
+    // skeleton-root rearward Z shift, words 261-262 the layer-slot bitmask.
     words[260] = root_z_offset.to_bits();
+    words[261] = layer_mask[0];
+    words[262] = layer_mask[1];
     for i in 0..CLIP_CAP {
         words[4 + i] = clip_offsets[i];
         words[68 + i] = clip_frames[i];

@@ -4,25 +4,24 @@ version = "0.19.0"
 edition = "2024"
 
 [dependencies]
-bevy = "0.19.1"
+bevy = "0.20.0"
 ahash = { version = ">=0.8.12", features = ["serde"] }
 serde = { version = ">=1.0.228", features = ["derive"] }
 walkdir = ">=2.5.0"
 serde_json = ">=1.0.150"
 bytemuck = ">=1.25.0"
 gltf = ">=1.4.1"
-bevy_obj = "0.19.0"
+bevy_obj = { path = "../../vendor/bevy_obj", default-features = false, features = ["mesh"] }
 crossbeam-channel = ">=0.5.15"
 toml = ">=1.1.2"
 thiserror = ">=2.0.18"
 avian3d = { optional = true, version = "0.7.0" }
-bevy_boxddd = { optional = true, version = "0.4.0" }
 bevy_jolt = { workspace = true, optional = true }
 
 [dev-dependencies]
-bevy = { version = "0.19.0", features = ["bevy_feathers", "bevy_dev_tools"] }
-bevy-inspector-egui = "0.37.0"
-bevy_egui = "0.40.0"
+bevy = { version = "0.20.0", features = ["bevy_feathers", "bevy_dev_tools", "render_dev_tools"] }
+bevy-inspector-egui = "0.38.0"
+bevy_egui = "0.43.1"
 
 [[example]]
 name = "ragdoll_avian"
@@ -48,18 +47,11 @@ required-features = ["jolt"]
 name = "ragdoll_joints_jolt"
 required-features = ["jolt"]
 
-[[example]]
-name = "ragdoll_boxddd"
-required-features = ["boxddd"]
-
-
-
 [features]
 default = []
 debug = ["bevy/debug"]
 avian = ["dep:avian3d"]
 jolt = ["dep:bevy_jolt"]
-boxddd = ["dep:bevy_boxddd", "bevy_boxddd/debug-gizmos"]
 
 [lints.clippy]
 all = "deny"

@@ -206,12 +206,7 @@ pub(crate) fn bone_translation_correction(
         ),
         _ => (
             reference_local.translation.length(),
-            parent_space_direction_fix(
-                reference_rig,
-                fitted_model_space,
-                bone_name,
-                leaked_parent,
-            ),
+            parent_space_direction_fix(reference_rig, fitted_model_space, bone_name, leaked_parent),
         ),
     };
     if reference_length < 1e-3 {

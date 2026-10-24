@@ -241,18 +241,12 @@ fn arm_selected_joint(
         ) else {
             continue;
         };
-        let (Ok(body_id), Some(part)) = (
-            body_ids.get(part_entity),
-            spec.parts.get(part_index),
-        ) else {
+        let (Ok(body_id), Some(part)) = (body_ids.get(part_entity), spec.parts.get(part_index))
+        else {
             continue;
         };
         physics_world.set_body_velocity(body_id.body_id_raw, Vec3::ZERO, Vec3::ZERO);
-        physics_world.teleport_body(
-            body_id.body_id_raw,
-            part.part_position,
-            part.part_rotation,
-        );
+        physics_world.teleport_body(body_id.body_id_raw, part.part_position, part.part_rotation);
         physics_world.set_body_motion(body_id.body_id_raw, JoltMotion::Kinematic);
         commands.entity(part_entity).insert(JoltKinematicTarget {
             target_position: part.part_position,
@@ -284,8 +278,7 @@ fn follow_driven_parent(
     let Some(spec_entity) = colliders.ragdoll_entity else {
         return;
     };
-    let (Ok(parts), Ok(spec)) = (baked.get(spec_entity), ragdoll_specs.get(spec_entity))
-    else {
+    let (Ok(parts), Ok(spec)) = (baked.get(spec_entity), ragdoll_specs.get(spec_entity)) else {
         return;
     };
     for part_index in subtree_parts(&colliders.part_order, armed_part) {
@@ -308,10 +301,9 @@ fn follow_driven_parent(
         let Ok(parent_pose) = body_poses.get(parent_entity) else {
             continue;
         };
-        let (Some(parent_baked), Ok((mut target, _))) = (
-            spec.parts.get(parent_part),
-            targets.get_mut(part_entity),
-        ) else {
+        let (Some(parent_baked), Ok((mut target, _))) =
+            (spec.parts.get(parent_part), targets.get_mut(part_entity))
+        else {
             continue;
         };
         // Baked relative offset, re-applied to the live parent pose: the
@@ -319,8 +311,7 @@ fn follow_driven_parent(
         let relative_rotation = parent_baked.part_rotation.conjugate() * part.part_rotation;
         let relative_offset = parent_baked.part_rotation.conjugate()
             * (part.part_position - parent_baked.part_position);
-        target.target_position =
-            parent_pose.translation + (parent_pose.rotation * relative_offset);
+        target.target_position = parent_pose.translation + (parent_pose.rotation * relative_offset);
         target.target_rotation = parent_pose.rotation * relative_rotation;
     }
 }
@@ -387,18 +378,11 @@ fn park_part_at_bind(
     ) else {
         return;
     };
-    let (Ok(body_id), Some(part)) = (
-        body_ids.get(part_entity),
-        spec.parts.get(part_index),
-    ) else {
+    let (Ok(body_id), Some(part)) = (body_ids.get(part_entity), spec.parts.get(part_index)) else {
         return;
     };
     physics_world.set_body_velocity(body_id.body_id_raw, Vec3::ZERO, Vec3::ZERO);
-    physics_world.teleport_body(
-        body_id.body_id_raw,
-        part.part_position,
-        part.part_rotation,
-    );
+    physics_world.teleport_body(body_id.body_id_raw, part.part_position, part.part_rotation);
     physics_world.set_body_motion(body_id.body_id_raw, JoltMotion::Kinematic);
 }
 
@@ -577,8 +561,8 @@ fn draw_joint_gizmos(
     // True joint anchor from the baked spec (bind-pose joint origin), not the
     // body center: e.g. chest pivots at the spine, mid-chest is just where
     // its collider box sits.
-    let anchor = joint_anchor(&colliders, &ragdoll_specs, &selected)
-        .unwrap_or(part_pose.translation);
+    let anchor =
+        joint_anchor(&colliders, &ragdoll_specs, &selected).unwrap_or(part_pose.translation);
     gizmos.line(
         anchor - axis_direction * 0.15,
         anchor + axis_direction * 0.15,
@@ -796,4 +780,3 @@ impl Default for BenchOrbit {
         }
     }
 }
-

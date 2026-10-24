@@ -5,8 +5,7 @@ use crate::{
     prelude::*,
     rigs::{BuiltRigs, RigBundleRes, RigData, SkeletonRootBone},
     skeleton_lod::{
-        MAX_LODS, MergeIntoKeptBone, SkeletonLodConfig, all_children_of,
-        skeleton_merge_config_for,
+        MAX_LODS, MergeIntoKeptBone, SkeletonLodConfig, all_children_of, skeleton_merge_config_for,
     },
 };
 use ahash::{AHashMap, AHashSet};
@@ -523,9 +522,9 @@ pub(crate) fn sync_skeleton_lod_subtrees(
         }
         for &kept_merge in &effective_kept_merges {
             let parent_bone_name = NAME_INTERNER.intern(&kept_merge.parent_bone_name).leak();
-            let swallowed_by_anchor = effective_anchors.iter().any(|&anchor| {
-                all_children_of(bone_parents, anchor).contains(&parent_bone_name)
-            });
+            let swallowed_by_anchor = effective_anchors
+                .iter()
+                .any(|&anchor| all_children_of(bone_parents, anchor).contains(&parent_bone_name));
             if swallowed_by_anchor {
                 continue;
             }

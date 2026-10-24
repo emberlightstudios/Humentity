@@ -21,7 +21,10 @@ mod readback;
 mod shapes;
 mod state;
 
-use bake::{bake_gpu_animation, collect_clip_bakes, submit_clip_bakes, upload_shape_buffers};
+use bake::{
+    bake_gpu_animation, collect_clip_bakes, submit_clip_bakes, upload_bone_masks,
+    upload_shape_buffers,
+};
 pub use bank::{
     BIND_POSE_CLIP, BIND_POSE_SLOT, GpuAnimationBank, GpuAnimationReady, GpuRenderHandles,
 };
@@ -42,12 +45,32 @@ use std::marker::PhantomData;
 use bevy::{
     asset::{embedded_asset, load_internal_asset, uuid::Uuid},
     pbr::MaterialPlugin,
+    platform::collections::AlignedVec,
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems, extract_resource::ExtractResourcePlugin,
+        storage::{ShaderBuffer, ShaderBufferData},
     },
     shader::load_shader_library,
 };
+
+/// Replaces a shader buffer's whole contents from raw bytes.
+///
+/// Bevy 0.20 replaced `ShaderBuffer::data: Option<Vec<u8>>` with the
+/// `ShaderBufferData` enum, so a rewrite states its size explicitly.
+///
+/// These buffers are byte-typed on purpose (alignment 1): they are upload-only,
+/// nothing reads them back through `ShaderBuffer::cast_slice::<T>()`. A typed
+/// read of one would assert `align_of::<T>() <= alignment()`; if that need ever
+/// appears, build the buffer from the owned `Vec<T>` instead so the alignment
+/// is recorded.
+pub(crate) fn set_shader_buffer_bytes(shader_buffer: &mut ShaderBuffer, bytes: Vec<u8>) {
+    let buffer_size = bytes.len() as u64;
+    shader_buffer.data = ShaderBufferData::Initialized {
+        data: AlignedVec::from(bytes),
+        buffer_size,
+    };
+}
 
 pub const POSE_SHADER: Handle<Shader> = Handle::Uuid(
     Uuid::from_u128(0x677075616e696d4750753030317567),
@@ -56,13 +79,13 @@ pub const POSE_SHADER: Handle<Shader> = Handle::Uuid(
 
 /// Forward color-pass entry: calls the shared `humentity::crowd_skin` module
 /// and builds `forward_io::VertexOutput`.
-pub const CROWD_FORWARD_SHADER: &str = "embedded://humentity/gpu/crowd_forward.wgsl";
+pub const CROWD_FORWARD_SHADER: &str = "embedded://humentity/gpu/crowd_forward.wesl";
 /// Posed depth/shadow entry: calls the shared `humentity::crowd_skin`
 /// module and builds `prepass_io::VertexOutput`. Wired into both crowd
 /// materials via `prepass_vertex_shader`; needs Bevy 0.19.1+ which binds
 /// the real material layout for custom prepass shaders
 /// (`prepass_reads_material`, #24843).
-pub const CROWD_PREPASS_SHADER: &str = "embedded://humentity/gpu/crowd_prepass.wgsl";
+pub const CROWD_PREPASS_SHADER: &str = "embedded://humentity/gpu/crowd_prepass.wesl";
 
 /// The shared skinning module (`humentity::crowd_skin`): joint/uniform
 /// bindings plus the single `crowd_skin_pose` function, which returns plain
@@ -99,9 +122,9 @@ impl Default for HumentityGpuPlugin {
 impl Plugin for HumentityGpuPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, POSE_SHADER, "pose.wgsl", Shader::from_wgsl);
-        load_shader_library!(app, "crowd_skin.wgsl");
-        embedded_asset!(app, "crowd_forward.wgsl");
-        embedded_asset!(app, "crowd_prepass.wgsl");
+        load_shader_library!(app, "crowd_skin.wesl");
+        embedded_asset!(app, "crowd_forward.wesl");
+        embedded_asset!(app, "crowd_prepass.wesl");
         app.add_plugins(MaterialPlugin::<CrowdMaterial>::default());
         app.add_plugins(ExtractResourcePlugin::<GpuRenderHandles>::default());
         app.insert_resource(GpuCrowdConfig {
@@ -124,6 +147,7 @@ impl Plugin for HumentityGpuPlugin {
                 bake_gpu_animation,
                 submit_clip_bakes,
                 collect_clip_bakes,
+                upload_bone_masks,
                 upload_shape_buffers,
                 state::update_instance_clocks,
                 readback::maintain_joints_readback,

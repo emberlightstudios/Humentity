@@ -17,6 +17,7 @@
 use bevy::{prelude::*, render::storage::ShaderBuffer};
 
 use super::{
+    set_shader_buffer_bytes,
     bank::GpuRenderHandles,
     config::{BLEND_CAP, SHAPE_CAP},
 };
@@ -93,8 +94,12 @@ impl GpuInstanceAnims {
         let Some(slot) = self.targets.get_mut(instance) else {
             return;
         };
-        for (dst, src) in slot.iter_mut().zip(target.iter()) {
-            *dst = *src;
+        // Zero the tail: a caller that passes fewer weights than the row
+        // width means "silence the rest", not "leave the last frame's
+        // weight on". Without this, a 5-wide grounded target would leave a
+        // sixth attack slot at 1.0 forever.
+        for (slot_index, slot_weight) in slot.iter_mut().enumerate() {
+            *slot_weight = target.get(slot_index).copied().unwrap_or(0.0);
         }
     }
 
@@ -249,7 +254,7 @@ pub(super) fn update_instance_clocks(
         ));
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.instance_data) {
-        buffer.data = Some(bytemuck::cast_slice(flat).to_vec());
+        set_shader_buffer_bytes(&mut buffer, bytemuck::cast_slice::<_, u8>(flat).to_vec());
     }
     // Shape weights ride a separate buffer: one SHAPE_CAP row per instance,
     // same semantics as the entity's morph weights. Active rows pad out.
@@ -265,7 +270,7 @@ pub(super) fn update_instance_clocks(
         }
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.shape_weights) {
-        buffer.data = Some(bytemuck::cast_slice(shape_flat).to_vec());
+        set_shader_buffer_bytes(&mut buffer, bytemuck::cast_slice::<_, u8>(shape_flat).to_vec());
     }
     // Root scales ride their own buffer: one float per instance.
     let root_flat = &mut scratch.root_scales;
@@ -275,6 +280,6 @@ pub(super) fn update_instance_clocks(
         root_flat.push(anims.root_scales.get(i).copied().unwrap_or(1.0));
     }
     if let Some(mut buffer) = buffers.get_mut(&handles.root_scales) {
-        buffer.data = Some(bytemuck::cast_slice(root_flat).to_vec());
+        set_shader_buffer_bytes(&mut buffer, bytemuck::cast_slice::<_, u8>(root_flat).to_vec());
     }
 }
