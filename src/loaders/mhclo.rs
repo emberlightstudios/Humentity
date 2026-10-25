@@ -314,15 +314,21 @@ impl MhcloAsset {
         let y_scale = self.y_scale.as_ref();
         let z_scale = self.z_scale.as_ref();
 
+        // MPFB scales an offset by the *size* of the reference span, taken with
+        // `abs()`: `abs(basemesh[max].co[axis] - basemesh[min].co[axis]) / scale`.
+        // The two indices are not written lowest-coordinate-first, so subtracting
+        // them in order flips the sign on the y and z spans of every hm08-based
+        // asset (4370-1524 and 3946-1892 both descend), which pulls offsets into
+        // the body instead of out of it.
         Vec3::new(
             x_scale.map_or(1.0, |s| {
-                (helpers[s.max as usize].x - helpers[s.min as usize].x) / s.scale
+                (helpers[s.max as usize].x - helpers[s.min as usize].x).abs() / s.scale
             }),
             y_scale.map_or(1.0, |s| {
-                (helpers[s.max as usize].y - helpers[s.min as usize].y) / s.scale
+                (helpers[s.max as usize].y - helpers[s.min as usize].y).abs() / s.scale
             }),
             z_scale.map_or(1.0, |s| {
-                (helpers[s.max as usize].z - helpers[s.min as usize].z) / s.scale
+                (helpers[s.max as usize].z - helpers[s.min as usize].z).abs() / s.scale
             }),
         )
     }
