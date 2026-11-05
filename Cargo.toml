@@ -11,11 +11,11 @@ walkdir = ">=2.5.0"
 serde_json = ">=1.0.150"
 bytemuck = ">=1.25.0"
 gltf = ">=1.4.1"
-bevy_obj = { git = "https://github.com/emberlightstudios/bevy_obj", default-features = false, features = ["mesh"] }
+bevy_obj = { version = "0.20.0", default-features = false, features = ["mesh"] }
 crossbeam-channel = ">=0.5.15"
 toml = ">=1.1.2"
 thiserror = ">=2.0.18"
-avian3d = { optional = true, version = "0.7.0" }
+avian3d = { optional = true, version = "0.8.0" }
 bevy_jolt = { git = "https://github.com/emberlightstudios/bevy_jolt", optional = true }
 
 [dev-dependencies]
