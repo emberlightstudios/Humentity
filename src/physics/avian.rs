@@ -2,9 +2,7 @@ use super::*;
 use crate::{
     NAME_INTERNER,
     helpers::{RefitCharacter, TeardownCharacter},
-    prelude::{
-        CharacterRef, CharacterProfile, CharacterSkeleton, SkeletonLodDisabled, SkeletonReady,
-    },
+    prelude::{CharacterRef, CharacterSkeleton, SkeletonLodDisabled, SkeletonReady},
     rigs::{RigData, SkeletalBone},
     spawn_skeleton::CharacterScale,
 };
