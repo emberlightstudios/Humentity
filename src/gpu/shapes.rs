@@ -12,7 +12,7 @@
 //! bindposes are derived from those. Helpers, template lookups, and weight
 //! bookkeeping stay game-side — this function takes plain data.
 
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
 
 use super::config::GpuShapeSkeleton;
@@ -47,7 +47,7 @@ use crate::{
 pub fn fit_shape_skeleton(
     shape: impl Into<String>,
     bones: &[&'static str],
-    model_space: &AHashMap<&'static str, Transform>,
+    model_space: &HashMap<&'static str, Transform>,
     rig: &RigSpec,
     merge_config: &BoneMergeConfig,
 ) -> GpuShapeSkeleton {
@@ -62,7 +62,7 @@ pub fn fit_shape_skeleton(
     // merged away re-anchor to the survivor so the parent chain stays
     // continuous; unresolvable bones keep their model-space as the local so
     // they still land near their fitted position.
-    let mut survivor_parent: AHashMap<&'static str, Option<&'static str>> = AHashMap::default();
+    let mut survivor_parent: HashMap<&'static str, Option<&'static str>> = HashMap::default();
     for &bone in bones.iter() {
         let mut ancestor = bone_parents.get(bone).cloned().unwrap_or_default();
         loop {
@@ -138,7 +138,7 @@ pub fn fit_shape_skeleton(
 /// passes those offsets through untouched.
 fn dynamic_correction_for_bone(
     bone_name: &'static str,
-    fitted_model_space: &AHashMap<&'static str, Transform>,
+    fitted_model_space: &HashMap<&'static str, Transform>,
     rig: &RigSpec,
     merge_config: &BoneMergeConfig,
 ) -> (f32, Quat) {

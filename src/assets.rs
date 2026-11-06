@@ -9,7 +9,7 @@ use crate::{
     prelude::*,
     rigs::RigSpec,
 };
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::mesh::morph::MorphAttributes;
 use bevy::{asset::RenderAssetUsages, prelude::*};
 use std::sync::{Arc, RwLock};
@@ -57,7 +57,7 @@ pub fn shape_mesh_from_helpers_mhclo(
     mhclo: &MhcloAsset,
     helpers: &[Vec3],
     mhid_lookup: &[u16],
-    bevy_vertex_map: &AHashMap<u16, Vec<u16>>,
+    bevy_vertex_map: &HashMap<u16, Vec<u16>>,
 ) -> Mesh {
     let mut vertices = get_vertex_positions(mesh);
     for (vert, mh_asset_vertex) in mhid_lookup.iter().enumerate() {
@@ -106,11 +106,11 @@ pub(crate) fn build_final_mesh_mhclo(
     input_mesh: &Mesh,
     mesh_verts: &ObjVertsAsset,
     shapes: &[CharacterShape],
-    mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
+    mh_morphs: Arc<RwLock<HashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     _rig_spec: &RigSpec,
     lod_bone_names: &[&'static str],
-    lod_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
+    lod_weights: &HashMap<&'static str, HashMap<u16, f32>>,
 ) -> (Mesh, Vec<String>) {
     let vertices = get_vertex_positions(input_mesh);
     let vertex_map = generate_vertex_map(&mesh_verts.vertices, &vertices);
@@ -173,11 +173,11 @@ pub(crate) fn build_final_meshes_mhclo(
     input_meshes: &mut [Mesh],
     mesh_verts: &[ObjVertsAsset],
     shapes_per_mesh: &[Vec<CharacterShape>],
-    mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
+    mh_morphs: Arc<RwLock<HashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     _rig_spec: &RigSpec,
     lod_bone_names: &[&'static str],
-    lod_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
+    lod_weights: &HashMap<&'static str, HashMap<u16, f32>>,
 ) -> (Vec<Mesh>, Vec<Vec<String>>) {
     let mut mhid_lookup = vec![];
     let mut vertex_map = vec![];
@@ -201,7 +201,7 @@ pub(crate) fn build_final_meshes_mhclo(
     // name with different morph maps, and each mesh needs its own fitted
     // variant. A bare shape-name key would share the first-built entry across
     // templates and meshes with different geometry.
-    let mut shape_meshes: AHashMap<(usize, String), Option<Mesh>> = AHashMap::default();
+    let mut shape_meshes: HashMap<(usize, String), Option<Mesh>> = HashMap::default();
     for (i_mesh, mesh) in input_meshes.iter().enumerate() {
         let mesh_template_shapes = &shapes_per_mesh[i_mesh];
         let mut mesh_shapes = vec![];

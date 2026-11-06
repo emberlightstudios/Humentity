@@ -1,5 +1,5 @@
 use crate::prelude::NAME_INTERNER;
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     ecs::intern::Internable,
@@ -8,7 +8,7 @@ use bevy::{
 use serde::Deserialize;
 
 #[derive(Asset, TypePath, Clone, Debug, Deref, Default)]
-pub struct CompositeTargetsAsset(pub AHashMap<&'static str, CategoryMorphsAsset>);
+pub struct CompositeTargetsAsset(pub HashMap<&'static str, CategoryMorphsAsset>);
 
 #[derive(Clone, Debug)]
 pub struct CategoryMorphsAsset {
@@ -35,7 +35,7 @@ pub struct OppositesAsset {
 
 // Temp types with String for deserialization
 #[derive(Clone, Debug, Deserialize, Deref)]
-struct CompositeMorphsAssetString(pub AHashMap<String, CategoryMorphsAssetString>);
+struct CompositeMorphsAssetString(pub HashMap<String, CategoryMorphsAssetString>);
 
 #[derive(Clone, Debug, Deserialize)]
 struct CategoryMorphsAssetString {
@@ -117,7 +117,7 @@ impl AssetLoader for TargetManifestAssetLoader {
                     },
                 )
             })
-            .collect::<AHashMap<_, _>>();
+            .collect::<HashMap<_, _>>();
 
         Ok(CompositeTargetsAsset(interned))
     }

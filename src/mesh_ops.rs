@@ -1,4 +1,4 @@
-use ahash::{AHashMap, AHashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::{mesh::VertexAttributeValues, prelude::*};
 
 use crate::loaders::MhcloVertexMap;
@@ -73,7 +73,7 @@ pub(crate) fn get_uv_coords(mesh: &Mesh) -> Vec<Vec2> {
 /// a smooth surface across the seam but rather 2 distinct surface edges which just
 /// happen to terminate along the same seam, so the normal does not vary smoothly.
 /// Using the mean normal vector for each group of duplicates removes these discontinuities.
-pub fn fix_normals(mesh: &mut Mesh, groups: &AHashMap<u16, Vec<u16>>) {
+pub fn fix_normals(mesh: &mut Mesh, groups: &HashMap<u16, Vec<u16>>) {
     let mut normals = get_vertex_normals(mesh);
 
     // Average normals per group with duplicates
@@ -171,9 +171,9 @@ pub fn fix_normals_multiple(meshes: &mut [&mut Mesh]) {
 }
 
 // Maps mh vertex ids to vec of bevy ids
-pub fn generate_vertex_map(mh_vertices: &[Vec3], vertices: &[Vec3]) -> AHashMap<u16, Vec<u16>> {
-    let mut vertex_map = AHashMap::<u16, Vec<u16>>::default();
-    let mut matched = AHashSet::<usize>::default();
+pub fn generate_vertex_map(mh_vertices: &[Vec3], vertices: &[Vec3]) -> HashMap<u16, Vec<u16>> {
+    let mut vertex_map = HashMap::<u16, Vec<u16>>::default();
+    let mut matched = HashSet::<usize>::default();
 
     for (mh_index, mh_vertex) in mh_vertices.iter().enumerate() {
         let bevy_ids = vertex_map.entry(mh_index as u16).or_insert(vec![]);
@@ -195,7 +195,7 @@ pub fn generate_vertex_map(mh_vertices: &[Vec3], vertices: &[Vec3]) -> AHashMap<
 }
 
 // Maps bevy vertex ids to mh id
-pub fn generate_mhid_lookup(map: &AHashMap<u16, Vec<u16>>) -> Vec<u16> {
+pub fn generate_mhid_lookup(map: &HashMap<u16, Vec<u16>>) -> Vec<u16> {
     let max_vert = map
         .values()
         .flat_map(|v| v.iter())
@@ -221,14 +221,14 @@ pub(crate) fn set_asset_rig_arrays(
     mhid_lookup: &[u16],
     helper_map: &[MhcloVertexMap],
     bone_names: &[&'static str],
-    rig_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
+    rig_weights: &HashMap<&'static str, HashMap<u16, f32>>,
 ) {
     let vertex_count = mhid_lookup.len();
     // Final fixed-size output arrays
     let mut indices: Vec<[u16; 4]> = vec![[0; 4]; vertex_count];
     let mut weights: Vec<[f32; 4]> = vec![[0.0; 4]; vertex_count];
     // Cache per mhid so duplicates are consistent and O(n)
-    let mut mhid_cache: AHashMap<u16, ([u16; 4], [f32; 4])> = AHashMap::default();
+    let mut mhid_cache: HashMap<u16, ([u16; 4], [f32; 4])> = HashMap::default();
     for (vert, &mhid) in mhid_lookup.iter().enumerate() {
         // If we've already computed this mhid, reuse it
         if let Some(&(cached_indices, cached_weights)) = mhid_cache.get(&mhid) {
@@ -238,7 +238,7 @@ pub(crate) fn set_asset_rig_arrays(
         }
         let helper = &helper_map[mhid as usize];
         // Aggregate bone weights deterministically
-        let mut aggregate: AHashMap<u16, f32> = AHashMap::default();
+        let mut aggregate: HashMap<u16, f32> = HashMap::default();
         for (bone_index, &bone_name) in bone_names.iter().enumerate() {
             let Some(bone_weights) = rig_weights.get(bone_name) else {
                 continue;

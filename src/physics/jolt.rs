@@ -9,7 +9,7 @@
 //! mass stabilization, priorities, no-collide, body creation, pose sync —
 //! lives in `bevy_jolt`.
 
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 
 use crate::loaders::{CharacterShape, CharacterTemplate};
 use bevy::ecs::intern::Internable;
@@ -89,8 +89,8 @@ pub struct RagdollStateChanged {
 /// Bone ↔ baked-part mapping, built at spawn and filled when the spec bakes.
 #[derive(Component, Default)]
 pub struct CharacterColliders {
-    pub bone_entities: AHashMap<ColliderBone, Entity>,
-    pub collider_entities: AHashMap<ColliderBone, Entity>,
+    pub bone_entities: HashMap<ColliderBone, Entity>,
+    pub collider_entities: HashMap<ColliderBone, Entity>,
     pub ragdoll_entity: Option<Entity>,
     pub part_order: Vec<ColliderBone>,
 }
@@ -419,7 +419,7 @@ pub(crate) fn spawn_colliders(
 
         // Forward joint→model frames, in reference order. `skeleton` stores
         // the inverses, so invert once here.
-        let mut joint_to_model_map: AHashMap<&str, Transform> = AHashMap::default();
+        let mut joint_to_model_map: HashMap<&str, Transform> = HashMap::default();
         for (bone_index, &bone_name) in reference_order.iter().enumerate() {
             joint_to_model_map.insert(
                 bone_name,
@@ -454,7 +454,7 @@ pub(crate) fn spawn_colliders(
         let mut parts: Vec<bevy_jolt::RagdollPart> = Vec::with_capacity(COLLIDERS.len());
         let mut part_order = Vec::with_capacity(COLLIDERS.len());
         let mut offsets = Vec::with_capacity(COLLIDERS.len());
-        let mut part_index_of: AHashMap<ColliderBone, usize> = AHashMap::default();
+        let mut part_index_of: HashMap<ColliderBone, usize> = HashMap::default();
         for &collider in &COLLIDERS {
             let collider_slot = collider_index(collider);
             let joint_name = DEFAULT_RIG_COLLIDER_BONE_NAMES[collider_slot];

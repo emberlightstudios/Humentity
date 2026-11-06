@@ -1,7 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::asset::AssetPath;
 use bevy::prelude::*;
 
@@ -39,7 +39,7 @@ impl Deref for BaseMesh {
 
 #[derive(Resource)]
 pub struct VertexGroups {
-    data: Arc<AHashMap<String, Vec<[usize; 2]>>>,
+    data: Arc<HashMap<String, Vec<[usize; 2]>>>,
     #[allow(dead_code)]
     handle: Handle<VertexGroupsAsset>,
 }
@@ -55,7 +55,7 @@ impl VertexGroups {
 }
 
 impl Deref for VertexGroups {
-    type Target = AHashMap<String, Vec<[usize; 2]>>;
+    type Target = HashMap<String, Vec<[usize; 2]>>;
     fn deref(&self) -> &Self::Target {
         &self.data
     }

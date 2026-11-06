@@ -10,7 +10,7 @@ use crate::{
         MAX_LODS, MergeIntoKeptBone, SkeletonLodConfig, all_children_of, skeleton_merge_config_for,
     },
 };
-use ahash::{AHashMap, AHashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::{
     animation::AnimatedBy,
     ecs::intern::Internable,
@@ -30,7 +30,7 @@ pub struct CharacterSkeleton {
     /// The one full skeleton scene entity, a child of the `CharacterRef`.
     pub skeleton_entity: Entity,
     /// Bone name → bone entity in the fixed skeleton (full reference rig).
-    pub bone_map: AHashMap<&'static str, Entity>,
+    pub bone_map: HashMap<&'static str, Entity>,
     /// Full inverse bindposes, in reference bone order.
     pub model_space_inv_bindposes: Vec<Mat4>,
     /// Per-bone translation corrections, cached at fit time. Consumed per frame
@@ -145,7 +145,7 @@ pub(crate) fn spawn_rig_skeleton(
         commands.entity(entity).insert((
             CharacterSkeleton {
                 skeleton_entity,
-                bone_map: AHashMap::default(),
+                bone_map: HashMap::default(),
                 model_space_inv_bindposes: Vec::new(),
                 translation_corrections: Vec::new(),
             },
@@ -223,7 +223,7 @@ pub(crate) fn fit_skeleton_to_shape(
 
         // Build the full bone_map from SkinnedMesh.joints + joint names.
         // With a single full skeleton, skm.joints is in reference rig order.
-        let mut bone_entities = AHashMap::default();
+        let mut bone_entities = HashMap::default();
         for &joint in &skm.joints {
             if let Ok(name) = joint_names.get(joint) {
                 bone_entities.insert(NAME_INTERNER.intern(name.as_str()).leak(), joint);
@@ -251,7 +251,7 @@ pub(crate) fn fit_skeleton_to_shape(
         let bone_config = &rig_spec.config;
 
         // Pass 2: Compute local transforms from model-space using the reference rig parent chain.
-        let mut local_bone_transforms = AHashMap::default();
+        let mut local_bone_transforms: HashMap<&'static str, Transform> = HashMap::default();
         for &bone in &rig_spec.reference_rig.bone_names {
             if let Some(bone_data) = bone_config.bones.get(bone) {
                 let parent_name = if bone_data.parent.is_empty() {
@@ -473,7 +473,7 @@ pub(crate) fn sync_skeleton_lod_subtrees(
         // skeleton by disabling every bone, anchors included. The
         // anchor-intersection loops below yield nothing over zero actives, so
         // this explicit branch owns the all-false case.
-        let mut disabled: AHashSet<&'static str> = AHashSet::default();
+        let mut disabled: HashSet<&'static str> = HashSet::default();
         if !active.iter().any(|&a| a) {
             disabled.extend(skeleton.bone_map.keys().copied());
         }

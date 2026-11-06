@@ -6,7 +6,7 @@
 
 mod shared;
 
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::feathers::FeathersPlugins;
 use bevy::feathers::controls::FeathersButton;
 use bevy::feathers::controls::FeathersSlider;
@@ -52,7 +52,7 @@ struct RootNode;
 struct UiInitialized;
 
 #[derive(Resource, DerefMut, Deref)]
-struct SliderValues(ahash::AHashMap<&'static str, MorphTargets>);
+struct SliderValues(bevy::platform::collections::HashMap<&'static str, MorphTargets>);
 
 impl Default for SliderValues {
     fn default() -> Self {
@@ -117,7 +117,7 @@ struct CreatorAssets {
     input_mesh: Handle<Mesh>,
     mesh_verts: Handle<ObjVertsAsset>,
     entity: Entity,
-    vertex_map: Arc<AHashMap<u16, Vec<u16>>>,
+    vertex_map: Arc<HashMap<u16, Vec<u16>>>,
     mhid_lookup: Arc<Vec<u16>>,
     needs_rebuild: bool,
     rx: Option<crossbeam_channel::Receiver<BuildResult>>,
@@ -174,7 +174,7 @@ fn setup_and_add_human(
         input_mesh: Handle::default(),
         mesh_verts: Handle::default(),
         entity,
-        vertex_map: Arc::new(AHashMap::default()),
+        vertex_map: Arc::new(HashMap::default()),
         mhid_lookup: Arc::new(vec![]),
         needs_rebuild: false,
         rx: None,

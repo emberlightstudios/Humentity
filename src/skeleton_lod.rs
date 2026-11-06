@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
 use serde::{Deserialize, Serialize};
 
@@ -91,7 +91,7 @@ impl BoneMergeConfig {
 /// Returns all descendant bones of `parent_bone` (BFS through bone_parents).
 /// Does NOT include `parent_bone` itself.
 pub fn all_children_of(
-    bone_parents: &AHashMap<&'static str, String>,
+    bone_parents: &HashMap<&'static str, String>,
     parent_bone: &str,
 ) -> Vec<&'static str> {
     let mut result = Vec::new();
@@ -141,7 +141,7 @@ pub fn all_children_of(
 pub(crate) fn fit_default_rig_single_toes(
     rig_name: &str,
     merge_config: &BoneMergeConfig,
-    model_space: &mut AHashMap<&'static str, Transform>,
+    model_space: &mut HashMap<&'static str, Transform>,
 ) {
     /// Measured local-frame twist from the full-toes reference bindpose to the
     /// no-toes animation bindpose (xyzw). Mirrored per side.
@@ -175,7 +175,7 @@ pub struct SkeletonLodData {
     pub bone_names: Vec<&'static str>,
     /// Merged rig weights for surviving bones (removed bones' weights are
     /// forwarded to their surviving anchors).
-    pub merged_weights: AHashMap<&'static str, AHashMap<u16, f32>>,
+    pub merged_weights: HashMap<&'static str, HashMap<u16, f32>>,
 }
 
 /// Complete rig bundle: merge data for all LOD levels of a rig.
@@ -254,10 +254,10 @@ pub fn skeleton_merge_config_for(lod_config: Option<&SkeletonLodConfig>) -> &Bon
 /// the parent itself (e.g. a `lowerleg02` anchor overrides the toe merge, so
 /// high LODs can still drop the whole foot).
 fn resolve_remove_set(
-    bone_parents: &AHashMap<&'static str, String>,
+    bone_parents: &HashMap<&'static str, String>,
     config: &BoneMergeConfig,
-) -> AHashMap<&'static str, &'static str> {
-    let mut remove_set = AHashMap::default();
+) -> HashMap<&'static str, &'static str> {
+    let mut remove_set = HashMap::default();
 
     for anchor in &config.without_children_of {
         let anchor_leaked = NAME_INTERNER.intern(anchor).leak();
@@ -294,16 +294,16 @@ fn resolve_remove_set(
 /// surviving, so no reparenting or transform composition is needed.
 fn merge_hierarchy(
     original_bone_names: &[&'static str],
-    original_bone_parents: &AHashMap<&'static str, String>,
-    original_local_bindpose: &AHashMap<&'static str, Transform>,
-    remove_set: &AHashMap<&'static str, &'static str>,
+    original_bone_parents: &HashMap<&'static str, String>,
+    original_local_bindpose: &HashMap<&'static str, Transform>,
+    remove_set: &HashMap<&'static str, &'static str>,
 ) -> (
     Vec<&'static str>,
-    AHashMap<&'static str, &'static str>,
-    AHashMap<&'static str, Transform>,
+    HashMap<&'static str, &'static str>,
+    HashMap<&'static str, Transform>,
 ) {
-    let mut new_bone_to_parent: AHashMap<&'static str, &'static str> = AHashMap::default();
-    let mut new_local_bindpose: AHashMap<&'static str, Transform> = AHashMap::default();
+    let mut new_bone_to_parent: HashMap<&'static str, &'static str> = HashMap::default();
+    let mut new_local_bindpose: HashMap<&'static str, Transform> = HashMap::default();
 
     for &bone in original_bone_names {
         if remove_set.contains_key(bone) {
@@ -335,10 +335,10 @@ fn merge_hierarchy(
 
 /// Step 3: Merge rig weights.
 fn merge_weights(
-    original_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
-    remove_set: &AHashMap<&'static str, &'static str>,
-) -> AHashMap<&'static str, AHashMap<u16, f32>> {
-    let mut merged: AHashMap<&'static str, AHashMap<u16, f32>> = AHashMap::default();
+    original_weights: &HashMap<&'static str, HashMap<u16, f32>>,
+    remove_set: &HashMap<&'static str, &'static str>,
+) -> HashMap<&'static str, HashMap<u16, f32>> {
+    let mut merged: HashMap<&'static str, HashMap<u16, f32>> = HashMap::default();
 
     // Copy surviving bones
     for (&bone, weights) in original_weights {
@@ -444,7 +444,7 @@ mod kept_bone_merge_tests {
     fn foot_test_rig() -> (Vec<&'static str>, ReferenceRigAsset, RigWeightsAsset) {
         let bone_names: Vec<&'static str> =
             vec!["foot.L", "toe1-1.L", "toe1-2.L", "toe2-1.L", "toe2-2.L"];
-        let bone_parents: AHashMap<&'static str, String> = [
+        let bone_parents: HashMap<&'static str, String> = [
             ("foot.L", "lowerleg02.L".to_string()),
             ("toe1-1.L", "foot.L".to_string()),
             ("toe1-2.L", "toe1-1.L".to_string()),
@@ -453,7 +453,7 @@ mod kept_bone_merge_tests {
         ]
         .into_iter()
         .collect();
-        let local_bindpose: AHashMap<&'static str, Transform> = bone_names
+        let local_bindpose: HashMap<&'static str, Transform> = bone_names
             .iter()
             .map(|&toe_bone_name| (toe_bone_name, Transform::IDENTITY))
             .collect();
@@ -461,7 +461,7 @@ mod kept_bone_merge_tests {
             bone_names: bone_names.clone(),
             bone_parents,
             local_bindpose,
-            model_space_bindpose: AHashMap::default(),
+            model_space_bindpose: HashMap::default(),
             bone_name_to_index: bone_names
                 .iter()
                 .enumerate()
@@ -478,7 +478,7 @@ mod kept_bone_merge_tests {
                         toe_bone_name,
                         [(1000 + toe_bone_index as u16, 1.0)]
                             .into_iter()
-                            .collect::<AHashMap<u16, f32>>(),
+                            .collect::<HashMap<u16, f32>>(),
                     )
                 })
                 .collect(),

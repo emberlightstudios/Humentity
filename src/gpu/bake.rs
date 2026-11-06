@@ -12,7 +12,7 @@
 //! [`GpuRenderHandles`]. Unloads clear the bank slot and the uniform row
 //! (neighbours never move).
 
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{
     animation::{AnimationClip, AnimationTargetId, animated_field},
     asset::RenderAssetUsages,
@@ -157,7 +157,7 @@ pub(super) fn bake_gpu_animation(
         .map(|bone| reference.local_bindpose[bone])
         .collect();
 
-    let lod_index: AHashMap<&'static str, usize> = bones
+    let lod_index: HashMap<&'static str, usize> = bones
         .iter()
         .enumerate()
         .map(|(i, &bone)| (bone, i))

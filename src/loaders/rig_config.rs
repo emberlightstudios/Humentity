@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     ecs::intern::Internable,
@@ -27,19 +27,19 @@ pub struct BoneJsonConfig {
 
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct RigConfigAsset {
-    pub bones: AHashMap<&'static str, BoneJsonConfig>,
+    pub bones: HashMap<&'static str, BoneJsonConfig>,
     pub rig_name: String,
 }
 
 #[derive(Deserialize)]
 struct MixamoRigConfigAsset {
-    bones: AHashMap<String, BoneJsonConfig>,
+    bones: HashMap<String, BoneJsonConfig>,
 }
 
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum RigConfigFile {
-    Direct(AHashMap<String, BoneJsonConfig>),
+    Direct(HashMap<String, BoneJsonConfig>),
     Mixamo(MixamoRigConfigAsset),
 }
 

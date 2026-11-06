@@ -10,7 +10,7 @@ use crate::{
     morphs::MakeHumanMorphs,
     rigs::{RigBundleRes, RigData, RigSpec},
 };
-use ahash::{AHashMap, AHashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
 use crossbeam_channel::{Receiver, Sender};
 
@@ -66,7 +66,7 @@ pub enum AssetLoadState {
 
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct CachedMhcloMeshHandles(
-    AHashMap<(Handle<MhcloAsset>, Handle<CharacterTemplate>, MeshBuildLod), Handle<Mesh>>,
+    HashMap<(Handle<MhcloAsset>, Handle<CharacterTemplate>, MeshBuildLod), Handle<Mesh>>,
 );
 
 pub(crate) struct RawMeshCache {
@@ -75,11 +75,11 @@ pub(crate) struct RawMeshCache {
 }
 
 #[derive(Resource, Deref, DerefMut, Default)]
-pub(crate) struct CachedMhcloRawMeshHandles(AHashMap<Handle<MhcloAsset>, RawMeshCache>);
+pub(crate) struct CachedMhcloRawMeshHandles(HashMap<Handle<MhcloAsset>, RawMeshCache>);
 
 /// A resource for communicating with background threads for mesh loading
 #[derive(Resource, Deref, Default)]
-pub struct MhcloMeshBuilder(AHashMap<LoadAssetMeshJob, (LoadingMediator, AssetLoadState)>);
+pub struct MhcloMeshBuilder(HashMap<LoadAssetMeshJob, (LoadingMediator, AssetLoadState)>);
 
 /// The type of a mesh load job, single CharacterMesh or multiple parts in a StitchedMesh
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
@@ -328,11 +328,11 @@ pub fn build_single_mesh_direct(
     input_mesh: &Mesh,
     mesh_verts: &ObjVertsAsset,
     shapes: &[CharacterShape],
-    mh_morphs: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
+    mh_morphs: Arc<RwLock<HashMap<&'static str, TargetAsset>>>,
     basemesh: Arc<Vec<Vec3>>,
     rig_spec: &RigSpec,
     lod_bone_names: &[&'static str],
-    lod_weights: &AHashMap<&'static str, AHashMap<u16, f32>>,
+    lod_weights: &HashMap<&'static str, HashMap<u16, f32>>,
 ) -> Mesh {
     let (mesh, morph_names) = build_final_mesh_mhclo(
         mhclo,
@@ -676,7 +676,7 @@ pub(crate) fn mediators_clean_up(
     if cached_raw_meshes.is_empty() {
         return;
     }
-    let mut live: AHashSet<Handle<MhcloAsset>> = AHashSet::default();
+    let mut live: HashSet<Handle<MhcloAsset>> = HashSet::default();
     for (key, (_, state)) in mediators.iter() {
         if *state == AssetLoadState::Finished {
             continue;

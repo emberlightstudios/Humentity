@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{
     animation::{AnimationTargetId, animated_field},
     asset::{AssetLoader, LoadContext, LoadedAsset, io::Reader},
@@ -11,7 +11,7 @@ use crate::{
     NAME_INTERNER,
     animation::{BakedBoneCorrection, ShapeBakedCorrections},
 };
-use ahash::AHashSet;
+use bevy::platform::collections::HashSet;
 use gltf::Skin;
 
 /// Root-only clips: rotation and scale on every bone, translation on the root
@@ -20,7 +20,7 @@ use gltf::Skin;
 /// character so the root fix runs (its only runtime cost).
 #[derive(Asset, TypePath, Clone)]
 pub struct RotationOnlyAnimationAsset {
-    pub clips: AHashMap<&'static str, Handle<AnimationClip>>,
+    pub clips: HashMap<&'static str, Handle<AnimationClip>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TypePath)]
@@ -45,7 +45,7 @@ impl AssetLoader for RotationOnlyAnimationAssetLoader {
         let clips = get_animation_clips_from_bytes(&bytes)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
-        let mut clip_handles = AHashMap::default();
+        let mut clip_handles = HashMap::default();
         for (name, clip) in clips {
             // Labels share one namespace per file across every loader, so
             // this plain clip name must never equal a baked loader label for
@@ -76,7 +76,7 @@ impl AssetLoader for RotationOnlyAnimationAssetLoader {
 /// shape later means reloading the file with the longer list.
 #[derive(Asset, TypePath, Clone)]
 pub struct ShapeBakedAnimationAsset {
-    pub clips: AHashMap<&'static str, Handle<AnimationClip>>,
+    pub clips: HashMap<&'static str, Handle<AnimationClip>>,
 }
 
 /// One shape's entry in a multi-shape bake: clips land under
@@ -103,13 +103,13 @@ pub struct ShapeBakedAnimationAssetLoader;
 fn bake_shape_clips_from_document(
     document: &gltf::Document,
     buffers: &[gltf::buffer::Data],
-    joint_targets: &AHashMap<Name, Vec<Name>>,
+    joint_targets: &HashMap<Name, Vec<Name>>,
     root_bone_name: &str,
     shape_corrections: &ShapeBakedCorrections,
-    bone_corrections: &AHashMap<&str, &BakedBoneCorrection>,
+    bone_corrections: &HashMap<&str, &BakedBoneCorrection>,
     asset_label: &str,
-) -> AHashMap<&'static str, AnimationClip> {
-    let mut baked_clips = AHashMap::default();
+) -> HashMap<&'static str, AnimationClip> {
+    let mut baked_clips = HashMap::default();
     for animation in document.animations() {
         let Some(clip_name) = animation.name() else {
             panic!(
@@ -343,10 +343,10 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
         let joint_targets = build_joint_paths(&root_node);
         let root_bone_name: &str = root_node.name().unwrap_or("");
         let asset_label = load_context.path().path().to_string_lossy().into_owned();
-        let mut clip_handles = AHashMap::default();
+        let mut clip_handles = HashMap::default();
         for bake in &settings.shape_bakes {
             let shape_corrections = &bake.shape_corrections;
-            let bone_corrections: AHashMap<&str, &BakedBoneCorrection> = shape_corrections
+            let bone_corrections: HashMap<&str, &BakedBoneCorrection> = shape_corrections
                 .baked_bone_corrections
                 .iter()
                 .map(|correction| (correction.bone_name.as_str(), correction))
@@ -396,7 +396,7 @@ impl AssetLoader for ShapeBakedAnimationAssetLoader {
 /// lives in bone translations lose it.
 pub(crate) fn get_animation_clips_from_bytes(
     bytes: &[u8],
-) -> Result<AHashMap<&'static str, AnimationClip>, BevyError> {
+) -> Result<HashMap<&'static str, AnimationClip>, BevyError> {
     let (document, buffers, _) = gltf::import_slice(bytes)?;
     if document.skins().len() > 1 {
         return Err(BevyError::from("More than one skin present in file"));
@@ -404,8 +404,8 @@ pub(crate) fn get_animation_clips_from_bytes(
     let Some(skin) = document.skins().next() else {
         return Err(BevyError::from("No skins available"));
     };
-    let mut transforms = AHashMap::<&'static str, Transform>::default();
-    let mut node_indices = AHashMap::<&'static str, usize>::default();
+    let mut transforms = HashMap::<&'static str, Transform>::default();
+    let mut node_indices = HashMap::<&'static str, usize>::default();
     for joint in skin.joints() {
         let name = joint.name().unwrap_or("");
         node_indices.insert(NAME_INTERNER.intern(name).leak(), joint.index());
@@ -417,7 +417,7 @@ pub(crate) fn get_animation_clips_from_bytes(
         };
         transforms.insert(NAME_INTERNER.intern(name).leak(), transform);
     }
-    let mut global_transforms = AHashMap::default();
+    let mut global_transforms = HashMap::default();
     let root = &find_root_joints(&skin);
     compute_global_transform(
         root,
@@ -430,7 +430,7 @@ pub(crate) fn get_animation_clips_from_bytes(
         .map(|root_name| NAME_INTERNER.intern(root_name).leak())
         .unwrap_or("");
     let joint_targets = build_joint_paths(root);
-    let mut new_clips = AHashMap::default();
+    let mut new_clips = HashMap::default();
     for animation in document.animations() {
         let mut clip = AnimationClip::default();
         let clip_name = animation
@@ -541,8 +541,8 @@ pub(crate) fn get_animation_clips_from_bytes(
 
 fn compute_global_transform(
     root: &gltf::Node,
-    local_transforms: &AHashMap<&'static str, Transform>,
-    global_transforms: &mut AHashMap<&'static str, Transform>,
+    local_transforms: &HashMap<&'static str, Transform>,
+    global_transforms: &mut HashMap<&'static str, Transform>,
     parent_global: Transform,
 ) -> Result<(), BevyError> {
     let name = root
@@ -565,8 +565,8 @@ fn compute_global_transform(
 /// with `Human.rig` (the rig object) followed by the joint chain, matching the
 /// spawned skeleton and the GPU joint paths (both hardcoded to `Human.rig`).
 /// Single-root is enforced in `find_root_joints` (0 or 2+ roots panic).
-pub(crate) fn build_joint_paths(root: &gltf::Node) -> AHashMap<Name, Vec<Name>> {
-    let mut paths = AHashMap::default();
+pub(crate) fn build_joint_paths(root: &gltf::Node) -> HashMap<Name, Vec<Name>> {
+    let mut paths = HashMap::default();
     let mut current_path = vec!["Human.rig".to_string()];
     collect_paths_recursive(root, &mut current_path, &mut paths);
     paths
@@ -580,13 +580,13 @@ pub(crate) fn build_joint_paths(root: &gltf::Node) -> AHashMap<Name, Vec<Name>> 
                     .collect::<Vec<_>>(),
             )
         })
-        .collect::<AHashMap<Name, Vec<Name>>>()
+        .collect::<HashMap<Name, Vec<Name>>>()
 }
 
 fn collect_paths_recursive(
     node: &gltf::Node,
     current_path: &mut Vec<String>,
-    paths: &mut AHashMap<String, Vec<String>>,
+    paths: &mut HashMap<String, Vec<String>>,
 ) {
     let name = node.name().unwrap_or_else(|| {
         panic!(
@@ -612,9 +612,9 @@ fn collect_paths_recursive(
 pub(crate) fn find_root_joints<'a>(skin: &Skin<'a>) -> gltf::Node<'a> {
     // Collect joints and their indices
     let joints: Vec<gltf::Node> = skin.joints().collect();
-    let joint_indices: AHashSet<usize> = joints.iter().map(|n| n.index()).collect();
+    let joint_indices: HashSet<usize> = joints.iter().map(|n| n.index()).collect();
     // Track which joint indices appear as children of other joints
-    let mut seen_as_child: AHashSet<usize> = AHashSet::default();
+    let mut seen_as_child: HashSet<usize> = HashSet::default();
     for joint in &joints {
         for child in joint.children() {
             if joint_indices.contains(&child.index()) {

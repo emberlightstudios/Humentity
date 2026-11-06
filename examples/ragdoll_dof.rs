@@ -22,7 +22,7 @@
 
 mod shared;
 
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use humentity::prelude::*;
@@ -118,7 +118,7 @@ fn dofs() -> Vec<Dof> {
 /// descendants are held rigid by locking their joints, so the whole limb moves as a
 /// unit about the single active DOF.
 fn subchain(bone: ColliderBone) -> Vec<ColliderBone> {
-    let mut children: AHashMap<ColliderBone, Vec<ColliderBone>> = default();
+    let mut children: HashMap<ColliderBone, Vec<ColliderBone>> = default();
     for &b in COLLIDERS.iter() {
         if let Some(p) = get_collider_parent(b) {
             children.entry(p).or_default().push(b);
@@ -148,7 +148,7 @@ struct ActiveDof {
 /// Captured local bind-pose transforms of every skeleton bone, taken once the
 /// skeleton is fitted. Used to snap non-active bones back to the bind pose.
 #[derive(Resource, Default)]
-struct BindPose(AHashMap<Entity, Transform>);
+struct BindPose(HashMap<Entity, Transform>);
 
 /// Marker for the on-screen status text.
 #[derive(Component)]

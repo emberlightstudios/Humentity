@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 
 use crate::{
@@ -94,7 +94,7 @@ pub(crate) fn bake_shape_deltas(
 }
 
 pub(crate) fn has_targets_for_shape(
-    targets: &AHashMap<&'static str, TargetAsset>,
+    targets: &HashMap<&'static str, TargetAsset>,
     shape: &CharacterShape,
 ) -> bool {
     shape.morphs.keys().all(|name| targets.contains_key(name))
@@ -102,10 +102,10 @@ pub(crate) fn has_targets_for_shape(
 
 fn bake_shape_deltas_from_targets(
     shape_morphs: &MorphTargets,
-    targets: &AHashMap<&'static str, TargetAsset>,
+    targets: &HashMap<&'static str, TargetAsset>,
     basemesh_vert_count: usize,
 ) -> Vec<TargetDelta> {
-    let mut accumulated: AHashMap<u16, Vec3> = AHashMap::default();
+    let mut accumulated: HashMap<u16, Vec3> = HashMap::default();
     for (&target_name, &target_weight) in shape_morphs.iter() {
         let Some(target) = targets.get(target_name) else {
             panic!(

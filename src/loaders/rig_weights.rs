@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     ecs::intern::Internable,
@@ -10,13 +10,13 @@ use crate::NAME_INTERNER;
 
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct RigWeightsAsset {
-    pub weights: AHashMap<&'static str, AHashMap<u16, f32>>,
+    pub weights: HashMap<&'static str, HashMap<u16, f32>>,
     pub rig_name: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct WeightsFormat {
-    pub weights: AHashMap<String, Vec<(u16, f32)>>,
+    pub weights: HashMap<String, Vec<(u16, f32)>>,
 }
 
 #[derive(Default, TypePath)]
@@ -55,10 +55,10 @@ impl AssetLoader for RigWeightsAssetLoader {
             .map(|(k, v)| {
                 (
                     NAME_INTERNER.intern(&k).leak(),
-                    v.iter().copied().collect::<AHashMap<_, _>>(),
+                    v.iter().copied().collect::<HashMap<_, _>>(),
                 )
             })
-            .collect::<AHashMap<_, _>>();
+            .collect::<HashMap<_, _>>();
 
         Ok(RigWeightsAsset { weights, rig_name })
     }

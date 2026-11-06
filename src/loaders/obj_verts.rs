@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     prelude::*,
@@ -73,7 +73,7 @@ impl AssetLoader for ObjVertsAssetLoader {
 }
 
 #[derive(Asset, TypePath, Clone, Debug, Deserialize, Deref)]
-pub struct VertexGroupsAsset(pub AHashMap<String, Vec<[usize; 2]>>);
+pub struct VertexGroupsAsset(pub HashMap<String, Vec<[usize; 2]>>);
 
 #[derive(Default, TypePath)]
 pub struct VertexGroupsAssetLoader;

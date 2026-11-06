@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     ecs::intern::Internable,
@@ -11,14 +11,14 @@ use crate::NAME_INTERNER;
 #[derive(Asset, TypePath, Clone, Debug, Default)]
 pub struct MacroDataAsset {
     /// Raw macro data
-    pub macrotargets: AHashMap<&'static str, MacroBounds>,
+    pub macrotargets: HashMap<&'static str, MacroBounds>,
     /// Convenience field mapping macro names to the morph names they affect
-    pub morph_map: AHashMap<&'static str, Vec<&'static str>>,
+    pub morph_map: HashMap<&'static str, Vec<&'static str>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 struct MacroDataAssetString {
-    pub macrotargets: AHashMap<String, MacroBoundsString>,
+    pub macrotargets: HashMap<String, MacroBoundsString>,
 }
 
 #[derive(Clone, Debug)]
@@ -67,7 +67,7 @@ impl AssetLoader for MacroDataAssetLoader {
         let values = serde_json::from_slice::<MacroDataAssetString>(&bytes)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
-        let mut morph_map = AHashMap::<&'static str, Vec<&'static str>>::default();
+        let mut morph_map = HashMap::<&'static str, Vec<&'static str>>::default();
         let mut macros = MacroDataAsset::default();
         for (macro_name, bounds) in values.macrotargets.iter() {
             let name = NAME_INTERNER.intern(macro_name).leak();

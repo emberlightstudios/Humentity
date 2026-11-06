@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{
     animation::AnimationTargetId,
     ecs::intern::Internable,
@@ -234,7 +234,7 @@ pub(crate) fn build_skeleton_scene(
     let ref_local_bindpose = &reference_rig.local_bindpose;
 
     // Set up some convenient data structures for tracking joints/bones and entities
-    let mut bone_entities = AHashMap::<&'static str, Entity>::default();
+    let mut bone_entities = HashMap::<&'static str, Entity>::default();
 
     // Start scene world with rig entity
     let registry = world.resource::<AppTypeRegistry>();
@@ -376,10 +376,10 @@ pub(crate) fn build_skeleton_scene(
 pub(crate) fn fitted_model_space_bindposes(
     helpers: &[Vec3],
     rig: &RigSpec,
-    vertex_groups: &AHashMap<String, Vec<[usize; 2]>>,
+    vertex_groups: &HashMap<String, Vec<[usize; 2]>>,
     merge_config: &BoneMergeConfig,
-) -> AHashMap<&'static str, Transform> {
-    let mut model_space_bindposes = AHashMap::default();
+) -> HashMap<&'static str, Transform> {
+    let mut model_space_bindposes = HashMap::default();
     for &bone_name in &rig.reference_rig.bone_names {
         let bone_config = rig.config.bones.get(bone_name).unwrap_or_else(|| {
             panic!("reference rig bone '{bone_name}' has no MPFB rig JSON configuration")
@@ -402,7 +402,7 @@ pub(crate) fn fitted_model_space_bindposes(
 pub(crate) fn get_bone_transform(
     bone_name: &'static str,
     bone_config: &BoneJsonConfig,
-    vertex_groups: &AHashMap<String, Vec<[usize; 2]>>,
+    vertex_groups: &HashMap<String, Vec<[usize; 2]>>,
     helpers: &[Vec3],
 ) -> Transform {
     let head_position = get_bone_position(&bone_config.head, vertex_groups, helpers);
@@ -436,7 +436,7 @@ pub(crate) fn bone_transform_from_endpoints(
 
 fn get_bone_position(
     bone_position_spec: &BoneTransformSpec,
-    vertex_groups: &AHashMap<String, Vec<[usize; 2]>>,
+    vertex_groups: &HashMap<String, Vec<[usize; 2]>>,
     helpers: &[Vec3],
 ) -> Vec3 {
     if bone_position_spec.strategy == "MEAN" {
@@ -498,7 +498,7 @@ mod default_rig_toe_average_tests {
         BoneMergeConfig::full().merge_default_rig_toes()
     }
 
-    fn toe_test_pose() -> AHashMap<&'static str, Transform> {
+    fn toe_test_pose() -> HashMap<&'static str, Transform> {
         [
             ("toe1-1.L", Vec3::new(0.1, 0.2, 0.3)),
             ("toe1-1.R", Vec3::new(-0.1, 0.2, 0.3)),
@@ -567,7 +567,7 @@ mod default_rig_toe_average_tests {
 
     #[test]
     fn missing_toe_bones_skip_without_panic() {
-        let mut model_space: AHashMap<&'static str, Transform> = AHashMap::default();
+        let mut model_space: HashMap<&'static str, Transform> = HashMap::default();
         fit_default_rig_single_toes("default", &merged_toes_config(), &mut model_space);
         assert!(model_space.is_empty());
     }
@@ -639,7 +639,7 @@ mod full_toe_shape_fit_tests {
         let fitted_model_space = fitted_model_space_bindposes(
             &toe_test_helpers(),
             &rig_spec,
-            &AHashMap::default(),
+            &HashMap::default(),
             &BoneMergeConfig::full(),
         );
 
@@ -662,7 +662,7 @@ mod full_toe_shape_fit_tests {
         let fitted_model_space = fitted_model_space_bindposes(
             &toe_test_helpers(),
             &rig_spec,
-            &AHashMap::default(),
+            &HashMap::default(),
             &merged_toes,
         );
 
@@ -704,12 +704,12 @@ mod full_toe_shape_fit_tests {
             rig_name: "default".to_string(),
         };
         let helpers = toe_test_helpers();
-        let vertex_groups = AHashMap::default();
+        let vertex_groups = HashMap::default();
         let reference_rig =
             ReferenceRigAsset::from_rig_config(&rig_config, &helpers, &vertex_groups);
         RigSpec {
             weights: Arc::new(RigWeightsAsset {
-                weights: AHashMap::default(),
+                weights: HashMap::default(),
                 rig_name: "default".to_string(),
             }),
             config: Arc::new(rig_config),

@@ -10,7 +10,7 @@ use crate::{
     spawn_skeleton::{CharacterSkeleton, SkeletonLodDisabled},
     loaders::CharacterTemplate,
 };
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{ecs::intern::Internable, prelude::*};
 use serde::{Deserialize, Serialize};
 
@@ -177,7 +177,7 @@ pub(crate) fn bone_translation_correction(
     reference_rig: &ReferenceRigAsset,
     parent_name: &str,
     bone_name: &'static str,
-    fitted_model_space: &AHashMap<&'static str, Transform>,
+    fitted_model_space: &HashMap<&'static str, Transform>,
     merge_config: &BoneMergeConfig,
 ) -> Option<(f32, Quat)> {
     let reference_local = reference_rig.local_bindpose.get(bone_name)?;
@@ -219,8 +219,8 @@ pub(crate) fn bone_translation_correction(
 
 pub(crate) fn shape_corrections_from_model_space(
     reference_rig: &ReferenceRigAsset,
-    bone_config: &AHashMap<&'static str, BoneJsonConfig>,
-    fitted_model_space: &AHashMap<&'static str, Transform>,
+    bone_config: &HashMap<&'static str, BoneJsonConfig>,
+    fitted_model_space: &HashMap<&'static str, Transform>,
     merge_config: &BoneMergeConfig,
 ) -> ShapeBakedCorrections {
     let root_bone_name = reference_rig.bone_names.first().copied().unwrap_or("");
@@ -271,7 +271,7 @@ pub(crate) fn shape_corrections_from_model_space(
 pub(crate) fn local_from_model_space(
     bone_name: &'static str,
     parent_name: &str,
-    fitted_model_space: &AHashMap<&'static str, Transform>,
+    fitted_model_space: &HashMap<&'static str, Transform>,
 ) -> Option<Transform> {
     let child_matrix = fitted_model_space.get(bone_name)?.to_matrix();
     let parent_matrix = if parent_name.is_empty() {
@@ -287,7 +287,7 @@ pub(crate) fn local_from_model_space(
 
 pub(crate) fn parent_space_direction_fix(
     reference_rig: &ReferenceRigAsset,
-    fitted_model_space: &AHashMap<&'static str, Transform>,
+    fitted_model_space: &HashMap<&'static str, Transform>,
     bone_name: &'static str,
     parent_name: &'static str,
 ) -> Quat {
@@ -314,7 +314,7 @@ fn parent_space_direction_fix_for_segment(
     reference_segment: Vec3,
     bone_name: &'static str,
     parent_name: &'static str,
-    fitted_model_space: &AHashMap<&'static str, Transform>,
+    fitted_model_space: &HashMap<&'static str, Transform>,
 ) -> Quat {
     let (Some(fitted_bone), Some(fitted_parent)) = (
         fitted_model_space.get(bone_name),
@@ -422,26 +422,26 @@ mod kept_toe_correction_tests {
         };
         let reference_rig = ReferenceRigAsset {
             bone_names: vec!["foot.L", "toe1-1.L"],
-            bone_parents: AHashMap::from_iter([
+            bone_parents: HashMap::from_iter([
                 ("foot.L", "lowerleg02.L".to_string()),
                 ("toe1-1.L", "foot.L".to_string()),
             ]),
-            local_bindpose: AHashMap::from_iter([(
+            local_bindpose: HashMap::from_iter([(
                 "toe1-1.L",
                 Transform::from_translation(Vec3::new(-0.0314, 0.1472, -0.0052)),
             )]),
-            model_space_bindpose: AHashMap::from_iter([
+            model_space_bindpose: HashMap::from_iter([
                 ("foot.L", Transform::IDENTITY),
                 (
                     "toe1-1.L",
                     Transform::from_translation(Vec3::new(-0.0314, 0.1472, -0.0052)),
                 ),
             ]),
-            bone_name_to_index: AHashMap::default(),
+            bone_name_to_index: HashMap::default(),
             rig_name: "default".to_string(),
         };
-        let fitted_model_space: AHashMap<&'static str, Transform> =
-            AHashMap::from_iter([("foot.L", fitted_foot), ("toe1-1.L", fitted_toe)]);
+        let fitted_model_space: HashMap<&'static str, Transform> =
+            HashMap::from_iter([("foot.L", fitted_foot), ("toe1-1.L", fitted_toe)]);
         let Some((translation_length_ratio, translation_direction_adjust)) =
             bone_translation_correction(
                 &reference_rig,

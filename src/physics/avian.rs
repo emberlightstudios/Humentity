@@ -6,7 +6,7 @@ use crate::{
     rigs::{RigData, SkeletalBone},
     spawn_skeleton::CharacterScale,
 };
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 
 use crate::loaders::{CharacterProfile, CharacterShape, CharacterTemplate};
 use avian3d::prelude::*;
@@ -62,24 +62,24 @@ pub struct CharacterPhysicsContainer(pub Entity);
 #[derive(Component, Default)]
 pub struct CharacterColliders {
     pub bones_subset: Option<Vec<ColliderBone>>,
-    pub collider_entities: AHashMap<ColliderBone, Entity>,
+    pub collider_entities: HashMap<ColliderBone, Entity>,
     /// Collider bone type → bone entity in the character's single fixed skeleton.
     /// Built once at collider spawn time, read-only afterwards.
-    pub bone_entities: AHashMap<ColliderBone, Entity>,
+    pub bone_entities: HashMap<ColliderBone, Entity>,
     pub(crate) joint_entities: Vec<Entity>,
     /// Joint entity → the collider bone it constrains. Used to live-apply
     /// [`RagdollJointLimitOverrides`] without respawning joints.
-    pub(crate) joint_bone: AHashMap<Entity, ColliderBone>,
+    pub(crate) joint_bone: HashMap<Entity, ColliderBone>,
 }
 
 impl CharacterColliders {
     pub fn new(bones_subset: Option<Vec<ColliderBone>>) -> Self {
         Self {
             bones_subset,
-            collider_entities: AHashMap::default(),
-            bone_entities: AHashMap::default(),
+            collider_entities: HashMap::default(),
+            bone_entities: HashMap::default(),
             joint_entities: Vec::new(),
-            joint_bone: AHashMap::default(),
+            joint_bone: HashMap::default(),
         }
     }
 }
@@ -155,9 +155,9 @@ pub fn resolve_joint_limit(
 #[derive(Component, Clone, Default, Debug)]
 pub struct RagdollJointLimitOverrides {
     /// Spherical joints: bone → (swing half-angle, twist half-angle), radians.
-    pub spherical: AHashMap<ColliderBone, (f32, f32)>,
+    pub spherical: HashMap<ColliderBone, (f32, f32)>,
     /// Revolute joints: bone → (min angle, max angle), radians.
-    pub revolute: AHashMap<ColliderBone, (f32, f32)>,
+    pub revolute: HashMap<ColliderBone, (f32, f32)>,
 }
 
 impl RagdollJointLimitOverrides {
@@ -315,7 +315,7 @@ pub(crate) fn spawn_colliders(
         let reference_order = &rig_spec.reference_rig.bone_names;
 
         // Build inverse-bindpose map (name → inv bindpose) from the single skeleton.
-        let mut inv_bindposes_map: AHashMap<&str, Transform> = AHashMap::default();
+        let mut inv_bindposes_map: HashMap<&str, Transform> = HashMap::default();
         for (i, &name) in reference_order.iter().enumerate() {
             inv_bindposes_map.insert(
                 name,
@@ -760,7 +760,7 @@ fn get_collider_geometry(
     collider: ColliderBone,
     helpers: &[Vec3],
     i_collider: usize,
-    inv_bindposes: &AHashMap<&str, Transform>,
+    inv_bindposes: &HashMap<&str, Transform>,
     scale: f32,
 ) -> (Collider, Transform) {
     match collider {

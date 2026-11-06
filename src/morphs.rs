@@ -4,7 +4,7 @@ use crate::{
     loaders::{CompositeTargetsAsset, MacroDataAsset, TargetAsset},
     prelude::*,
 };
-use ahash::AHashMap;
+use bevy::platform::collections::HashMap;
 use bevy::{
     asset::{AssetPath, LoadState, LoadedFolder},
     ecs::intern::Internable,
@@ -27,14 +27,14 @@ pub enum MorphError {
 
 /// A type for storing generic morph target weights
 #[derive(Component, Deref, DerefMut, Clone, Default, Debug)]
-pub struct MorphTargets(AHashMap<&'static str, f32>);
+pub struct MorphTargets(HashMap<&'static str, f32>);
 
 impl Serialize for MorphTargets {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let map: AHashMap<String, f32> = self.0.iter().map(|(&k, &v)| (k.to_string(), v)).collect();
+        let map: HashMap<String, f32> = self.0.iter().map(|(&k, &v)| (k.to_string(), v)).collect();
         map.serialize(serializer)
     }
 }
@@ -44,8 +44,8 @@ impl<'de> Deserialize<'de> for MorphTargets {
     where
         D: Deserializer<'de>,
     {
-        let map: AHashMap<String, f32> = AHashMap::deserialize(deserializer)?;
-        let mut result = AHashMap::new();
+        let map: HashMap<String, f32> = HashMap::deserialize(deserializer)?;
+        let mut result = HashMap::new();
 
         for (k, v) in map {
             let key: &'static str = NAME_INTERNER.intern(&k).leak();
@@ -58,8 +58,8 @@ impl<'de> Deserialize<'de> for MorphTargets {
 
 #[derive(Resource)]
 pub struct MakeHumanMorphs {
-    pub targets: Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
-    pub categories: RwLock<AHashMap<&'static str, Vec<&'static str>>>,
+    pub targets: Arc<RwLock<HashMap<&'static str, TargetAsset>>>,
+    pub categories: RwLock<HashMap<&'static str, Vec<&'static str>>>,
     macros: Arc<RwLock<Option<MacroDataAsset>>>,
     composites: Arc<RwLock<Option<CompositeTargetsAsset>>>,
     #[allow(dead_code)]
@@ -105,9 +105,9 @@ impl MakeHumanMorphs {
             .all(|k| targets.contains_key(k))
     }
 
-    pub fn get_min_values(&self) -> AHashMap<&'static str, f32> {
+    pub fn get_min_values(&self) -> HashMap<&'static str, f32> {
         let categories = self.categories.read().unwrap();
-        let mut result = AHashMap::default();
+        let mut result = HashMap::default();
         for (&category, morph_names) in categories.iter() {
             for &morph in morph_names.iter() {
                 if category == "macro"
@@ -123,7 +123,7 @@ impl MakeHumanMorphs {
         result
     }
 
-    pub fn get_morph_names(&self) -> AHashMap<&'static str, Vec<&'static str>> {
+    pub fn get_morph_names(&self) -> HashMap<&'static str, Vec<&'static str>> {
         self.categories.read().unwrap().clone()
     }
 
@@ -355,7 +355,7 @@ impl MakeHumanMorphs {
         let flattened_composite_morphs = composites
             .values()
             .flat_map(|category| category.morphs.iter().cloned().map(|m| (m.name, m)))
-            .collect::<AHashMap<_, _>>();
+            .collect::<HashMap<_, _>>();
 
         let mut to_remove = Vec::new();
         for (&slider_name, value) in morph_targets.iter() {
@@ -517,7 +517,7 @@ pub(crate) fn sync_loaded_morph_targets(
 
 pub fn adjust_helpers_to_morphs(
     morph_values: &MorphTargets,
-    mh_morphs: &Arc<RwLock<AHashMap<&'static str, TargetAsset>>>,
+    mh_morphs: &Arc<RwLock<HashMap<&'static str, TargetAsset>>>,
     basemesh_vertices: &[Vec3],
 ) -> Result<Vec<Vec3>, MorphError> {
     let targets = mh_morphs.read().map_err(|_| MorphError::LockPoisoned)?;
@@ -529,7 +529,7 @@ pub fn adjust_helpers_to_morphs(
 /// (or can take) a single read lock, avoiding per-target lock acquisition.
 pub(crate) fn adjust_helpers_with_targets(
     morph_values: &MorphTargets,
-    targets: &AHashMap<&'static str, TargetAsset>,
+    targets: &HashMap<&'static str, TargetAsset>,
     basemesh_vertices: &[Vec3],
 ) -> Result<Vec<Vec3>, MorphError> {
     let mut helpers = basemesh_vertices.to_vec();
@@ -547,8 +547,8 @@ pub(crate) fn adjust_helpers_with_targets(
 fn compute_macro_weights(
     macros: &MacroDataAsset,
     slider_values: &MorphTargets,
-) -> AHashMap<&'static str, f32> {
-    let mut result = AHashMap::default();
+) -> HashMap<&'static str, f32> {
+    let mut result = HashMap::default();
 
     for (&macro_name, value) in slider_values.iter() {
         if let Some(bounds) = macros.macrotargets.get(macro_name) {

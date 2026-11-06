@@ -1,4 +1,4 @@
-use ahash::{AHashMap, AHashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::{ecs::intern::Internable, prelude::*};
 
 use crate::{NAME_INTERNER, loaders::RigConfigAsset, rigs::get_bone_transform};
@@ -7,10 +7,10 @@ use crate::{NAME_INTERNER, loaders::RigConfigAsset, rigs::get_bone_transform};
 #[derive(Clone)]
 pub struct ReferenceRigAsset {
     pub bone_names: Vec<&'static str>,
-    pub bone_parents: AHashMap<&'static str, String>,
-    pub local_bindpose: AHashMap<&'static str, Transform>,
-    pub model_space_bindpose: AHashMap<&'static str, Transform>,
-    pub bone_name_to_index: AHashMap<&'static str, usize>,
+    pub bone_parents: HashMap<&'static str, String>,
+    pub local_bindpose: HashMap<&'static str, Transform>,
+    pub model_space_bindpose: HashMap<&'static str, Transform>,
+    pub bone_name_to_index: HashMap<&'static str, usize>,
     pub rig_name: String,
 }
 
@@ -18,10 +18,10 @@ impl ReferenceRigAsset {
     pub(crate) fn from_rig_config(
         rig_config: &RigConfigAsset,
         helpers: &[Vec3],
-        vertex_groups: &AHashMap<String, Vec<[usize; 2]>>,
+        vertex_groups: &HashMap<String, Vec<[usize; 2]>>,
     ) -> Self {
-        let mut bone_parents = AHashMap::default();
-        let mut child_bone_names_by_parent = AHashMap::<&'static str, Vec<&'static str>>::default();
+        let mut bone_parents = HashMap::default();
+        let mut child_bone_names_by_parent = HashMap::<&'static str, Vec<&'static str>>::default();
         let mut root_bone_names = Vec::new();
 
         for (&bone_name, bone_config) in &rig_config.bones {
@@ -56,7 +56,7 @@ impl ReferenceRigAsset {
         }
 
         let mut bone_names = Vec::with_capacity(rig_config.bones.len());
-        let mut visited_bone_names = AHashSet::default();
+        let mut visited_bone_names = HashSet::default();
         for &root_bone_name in &root_bone_names {
             append_bone_subtree(
                 root_bone_name,
@@ -72,7 +72,7 @@ impl ReferenceRigAsset {
             rig_config.rig_name,
         );
 
-        let mut model_space_bindpose = AHashMap::default();
+        let mut model_space_bindpose = HashMap::default();
         for &bone_name in &bone_names {
             let bone_config = &rig_config.bones[bone_name];
             model_space_bindpose.insert(
@@ -81,7 +81,7 @@ impl ReferenceRigAsset {
             );
         }
 
-        let mut local_bindpose = AHashMap::default();
+        let mut local_bindpose = HashMap::default();
         for &bone_name in &bone_names {
             let parent_name = bone_parents[bone_name].as_str();
             let parent_model_transform = if parent_name == "Human.rig" {
@@ -122,8 +122,8 @@ impl ReferenceRigAsset {
 
 fn append_bone_subtree(
     parent_bone_name: &'static str,
-    child_bone_names_by_parent: &AHashMap<&'static str, Vec<&'static str>>,
-    visited_bone_names: &mut AHashSet<&'static str>,
+    child_bone_names_by_parent: &HashMap<&'static str, Vec<&'static str>>,
+    visited_bone_names: &mut HashSet<&'static str>,
     bone_names: &mut Vec<&'static str>,
 ) {
     assert!(
@@ -184,7 +184,7 @@ mod tests {
             rig_name: "fixture".to_string(),
         };
         let helpers = [Vec3::ZERO, Vec3::Y, Vec3::Y * 2.0];
-        let vertex_groups = AHashMap::default();
+        let vertex_groups = HashMap::default();
 
         let reference_rig =
             ReferenceRigAsset::from_rig_config(&rig_config, &helpers, &vertex_groups);
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn default_rig_rolls_match_blender_bind_pose_samples() {
-        let rig_config_bones: AHashMap<String, BoneJsonConfig> =
+        let rig_config_bones: HashMap<String, BoneJsonConfig> =
             serde_json::from_str(include_str!("../../assets/rigs/rig.default.json"))
                 .expect("default rig JSON must parse");
         let rig_config = RigConfigAsset {
@@ -238,7 +238,7 @@ mod tests {
                 )
             })
             .collect();
-        let vertex_groups: AHashMap<String, Vec<[usize; 2]>> =
+        let vertex_groups: HashMap<String, Vec<[usize; 2]>> =
             serde_json::from_str(include_str!("../../assets/basemesh_vertex_groups.json"))
                 .expect("default vertex groups must parse");
         let reference_rig =
